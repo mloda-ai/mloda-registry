@@ -8,19 +8,15 @@ from __future__ import annotations
 
 import configparser
 import shlex
-import sys
 from pathlib import Path
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
 from bandit.core import config as b_config
 from bandit.core import constants as b_constants
 from bandit.core import manager as b_manager
+
+from tests.toml_loader import loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
@@ -99,7 +95,7 @@ def _discover(targets: list[str], config_file: Path | None) -> Any:
 
 def _configured_exclude_dirs() -> list[str]:
     """The [tool.bandit] exclude_dirs entries declared in the repo pyproject.toml."""
-    entries: list[str] = tomllib.loads(_PYPROJECT.read_text())["tool"]["bandit"]["exclude_dirs"]
+    entries: list[str] = loads_toml(_PYPROJECT.read_text())["tool"]["bandit"]["exclude_dirs"]
     return entries
 
 

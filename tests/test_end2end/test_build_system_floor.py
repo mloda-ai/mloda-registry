@@ -4,19 +4,14 @@ which really builds at it; this module only guards the declaration against drift
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 
 from tests.script_loader import load_script
+from tests.toml_loader import load_toml, loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -42,11 +37,6 @@ def _declared_setuptools_floor() -> Callable[..., str]:
     return parser
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 def _version_tuple(version: str) -> tuple[int, ...]:
     """Comparable form of a numeric release version."""
     return tuple(int(part) for part in version.split("."))
@@ -54,10 +44,10 @@ def _version_tuple(version: str) -> tuple[int, ...]:
 
 def _generated_license(pkg_name: str) -> Any:
     """The ``[project].license`` value the generator emits for a package."""
-    shared = _load_toml(_SHARED_CONFIG)
-    packages = _load_toml(_PACKAGES_CONFIG)["packages"]
+    shared = load_toml(_SHARED_CONFIG)
+    packages = load_toml(_PACKAGES_CONFIG)["packages"]
     content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    return tomllib.loads(content).get("project", {}).get("license")
+    return loads_toml(content).get("project", {}).get("license")
 
 
 @pytest.mark.parametrize(("pkg_name", "expected_license"), _LICENSE_SAMPLES)
@@ -80,7 +70,7 @@ def test_build_floor_covers_the_emitted_license_form(pkg_name: str, expected_lic
 def test_declared_floor_defaults_to_the_shared_config() -> None:
     """With no argument the parser reads config/shared.toml, the single source of the floor."""
     floor = _declared_setuptools_floor()()
-    requires = _load_toml(_SHARED_CONFIG)["build-system"]["requires"]
+    requires = load_toml(_SHARED_CONFIG)["build-system"]["requires"]
     assert any(f">={floor}" in entry for entry in requires), (
         f"declared_setuptools_floor() returned {floor!r}, absent from config/shared.toml requires {requires!r}"
     )
@@ -111,13 +101,13 @@ def test_generated_pyprojects_carry_the_shared_build_floor() -> None:
     """A floor bump reaches wheels only once every generated pyproject.toml carries it."""
     parse_floor = _declared_setuptools_floor()
     shared_floor = parse_floor()
-    packages = _load_toml(_PACKAGES_CONFIG)["packages"]
+    packages = load_toml(_PACKAGES_CONFIG)["packages"]
 
     checked = 0
     for pkg_name, pkg_config in packages.items():
         pyproject_path = _REPO_ROOT / pkg_config["path"] / "pyproject.toml"
         assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)."
-        floor = parse_floor(_load_toml(pyproject_path).get("build-system", {}).get("requires", []))
+        floor = parse_floor(load_toml(pyproject_path).get("build-system", {}).get("requires", []))
         assert floor == shared_floor, (
             f"{pkg_name}: generated {pyproject_path} requires setuptools>={floor}, but "
             f"config/shared.toml declares setuptools>={shared_floor} (run scripts/generate_pyproject.py)."

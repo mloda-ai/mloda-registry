@@ -20,19 +20,14 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import sys
 from pathlib import Path
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
 from mloda.core.abstract_plugins.plugin_loader.plugin_loader import ENTRY_POINT_GROUPS
 
 from tests.script_loader import load_script
+from tests.toml_loader import loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -131,7 +126,7 @@ def test_all_entry_point_values_are_namespaced_manifests() -> None:
 
     for pkg_name, pkg_config in packages.items():
         content = gen.generate_pyproject(pkg_name, pkg_config, shared, packages)
-        data = tomllib.loads(content)
+        data = loads_toml(content)
         entry_points = data.get("project", {}).get("entry-points")
         if not entry_points:
             continue

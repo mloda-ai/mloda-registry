@@ -15,15 +15,11 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 
 from mloda.community.feature_groups.data_operations import manifest_utils
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
+from tests.toml_loader import load_toml
 
 _IMPORT_MODULE_TARGET = "mloda.community.feature_groups.data_operations.manifest_utils.importlib.import_module"
 
@@ -454,11 +450,6 @@ def test_except_handler_fallback_import_root_is_caught(tmp_path: Path) -> None:
     }
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 def _dep_name(spec: str) -> str:
     """Extract the bare package name from a PEP 508 requirement string."""
     return re.split(r"[<>=!~;\s\[(@]", spec.strip(), maxsplit=1)[0]
@@ -467,7 +458,7 @@ def _dep_name(spec: str) -> str:
 def _declared_optional_framework_roots() -> set[str]:
     """PyPI distribution names the data_operations packages declare as optional extras in packages.toml."""
     assert _PACKAGES_CONFIG.is_file(), f"packages config not found at {_PACKAGES_CONFIG}"
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     roots: set[str] = set()
     for pkg_config in packages.values():
         path = pkg_config.get("path", "")

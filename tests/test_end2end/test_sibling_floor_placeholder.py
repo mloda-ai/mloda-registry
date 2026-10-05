@@ -9,19 +9,14 @@ it is loaded here by file path. It also guards the generated ``[tool.uv.sources]
 from __future__ import annotations
 
 import re
-import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 
 from tests.script_loader import load_script
+from tests.toml_loader import loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -72,7 +67,7 @@ def _synthetic_packages_with_base_extra(optional_dependencies: dict[str, list[st
 def _generated_dependencies(pkg_name: str, packages: dict[str, dict[str, Any]], shared: dict[str, Any]) -> list[str]:
     """Parsed ``[project].dependencies`` of the pyproject the generator produces for ``pkg_name``."""
     content = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    deps: list[str] = tomllib.loads(content)["project"]["dependencies"]
+    deps: list[str] = loads_toml(content)["project"]["dependencies"]
     return deps
 
 
@@ -81,14 +76,14 @@ def _generated_optional_dependencies(
 ) -> dict[str, list[str]]:
     """Parsed ``[project.optional-dependencies]`` of the pyproject the generator produces for ``pkg_name``."""
     content = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    opts: dict[str, list[str]] = tomllib.loads(content).get("project", {}).get("optional-dependencies", {})
+    opts: dict[str, list[str]] = loads_toml(content).get("project", {}).get("optional-dependencies", {})
     return opts
 
 
 def _generated_uv_sources(pkg_name: str, packages: dict[str, dict[str, Any]], shared: dict[str, Any]) -> dict[str, Any]:
     """Parsed ``[tool.uv.sources]`` of the generated pyproject ({} when absent); a duplicate header is invalid TOML."""
     content = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    sources: dict[str, Any] = tomllib.loads(content).get("tool", {}).get("uv", {}).get("sources", {})
+    sources: dict[str, Any] = loads_toml(content).get("tool", {}).get("uv", {}).get("sources", {})
     return sources
 
 
@@ -644,7 +639,7 @@ def _synthetic_bundle(dependencies: list[str], published: set[str] | None = None
 def _generated_wheel_packages(pkg_name: str, packages: dict[str, dict[str, Any]], shared: dict[str, Any]) -> list[str]:
     """Parsed ``[tool.setuptools] packages`` of the generated pyproject."""
     content = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    listed: list[str] = tomllib.loads(content)["tool"]["setuptools"]["packages"]
+    listed: list[str] = loads_toml(content)["tool"]["setuptools"]["packages"]
     return listed
 
 
@@ -731,7 +726,7 @@ def test_bundle_extra_ownership_excludes_the_wheel_and_entry_points() -> None:
 
     bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
     leaf_content = gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
-    listed = tomllib.loads(bundle_content)["tool"]["setuptools"]["packages"]
+    listed = loads_toml(bundle_content)["tool"]["setuptools"]["packages"]
 
     assert _LEAF_DOTTED not in listed, f"an extra-owned nested package must not ship in the bundle wheel: {listed!r}"
     leaf_entry = f'{_LEAF} = "{_LEAF_DOTTED}.manifest:FEATURE_GROUPS"'

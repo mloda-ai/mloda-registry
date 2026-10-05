@@ -1,13 +1,9 @@
 """Repository-level guarantees for agent guidance files."""
 
 import re
-import sys
 from pathlib import Path
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
+from tests.toml_loader import loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
@@ -42,5 +38,5 @@ def test_type_hints_guidance_matches_ruff_select() -> None:
     codes = set(re.findall(r"UP\d+", _single_bullet("- **Type hints**:")))
     assert codes, "type hints bullet names no UP rule"
 
-    select = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["ruff"]["lint"]["select"]
+    select = loads_toml(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["ruff"]["lint"]["select"]
     assert codes == {rule for rule in select if rule.startswith("UP")}

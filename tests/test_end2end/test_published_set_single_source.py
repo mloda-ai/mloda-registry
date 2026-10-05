@@ -21,14 +21,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 
 from tests.script_loader import load_script, version_tuple
+from tests.toml_loader import load_toml, loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
@@ -155,14 +151,9 @@ _ARRAY_FROM_SCRIPT_RE = re.compile(rf"^[^\n#]*\bpackages\b[^\n#]*{re.escape(_SCR
 gen = load_script("generate_pyproject", _GEN_PATH)
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 def _packages() -> dict[str, dict[str, Any]]:
     """Config-declared packages, in config order."""
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG)["packages"]
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG)["packages"]
     return packages
 
 
@@ -321,9 +312,9 @@ def _workflow_build_step() -> str:
 
 def _generated(pkg_name: str, packages: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Parsed pyproject document the generator emits for a package under the given config."""
-    shared = _load_toml(_SHARED_CONFIG)
+    shared = load_toml(_SHARED_CONFIG)
     content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    return tomllib.loads(content)
+    return loads_toml(content)
 
 
 def _wheel_packages(pkg_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
@@ -345,7 +336,7 @@ def _committed_data_operations() -> dict[str, Any]:
     """Parsed committed pyproject.toml of the data-operations base package."""
     pyproject_path = _REPO_ROOT / _packages()[_DATA_OPERATIONS]["path"] / "pyproject.toml"
     assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)"
-    return _load_toml(pyproject_path)
+    return load_toml(pyproject_path)
 
 
 def _entries_under(listed: list[str], dotted: str) -> list[str]:
@@ -590,7 +581,7 @@ def test_bundle_owned_names_matches_the_published_nested_packages_exactly() -> N
     '<name>[extras]=={version}' spelling that ownership requires (see the synthetic tests in
     test_sibling_floor_placeholder.py), so generation succeeding here proves the real bundles comply."""
     packages = _packages()
-    shared = _load_toml(_SHARED_CONFIG)
+    shared = load_toml(_SHARED_CONFIG)
     checked_bundles: set[str] = set()
 
     for bundle_name in _entry_point_bundles(packages):

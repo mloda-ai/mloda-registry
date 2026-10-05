@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.enterprise.feature_groups.anonymizer.anonymizer_feature_group import AnonymizerFeatureGroup
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from tests.script_loader import load_script
+from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _LOCK_PATH = _REPO_ROOT / "uv.lock"
@@ -37,8 +32,7 @@ def _normalised(name: str) -> str:
 
 
 def _real_lock() -> dict[str, Any]:
-    with open(_LOCK_PATH, "rb") as f:
-        return tomllib.load(f)
+    return load_toml(_LOCK_PATH)
 
 
 def _sources(lock: dict[str, Any]) -> list[dict[str, Any]]:

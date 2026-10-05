@@ -4,20 +4,14 @@ distinguishes that silent success from a genuinely typed install."""
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
-from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
 
 from tests.script_loader import load_script
+from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_typed_install.py"
@@ -78,11 +72,6 @@ def _load() -> ModuleType:
     return load_script("verify_typed_install", _SCRIPT_PATH)
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 def _probe_source() -> str:
     """The PROBE_SOURCE constant verify_typed_install must expose."""
     source = getattr(_load(), "PROBE_SOURCE", None)
@@ -113,7 +102,7 @@ def test_probe_source_imports_reveals_and_miscalls_the_plugin() -> None:
 
 def test_probe_distributions_and_module_track_the_config() -> None:
     """A delisted or moved probe package must fail loudly here, not silently probe a stale wheel."""
-    packages = _load_toml(_PACKAGES_CONFIG)["packages"]
+    packages = load_toml(_PACKAGES_CONFIG)["packages"]
     distributions = getattr(_load(), "PROBE_DISTRIBUTIONS", None)
     assert isinstance(distributions, tuple), "verify_typed_install.PROBE_DISTRIBUTIONS must be a tuple constant"
     assert {_PROBE_LEAF, _PROBE_BASE} <= set(distributions), (

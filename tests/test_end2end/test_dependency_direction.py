@@ -19,13 +19,9 @@ from typing import Any
 
 import pytest
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from tests.script_loader import load_script
+from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
@@ -39,11 +35,6 @@ _GROUP_ATTR: dict[str, str] = {
 }
 
 _SKIP_DIR_NAMES = frozenset({"__pycache__", "build", "dist"})
-
-
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as handle:
-        return tomllib.load(handle)
 
 
 def _dep_name(spec: str) -> str:
@@ -119,7 +110,7 @@ def _community_or_enterprise_wheel_or_testing_dependency_violations(
 
 
 def test_no_community_or_enterprise_package_depends_on_mloda_testing_or_a_binary_wheel() -> None:
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     wheel_names = _licensed_plugin_wheel_distribution_names(packages)
     assert wheel_names, "expected at least one BINARY_WHEEL_DISTRIBUTION-derived wheel name; check is vacuous"
 
@@ -148,7 +139,7 @@ def test_binary_wheel_distribution_is_an_optional_dependency_with_a_version_spec
     so a wheel declared there is not meaningfully optional -- see
     ``_assert_wheel_optional_dependency_is_safe`` below), and with a real version specifier living
     before any environment marker (``;``)."""
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     entries = _licensed_plugin_classes_by_package(packages)
     assert entries, "expected at least one BinaryModelMixin-derived enterprise plugin; check is vacuous"
 
@@ -286,7 +277,7 @@ class TestWheelOptionalDependencyIsSafe:
 
 
 def test_new_binary_packages_are_registered_with_dev_extra() -> None:
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     expected_paths = {
         "mloda-community-binary-model": "mloda/community/feature_groups/binary_model",
         "mloda-enterprise-binary-example": "mloda/enterprise/feature_groups/binary_example",

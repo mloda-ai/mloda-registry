@@ -24,14 +24,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 
 from tests.script_loader import load_script
+from tests.toml_loader import loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -66,7 +62,7 @@ def test_generate_quotes_all_configured_toml_string_values() -> None:
     }
 
     generated = gen.generate_pyproject(special, pkg_config, shared, {special: pkg_config})
-    parsed = tomllib.loads(generated)
+    parsed = loads_toml(generated)
 
     assert parsed["build-system"] == {"requires": [special], "build-backend": special}
     assert parsed["project"] == {
@@ -203,7 +199,7 @@ def test_generate_emits_flat_workspace_source_for_dotted_package_name() -> None:
     all_packages: dict[str, dict[str, Any]] = {"mloda-meta": pkg_config}
 
     content: str = gen.generate_pyproject("mloda-meta", pkg_config, shared, all_packages)
-    parsed = tomllib.loads(content)
+    parsed = loads_toml(content)
 
     assert parsed["tool"]["uv"]["sources"] == {
         "mloda.foo": {"workspace": True},

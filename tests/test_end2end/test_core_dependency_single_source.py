@@ -16,14 +16,9 @@ across ``config/packages.toml`` and the root ``pyproject.toml``.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
-from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
+from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
@@ -41,11 +36,6 @@ _CORE_PIN_RE = re.compile(r"^mloda\b.*>=")
 _CORE_LITERAL_RE = re.compile(r"(?<![\w-])mloda\s*(>=|==|~=|!=|<=|<|>)")
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 def _dep_name(spec: str) -> str:
     """Extract the bare package name from a PEP 508 requirement string."""
     return re.split(r"[<>=!~\s\[]", spec, maxsplit=1)[0].strip()
@@ -53,7 +43,7 @@ def _dep_name(spec: str) -> str:
 
 def _core_dependency() -> str:
     """Return the single-source core specifier, failing clearly if absent."""
-    shared = _load_toml(_SHARED_CONFIG)
+    shared = load_toml(_SHARED_CONFIG)
     defaults = shared.get("defaults", {})
     assert "core_dependency" in defaults, (
         "config/shared.toml [defaults] must define 'core_dependency' as the single "
@@ -85,7 +75,7 @@ def test_packages_config_has_no_literal_core_pin() -> None:
 def test_root_pyproject_uses_core_dependency() -> None:
     """Root pyproject.toml [project].dependencies contains exactly core_dependency."""
     core = _core_dependency()
-    root = _load_toml(_ROOT_PYPROJECT)
+    root = load_toml(_ROOT_PYPROJECT)
     deps = root.get("project", {}).get("dependencies", [])
     assert core in deps, (
         f"Root pyproject.toml [project].dependencies must contain the shared value {core!r}; got {deps!r}."
@@ -99,13 +89,13 @@ def test_root_pyproject_uses_core_dependency() -> None:
 def test_generated_pyprojects_use_core_dependency() -> None:
     """Every generated per-package pyproject.toml uses exactly core_dependency for mloda-core."""
     core = _core_dependency()
-    packages = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages = load_toml(_PACKAGES_CONFIG).get("packages", {})
 
     checked_core = 0
     for pkg_name, pkg_config in packages.items():
         pyproject_path = _REPO_ROOT / pkg_config["path"] / "pyproject.toml"
         assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)."
-        parsed = _load_toml(pyproject_path)
+        parsed = load_toml(pyproject_path)
         deps = parsed.get("project", {}).get("dependencies", [])
         core_entries = [d for d in deps if _dep_name(d) == "mloda"]
         for entry in core_entries:

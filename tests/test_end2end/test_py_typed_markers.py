@@ -5,20 +5,15 @@ portions that ``discover_packages`` misses."""
 from __future__ import annotations
 
 import re
-import sys
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 
 from tests.script_loader import load_script, version_tuple
+from tests.toml_loader import loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -98,7 +93,7 @@ def _dependency_closure(pkg_name: str, packages: dict[str, dict[str, Any]]) -> s
 
 def _setuptools_table(source: str, content: str) -> dict[str, Any]:
     """Return the parsed ``[tool.setuptools]`` table of a pyproject document."""
-    data = tomllib.loads(content)
+    data = loads_toml(content)
     table: dict[str, Any] = data.get("tool", {}).get("setuptools", {})
     assert table, f"{source}: [tool.setuptools] table is missing"
     return table

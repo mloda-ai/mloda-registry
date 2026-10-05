@@ -5,20 +5,15 @@ from __future__ import annotations
 import ast
 import importlib.metadata
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
-import pytest
+from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
@@ -70,8 +65,7 @@ def _core_polars_requirement() -> Requirement:
 
 
 def _packages() -> dict[str, dict[str, Any]]:
-    with open(_PACKAGES_CONFIG, "rb") as f:
-        data = tomllib.load(f)
+    data = load_toml(_PACKAGES_CONFIG)
     packages: dict[str, dict[str, Any]] = data["packages"]
     return packages
 

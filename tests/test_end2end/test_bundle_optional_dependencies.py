@@ -16,16 +16,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
-
 import pytest
 from mloda.user import PluginLoader
 
 from mloda.testing.import_isolation import block_root, evict_entry_points, evict_package, evict_root
 from tests.script_loader import load_script
+from tests.toml_loader import load_toml, loads_toml
 
 # Logger name PluginLoader.load_entry_points() itself logs WARNINGs under when it skips an entry point
 # for a missing optional dependency (see mloda.core.abstract_plugins.plugin_loader.plugin_loader).
@@ -51,18 +47,13 @@ _ROWS: list[tuple[str, str, str, str, list[str]]] = [
 gen = load_script("generate_pyproject", _GEN_PATH)
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 def _dep_name(spec: str) -> str:
     """Extract the bare package name from a PEP 508 requirement string."""
     return re.split(r"[<>=!~;\s\[(@]", spec.strip(), maxsplit=1)[0]
 
 
 def _packages() -> dict[str, dict[str, Any]]:
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG)["packages"]
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG)["packages"]
     return packages
 
 
@@ -219,11 +210,9 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
     expected = [f"mloda-community-openlineage~={shared['project']['version']}"]
 
-    generated = tomllib.loads(
-        gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages)
-    )
+    generated = loads_toml(gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages))
     assert _ENTERPRISE_PYPROJECT.is_file(), f"committed pyproject not found at {_ENTERPRISE_PYPROJECT}"
-    committed = _load_toml(_ENTERPRISE_PYPROJECT)
+    committed = load_toml(_ENTERPRISE_PYPROJECT)
 
     for source, project in (("generated", generated["project"]), ("committed", committed["project"])):
         actual = project.get("optional-dependencies", {}).get("openlineage")
@@ -240,7 +229,7 @@ def test_generated_pyproject_lists_distribution_only_under_optional_extra(
     """The generated community pyproject lists the leaf, pinned '==<version>', only under its own extra
     (and 'all'); the third-party distribution the leaf depends on never appears in the community pyproject."""
     assert _COMMUNITY_PYPROJECT.is_file(), f"generated pyproject not found at {_COMMUNITY_PYPROJECT}"
-    project = _load_toml(_COMMUNITY_PYPROJECT)["project"]
+    project = load_toml(_COMMUNITY_PYPROJECT)["project"]
 
     hard_deps = project.get("dependencies", [])
     offending = [dep for dep in hard_deps if _dep_name(dep) in (distribution_name, leaf_name)]
