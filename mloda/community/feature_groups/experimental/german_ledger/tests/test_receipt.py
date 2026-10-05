@@ -10,6 +10,7 @@ groups that produced each frame, so `evidence_receipts` takes them from there in
 inventing a carrier.
 """
 
+import importlib.metadata
 import json
 import subprocess  # nosec
 import sys
@@ -23,6 +24,7 @@ from mloda.steward import verified_context
 from mloda.user import DataAccessCollection, Feature, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.experimental.german_ledger import receipt as receipt_module
 from mloda.community.feature_groups.experimental.german_ledger import skr
 from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader, parse_citation
 from mloda.community.feature_groups.experimental.german_ledger.receipt import evidence_receipts, run_with_receipts
@@ -109,6 +111,42 @@ def test_the_receipt_names_the_steps_and_package_that_produced_it() -> None:
     assert receipt["package"]["name"] == "mloda-community-german-ledger"
     groups = [s["feature_group"] for s in receipt["plan"]]
     assert "SkrAccountFeatureGroup" in groups and "TestClosing2025" in groups, groups
+
+
+_LEAF_DIST = "mloda-community-german-ledger"
+_BUNDLE_DIST = "mloda-community"
+
+
+def _fake_versions(monkeypatch: pytest.MonkeyPatch, versions: dict[str, str | None]) -> None:
+    """Patch ``importlib.metadata.version``: a ``None`` value raises PackageNotFoundError, unlisted names
+    delegate to the real function."""
+    real_version = importlib.metadata.version
+
+    def fake_version(distribution_name: str) -> str:
+        if distribution_name in versions:
+            version = versions[distribution_name]
+            if version is None:
+                raise importlib.metadata.PackageNotFoundError(distribution_name)
+            return version
+        return real_version(distribution_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+
+
+@pytest.mark.parametrize(
+    ("installed", "version", "distribution"),
+    [
+        ({_LEAF_DIST: None, _BUNDLE_DIST: "2.5.0"}, "2.5.0", _BUNDLE_DIST),
+        ({_LEAF_DIST: "1.0.0", _BUNDLE_DIST: "2.5.0"}, "1.0.0", _LEAF_DIST),
+        ({_LEAF_DIST: None, _BUNDLE_DIST: None}, None, None),
+    ],
+    ids=["bundle-only", "leaf-wins", "neither"],
+)
+def test_the_package_version_comes_from_the_leaf_then_the_bundle(
+    monkeypatch: pytest.MonkeyPatch, installed: dict[str, str | None], version: str | None, distribution: str | None
+) -> None:
+    _fake_versions(monkeypatch, installed)
+    assert receipt_module._package() == {"name": _LEAF_DIST, "version": version, "distribution": distribution}
 
 
 def test_a_changed_catalogue_changes_the_receipt(catalogue: None) -> None:
