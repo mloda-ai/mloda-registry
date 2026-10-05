@@ -23,7 +23,6 @@ _NO_TABLES = "X = 1\n"
 
 
 def _script() -> ModuleType:
-    """The script module; fails the calling test clearly while the script is missing."""
     if not _SCRIPT_PATH.is_file():
         pytest.fail(f"{_SCRIPT_PATH} does not exist yet")
     return load_script("check_seam_release_type", _SCRIPT_PATH)
