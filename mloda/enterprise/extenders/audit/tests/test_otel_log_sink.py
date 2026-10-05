@@ -86,7 +86,20 @@ _STR_ATTRIBUTES = {
 
 _BLANK_OMITTED_ATTRIBUTES = {**_STR_ATTRIBUTES, "principal": "user.hash"}
 
-_ALLOWED_ATTRIBUTES = {*_STR_ATTRIBUTES.values(), "mloda.audit.decision", "user.hash", "mloda.feature.names"}
+_V2_STR_ATTRIBUTES = {"phase": "mloda.audit.phase", "step_run_id": "mloda.step.run_id"}
+_ENFORCED_ATTRIBUTE = "mloda.audit.enforced"
+
+_ALLOWED_ATTRIBUTES = {
+    *_STR_ATTRIBUTES.values(),
+    *_V2_STR_ATTRIBUTES.values(),
+    _ENFORCED_ATTRIBUTE,
+    "mloda.audit.decision",
+    "user.hash",
+    "mloda.feature.names",
+}
+
+_TRACE_ID = "0af7651916cd43dd8448eb211c80319c"
+_SPAN_ID = "b7ad6b7169203331"
 
 _SEVERITY_BY_DECISION = {"allow": SeverityNumber.INFO, "deny": SeverityNumber.WARN}
 
@@ -435,6 +448,8 @@ class TestOtelLogAuditSinkMapping:
             "mloda.audit.decision": "allow",
             "mloda.audit.policy_version": _POLICY_VERSION,
             "mloda.audit.hook": "FEATURE_GROUP_CALCULATE_FEATURE",
+            "mloda.audit.phase": "run",
+            "mloda.audit.enforced": False,
             "mloda.run.id": "run-123",
             "mloda.plan.id": "plan-456",
             "mloda.tenant.id": "tenant-1",
@@ -465,6 +480,8 @@ class TestOtelLogAuditSinkMapping:
             "mloda.audit.deny_reason": "missing_tenant_id",
             "mloda.audit.policy_version": _POLICY_VERSION,
             "mloda.audit.hook": "FEATURE_GROUP_MATCHED",
+            "mloda.audit.phase": "plan",
+            "mloda.audit.enforced": True,
             "mloda.run.id": "run-123",
             "mloda.project.id": "project-1",
             "mloda.feature_group.name": "my.module.MyFeatureGroup",
@@ -632,6 +649,55 @@ class TestOtelLogAuditSinkMapping:
         assert attributes["mloda.audit.hook"] == "FEATURE_GROUP_MATCHED"
         assert "mloda.feature_group.name" not in attributes
 
+    def test_phase_and_step_run_id_are_forwarded_as_strings_and_enforced_as_a_bool(
+        self, log_exporter: InMemoryLogRecordExporter
+    ) -> None:
+        step_run_id = "7d1f6a3e-5c1b-5e0a-9d55-0f6f4a2a9c11"
+        record = {**_audit_record(tenant_id="tenant-1"), "phase": "plan", "step_run_id": step_run_id, "enforced": True}
+
+        attributes = _attributes(_write_one(log_exporter, record))
+
+        assert attributes["mloda.audit.phase"] == "plan"
+        assert attributes["mloda.step.run_id"] == step_run_id
+        assert attributes["mloda.audit.enforced"] is True
+
+    @pytest.mark.parametrize("enforced", [True, False])
+    def test_enforced_is_a_bool_attribute_even_when_false(
+        self, log_exporter: InMemoryLogRecordExporter, enforced: bool
+    ) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "enforced": enforced}
+
+        assert _attributes(_write_one(log_exporter, record))["mloda.audit.enforced"] is enforced
+
+    def test_a_none_step_run_id_is_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "step_run_id": None}
+
+        assert "mloda.step.run_id" not in _attributes(_write_one(log_exporter, record))
+
+    def test_trace_and_span_ids_of_the_record_correlate_the_log(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "trace_id": _TRACE_ID, "span_id": _SPAN_ID}
+
+        log = _write_one(log_exporter, record)
+
+        assert log.log_record.trace_id == int(_TRACE_ID, 16)
+        assert log.log_record.span_id == int(_SPAN_ID, 16)
+        assert "trace_id" not in _everything(log)
+
+    @pytest.mark.parametrize(
+        ("trace_id", "span_id"),
+        [(_TRACE_ID, None), (None, _SPAN_ID), (None, None)],
+        ids=["trace_only", "span_only", "neither"],
+    )
+    def test_the_log_is_not_correlated_unless_both_ids_are_present(
+        self, log_exporter: InMemoryLogRecordExporter, trace_id: str | None, span_id: str | None
+    ) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "trace_id": trace_id, "span_id": span_id}
+
+        log = _write_one(log_exporter, record)
+
+        assert not log.log_record.trace_id
+        assert not log.log_record.span_id
+
     def test_no_other_record_key_is_forwarded_and_the_raw_principal_appears_nowhere(
         self, log_exporter: InMemoryLogRecordExporter
     ) -> None:
@@ -754,6 +820,8 @@ class TestOtelLogAuditSinkRealExporter:
         assert logs[0]["attributes"] == {
             "mloda.audit.decision": "allow",
             "mloda.audit.policy_version": _POLICY_VERSION,
+            "mloda.audit.phase": "run",
+            "mloda.audit.enforced": False,
             "mloda.audit.hook": "FEATURE_GROUP_CALCULATE_FEATURE",
             "mloda.run.id": "run-123",
             "mloda.tenant.id": "tenant-1",
@@ -784,6 +852,8 @@ class TestOtelLogAuditSinkRealExporter:
             "mloda.audit.decision": "deny",
             "mloda.audit.deny_reason": "missing_tenant_id",
             "mloda.audit.policy_version": _POLICY_VERSION,
+            "mloda.audit.phase": "plan",
+            "mloda.audit.enforced": True,
             "mloda.audit.hook": "FEATURE_GROUP_MATCHED",
             "mloda.run.id": "run-123",
             "mloda.project.id": "project-1",

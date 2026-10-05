@@ -2371,6 +2371,24 @@ _RUN_ALL_MODE_AND_FAIL_CLOSED = [
 class TestRunManifestRunAll:
     """A real run's audit file seals into one verifiable manifest."""
 
+    def test_a_v2_audit_log_seals_and_verifies(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+
+        with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
+            run_value_int(extender, parallelization_modes={ParallelizationMode.SYNC})
+
+        records = _read_lines(audit_path)
+        assert {record["record_version"] for record in records} == {2}
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        head = verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        assert len(manifests) == 1
+        assert head == manifest_hash(manifests[0])
+        assert manifests[0]["compliant"] is True
+        assert manifests[0]["record_count"] == len(records)
+
     @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
     def test_run_all_audit_file_seals_and_verifies(
         self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
@@ -2553,7 +2571,7 @@ class TestRunManifestRunAll:
         sink = BufferingNdjsonAuditSink(audit_path)
         extender = AuditExtender(sink=sink, audit_path=audit_path, manifest_path=manifest_path, signer=signer)
 
-        with verified_context(tenant_id="tenant-42"):
+        with verified_context(tenant_id="tenant-42", principal="svc"):
             values = run_value_int(
                 extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
             )

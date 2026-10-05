@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import socket
 from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -24,6 +25,7 @@ from mloda.steward import (
 )
 
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
+from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
     HeadAnchor,
     ManifestVerificationError,
@@ -38,6 +40,7 @@ from mloda.enterprise.extenders.audit._records import _canonical_json as _canoni
 from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
 from mloda.enterprise.extenders.audit._segments import _genesis_older_than, _InterruptedRotationError, _rotate
 from mloda.enterprise.extenders.audit._signers import ManifestSigner, _signer_map
+from mloda.enterprise.extenders.audit._trace import trace_ids
 from mloda.enterprise.extenders.audit.run_manifest import (
     _check_run_against_seal,
     seal_ndjson_runs,
@@ -46,6 +49,16 @@ from mloda.enterprise.extenders.audit.run_manifest import (
 logger = logging.getLogger(__name__)
 
 _ALLOWED_IDENTITY_NAMES = ("tenant_id", "project_id", "principal")
+
+_host: str | None = None
+
+
+def _hostname() -> str:
+    global _host
+    if _host is None:
+        _host = socket.gethostname()
+    return _host
+
 
 _open_calculates: OpenInvocationStack[list[tuple[str, str | None, bool | None]]] = OpenInvocationStack(
     "audit_open_calculates"
@@ -160,7 +173,7 @@ class AuditExtender(Extender):
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
     not track code changes).
-    Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
+    record_version 2 (compliant also needs a non-blank principal; enforced marks a fail_closed refusal); an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished, whatever its outcome. Each run() of a prepared session gets a fresh run_id, so a rerun
     is audited and sealed as its own run; a calculation under an already-sealed run_id (only possible by hand)
@@ -358,6 +371,10 @@ class AuditExtender(Extender):
                     [],
                     "error",
                     _error_type(refusal),
+                    phase="run",
+                    enforced=True,
+                    start_time=None,
+                    trace=trace_ids(getattr(run, "carrier", None)),
                 )
             )
             raise
@@ -573,6 +590,8 @@ class AuditExtender(Extender):
             self._note_load(context)
             return func(*args, **kwargs)
 
+        start_time = _utc_now()
+        trace = trace_ids(context.carrier)
         if self.fail_closed:
             missing = self._missing_identity(context)
             if missing:
@@ -580,7 +599,17 @@ class AuditExtender(Extender):
                     raise IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
                 except IdentityRequiredError as refusal:
                     # Unguarded on purpose: a sink failure must propagate (chained to the refusal), never be swallowed.
-                    self.sink.write(self._build_record(context, [], status="error", error_type=_error_type(refusal)))
+                    self.sink.write(
+                        self._build_record(
+                            context,
+                            func,
+                            [],
+                            status="error",
+                            error_type=_error_type(refusal),
+                            start_time=None,
+                            trace=trace,
+                        )
+                    )
                     if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED and context.plan_id is not None:
                         self._plan_refusals.add(context.plan_id)
                     raise
@@ -592,7 +621,9 @@ class AuditExtender(Extender):
             with _open_calculates.open(self, loads):
                 result = func(*args, **kwargs)
         except BaseException as exc:
-            record = self._build_record(context, loads, status="error", error_type=_error_type(exc))
+            record = self._build_record(
+                context, func, loads, status="error", error_type=_error_type(exc), start_time=start_time, trace=trace
+            )
             try:
                 self.sink.write(record)
             except Exception as sink_exc:
@@ -607,7 +638,15 @@ class AuditExtender(Extender):
         # fallback, or never_fall_back under fail_closed), never be swallowed alongside a result that
         # was already computed successfully.
         # context.status is only set by core's instrument() wrapper; without it, the call still succeeded.
-        record = self._build_record(context, loads, status=context.status or "success", error_type=None)
+        record = self._build_record(
+            context,
+            func,
+            loads,
+            status=context.status or "success",
+            error_type=None,
+            start_time=start_time,
+            trace=trace,
+        )
         self.sink.write(record)
         return result
 
@@ -629,10 +668,13 @@ class AuditExtender(Extender):
     def _build_record(
         self,
         context: HookContext,
+        func: Any,
         loads: list[tuple[str, str | None, bool | None]],
         *,
         status: str | None,
         error_type: str | None,
+        start_time: str | None,
+        trace: tuple[str | None, str | None],
     ) -> dict[str, Any]:
         per_call: dict[str, Any] = {
             "feature_group_class": context.feature_group_class,
@@ -640,12 +682,38 @@ class AuditExtender(Extender):
             "plugin_version": context.plugin_version,
             "feature_names": list(context.feature_names),
             "input_features": sorted(context.input_features) if context.input_features is not None else None,
+            "input_feature_edges": (
+                {name: sorted(sources) for name, sources in context.input_feature_edges.items()}
+                if context.input_feature_edges is not None
+                else None
+            ),
             "compute_framework_name": context.compute_framework_name,
             "rows_out": context.rows_out,
             "duration_seconds": context.duration_seconds,
         }
+        matched = context.hook is ExtenderHook.FEATURE_GROUP_MATCHED
         return self._record(
-            context, context.hook.name, context.run_id, context.plan_id, per_call, loads, status, error_type
+            context,
+            context.hook.name,
+            context.run_id,
+            context.plan_id,
+            per_call,
+            loads,
+            status,
+            error_type,
+            phase="plan" if matched else "run",
+            enforced=self.fail_closed and bool(self._missing_identity(context)),
+            start_time=start_time,
+            trace=trace,
+            step_run=None
+            if matched
+            else step_run_id(
+                context.run_id,
+                owner_name(context, func),
+                context.feature_names,
+                context.compute_framework_name,
+            ),
+            worker_index=context.worker_index,
         )
 
     def _record(
@@ -658,19 +726,35 @@ class AuditExtender(Extender):
         loads: list[tuple[str, str | None, bool | None]],
         status: str | None,
         error_type: str | None,
+        *,
+        phase: str,
+        enforced: bool,
+        start_time: str | None,
+        trace: tuple[str | None, str | None],
+        step_run: str | None = None,
+        worker_index: int | None = None,
     ) -> dict[str, Any]:
         missing = self._missing_identity(identity)
+        event_time = _utc_now()
         return {
-            "record_version": 1,
+            "record_version": 2,
             "policy_version": self.policy_version,
-            "event_time": _utc_now(),
+            "event_time": event_time,
+            "start_time": start_time if start_time is not None else event_time,
             "run_id": run_id,
             "plan_id": plan_id,
             "tenant_id": identity.tenant_id,
             "project_id": identity.project_id,
             "principal": identity.principal,
             "decision": "deny" if missing else "allow",
-            "compliant": not missing,
+            "enforced": enforced,
+            "compliant": not missing and not _is_blank(identity.principal),
+            "phase": phase,
+            "host": _hostname(),
+            "worker_index": worker_index,
+            "step_run_id": step_run,
+            "trace_id": trace[0],
+            "span_id": trace[1],
             "deny_reason": ("missing_" + "_and_".join(missing)) if missing else None,
             "hook": hook,
             **per_call,

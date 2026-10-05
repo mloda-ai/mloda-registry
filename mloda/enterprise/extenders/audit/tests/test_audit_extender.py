@@ -11,11 +11,13 @@ import logging
 import os
 import pickle  # nosec
 import re
+import socket
 import stat
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,6 +39,7 @@ from mloda.user import ParallelizationMode
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
+from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     Ed25519Signer,
@@ -57,7 +60,7 @@ from mloda.enterprise.extenders.audit import (
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
 from mloda.enterprise.extenders.audit._core import _flock
-from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
+from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json, _parse_event_time
 from mloda.enterprise.extenders.audit.tests import manifest_helpers
 from mloda.enterprise.extenders.audit.tests.manifest_helpers import _Crash, _crash_on_replace, _patch_bindings
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
@@ -148,6 +151,15 @@ _EXPECTED_RECORD_KEYS = {
     "data_access_format",
     "data_access_identity_is_fallback",
     "policy_version",
+    "enforced",
+    "phase",
+    "input_feature_edges",
+    "host",
+    "worker_index",
+    "start_time",
+    "step_run_id",
+    "trace_id",
+    "span_id",
 }
 
 _FINGERPRINT = re.compile(r"[0-9a-f]{12}")
@@ -1202,6 +1214,225 @@ class TestAuditExtenderRecord:
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("AuditExtender" in message for message in warnings)
         assert "sink boom" not in caplog.text
+
+
+_RUN_UUID = "3f2b8c1e-9d4a-4e6f-8a21-5b7c0d9e1f23"
+_CARRIER_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+_CARRIER_SPAN_ID = "00f067aa0ba902b7"
+_TRACEPARENT = f"00-{_CARRIER_TRACE_ID}-{_CARRIER_SPAN_ID}-01"
+
+
+def _write_gate_record(kind: str, fail_closed: bool, identity_present: bool) -> dict[str, Any] | None:
+    """The one record a calculate, FEATURE_GROUP_MATCHED or RUN_START call writes (None when it writes nothing);
+    a refusal is swallowed here. Identity present means tenant, project and principal."""
+    sink = InMemoryAuditSink()
+    extender = AuditExtender(sink=sink, fail_closed=fail_closed)
+    identity: dict[str, Any] = {"tenant_id": "t", "project_id": "p", "principal": "svc"} if identity_present else {}
+    with suppress(IdentityRequiredError):
+        if kind == "RUN_START":
+            extender.on_run_start(
+                RunContext(run_id=_RUN_UUID, plan_id="plan-1", **identity), Mock(plan_id="plan-1"), ()
+            )
+        else:
+            hook = (
+                ExtenderHook.FEATURE_GROUP_MATCHED
+                if kind == "MATCHED"
+                else ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
+            )
+            with make_hook_context(hook=hook, run_id=_RUN_UUID, plan_id="plan-1", **identity).activate():
+                extender(lambda: None)
+    assert len(sink.records) <= 1
+    return sink.records[0] if sink.records else None
+
+
+# (kind, fail_closed, identity_present, (decision, enforced, phase)); None expects no record.
+_GATE_MATRIX = [
+    pytest.param("calculate", False, True, ("allow", False, "run"), id="calculate-open-present"),
+    pytest.param("calculate", False, False, ("deny", False, "run"), id="calculate-open-missing"),
+    pytest.param("calculate", True, True, ("allow", False, "run"), id="calculate-closed-present"),
+    pytest.param("calculate", True, False, ("deny", True, "run"), id="calculate-closed-missing"),
+    pytest.param("MATCHED", True, True, None, id="matched-closed-present"),
+    pytest.param("MATCHED", True, False, ("deny", True, "plan"), id="matched-closed-missing"),
+    pytest.param("RUN_START", False, False, None, id="run_start-open-missing"),
+    pytest.param("RUN_START", True, True, None, id="run_start-closed-present"),
+    pytest.param("RUN_START", True, False, ("deny", True, "run"), id="run_start-closed-missing"),
+]
+
+
+def _calculate_record(**context: Any) -> dict[str, Any]:
+    sink = InMemoryAuditSink()
+    with make_hook_context(**{"tenant_id": "t", "principal": "svc", **context}).activate():
+        AuditExtender(sink=sink)(lambda: None)
+    return sink.records[0]
+
+
+class TestAuditExtenderRecordV2:
+    """record_version 2: enforced, phase, edges, host, worker_index, start_time, step_run_id and trace correlation."""
+
+    @pytest.mark.parametrize(("kind", "fail_closed", "identity_present", "expected"), _GATE_MATRIX)
+    def test_decision_enforced_and_phase_matrix(
+        self, kind: str, fail_closed: bool, identity_present: bool, expected: tuple[str, bool, str] | None
+    ) -> None:
+        record = _write_gate_record(kind, fail_closed, identity_present)
+
+        if expected is None:
+            assert record is None
+            return
+        assert record is not None
+        assert record["record_version"] == 2
+        assert (record["decision"], record["enforced"], record["phase"]) == expected
+        assert record["compliant"] is identity_present
+        if record["enforced"]:
+            assert record["start_time"] == record["event_time"]
+
+    @pytest.mark.parametrize("kind", ["MATCHED", "RUN_START"])
+    def test_plan_and_run_start_refusals_have_no_step_run_id(self, kind: str) -> None:
+        record = _write_gate_record(kind, True, False)
+
+        assert record is not None
+        assert record["step_run_id"] is None
+
+    @pytest.mark.parametrize(
+        ("tenant_id", "principal", "required", "decision", "compliant"),
+        [
+            pytest.param("t", "svc", ("tenant_id",), "allow", True, id="principal-present"),
+            pytest.param("t", None, ("tenant_id",), "allow", False, id="principal-absent-not-required"),
+            pytest.param("t", "   ", ("tenant_id",), "allow", False, id="principal-blank-not-required"),
+            pytest.param("t", None, ("tenant_id", "principal"), "deny", False, id="principal-absent-required"),
+            pytest.param(None, "svc", ("tenant_id",), "deny", False, id="tenant-missing"),
+        ],
+    )
+    def test_compliant_needs_the_required_identity_and_a_non_blank_principal(
+        self, tenant_id: str | None, principal: str | None, required: tuple[str, ...], decision: str, compliant: bool
+    ) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, required_identity=required)
+
+        with make_hook_context(tenant_id=tenant_id, principal=principal).activate():
+            extender(lambda: None)
+
+        assert sink.records[0]["decision"] == decision
+        assert sink.records[0]["compliant"] is compliant
+
+    def test_default_config_without_a_principal_is_non_compliant(self) -> None:
+        assert _calculate_record(principal=None)["compliant"] is False
+
+    def test_input_feature_edges_are_sorted_lists_per_feature(self) -> None:
+        record = _calculate_record(input_feature_edges={"out_b": ("z", "a"), "out_a": ("m",)})
+
+        assert record["input_feature_edges"] == {"out_b": ["a", "z"], "out_a": ["m"]}
+
+    def test_input_feature_edges_none_stays_none_and_input_features_is_kept(self) -> None:
+        record = _calculate_record(input_feature_edges=None, input_features=frozenset({"b", "a"}))
+
+        assert record["input_feature_edges"] is None
+        assert record["input_features"] == ["a", "b"]
+
+    def test_host_is_the_hostname_and_resolved_at_most_once(self) -> None:
+        with patch.object(socket, "gethostname", return_value="patched-host") as gethostname:
+            first = _calculate_record()
+            second = _calculate_record()
+
+        assert first["host"] == second["host"]
+        assert gethostname.call_count <= 1
+        assert _calculate_record()["host"] in {socket.gethostname(), "patched-host"}
+
+    @pytest.mark.parametrize("worker_index", [None, 0, 3])
+    def test_worker_index_is_copied_from_the_context(self, worker_index: int | None) -> None:
+        assert _calculate_record(worker_index=worker_index)["worker_index"] == worker_index
+
+    def test_start_time_is_taken_before_the_wrapped_call(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+
+        with make_hook_context(tenant_id="t", principal="svc").activate():
+            extender(lambda: time.sleep(0.05))
+
+        record = sink.records[0]
+        start, end = _parse_event_time(record["start_time"]), _parse_event_time(record["event_time"])
+        assert record["start_time"].endswith("Z")
+        assert (end - start).total_seconds() >= 0.04
+
+    def test_start_time_of_a_failed_call_is_also_before_the_call(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+
+        def boom() -> None:
+            time.sleep(0.05)
+            raise RuntimeError("boom")
+
+        with make_hook_context(tenant_id="t", principal="svc").activate():
+            with pytest.raises(RuntimeError):
+                extender(boom)
+
+        record = sink.records[0]
+        assert (
+            _parse_event_time(record["event_time"]) - _parse_event_time(record["start_time"])
+        ).total_seconds() >= 0.04
+
+    def test_step_run_id_is_the_shared_helper_over_the_owner_name(self) -> None:
+        context = make_hook_context(
+            run_id=_RUN_UUID,
+            feature_group_class="my.module.MyFeatureGroup",
+            feature_names=("b", "a"),
+            compute_framework_name="PyArrowTable",
+        )
+        sink = InMemoryAuditSink()
+
+        with context.activate():
+            AuditExtender(sink=sink)(lambda: None)
+
+        expected = step_run_id(_RUN_UUID, owner_name(context, lambda: None), ("b", "a"), "PyArrowTable")
+        assert expected is not None
+        assert sink.records[0]["step_run_id"] == expected
+
+    @pytest.mark.parametrize("run_id", [None, "run-1"], ids=["no_run_id", "non_uuid_run_id"])
+    def test_step_run_id_is_none_without_a_uuid_run_id(self, run_id: str | None) -> None:
+        assert _calculate_record(run_id=run_id)["step_run_id"] is None
+
+    def test_trace_ids_of_the_active_span_are_hex_strings(self) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace import TracerProvider
+
+        tracer = TracerProvider().get_tracer("audit-test")
+        with tracer.start_as_current_span("caller") as span:
+            record = _calculate_record(carrier={"traceparent": _TRACEPARENT})
+            ctx = span.get_span_context()
+
+        assert record["trace_id"] == format(ctx.trace_id, "032x")
+        assert record["span_id"] == format(ctx.span_id, "016x")
+        assert len(record["trace_id"]) == 32
+        assert len(record["span_id"]) == 16
+
+    def test_trace_id_comes_from_the_carrier_traceparent_with_no_span_id(self) -> None:
+        record = _calculate_record(carrier={"traceparent": _TRACEPARENT})
+
+        assert record["trace_id"] == _CARRIER_TRACE_ID
+        assert record["span_id"] is None
+
+    @pytest.mark.parametrize("carrier", [None, {}, {"traceparent": "garbage"}], ids=["none", "empty", "malformed"])
+    def test_trace_ids_are_none_without_a_span_or_a_usable_carrier(self, carrier: dict[str, str] | None) -> None:
+        record = _calculate_record(carrier=carrier)
+
+        assert record["trace_id"] is None
+        assert record["span_id"] is None
+
+    def test_refusal_record_carries_the_trace_ids_of_the_active_span(self) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace import TracerProvider
+
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=True)
+        tracer = TracerProvider().get_tracer("audit-test")
+
+        with tracer.start_as_current_span("caller") as span:
+            with make_hook_context().activate():
+                with pytest.raises(IdentityRequiredError):
+                    extender(lambda: None)
+            ctx = span.get_span_context()
+
+        assert sink.records[0]["trace_id"] == format(ctx.trace_id, "032x")
+        assert sink.records[0]["span_id"] == format(ctx.span_id, "016x")
 
 
 class TestAuditExtenderFailClosed:
@@ -2637,7 +2868,7 @@ class TestAuditExtenderDataAccess:
         assert len(sink.records) == 1
         record = sink.records[0]
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name
-        assert record["record_version"] == 1
+        assert record["record_version"] == 2
         assert record["data_access_identity"] == [_BUCKET_KEY]
         assert record["data_access_format"] == ["ParquetReader"]
 

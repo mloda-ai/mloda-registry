@@ -31,7 +31,10 @@ _STR_ATTRIBUTES = {
     "project_id": "mloda.project.id",
     "feature_group_class": "mloda.feature_group.name",
     "error_type": "error.type",
+    "phase": "mloda.audit.phase",
+    "step_run_id": "mloda.step.run_id",
 }
+_ENFORCED_ATTRIBUTE = "mloda.audit.enforced"
 _PRINCIPAL_ATTRIBUTE = "user.hash"
 _FEATURE_NAMES_ATTRIBUTE = "mloda.feature.names"
 
@@ -57,6 +60,9 @@ def _attributes(record: Mapping[str, Any], key: bytes | None) -> dict[str, Any]:
         value = record.get(record_key)
         if not _is_blank(value):
             attributes[name] = value
+    enforced = record.get("enforced")
+    if isinstance(enforced, bool):
+        attributes[_ENFORCED_ATTRIBUTE] = enforced
     principal: Any = record.get("principal")
     if not _is_blank(principal):
         if key is not None:
@@ -69,6 +75,22 @@ def _attributes(record: Mapping[str, Any], key: bytes | None) -> dict[str, Any]:
     if feature_names:
         attributes[_FEATURE_NAMES_ATTRIBUTE] = list(feature_names)
     return attributes
+
+
+def _correlation_context(record: Mapping[str, Any]) -> Any:
+    trace_id: str | None = record.get("trace_id")
+    span_id: str | None = record.get("span_id")
+    if trace_id is None or span_id is None or _is_blank(trace_id) or _is_blank(span_id):
+        return None
+    from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, set_span_in_context
+
+    span_context = SpanContext(
+        trace_id=int(trace_id, 16),
+        span_id=int(span_id, 16),
+        is_remote=True,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+    )
+    return set_span_in_context(NonRecordingSpan(span_context))
 
 
 def _warn_once_without_sdk(provider: object) -> None:
@@ -111,8 +133,10 @@ class OtelLogAuditSink:
             _warn_once_without_sdk(provider)
             event_time = record.get("event_time")
             deny = record.get("decision") == "deny"
+            context = _correlation_context(record)
             provider.get_logger(_LOGGER_NAME).emit(
                 LogRecord(
+                    **({} if context is None else {"context": context}),
                     timestamp=None if event_time is None else _epoch_ns(event_time),
                     severity_number=SeverityNumber.WARN if deny else SeverityNumber.INFO,
                     severity_text="WARN" if deny else "INFO",
