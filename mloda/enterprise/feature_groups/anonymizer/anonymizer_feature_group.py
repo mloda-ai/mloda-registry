@@ -1,8 +1,6 @@
-"""``AnonymizerFeatureGroup``: the enterprise FeatureGroup that mixes in ``BinaryModelMixin`` to
-pseudonymize a utf8 column with keyed HMAC-SHA256 via the ``anonymizer_binary`` wheel (pattern 29, Binary-Backed
-Features; see ``docs/guides/feature-group-patterns/29-binary-backed-features.md``).
+"""Enterprise FeatureGroup that pseudonymizes a utf8 column with keyed HMAC-SHA256 via ``anonymizer_binary``.
 
-The key is read from the environment variable named by ``pii_key_env``; it is never an option value.
+The key is read from the environment variable named by ``pii_key_env``, never from an option value.
 """
 
 from __future__ import annotations
