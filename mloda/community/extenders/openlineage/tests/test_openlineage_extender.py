@@ -1194,6 +1194,47 @@ class TestOpenLineageExtenderCloseTimeoutDefault:
 
         assert received == [3.5]
 
+    def test_no_arg_close_in_expired_close_context_passes_zero(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mloda.testing.extenders.flush import active_close_context
+
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(client, "close", fake_close)
+
+        with active_close_context(-1):
+            extender.close()
+
+        assert received == [0.0]
+
+    def test_explicit_no_cap_close_in_active_close_context_becomes_remaining_budget(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mloda.testing.extenders.flush import active_close_context
+
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(client, "close", fake_close)
+
+        with active_close_context(0.5):
+            extender.close(-1)
+
+        assert len(received) == 1
+        assert 0 < received[0] <= 0.5
+
 
 class TestOpenLineageExtenderSharedInjectedClientCloseState:
     """Two extenders built with the same injected client object share its close lifecycle in both directions."""

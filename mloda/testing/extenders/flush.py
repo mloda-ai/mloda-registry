@@ -4,10 +4,13 @@ Must not import opentelemetry: mloda-community-extenders-shared's own tests have
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import Mock
+
+from mloda.steward import CloseContext
 
 
 def call_with_join_timeout(func: Callable[[], Any], *, join_timeout: float) -> tuple[bool, dict[str, Any]]:
@@ -25,6 +28,14 @@ def call_with_join_timeout(func: Callable[[], Any], *, join_timeout: float) -> t
     thread.start()
     thread.join(join_timeout)
     return thread.is_alive(), outcome
+
+
+@contextmanager
+def active_close_context(remaining: float) -> Iterator[CloseContext]:
+    """Activate a CloseContext with `remaining` seconds of budget for the scope (negative is already expired)."""
+    ctx = CloseContext(deadline=time.monotonic() + remaining, reason="stop")
+    with ctx.activate():
+        yield ctx
 
 
 @contextmanager

@@ -113,3 +113,38 @@ class TestToTimeoutMillis:
         from mloda.community.extenders.shared.teardown import to_timeout_millis
 
         assert to_timeout_millis(float("inf")) is None
+
+
+class TestCappedCloseTimeout:
+    """capped_close_timeout(close_timeout) clamps to the active worker CloseContext's remaining budget,
+    and is the identity when no context is active."""
+
+    @pytest.mark.parametrize("value", [1.0, -1.0, float("inf")], ids=["finite", "negative", "inf"])
+    def test_no_context_returns_value_unchanged(self, value: float) -> None:
+        from mloda.community.extenders.shared.teardown import capped_close_timeout
+
+        assert capped_close_timeout(value) == value
+
+    def test_large_remaining_returns_close_timeout(self) -> None:
+        from mloda.community.extenders.shared.teardown import capped_close_timeout
+        from mloda.testing.extenders.flush import active_close_context
+
+        with active_close_context(60):
+            assert capped_close_timeout(1.0) == 1.0
+
+    def test_expired_context_returns_zero(self) -> None:
+        from mloda.community.extenders.shared.teardown import capped_close_timeout
+        from mloda.testing.extenders.flush import active_close_context
+
+        with active_close_context(-1):
+            assert capped_close_timeout(1.0) == 0.0
+
+    @pytest.mark.parametrize("value", [-1.0, float("inf")], ids=["negative", "inf"])
+    def test_no_cap_value_becomes_remaining_budget(self, value: float) -> None:
+        from mloda.community.extenders.shared.teardown import capped_close_timeout
+        from mloda.testing.extenders.flush import active_close_context
+
+        with active_close_context(0.5):
+            result = capped_close_timeout(value)
+
+        assert 0 < result <= 0.5

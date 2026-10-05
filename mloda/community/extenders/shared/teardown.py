@@ -7,6 +7,8 @@ import math
 import threading
 from typing import Any
 
+from mloda.steward import CloseContext
+
 CLOSE_TIMEOUT = 1.0
 """Default per-extender flush cap, in seconds, applied on a MULTIPROCESSING worker's graceful exit."""
 
@@ -16,6 +18,17 @@ def to_timeout_millis(seconds: float) -> int | None:
     if seconds < 0 or math.isinf(seconds):
         return None
     return int(seconds * 1000)
+
+
+def capped_close_timeout(close_timeout: float) -> float:
+    """Cap close_timeout by the active CloseContext's remaining budget; call on the close() thread (a contextvar)."""
+    ctx = CloseContext.current()
+    if ctx is None:
+        return close_timeout
+    remaining = ctx.remaining()
+    if close_timeout < 0 or math.isinf(close_timeout):
+        return remaining
+    return min(close_timeout, remaining)
 
 
 def force_flush(provider: Any, timeout_millis: int | None = None) -> bool | None:

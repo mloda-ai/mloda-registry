@@ -11,7 +11,12 @@ import threading
 from collections.abc import Mapping
 from typing import Any
 
-from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
+from mloda.community.extenders.shared.teardown import (
+    CLOSE_TIMEOUT,
+    capped_close_timeout,
+    force_flush,
+    to_timeout_millis,
+)
 from mloda.enterprise.extenders.audit._records import _is_blank, _parse_event_time
 from mloda.enterprise.extenders.audit._signers import _MIN_KEY_BYTES
 
@@ -155,13 +160,13 @@ class OtelLogAuditSink:
 
     def flush(self) -> None:
         """Called by AuditExtender.close() on graceful MULTIPROCESSING worker exit; flushes the resolved
-        logger provider within close_timeout, best effort like write()."""
+        logger provider within close_timeout and the remaining close budget, best effort like write()."""
         try:
             from opentelemetry._logs import get_logger_provider
 
             provider = get_logger_provider()
-            result = force_flush(provider, timeout_millis=to_timeout_millis(self.close_timeout))
+            result = force_flush(provider, timeout_millis=to_timeout_millis(capped_close_timeout(self.close_timeout)))
             if result is False:
-                logger.warning("%s did not flush all log records within close_timeout", type(self).__name__)
+                logger.warning("%s did not flush all log records within its close budget", type(self).__name__)
         except Exception as exc:
             logger.warning("%s failed to flush the logger provider: %s", type(self).__name__, type(exc).__name__)

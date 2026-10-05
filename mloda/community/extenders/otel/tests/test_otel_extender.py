@@ -2455,6 +2455,19 @@ class TestOtelExtenderClose:
 
         provider.force_flush.assert_called_once_with(timeout_millis=int(CLOSE_TIMEOUT * 1000))
 
+    def test_close_caps_flush_timeout_to_the_active_close_context(self) -> None:
+        from mloda.testing.extenders.flush import active_close_context
+
+        provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(tracer_provider=provider)
+        otel.close_timeout = 5.0
+
+        with active_close_context(0.5):
+            otel.close()
+
+        provider.force_flush.assert_called_once()
+        assert 0 < provider.force_flush.call_args.kwargs["timeout_millis"] <= 500
+
     def test_close_flushes_the_global_provider_under_use_sdk_defaults(self, ambient_provider: _AmbientProvider) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
         ambient_provider.provider = provider
