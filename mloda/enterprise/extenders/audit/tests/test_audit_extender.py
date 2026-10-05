@@ -1239,7 +1239,12 @@ def _write_gate_record(kind: str, fail_closed: bool, identity_present: bool) -> 
                 if kind == "MATCHED"
                 else ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
             )
-            with make_hook_context(hook=hook, run_id=_RUN_UUID, plan_id="plan-1", **identity).activate():
+            unresolved: dict[str, Any] = (
+                {"feature_group_class": None, "feature_group_version": None, "compute_framework_name": None}
+                if kind == "MATCHED"
+                else {}
+            )
+            with make_hook_context(hook=hook, run_id=_RUN_UUID, plan_id="plan-1", **unresolved, **identity).activate():
                 extender(lambda: None)
     assert len(sink.records) <= 1
     return sink.records[0] if sink.records else None
@@ -1533,7 +1538,12 @@ class TestAuditExtenderFailClosed:
         extender = make_gate_extender(_DiskFullSink())
         call = _CountingCall()
 
-        with make_hook_context(hook=hook).activate():
+        unresolved: dict[str, Any] = (
+            {"feature_group_class": None, "feature_group_version": None, "compute_framework_name": None}
+            if hook is ExtenderHook.FEATURE_GROUP_MATCHED
+            else {}
+        )
+        with make_hook_context(hook=hook, **unresolved).activate():
             with pytest.raises(OSError, match="disk full") as excinfo:
                 CompositeExtender([extender])(call)
 
@@ -2837,7 +2847,12 @@ class TestAuditExtenderPolicyVersion:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink, fail_closed=True, policy_version=_POLICY_VERSION)
 
-        with make_hook_context(hook=hook).activate():
+        unresolved: dict[str, Any] = (
+            {"feature_group_class": None, "feature_group_version": None, "compute_framework_name": None}
+            if hook is ExtenderHook.FEATURE_GROUP_MATCHED
+            else {}
+        )
+        with make_hook_context(hook=hook, **unresolved).activate():
             with pytest.raises(IdentityRequiredError):
                 extender(_CountingCall())
 
