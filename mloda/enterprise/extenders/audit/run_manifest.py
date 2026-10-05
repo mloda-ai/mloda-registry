@@ -66,6 +66,40 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from mloda.enterprise.extenders.audit._core import MAX_LINE_BYTES as MAX_LINE_BYTES
+from mloda.enterprise.extenders.audit._core import HeadAnchor as HeadAnchor
+from mloda.enterprise.extenders.audit._core import KeyAlreadyCurrentError as KeyAlreadyCurrentError
+from mloda.enterprise.extenders.audit._core import LogCoverage as LogCoverage
+from mloda.enterprise.extenders.audit._core import ManifestVerificationError as ManifestVerificationError
+from mloda.enterprise.extenders.audit._core import NdjsonHeadAnchor as NdjsonHeadAnchor
+from mloda.enterprise.extenders.audit._core import RunAlreadySealedError as RunAlreadySealedError
+from mloda.enterprise.extenders.audit._core import RunNotPendingError as RunNotPendingError
+from mloda.enterprise.extenders.audit._core import (
+    _append_with_rollback,
+    _AuditScan,
+    _check_line_cap,
+    _check_log_id,
+    _digest_runs,
+    _flock,
+    _fsync,
+    _genesis_entry,
+    _iter_manifests,
+    _read_manifests,
+    _reject_aliased_paths,
+    _rotation_entry,
+    _rotation_transition,
+    _RunDigest,
+    _scan_for_run,
+    _seal,
+    _Uncovered,
+    _unlink_durably,
+    _verify_digest,
+    _verify_log,
+    _verify_manifest_fields,
+)
+from mloda.enterprise.extenders.audit._core import manifest_hash as manifest_hash
+from mloda.enterprise.extenders.audit._core import seal_run as seal_run
+from mloda.enterprise.extenders.audit._core import verify_manifest as verify_manifest
 from mloda.enterprise.extenders.audit._quarantine import QuarantinedLine as QuarantinedLine
 from mloda.enterprise.extenders.audit._quarantine import quarantine_damaged_lines as quarantine_damaged_lines
 from mloda.enterprise.extenders.audit._quarantine import (
@@ -95,40 +129,6 @@ from mloda.enterprise.extenders.audit._signers import Ed25519Signer as Ed25519Si
 from mloda.enterprise.extenders.audit._signers import HmacSha256Signer as HmacSha256Signer
 from mloda.enterprise.extenders.audit._signers import ManifestSigner as ManifestSigner
 from mloda.enterprise.extenders.audit._signers import _signer_map
-from mloda.enterprise.extenders.audit._verify import MAX_LINE_BYTES as MAX_LINE_BYTES
-from mloda.enterprise.extenders.audit._verify import HeadAnchor as HeadAnchor
-from mloda.enterprise.extenders.audit._verify import KeyAlreadyCurrentError as KeyAlreadyCurrentError
-from mloda.enterprise.extenders.audit._verify import LogCoverage as LogCoverage
-from mloda.enterprise.extenders.audit._verify import ManifestVerificationError as ManifestVerificationError
-from mloda.enterprise.extenders.audit._verify import NdjsonHeadAnchor as NdjsonHeadAnchor
-from mloda.enterprise.extenders.audit._verify import RunAlreadySealedError as RunAlreadySealedError
-from mloda.enterprise.extenders.audit._verify import RunNotPendingError as RunNotPendingError
-from mloda.enterprise.extenders.audit._verify import (
-    _append_with_rollback,
-    _AuditScan,
-    _check_line_cap,
-    _check_log_id,
-    _digest_runs,
-    _flock,
-    _fsync,
-    _genesis_entry,
-    _iter_manifests,
-    _read_manifests,
-    _reject_aliased_paths,
-    _rotation_entry,
-    _rotation_transition,
-    _RunDigest,
-    _scan_for_run,
-    _seal,
-    _Uncovered,
-    _unlink_durably,
-    _verify_digest,
-    _verify_log,
-    _verify_manifest_fields,
-)
-from mloda.enterprise.extenders.audit._verify import manifest_hash as manifest_hash
-from mloda.enterprise.extenders.audit._verify import seal_run as seal_run
-from mloda.enterprise.extenders.audit._verify import verify_manifest as verify_manifest
 
 # _error_type records the module of these exceptions in audit records, and tracebacks print it.
 for _public in (

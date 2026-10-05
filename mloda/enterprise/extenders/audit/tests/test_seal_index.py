@@ -19,7 +19,7 @@ from mloda.enterprise.extenders.audit import (
     ManifestVerificationError,
     RunAlreadySealedError,
     RunNotPendingError,
-    _verify,
+    _core,
     seal_ndjson_runs,
     verify_ndjson_log,
 )
@@ -381,7 +381,7 @@ class TestSealIndex:
     def _count_audit_parses(monkeypatch: pytest.MonkeyPatch, audit_path: Path) -> list[str]:
         """Every audit line decoded from now on (the decode of any other file is not counted)."""
         seen: list[str] = []
-        real = _verify._decode_line
+        real = _core._decode_line
 
         def counting(where: str, line: bytes) -> Any:
             if where.startswith(str(audit_path)):

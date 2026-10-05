@@ -42,7 +42,7 @@ from mloda.enterprise.extenders.audit import (
     RunNotPendingError,
     SealedRunRefusedError,
     TeeAuditSink,
-    _verify,
+    _core,
     manifest_hash,
     quarantine_damaged_lines,
     quarantine_from_rotation_entry,
@@ -178,7 +178,7 @@ def _swap_on_first_flock(monkeypatch: pytest.MonkeyPatch, path: Path, tmp_path: 
 _LAYERS = [
     "_records",
     "_signers",
-    "_verify",
+    "_core",
     "_seal_index",
     "_segments",
     "_quarantine",
@@ -192,7 +192,7 @@ _LAYERS = [
 _FACADE_HOMES = [
     *((n, "_signers") for n in ("ManifestSigner", "HmacSha256Signer", "Ed25519Signer")),
     *(
-        (n, "_verify")
+        (n, "_core")
         for n in (
             "ManifestVerificationError",
             "RunNotPendingError",
@@ -300,9 +300,9 @@ class TestRunManifestPublicApi:
     def test_append_records_and_canonical_json_come_from_one_shared_private_records_module(self) -> None:
         import mloda.enterprise.extenders.audit._records as records_module
 
-        # getattr: _verify and audit_extender import these, they do not define them; no module may redefine them.
-        assert getattr(_verify, "_append_records") is records_module._append_records
-        assert getattr(_verify, "_canonical_json") is records_module._canonical_json
+        # getattr: _core and audit_extender import these, they do not define them; no module may redefine them.
+        assert getattr(_core, "_append_records") is records_module._append_records
+        assert getattr(_core, "_canonical_json") is records_module._canonical_json
         assert getattr(audit_extender_module, "_append_records") is records_module._append_records
         assert getattr(audit_extender_module, "_canonical_json") is records_module._canonical_json
         for module in (*_SOURCE_MODULES, audit_extender_module, otel_log_sink_module):
@@ -741,7 +741,7 @@ class TestSealNdjsonRuns:
     ) -> None:
         manifest_path, write, _ = _pending_write(tmp_path, writer)
         fsynced: list[Path] = []
-        real_fsync = _verify._fsync
+        real_fsync = _core._fsync
 
         def spy(path: str | Path) -> None:
             fsynced.append(Path(path))
@@ -760,7 +760,7 @@ class TestSealNdjsonRuns:
     ) -> None:
         manifest_path, write, _ = _pending_write(tmp_path, writer)
         before = _snapshot(tmp_path)
-        real_fsync = _verify._fsync
+        real_fsync = _core._fsync
 
         def fsync_boom(path: str | Path) -> None:
             if Path(path) == manifest_path:
@@ -1668,7 +1668,7 @@ class TestVerifyNdjsonLog:
 
     def test_manifest_log_is_read_before_the_audit_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        original = _verify._read_ndjson
+        original = _core._read_ndjson
         reads: list[str] = []
 
         def spy(path: str | Path) -> Any:

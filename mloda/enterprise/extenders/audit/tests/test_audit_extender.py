@@ -39,7 +39,7 @@ from mloda.enterprise.extenders.audit import (
     RunNotPendingError,
     SealedRunRefusedError,
     TeeAuditSink,
-    _verify,
+    _core,
     manifest_hash,
     rotate_ndjson_segment,
     seal_ndjson_runs,
@@ -48,8 +48,8 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
+from mloda.enterprise.extenders.audit._core import _flock
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
-from mloda.enterprise.extenders.audit._verify import _flock
 from mloda.enterprise.extenders.audit.tests.manifest_helpers import _patch_bindings
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -2324,7 +2324,7 @@ class TestAuditExtenderSealing:
         verifications.clear()
 
         parses: list[str] = []
-        real_decode = _verify._decode_line
+        real_decode = _core._decode_line
 
         def counting_decode(where: str, line: bytes) -> Any:
             if where.startswith(str(audit_path)):

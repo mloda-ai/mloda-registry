@@ -25,10 +25,10 @@ from mloda.enterprise.extenders.audit import (
     NdjsonAuditSink,
     NdjsonHeadAnchor,
     QuarantinedLine,
+    _core,
     _seal_index,
     _segments,
     _signers,
-    _verify,
     manifest_hash,
     quarantine_damaged_lines,
     quarantine_from_rotation_entry,
@@ -41,7 +41,7 @@ from mloda.enterprise.extenders.audit import (
 )
 from mloda.enterprise.extenders.audit import _quarantine as _quarantine_module
 
-_SOURCE_MODULES: tuple[ModuleType, ...] = (_signers, _verify, _seal_index, _segments, _quarantine_module, run_manifest)
+_SOURCE_MODULES: tuple[ModuleType, ...] = (_signers, _core, _seal_index, _segments, _quarantine_module, run_manifest)
 
 
 def _patch_bindings(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> None:
@@ -676,7 +676,7 @@ def _lock_refused(path: Path) -> bool:
 def _locked_during_digest(monkeypatch: pytest.MonkeyPatch, manifest_path: Path) -> list[bool]:
     """Spy on `_digest_runs`: the returned list gets, per call, whether `manifest_path` was locked at that moment."""
     locked: list[bool] = []
-    real_digest_runs = _verify._digest_runs
+    real_digest_runs = _core._digest_runs
 
     def digest_runs(*args: Any, **kwargs: Any) -> Any:
         locked.append(_lock_refused(manifest_path))

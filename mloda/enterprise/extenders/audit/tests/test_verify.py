@@ -28,7 +28,7 @@ from mloda.enterprise.extenders.audit import (
     NdjsonAuditSink,
     NdjsonHeadAnchor,
     RunAlreadySealedError,
-    _verify,
+    _core,
     manifest_hash,
     rotate_manifest_key,
     seal_ndjson_runs,
@@ -1896,7 +1896,7 @@ class TestMalformedNdjsonLines:
 
         _patch_bindings(monkeypatch, "open", spy_open)
         calls: dict[str, Callable[[], object]] = {
-            "read-ndjson": lambda: list(_verify._read_ndjson(path)),
+            "read-ndjson": lambda: list(_core._read_ndjson(path)),
             "sealed-lookup": lambda: run_manifest_module._is_run_sealed_unverified(path, "run-z"),
             "anchor-latest": lambda: NdjsonHeadAnchor(path).latest(),
             "quarantine": lambda: _quarantine(tmp_path, path, manifest_path, dry_run=True),

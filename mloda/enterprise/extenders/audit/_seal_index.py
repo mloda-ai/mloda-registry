@@ -10,13 +10,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from mloda.enterprise.extenders.audit._records import (
-    _canonical_json,
-)
-from mloda.enterprise.extenders.audit._signers import (
-    ManifestSigner,
-)
-from mloda.enterprise.extenders.audit._verify import (
+from mloda.enterprise.extenders.audit._core import (
     _GENESIS_KIND,
     _SIGNATURE_KEYS,
     MAX_LINE_BYTES,
@@ -36,6 +30,12 @@ from mloda.enterprise.extenders.audit._verify import (
     _verify_log,
     logger,
     manifest_hash,
+)
+from mloda.enterprise.extenders.audit._records import (
+    _canonical_json,
+)
+from mloda.enterprise.extenders.audit._signers import (
+    ManifestSigner,
 )
 
 _CHECKPOINT_KIND = "seal_checkpoint"
