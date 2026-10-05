@@ -11,6 +11,7 @@ import ast
 import importlib
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -311,9 +312,9 @@ def _is_mloda_testing_import(node: ast.AST) -> bool:
     return False
 
 
-def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
-    """Every .py file under root_dir, outside any tests/ directory, that imports mloda.testing at
-    any depth (module level, function level, or inside a TYPE_CHECKING block)."""
+def _files_with_import(root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[Path]:
+    """Every .py file under root_dir, outside any tests/ directory, with a node matching predicate
+    at any depth (module level, function level, or inside a TYPE_CHECKING block)."""
     offenders: list[Path] = []
     for py_file in sorted(root_dir.rglob("*.py")):
         rel_path = py_file.relative_to(root_dir)
@@ -321,9 +322,50 @@ def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
         if "tests" in parts or any(part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts):
             continue
         tree = ast.parse(py_file.read_text(encoding="utf-8"))
-        if any(_is_mloda_testing_import(node) for node in ast.walk(tree)):
+        if any(predicate(node) for node in ast.walk(tree)):
             offenders.append(rel_path)
     return offenders
+
+
+def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
+    return _files_with_import(root_dir, _is_mloda_testing_import)
+
+
+_EXTENDERS_SHARED = "mloda.community.extenders.shared"
+
+
+def _is_private_name(name: str) -> bool:
+    return name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
+
+
+def _is_private_extenders_shared_import(node: ast.AST) -> bool:
+    """True for an import of a private (single-underscore) module segment or name of the extenders-shared package."""
+    if isinstance(node, ast.Import):
+        return any(
+            (alias.name == _EXTENDERS_SHARED or alias.name.startswith(_EXTENDERS_SHARED + "."))
+            and any(_is_private_name(segment) for segment in alias.name.split("."))
+            for alias in node.names
+        )
+    if isinstance(node, ast.ImportFrom) and node.module is not None:
+        if node.module != _EXTENDERS_SHARED and not node.module.startswith(_EXTENDERS_SHARED + "."):
+            return False
+        return any(_is_private_name(segment) for segment in node.module.split(".")) or any(
+            _is_private_name(alias.name) for alias in node.names
+        )
+    return False
+
+
+def test_enterprise_runtime_code_uses_only_public_extenders_shared_names() -> None:
+    root_dir = _REPO_ROOT / "mloda" / "enterprise"
+    assert root_dir.is_dir(), f"expected {root_dir} to exist"
+    offenders = [
+        f"mloda/enterprise/{p.as_posix()}" for p in _files_with_import(root_dir, _is_private_extenders_shared_import)
+    ]
+    assert not offenders, (
+        "enterprise runtime code imports private mloda-community-extenders-shared names; a private dependency "
+        "must pin mloda-community-extenders-shared~={version} (see docs/packaging.md#sibling-dependency-floors): "
+        f"{offenders}"
+    )
 
 
 def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None:
@@ -359,3 +401,18 @@ def test_walker_ignores_import_inside_a_tests_directory(tmp_path: Path) -> None:
     tests_dir.mkdir()
     _write(tests_dir / "test_m.py", "from mloda.testing.base import FeatureGroupTestBase\n")
     assert _files_importing_mloda_testing(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("body", "flagged"),
+    [
+        ("from mloda.community.extenders.shared.teardown import _force_flush\n", True),
+        ("from mloda.community.extenders.shared._internal import force_flush\n", True),
+        ("import mloda.community.extenders.shared._internal\n", True),
+        ("from mloda.community.extenders.shared.teardown import force_flush\n", False),
+    ],
+)
+def test_private_extenders_shared_import_predicate(tmp_path: Path, body: str, flagged: bool) -> None:
+    _write(tmp_path / "m.py", body)
+    expected = [Path("m.py")] if flagged else []
+    assert _files_with_import(tmp_path, _is_private_extenders_shared_import) == expected
