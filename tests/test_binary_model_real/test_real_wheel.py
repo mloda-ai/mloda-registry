@@ -13,12 +13,14 @@ duplicated here. The end-to-end test needs a test-key build (never published), s
 release wheel. That skip is deliberate: CI holds no production license and no access to the private wrapper
 repo, so no secret can leak; a production-license run is a manual check at key issuance. The ``real-wheel`` CI
 job runs this directory on Linux x86_64, macOS and Windows, not Linux aarch64 (the wrapper does not
-run-test it).
+run-test it). The manual production-license run is
+``MLODA_LICENSE_FILE=<license> pytest tests/test_binary_model_real/``.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -53,12 +55,14 @@ class _ExampleTestLicense(BinaryExampleFeatureGroup):
     """Production class, real wheel (no BINARY_COMMAND_OVERRIDE), shared test-signed license."""
 
     LICENSE_KEY_OVERRIDE = valid_license_token([BinaryExampleFeatureGroup.BINARY_PLUGIN_ID])
+    LICENSE_FILE_OVERRIDE = ""  # an ambient MLODA_LICENSE_FILE is read first and would mask the test key
 
 
 class _AnonymizerTestLicense(AnonymizerFeatureGroup):
     """Production class, real wheel (no BINARY_COMMAND_OVERRIDE), shared test-signed license."""
 
     LICENSE_KEY_OVERRIDE = valid_license_token([AnonymizerFeatureGroup.BINARY_PLUGIN_ID])
+    LICENSE_FILE_OVERRIDE = ""  # an ambient MLODA_LICENSE_FILE is read first and would mask the test key
 
 
 @dataclass(frozen=True)
@@ -198,21 +202,14 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
 # -------------------------------------------------------------------------------------------
 
 
-def test_real_binary_end_to_end_with_valid_test_license(real_case: _RealCase) -> None:
-    if not real_case.accepts_test_key():
-        pytest.skip(
-            "test-key build not installed: this real wheel is a release build, which trusts only "
-            "production keys and rejects the shared test-signed license vectors as unknown-kid, so no "
-            "license from license_vectors can drive a full run"
-        )
-    case = real_case.case
+def _run_end_to_end(case: _Case, feature_class: type[BinaryExampleFeatureGroup] | type[AnonymizerFeatureGroup]) -> None:
     rows: dict[str, list[str]] = {case.source_column: ["alpha", "beta", "gamma"]}
     feature, _ = _single_feature(case)
     results = mloda.run_all(
         [feature],
         compute_frameworks={PyArrowTable},
         api_data={"BinaryRealWheelData": rows},
-        plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, case.test_license_class}),
+        plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, feature_class}),
     )
     expected = case.expected(rows)
     found = False
@@ -221,3 +218,28 @@ def test_real_binary_end_to_end_with_valid_test_license(real_case: _RealCase) ->
             assert table.column(case.column).to_pylist() == expected
             found = True
     assert found, f"{case.column} column not found in any result table"
+
+
+@pytest.mark.parametrize("case_name", list(_CASES))
+def test_test_license_class_suppresses_ambient_license_file(case_name: str) -> None:
+    """An empty LICENSE_FILE_OVERRIDE stops forwarding MLODA_LICENSE_FILE, which the binary reads before the key."""
+    assert _CASES[case_name].test_license_class.LICENSE_FILE_OVERRIDE == ""
+
+
+def test_real_binary_end_to_end_with_valid_test_license(real_case: _RealCase) -> None:
+    if not real_case.accepts_test_key():
+        pytest.skip(
+            "test-key build not installed: this real wheel is a release build, which trusts only "
+            "production keys and rejects the shared test-signed license vectors as unknown-kid, so no "
+            "license from license_vectors can drive a full run"
+        )
+    _run_end_to_end(real_case.case, real_case.case.test_license_class)
+
+
+def test_real_binary_end_to_end_with_production_license(real_case: _RealCase) -> None:
+    """Manual production-license run: the caller's MLODA_LICENSE_FILE is forwarded to the real binary."""
+    if not os.environ.get("MLODA_LICENSE_FILE"):
+        pytest.skip(
+            "manual production-license run: set MLODA_LICENSE_FILE to a production license entitled to this wheel"
+        )
+    _run_end_to_end(real_case.case, real_case.case.production_class)
