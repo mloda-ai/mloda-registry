@@ -1429,15 +1429,11 @@ class TestOtelExtenderJoinSpanAttributes:
         assert "mloda.feature.name" not in attrs
         assert "mloda.rows.out" not in attrs
 
-    def test_asof_join_with_timedelta_tolerance_records_seconds(
+    def test_asof_join_records_time_columns_direction_and_exact_matches(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         config = AsOfJoinConfig(
-            left_time_column="lt",
-            right_time_column="rt",
-            direction="nearest",
-            tolerance=datetime.timedelta(minutes=2),
-            allow_exact_matches=False,
+            left_time_column="lt", right_time_column="rt", direction="nearest", allow_exact_matches=False
         )
 
         attrs = self._join_attributes(otel_capture, join_type="asof", join_keys=("k=k",), asof_config=config)
@@ -1447,43 +1443,37 @@ class TestOtelExtenderJoinSpanAttributes:
         assert attrs["mloda.join.asof.right_time_column"] == "rt"
         assert attrs["mloda.join.asof.direction"] == "nearest"
         assert attrs["mloda.join.asof.allow_exact_matches"] is False
-        assert attrs["mloda.join.asof.tolerance_seconds"] == 120.0
-        assert "mloda.join.asof.tolerance" not in attrs
 
-    @pytest.mark.parametrize("tolerance", [5, 2.5], ids=["int", "float"])
-    def test_asof_join_with_numeric_tolerance_records_it_as_given(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], tolerance: float
+    @pytest.mark.parametrize(
+        ("tolerance", "expected_key", "expected_value"),
+        [
+            (datetime.timedelta(minutes=2), "mloda.join.asof.tolerance_seconds", 120.0),
+            (5, "mloda.join.asof.tolerance", 5),
+            (2.5, "mloda.join.asof.tolerance", 2.5),
+            (None, None, None),
+            (True, None, None),
+        ],
+        ids=["timedelta", "int", "float", "absent", "bool"],
+    )
+    def test_asof_join_tolerance_attribute(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        tolerance: Any,
+        expected_key: str | None,
+        expected_value: float | None,
     ) -> None:
         config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt", tolerance=tolerance)
 
         attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
 
-        assert attrs["mloda.join.asof.tolerance"] == tolerance
-        assert type(attrs["mloda.join.asof.tolerance"]) is type(tolerance)
-        assert "mloda.join.asof.tolerance_seconds" not in attrs
-
-    def test_asof_join_without_tolerance_records_neither_tolerance_key(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt")
-
-        attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
-
         assert attrs["mloda.join.asof.left_time_column"] == "lt"
         assert attrs["mloda.join.asof.allow_exact_matches"] is True
-        assert "mloda.join.asof.tolerance" not in attrs
-        assert "mloda.join.asof.tolerance_seconds" not in attrs
-
-    def test_asof_join_with_bool_tolerance_records_neither_tolerance_key(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt", tolerance=True)
-
-        attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
-
-        assert attrs["mloda.join.asof.left_time_column"] == "lt"
-        assert "mloda.join.asof.tolerance" not in attrs
-        assert "mloda.join.asof.tolerance_seconds" not in attrs
+        for key in ("mloda.join.asof.tolerance", "mloda.join.asof.tolerance_seconds"):
+            if key != expected_key:
+                assert key not in attrs, key
+        if expected_key is not None:
+            assert attrs[expected_key] == expected_value
+            assert type(attrs[expected_key]) is type(expected_value)
 
     def test_join_keys_absent_for_a_keyless_join(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
