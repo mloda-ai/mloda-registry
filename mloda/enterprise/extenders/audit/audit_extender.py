@@ -176,8 +176,8 @@ class AuditExtender(Extender):
     so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the segment
     after an auto-seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not
     count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
-    seal_index_path opts into a rebuildable seal index cache; it needs
-    the sealing config and must not alias audit_path, manifest_path or the anchor path."""
+    seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
+    audit_path, manifest_path or the anchor path."""
 
     def __init__(
         self,
