@@ -14,7 +14,7 @@ import re
 import stat
 import sys
 import threading
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -35,6 +35,7 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
+from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
@@ -147,6 +148,7 @@ _EXPECTED_RECORD_KEYS = {
     "error_type",
     "data_access_identity",
     "data_access_format",
+    "data_access_identity_is_fallback",
     "policy_version",
 }
 
@@ -450,18 +452,26 @@ _OUTER_CLASS = "my.module.OuterFeatureGroup"
 _INNER_CLASS = "my.module.InnerFeatureGroup"
 
 
-def _load_context(identity: str | None, data_format: str | None = None) -> HookContext:
+def _load_context(identity: str | None, data_format: str | None = None, is_fallback: bool | None = None) -> HookContext:
     """An INPUT_DATA_LOAD context without a tenant_id, so a load that got gated would be refused."""
     return make_hook_context(
-        hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity, data_access_format=data_format
+        hook=ExtenderHook.INPUT_DATA_LOAD,
+        data_access_identity=identity,
+        data_access_format=data_format,
+        data_access_identity_is_fallback=is_fallback,
     )
 
 
 def _load(
-    extender: Callable[..., Any], identity: str | None, data_format: str | None = None, *, args: tuple[Any, ...] = ()
+    extender: Callable[..., Any],
+    identity: str | None,
+    data_format: str | None = None,
+    *,
+    args: tuple[Any, ...] = (),
+    is_fallback: bool | None = None,
 ) -> Any:
     """Run one wrapped load, passing args to the wrapped call; call it from inside a calculate call."""
-    with _load_context(identity, data_format).activate():
+    with _load_context(identity, data_format, is_fallback).activate():
         return extender(lambda *_: "loaded", *args)
 
 
@@ -471,14 +481,18 @@ def _calculate(extender: Callable[..., Any], body: Callable[[], Any], feature_gr
         return extender(body)
 
 
-def _record_for_loads(loads: list[tuple[str | None, str | None]], args: tuple[Any, ...] = ()) -> dict[str, Any]:
-    """The record of one calculate call that ran the given (identity, format) loads, each called with args."""
+def _record_for_loads(
+    loads: Sequence[tuple[str | None, str | None] | tuple[str | None, str | None, bool | None]],
+    args: tuple[Any, ...] = (),
+) -> dict[str, Any]:
+    """The record of one calculate call that ran the given (identity, format[, is_fallback]) loads, each called
+    with args."""
     sink = InMemoryAuditSink()
     extender = AuditExtender(sink=sink)
 
     def body() -> None:
-        for identity, data_format in loads:
-            _load(extender, identity, data_format, args=args)
+        for identity, data_format, *rest in loads:
+            _load(extender, identity, data_format, args=args, is_fallback=rest[0] if rest else None)
 
     _calculate(extender, body)
 
@@ -2904,6 +2918,7 @@ class TestAuditExtenderDataAccess:
 
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
+        assert record["data_access_identity_is_fallback"] == []
 
     def test_refusal_record_carries_empty_data_access_lists(self) -> None:
         sink = InMemoryAuditSink()
@@ -2915,6 +2930,7 @@ class TestAuditExtenderDataAccess:
 
         assert sink.records[0]["data_access_identity"] == []
         assert sink.records[0]["data_access_format"] == []
+        assert sink.records[0]["data_access_identity_is_fallback"] == []
 
     def test_nested_load_lands_on_the_enclosing_record_and_writes_no_record_of_its_own(self) -> None:
         sink = InMemoryAuditSink()
@@ -2941,10 +2957,11 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_format"] == [None]
 
     def test_load_without_an_identity_is_skipped(self) -> None:
-        record = _record_for_loads([(None, "CsvReader")])
+        record = _record_for_loads([(None, "CsvReader", True)])
 
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
+        assert record["data_access_identity_is_fallback"] == []
 
     def test_failing_load_appears_on_the_error_record_and_the_exception_propagates(self) -> None:
         sink = InMemoryAuditSink()
@@ -2999,11 +3016,37 @@ class TestAuditExtenderDataAccess:
         other = "s3://bucket/other.csv"
 
         record = _record_for_loads(
-            [(_BUCKET_KEY, "ParquetReader"), (other, "CsvReader"), (_BUCKET_KEY, "ParquetReader")]
+            [
+                (_BUCKET_KEY, "ParquetReader", False),
+                (other, "CsvReader", True),
+                (_BUCKET_KEY, "ParquetReader", False),
+            ]
         )
 
         assert record["data_access_identity"] == [_BUCKET_KEY, other]
         assert record["data_access_format"] == ["ParquetReader", "CsvReader"]
+        assert record["data_access_identity_is_fallback"] == [False, True]
+
+    def test_fallback_flag_true_is_recorded_index_aligned(self) -> None:
+        record = _record_for_loads([("str", "CsvReader", True)])
+
+        assert record["data_access_identity"] == ["str"]
+        assert record["data_access_format"] == ["CsvReader"]
+        assert record["data_access_identity_is_fallback"] == [True]
+
+    def test_same_identity_and_format_with_different_flags_gives_two_entries(self) -> None:
+        record = _record_for_loads(
+            [("str", "CsvReader", True), ("str", "CsvReader", False), ("str", "CsvReader", True)]
+        )
+
+        assert record["data_access_identity"] == ["str", "str"]
+        assert record["data_access_format"] == ["CsvReader", "CsvReader"]
+        assert record["data_access_identity_is_fallback"] == [True, False]
+
+    def test_hand_built_context_without_the_flag_records_none(self) -> None:
+        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")])
+
+        assert record["data_access_identity_is_fallback"] == [None]
 
     def test_same_identity_under_two_formats_gives_two_entries(self) -> None:
         record = _record_for_loads([(_BUCKET_KEY, "CsvReader"), (_BUCKET_KEY, "ParquetReader")])
@@ -3483,6 +3526,27 @@ class TestAuditExtenderRunAll:
         assert len(records) == 1
         assert records[0]["data_access_identity"] == [str(tmp_path / "data.csv")]
         assert records[0]["data_access_format"] == ["CsvReader"]
+        assert records[0]["data_access_identity_is_fallback"] == [False]
+
+    def test_run_all_csv_read_with_a_fallback_identity_records_the_flag_true(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A reader that does not override the identity falls back to the type name of its data access ("str").
+        monkeypatch.setattr(
+            CsvReader, "data_access_identity", classmethod(lambda cls, data_access: type(data_access).__name__)
+        )
+        audit_path = tmp_path / "audit.ndjson"
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+
+        with verified_context(tenant_id="tenant-42"):
+            run_csv_feature(tmp_path, extender)
+
+        read_class = f"{ReadFileFeature.__module__}.{ReadFileFeature.__qualname__}"
+        sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        records = [record for record in sink_records if record["feature_group_class"] == read_class]
+        assert len(records) == 1
+        assert records[0]["data_access_identity"] == ["str"]
+        assert records[0]["data_access_identity_is_fallback"] == [True]
 
     def test_run_all_without_verified_context_denies_but_still_runs(self) -> None:
         sink = InMemoryAuditSink()

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import attr
 from mloda.steward import (
     Extender,
     ExtenderHook,
@@ -28,11 +29,24 @@ from mloda.community.extenders.shared.open_invocations import OpenInvocationStac
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
+from openlineage.client.facet_v2 import DatasetFacet, datasource_dataset, parent_run, schema_dataset
 
 logger = logging.getLogger(__name__)
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/community/extenders/openlineage"
+_SCHEMA_URL = (
+    "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py"
+)
+
+
+@attr.define
+class MlodaDataAccessFacet(DatasetFacet):
+    identityIsFallback: bool = attr.field()
+
+    @staticmethod
+    def _get_schema() -> str:
+        # The module in this repo, not a hosted JSON schema.
+        return _SCHEMA_URL
 
 
 @dataclass
@@ -132,7 +146,9 @@ class OpenLineageExtender(Extender):
     pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
-    loads are core's data_access_identity, recorded as given. After a transport failure (connection, timeout, HTTP
+    loads are core's data_access_identity, recorded as given; a fallback identity (core's
+    data_access_identity_is_fallback) also gets an mlodaDataAccess facet with identityIsFallback true, so consumers
+    can tell a placeholder from a dataset. After a transport failure (connection, timeout, HTTP
     5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
     terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such
     as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass
@@ -351,17 +367,12 @@ class OpenLineageExtender(Extender):
                 i.namespace == self.dataset_namespace and i.name == identity for i in invocation.inputs
             )
             if not already_present:
-                invocation.inputs.append(
-                    InputDataset(
-                        namespace=self.dataset_namespace,
-                        name=identity,
-                        facets={
-                            "dataSource": datasource_dataset.DatasourceDatasetFacet(
-                                name=identity, producer=self.producer
-                            )
-                        },
-                    )
-                )
+                facets: dict[str, Any] = {
+                    "dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)
+                }
+                if context.data_access_identity_is_fallback is True:
+                    facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
+                invocation.inputs.append(InputDataset(namespace=self.dataset_namespace, name=identity, facets=facets))
         if invocation is None:
             logger.debug(
                 "%s: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to", type(self).__name__

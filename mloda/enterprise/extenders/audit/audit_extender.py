@@ -48,7 +48,9 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_IDENTITY_NAMES = ("tenant_id", "project_id", "principal")
 
-_open_calculates: OpenInvocationStack[list[tuple[str, str | None]]] = OpenInvocationStack("audit_open_calculates")
+_open_calculates: OpenInvocationStack[list[tuple[str, str | None, bool | None]]] = OpenInvocationStack(
+    "audit_open_calculates"
+)
 
 
 class AuditSink(Protocol):
@@ -157,9 +159,10 @@ class AuditExtender(Extender):
     before the wrapped call, also at FEATURE_GROUP_MATCHED, and runs outermost (priority 0). fail_closed=True
     declares core's never_fall_back, so raise_on_error has no effect on it: the refusal, and a sink
     failure on the refusal path or after a successful call, always propagate. fail_closed is read-only.
-    Records also list the distinct data loads the call attempted, as index-aligned identity and format
-    lists ([] for none; a load without an identity is omitted). The identity is core's data_access_identity,
-    recorded as given, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
+    Records also list the distinct data loads the call attempted, as three index-aligned identity, format and
+    identity-is-fallback lists ([] for none; a load without an identity is omitted). The identity is core's
+    data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
+    back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
@@ -592,7 +595,7 @@ class AuditExtender(Extender):
             if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED:
                 return func(*args, **kwargs)
 
-        loads: list[tuple[str, str | None]] = []
+        loads: list[tuple[str, str | None, bool | None]] = []
         try:
             with _open_calculates.open(self, loads):
                 result = func(*args, **kwargs)
@@ -624,7 +627,7 @@ class AuditExtender(Extender):
         identity = context.data_access_identity
         if identity is None:
             return
-        entry = (identity, context.data_access_format)
+        entry = (identity, context.data_access_format, context.data_access_identity_is_fallback)
         if entry not in loads:
             loads.append(entry)
 
@@ -654,7 +657,12 @@ class AuditExtender(Extender):
         return [name for name in self.required_identity if _is_blank(getattr(context, name))]
 
     def _build_record(
-        self, context: HookContext, loads: list[tuple[str, str | None]], *, status: str | None, error_type: str | None
+        self,
+        context: HookContext,
+        loads: list[tuple[str, str | None, bool | None]],
+        *,
+        status: str | None,
+        error_type: str | None,
     ) -> dict[str, Any]:
         per_call: dict[str, Any] = {
             "feature_group_class": context.feature_group_class,
@@ -677,7 +685,7 @@ class AuditExtender(Extender):
         run_id: str | None,
         plan_id: str | None,
         per_call: dict[str, Any],
-        loads: list[tuple[str, str | None]],
+        loads: list[tuple[str, str | None, bool | None]],
         status: str | None,
         error_type: str | None,
     ) -> dict[str, Any]:
@@ -698,6 +706,7 @@ class AuditExtender(Extender):
             **per_call,
             "status": status,
             "error_type": error_type,
-            "data_access_identity": [identity for identity, _ in loads],
-            "data_access_format": [fmt for _, fmt in loads],
+            "data_access_identity": [identity for identity, _, _ in loads],
+            "data_access_format": [fmt for _, fmt, _ in loads],
+            "data_access_identity_is_fallback": [flag for _, _, flag in loads],
         }
