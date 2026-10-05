@@ -267,8 +267,8 @@ def _source_columns(context: HookContext, func: Any, args: tuple[Any, ...]) -> l
 
 
 def _pending_describe(context: HookContext, args: tuple[Any, ...]) -> _PendingDescribe:
-    """None when the load has no reader_class on the context or no positional data_access; else a deferred describe call."""
-    describe = getattr(context.reader_class, "describe_columns", None) if context.reader_class is not None else None
+    """None without a reader_class or positional data_access; else a deferred describe call."""
+    describe = getattr(context.reader_class, "describe_columns", None)
     if describe is None or not args:
         return None
     data_access = args[0]

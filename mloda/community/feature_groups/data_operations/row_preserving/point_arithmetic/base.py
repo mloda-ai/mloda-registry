@@ -58,8 +58,8 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     # The source side must carry the '&' separator: point arithmetic needs two
     # operands, so a one-operand name like 'x__add_point' cannot be computed.
     # Without the '&' here such a name matched at resolution time and only blew
-    # up at compute time with a ValueError instead of a "no feature group found" error naming the real
-    # problem. The config path (arithmetic_op plus a two-element in_features)
+    # up at compute time with a ValueError instead of a "no feature group found"
+    # error naming the real problem. The config path (arithmetic_op plus a two-element in_features)
     # does not go through this pattern and is unaffected.
     PREFIX_PATTERN = r".*&.*__([\w]+)_point$"
 

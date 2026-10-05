@@ -201,7 +201,7 @@ class OtelExtender(Extender):
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                     raise
                 if context.hook in _DECLARABLE_HOOKS:
-                    self._set_declared_attributes(span, context)
+                    _set_declared_attributes(span, context)
 
             try:
                 result = func(*args, **kwargs)
@@ -225,22 +225,6 @@ class OtelExtender(Extender):
                 logger.warning("%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__)
 
             return result
-
-    def _set_declared_attributes(self, span: Span, context: HookContext) -> None:
-        """mloda.declared.<key> attributes from the hook context's declared_attributes (validated by core)."""
-        if not span.is_recording() or not context.declared_attributes:
-            return
-        items = context.declared_attributes.items()
-        count = 0
-        for key, value in items:
-            if count >= _MAX_DECLARED_KEYS:
-                break
-            if not isinstance(value, _SCALAR_TYPES):
-                continue
-            if isinstance(value, str):
-                value = value[:_CONTENT_PREVIEW_MAX_LEN]
-            span.set_attribute(f"mloda.declared.{key}", value)
-            count += 1
 
     def _content_capture_enabled(self) -> bool:
         if self.capture_content is not None:
@@ -317,6 +301,22 @@ def _set_load_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.data_access.identity", identity)
     if context.data_access_format is not None:
         span.set_attribute("mloda.data_access.format", context.data_access_format)
+
+
+def _set_declared_attributes(span: Span, context: HookContext) -> None:
+    """mloda.declared.<key> attributes from the hook context's declared_attributes (validated by core)."""
+    if not span.is_recording() or not context.declared_attributes:
+        return
+    count = 0
+    for key, value in context.declared_attributes.items():
+        if count >= _MAX_DECLARED_KEYS:
+            break
+        if not isinstance(value, _SCALAR_TYPES):
+            continue
+        if isinstance(value, str):
+            value = value[:_CONTENT_PREVIEW_MAX_LEN]
+        span.set_attribute(f"mloda.declared.{key}", value)
+        count += 1
 
 
 def _set_context_attributes(span: Span, context: HookContext) -> None:

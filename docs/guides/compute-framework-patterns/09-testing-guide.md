@@ -304,6 +304,7 @@ class TestMyTransformer:
 - [ ] `merge_engine()` returns BaseMergeEngine subclass
 - [ ] `filter_engine()` returns BaseFilterEngine subclass
 - [ ] `mask_engine()` returns BaseMaskEngine subclass
+- [ ] `extract_column_names()` returns the column names, called on the class
 - [ ] `transform()` handles dict input
 
 ### Merge Engine (use MultiIndexMergeEngineTestBase)

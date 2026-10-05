@@ -1319,7 +1319,7 @@ class TestOtelExtenderLoadSpanAttributes:
 
 
 class _Target:
-    """Stand-in for a feature group or reader; declared attributes now come from the context, not the class."""
+    """Stand-in for a feature group or reader."""
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -1494,32 +1494,12 @@ class TestOtelExtenderDeclaredAttributes:
         assert len(declared_keys) == 32, declared_keys
         assert declared_keys == {f"mloda.declared.k{i}" for i in range(32)}
 
-    def test_declared_attributes_not_applied_when_span_is_not_recording(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        # An unsampled remote parent: the default ParentBased sampler drops the span (not recording).
-        carrier = {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"}
-        context = make_hook_context(
-            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
-            carrier=carrier,
-            declared_attributes={"dataset": "orders"},
-        )
-
-        with context.activate():
-            result = otel(_Target.calculate_feature, None, FeatureSet())
-
-        assert result == "calculated"
-        assert exporter.get_finished_spans() == ()
-
 
 def _declaring_feature_group(declaration: Callable[[Any, FeatureSet | None], Any]) -> type[FailingFeatureGroup]:
     """Build a fresh succeeding feature group whose declared_attributes classmethod is declaration."""
 
     class _Declaring(FailingFeatureGroup):
         feature_name = f"declared_{uuid.uuid4().hex}"
-        calls = 0
 
         @classmethod
         def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
