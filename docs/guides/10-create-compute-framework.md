@@ -38,8 +38,9 @@ Q9: Need to understand filter operations?
     YES → See 07-filter-engine
 
 Q10: Should connections be auto-created or user-provided?
-    AUTO  → Add fallback in set_framework_connection_object()
-    USER  → Require via data_access_collection parameter
+    AUTO  → Add fallback in set_framework_connection_object(); connection_requirement() returns SELF_MANAGED
+    USER  → Require via data_access_collection parameter; connection_requirement() returns REQUIRED
+    (see 03-stateful-connection, "Declare the Connection Requirement")
 
 Q11: Ready to test your implementation?
     YES → See 09-testing-guide

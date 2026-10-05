@@ -32,6 +32,19 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
             raise ValueError(f"Expected catalog or table")
 ```
 
+Declare the requirement as in [Category 3](03-stateful-connection.md#declare-the-connection-requirement): `SELF_MANAGED` when the framework still runs without a supplied catalog (Iceberg works on the table objects it is given), `REQUIRED` when it cannot, with `_connection_matches()` accepting a catalog or a table:
+
+```python
+@classmethod
+def connection_requirement(cls) -> ConnectionRequirement:
+    return ConnectionRequirement.SELF_MANAGED
+
+
+@classmethod
+def _connection_matches(cls, conn: Any) -> bool:
+    return hasattr(conn, "load_table") or isinstance(conn, IcebergTable)
+```
+
 Merge typically not supported:
 
 ```python
