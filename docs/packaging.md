@@ -61,7 +61,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
 | `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean. It governs the released set, and also wheel contents: a bundle must own (name in its own `dependencies` or a non-dev extra) every published package nested under its path, and ships only the unpublished rest |
-| `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor, `"<sibling>>={version}"` for a sibling package, or, for a package nested under an `entry_point_bundle`'s own path, `"<sibling>=={version}"` to own it (see [Sibling dependency floors](#sibling-dependency-floors)). The generator defaults it to empty rather than failing, but every package declares it |
+| `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor, `"<sibling>>={version}"` for a sibling package (`"<sibling>~={version}"` when built on its private seams), or, for a package nested under an `entry_point_bundle`'s own path, `"<sibling>=={version}"` to own it (see [Sibling dependency floors](#sibling-dependency-floors)). The generator defaults it to empty rather than failing, but every package declares it |
 | `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order; an `entry_point_bundle` cannot use it and names each package it owns instead, through a non-dev extra the same as through `dependencies`. A test-only third-party dependency goes in `dev` here; see [Add a test-only dependency](#add-a-test-only-dependency) |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
@@ -95,7 +95,12 @@ the spellings `"<sibling>[extras]>={version}"` and `"<sibling>[extras]~={version
 normalizes to a configured sibling package; any other use of `{version}` fails generation. `~=` is for a
 dependent built on a sibling's private seams (enterprise lineage on community OpenLineage); it accepts only
 patch releases of the minor it was built with. The `~=` pin binds only through the extra, so install
-enterprise lineage as `mloda-enterprise[openlineage]`.
+enterprise lineage as `mloda-enterprise[openlineage]`. It only holds if a seam change ships as a `minor:`
+commit; under `fix:` or `feat:` it is a patch release, which `~=` admits.
+
+Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders-shared>={version}"`
+because its runtime code imports only public names from it (`tests/test_end2end/test_dependency_direction.py`
+guards this). A `~=` there would also cap the `mloda-community` bundle, which pins that package exactly.
 
 Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
 sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships
