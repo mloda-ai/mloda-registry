@@ -368,6 +368,20 @@ class TestSealIndex:
 
         assert len(calls) < 4
 
+    def test_a_hint_that_points_at_a_line_not_naming_the_run_falls_back_to_the_full_scan(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        connection = sqlite3.connect(index_path)
+        try:
+            connection.execute("UPDATE hint SET line_start = 0 WHERE run_id = ?", ("run-3",))
+            connection.commit()
+        finally:
+            connection.close()
+
+        with pytest.raises(RunAlreadySealedError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-3", seal_index_path=index_path)
+
     def test_no_wal_or_shm_files_are_left_next_to_the_index(self, tmp_path: Path) -> None:
         _indexed_log(tmp_path / "live")
 

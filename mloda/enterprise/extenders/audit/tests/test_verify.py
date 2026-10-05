@@ -1878,6 +1878,22 @@ class TestMalformedNdjsonLines:
         assert _core._scan_for_run(manifest_path, "run-z") is False
         assert _core._scan_for_run(manifest_path, "run-a") is True
 
+    def test_the_scan_for_run_skips_an_undecodable_tail_but_counts_an_unterminated_decodable_seal(
+        self, tmp_path: Path
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        with open(manifest_path, "ab") as manifest_file:
+            manifest_file.write(b'["run-z"]\n{"run_id": "run-z", "record_co')
+
+        assert _core._scan_for_run(manifest_path, "run-z") is False
+        assert _core._scan_for_run(manifest_path, "run-a") is True
+
+        with open(manifest_path, "ab") as manifest_file:
+            manifest_file.write(b"\n" + json.dumps({"run_id": "run-y"}).encode("utf-8"))  # no trailing newline
+
+        assert _core._scan_for_run(manifest_path, "run-y") is True
+        assert _core._scan_for_run(manifest_path, "run-z") is False
+
     @pytest.mark.parametrize("reader", ["read-ndjson", "scan-for-run", "anchor-latest", "quarantine"])
     def test_no_reader_reads_an_oversized_line_whole(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str

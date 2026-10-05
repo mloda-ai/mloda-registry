@@ -1883,6 +1883,33 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         else:
             assert "mlodaDataAccess" not in facets
 
+    @pytest.mark.parametrize("flags", [(False, True), (True, False)], ids=["real_then_fallback", "fallback_then_real"])
+    def test_any_fallback_load_of_an_identity_marks_the_one_input_dataset(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], flags: tuple[bool, bool]
+    ) -> None:
+        import json
+
+        from openlineage.client.serde import Serde
+
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        def outer_func() -> str:
+            for flag in flags:
+                inner_context = make_hook_context(
+                    hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="str", data_access_identity_is_fallback=flag
+                )
+                with inner_context.activate():
+                    extender(lambda *_: "loaded-data", "host=db")
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            extender(outer_func)
+
+        payload = json.loads(Serde.to_json(transport.events[1]))
+        assert len(payload["inputs"]) == 1
+        assert payload["inputs"][0]["facets"]["mlodaDataAccess"]["identityIsFallback"] is True
+
     def test_context_identity_none_records_no_input_even_with_a_str_uri_args0(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:

@@ -132,9 +132,9 @@ class OpenLineageExtender(Extender):
     pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
-    loads are core's data_access_identity, recorded as given; a fallback identity (core's
-    data_access_identity_is_fallback) also gets an mlodaDataAccess facet with identityIsFallback true, so consumers
-    can tell a placeholder from a dataset. After a transport failure (connection, timeout, HTTP
+    loads are core's data_access_identity, recorded as given; any fallback load of a name (core's
+    data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess facet (identityIsFallback true), so
+    consumers can tell a placeholder from a dataset. After a transport failure (connection, timeout, HTTP
     5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
     terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such
     as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass
@@ -349,18 +349,22 @@ class OpenLineageExtender(Extender):
         invocation = _open_invocations.find(self)
         identity = context.data_access_identity
         if invocation is not None and identity is not None:
-            already_present = any(
-                i.namespace == self.dataset_namespace and i.name == identity for i in invocation.inputs
+            existing = next(
+                (i for i in invocation.inputs if i.namespace == self.dataset_namespace and i.name == identity), None
             )
-            if not already_present:
-                facets: dict[str, Any] = {
-                    "dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)
-                }
-                if context.data_access_identity_is_fallback is True:
-                    # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
-                    from mloda.community.extenders.openlineage._facets import MlodaDataAccessFacet
+            facets: dict[str, Any] = (
+                {"dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)}
+                if existing is None
+                else existing.facets or {}
+            )
+            if context.data_access_identity_is_fallback is True and "mlodaDataAccess" not in facets:
+                # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+                from mloda.community.extenders.openlineage._facets import MlodaDataAccessFacet
 
-                    facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
+                facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
+                if existing is not None:
+                    existing.facets = facets
+            if existing is None:
                 invocation.inputs.append(InputDataset(namespace=self.dataset_namespace, name=identity, facets=facets))
         if invocation is None:
             logger.debug(

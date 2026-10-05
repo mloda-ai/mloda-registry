@@ -164,19 +164,20 @@ class AuditExtender(Extender):
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished, whatever its outcome. Each run() of a prepared session gets a fresh run_id, so a rerun
     is audited and sealed as its own run; a calculation under an already-sealed run_id (only possible by hand)
-    is audited, and on_run_complete counts its record outside the seal as a seal failure.
+    is audited, and when the sink writes to audit_path, on_run_complete counts its record outside the seal as a
+    seal failure (under "raise" that fails the run).
     A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
     before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays).
     A record with no run_id is attributed to its plan_id, so a seal_ndjson_runs sweep seals it under that plan_id
     (target it, not a blanket sweep, while another run may be live; find it via
     verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new
-    head is emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
-    mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
+    head is emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor
+    error, or a mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Under "raise" the instance sets core's
     raise_on_run_complete, so an exception from on_run_complete (a seal failure or any other) fails a run that
     otherwise succeeded; a failed run keeps its own error and core only logs this one. segment_max_bytes /
-    segment_max_age (need log_id) rotate the segment after an auto-seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not
-    count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
+    segment_max_age (need log_id) rotate the segment after an auto-seal once the sealed bytes a rotation would
+    archive reach that size (carried pending runs do not count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
     audit_path, manifest_path or the anchor path."""
 
@@ -372,8 +373,8 @@ class AuditExtender(Extender):
         anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. Under
         "raise" the instance sets core's raise_on_run_complete, so an exception from here (a seal failure or any
         other) fails a run that otherwise succeeded; a failed run keeps its own error and core only logs this one.
-        After a seal it made, it rotates the segment when segment_max_bytes / segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
-        seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
+        After a seal it made, it rotates the segment when segment_max_bytes / segment_max_age is passed; a rotation
+        failure is a seal failure too (counted and handled by seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
         at WARNING) and retries the seal once."""
         run_id = run.run_id
         if run_id is None:
@@ -534,7 +535,8 @@ class AuditExtender(Extender):
     def __getstate__(self) -> dict[str, Any]:
         """Drops the signer material, head anchor and failure policy so a pickled copy (e.g. into a
         MULTIPROCESSING worker's dispatch payload) carries none: on_run_complete only ever runs in the parent,
-        never in a worker copy, and Ed25519Signer holds non-picklable cryptography key objects besides."""
+        never in a worker copy, and Ed25519Signer holds non-picklable cryptography key objects besides.
+        raise_on_run_complete is kept: harmless, since copies never get on_run_complete."""
         state = dict(self.__dict__)
         state["_signer"] = None
         state["_previous_signers"] = ()

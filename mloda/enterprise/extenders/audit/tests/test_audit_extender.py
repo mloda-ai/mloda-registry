@@ -51,7 +51,6 @@ from mloda.enterprise.extenders.audit import (
     manifest_hash,
     rotate_ndjson_segment,
     seal_ndjson_runs,
-    seal_run,
     verify_ndjson_log,
     verify_ndjson_log_coverage,
     verify_ndjson_segments,
@@ -211,21 +210,19 @@ def _second_extender_over_same_sealing_config(
     signer: Any,
     **kwargs: Any,
 ) -> AuditExtender:
-    """A second, fresh AuditExtender over the same sealing config; any refusal it raises must come from
-    reading the shared manifest_path."""
+    """A second, fresh AuditExtender over the same sealing config."""
     return AuditExtender(
         NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=signer, **kwargs
     )
 
 
-def _refuser_sealing_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditExtender, Path]:
-    """The instance that sealed run-1 itself; its refusal comes from reading the manifest log too."""
+def _sealing_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditExtender, Path]:
+    """The instance that sealed run-1 itself."""
     return _extender_with_run_1_sealed(tmp_path, fail_closed=fail_closed)
 
 
-def _refuser_second_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditExtender, Path]:
-    """A fresh AuditExtender over the same sealing config, which never sealed run-1 itself: any refusal it
-    raises must come from reading the shared manifest_path."""
+def _second_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditExtender, Path]:
+    """A fresh AuditExtender over the same sealing config, which never sealed run-1 itself."""
     sealing_instance, audit_path = _extender_with_run_1_sealed(tmp_path, fail_closed=fail_closed)
     _, manifest_path = _sealing_config(tmp_path)
     second = _second_extender_over_same_sealing_config(
@@ -255,30 +252,10 @@ def _rotated_after_run_1(tmp_path: Path, auto: bool = False, **kwargs: Any) -> t
     return extender, audit_path, manifest_path
 
 
-def _torn_garbage_tail(audit_path: Path, manifest_path: Path, signer: Any) -> str:
-    """Both a non-object line and a torn line name run-2, so the byte prefilter finds them and a decode is
-    attempted, but neither decodes to a sealing manifest: run-1 (sealed on line 1) stays refused, run-2 stays
-    unsealed."""
-    with open(manifest_path, "ab") as manifest_file:
-        manifest_file.write(b'["run-2"]\n{"run_id": "run-2", "record_co')
-    return "run-1"
-
-
-def _unterminated_seal_of_run_2_tail(audit_path: Path, manifest_path: Path, signer: Any) -> str:
-    """A real, decodable run-2 seal appended without its trailing newline; still counts as sealed."""
-    head = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer).head
-    record = _minimal_audit_record("run-2")
-    _append_records(audit_path, [record])
-    manifest_2 = seal_run([record], run_id="run-2", signer=signer, previous_manifest_hash=head)
-    with open(manifest_path, "ab") as manifest_file:
-        manifest_file.write(_canonical_json(manifest_2))  # no trailing newline
-    return "run-2"
-
-
 # The extenders that hold a signer: the sealing instance and a fresh second instance over the same config.
-_SIGNER_HOLDING_REFUSERS = [
-    pytest.param(_refuser_sealing_instance, id="sealing_instance"),
-    pytest.param(_refuser_second_instance, id="second_instance"),
+_SIGNER_HOLDING_INSTANCES = [
+    pytest.param(_sealing_instance, id="sealing_instance"),
+    pytest.param(_second_instance, id="second_instance"),
 ]
 
 
@@ -1423,19 +1400,19 @@ class TestAuditExtenderSealing:
         manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert "run-missing" not in {m.get("run_id") for m in manifests}
 
-    @pytest.mark.parametrize("make_refuser", _SIGNER_HOLDING_REFUSERS)
+    @pytest.mark.parametrize("make_instance", _SIGNER_HOLDING_INSTANCES)
     def test_on_run_complete_for_an_already_sealed_run_with_no_new_record_logs_no_error_and_does_not_raise(
         self,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
-        make_refuser: Callable[..., tuple[AuditExtender, Path]],
+        make_instance: Callable[..., tuple[AuditExtender, Path]],
     ) -> None:
-        refuser, audit_path = make_refuser(tmp_path, False)
+        instance, audit_path = make_instance(tmp_path, False)
         _, manifest_path = _sealing_config(tmp_path)
         before = manifest_path.read_bytes()
 
         with caplog.at_level(logging.INFO):
-            refuser.on_run_complete(RunContext(run_id="run-1"), _SUCCEEDED)  # must not raise
+            instance.on_run_complete(RunContext(run_id="run-1"), _SUCCEEDED)  # must not raise
 
         assert not any(r.levelno >= logging.ERROR and r.name == audit_extender_module.__name__ for r in caplog.records)
         infos = [r for r in caplog.records if r.levelno == logging.INFO and r.name == audit_extender_module.__name__]
@@ -1798,7 +1775,7 @@ class TestAuditExtenderSealing:
         assert len(captured) == 1
         assert isinstance(captured[0], ManifestVerificationError)
 
-    def test_extender_without_sealing_config_never_refuses(self) -> None:
+    def test_extender_without_sealing_config_seal_is_a_noop_and_the_call_still_runs(self) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
 

@@ -432,12 +432,11 @@ def _iter_manifests(path: str | Path) -> Iterator[dict[str, Any]]:
         return
 
 
-def _scan_for_run(manifest_path: str | Path, run_id: str, start: int = 0) -> bool:
-    """Byte-scan the manifest lines from `start` for a decodable JSON object with `run_id`."""
+def _scan_for_run(manifest_path: str | Path, run_id: str) -> bool:
+    """Byte-scan the manifest lines for a decodable JSON object with `run_id`."""
     needle = json.dumps(run_id).encode("utf-8")
     try:
         with open(manifest_path, "rb") as file:
-            file.seek(start)
             for raw in _read_lines(file):
                 if isinstance(raw, _OversizedLine) or needle not in raw:
                     continue
