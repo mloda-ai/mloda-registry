@@ -8,6 +8,7 @@ import reprlib
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Literal
 
 from mloda.steward import (
@@ -93,6 +94,7 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
     ExtenderHook.VALIDATE_OUTPUT_FEATURE: "mloda.validate.output",
     ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
+    ExtenderHook.JOIN: "join",
 }
 
 _OPERATION_NAMES: dict[ExtenderHook, str] = {
@@ -100,6 +102,7 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.VALIDATE_INPUT_FEATURE: "validate",
     ExtenderHook.VALIDATE_OUTPUT_FEATURE: "validate",
     ExtenderHook.INPUT_DATA_LOAD: "load",
+    ExtenderHook.JOIN: "join",
 }
 
 # Hooks that record the context's declared attributes and rows.out after the call: calculate and load only.
@@ -125,7 +128,7 @@ class OtelExtender(Extender):
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits no plan span. Calculate spans
-    are named `calculate <FeatureGroup>`. Without a known root, spans fall back to the carrier or run_id trace."""
+    are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known root, spans fall back to the carrier or run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -287,6 +290,7 @@ class OtelExtender(Extender):
             ExtenderHook.VALIDATE_INPUT_FEATURE,
             ExtenderHook.VALIDATE_OUTPUT_FEATURE,
             ExtenderHook.INPUT_DATA_LOAD,
+            ExtenderHook.JOIN,
         }
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -307,6 +311,8 @@ class OtelExtender(Extender):
                     _set_step_attributes(span, context, func)
                     if context.hook == ExtenderHook.INPUT_DATA_LOAD:
                         _set_load_attributes(span, context)
+                    if context.hook == ExtenderHook.JOIN:
+                        _set_join_attributes(span, context)
                 except BaseException as exc:
                     span.set_status(Status(StatusCode.ERROR))
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
@@ -391,6 +397,8 @@ def _span_name(context: HookContext | None) -> str:
     name = _SPAN_NAMES.get(context.hook, "mloda.unknown")
     if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and context.feature_group_class is not None:
         return f"{name} {context.feature_group_class.rsplit('.', 1)[-1]}"
+    if context.hook == ExtenderHook.JOIN and context.join_type:
+        return f"{name} {context.join_type}"
     return name
 
 
@@ -467,6 +475,26 @@ def _set_load_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.data_access.format", context.data_access_format)
     if context.data_access_identity_is_fallback is not None:
         span.set_attribute("mloda.data_access.identity_is_fallback", context.data_access_identity_is_fallback)
+
+
+def _set_join_attributes(span: Span, context: HookContext) -> None:
+    """mloda.join.* attributes from the join context; unset ones are omitted."""
+    if context.join_type is not None:
+        span.set_attribute("mloda.join.type", context.join_type)
+    if context.join_keys is not None:
+        span.set_attribute("mloda.join.keys", context.join_keys)
+    asof = context.asof_config
+    if asof is None:
+        return
+    span.set_attribute("mloda.join.asof.left_time_column", asof.left_time_column)
+    span.set_attribute("mloda.join.asof.right_time_column", asof.right_time_column)
+    span.set_attribute("mloda.join.asof.direction", asof.direction)
+    span.set_attribute("mloda.join.asof.allow_exact_matches", asof.allow_exact_matches)
+    tolerance = asof.tolerance
+    if type(tolerance) in (int, float):
+        span.set_attribute("mloda.join.asof.tolerance", tolerance)
+    elif isinstance(tolerance, timedelta):
+        span.set_attribute("mloda.join.asof.tolerance_seconds", tolerance.total_seconds())
 
 
 def _set_declared_attributes(span: Span, context: HookContext) -> None:

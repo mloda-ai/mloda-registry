@@ -26,6 +26,7 @@ import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import BaseInputData, FeatureSet
 from mloda.steward import (
+    AsOfJoinConfig,
     CompositeExtender,
     Extender,
     ExtenderHook,
@@ -64,6 +65,7 @@ from mloda.testing.extenders.runners import (
     run_csv_feature,
     run_failing_feature,
     run_feature,
+    run_joined_features,
     run_value_int,
 )
 
@@ -101,6 +103,13 @@ def _call_once(otel: OtelExtender) -> Any:
         return otel(lambda: 42)
 
 
+def _join_context(**kwargs: Any) -> HookContext:
+    """Mirrors core's JOIN context shape: no feature group, no feature names."""
+    return make_hook_context(
+        hook=ExtenderHook.JOIN, feature_group_class=None, feature_group_version=None, feature_names=(), **kwargs
+    )
+
+
 def _marker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [r for r in caplog.records if _NO_SDK_PROVIDER_MARKER in r.getMessage()]
 
@@ -126,6 +135,7 @@ class TestOtelExtenderContract(OtelExtenderTestMixin):
             ExtenderHook.VALIDATE_INPUT_FEATURE,
             ExtenderHook.VALIDATE_OUTPUT_FEATURE,
             ExtenderHook.INPUT_DATA_LOAD,
+            ExtenderHook.JOIN,
         }
 
     @classmethod
@@ -135,10 +145,13 @@ class TestOtelExtenderContract(OtelExtenderTestMixin):
             ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
             ExtenderHook.VALIDATE_OUTPUT_FEATURE: "mloda.validate.output",
             ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
+            ExtenderHook.JOIN: "join",
         }
 
     @classmethod
     def expected_span_name(cls, context: HookContext) -> str | None:
+        if context.hook == ExtenderHook.JOIN:
+            return "join" if context.join_type is None else f"join {context.join_type}"
         if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
             if context.feature_group_class is None:
                 return "calculate"
@@ -1156,12 +1169,13 @@ class TestOtelExtenderLoadSpanParenting:
         )
 
 
-class TestOtelExtenderLoadFailureHandling:
-    def test_failing_load_marks_span_error_with_error_type_and_no_message(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+class TestOtelExtenderStepFailureHandling:
+    @pytest.mark.parametrize("hook", [ExtenderHook.INPUT_DATA_LOAD, ExtenderHook.JOIN])
+    def test_failing_step_marks_span_error_with_error_type_and_no_message(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook
     ) -> None:
         provider, exporter = otel_capture
-        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD)
+        context = _join_context() if hook == ExtenderHook.JOIN else make_hook_context(hook=hook)
         otel = OtelExtender(tracer_provider=provider)
         marker = "SENSITIVE_LOAD_VALUE_xyz123"
 
@@ -1185,8 +1199,12 @@ class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
     """Characterization: calculate/validate hooks keep today's rule, ignoring an ambient active span
     whenever a carrier or run_id is present."""
 
+    @pytest.mark.parametrize(
+        ("hook", "name"),
+        [(ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, "calculate DummyFeatureGroup"), (ExtenderHook.JOIN, "join")],
+    )
     def test_calculate_span_with_run_id_ignores_ambient_active_span(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook, name: str
     ) -> None:
         from mloda.community.extenders.otel.otel_multiprocessing import trace_id_from_run_id
 
@@ -1194,20 +1212,27 @@ class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
         provider, exporter = otel_capture
         ambient_tracer = provider.get_tracer("mloda-testing-ambient")
         otel = OtelExtender(tracer_provider=provider)
+        context = (
+            _join_context(run_id=run_id, carrier=None)
+            if hook == ExtenderHook.JOIN
+            else make_hook_context(hook=hook, run_id=run_id, carrier=None)
+        )
 
         with ambient_tracer.start_as_current_span("ambient"):
-            with make_hook_context(
-                hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=run_id, carrier=None
-            ).activate():
+            with context.activate():
                 otel(lambda: None)
 
-        spans = [span for span in exporter.get_finished_spans() if span.name == "calculate DummyFeatureGroup"]
+        spans = [span for span in exporter.get_finished_spans() if span.name == name]
         assert len(spans) == 1, spans
         assert spans[0].context is not None
         assert spans[0].context.trace_id == trace_id_from_run_id(run_id)
 
+    @pytest.mark.parametrize(
+        ("hook", "name"),
+        [(ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, "calculate DummyFeatureGroup"), (ExtenderHook.JOIN, "join")],
+    )
     def test_calculate_span_with_carrier_ignores_ambient_active_span(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook, name: str
     ) -> None:
         from mloda.testing.extenders.otel import inject_parent_carrier
 
@@ -1216,11 +1241,17 @@ class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
         ambient_tracer = provider.get_tracer("mloda-testing-ambient")
         otel = OtelExtender(tracer_provider=provider)
 
+        context = (
+            _join_context(carrier=carrier)
+            if hook == ExtenderHook.JOIN
+            else make_hook_context(hook=hook, carrier=carrier)
+        )
+
         with ambient_tracer.start_as_current_span("ambient"):
-            with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, carrier=carrier).activate():
+            with context.activate():
                 otel(lambda: None)
 
-        spans = [span for span in exporter.get_finished_spans() if span.name == "calculate DummyFeatureGroup"]
+        spans = [span for span in exporter.get_finished_spans() if span.name == name]
         assert len(spans) == 1, spans
         assert spans[0].context is not None
         assert spans[0].context.trace_id == carrier_trace_id
@@ -1371,6 +1402,113 @@ class TestOtelExtenderLoadSpanAttributes:
 
         assert result == [1, 2, 3]
         assert single_span_attributes(exporter)["mloda.rows.out"] == 3
+
+
+class TestOtelExtenderJoinSpanAttributes:
+    """Attributes set on the join span."""
+
+    def _join_attributes(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], **kwargs: Any
+    ) -> Mapping[str, Any]:
+        provider, exporter = otel_capture
+        with _join_context(**kwargs).activate():
+            OtelExtender(tracer_provider=provider)(lambda: None)
+        return single_span_attributes(exporter)
+
+    def test_plain_inner_join_attributes(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
+        attrs = self._join_attributes(
+            otel_capture, join_type="inner", join_keys=("left_id=right_id",), compute_framework_name="PyArrowTable"
+        )
+
+        assert attrs["mloda.operation.name"] == "join"
+        assert attrs["mloda.join.type"] == "inner"
+        assert attrs["mloda.join.keys"] == ("left_id=right_id",)
+        assert attrs["mloda.compute_framework.name"] == "PyArrowTable"
+        for key in attrs:
+            assert not key.startswith(("mloda.join.asof.", "mloda.feature_group.")), key
+        assert "mloda.feature.name" not in attrs
+        assert "mloda.rows.out" not in attrs
+
+    def test_asof_join_with_timedelta_tolerance_records_seconds(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        config = AsOfJoinConfig(
+            left_time_column="lt",
+            right_time_column="rt",
+            direction="nearest",
+            tolerance=datetime.timedelta(minutes=2),
+            allow_exact_matches=False,
+        )
+
+        attrs = self._join_attributes(otel_capture, join_type="asof", join_keys=("k=k",), asof_config=config)
+
+        assert attrs["mloda.join.type"] == "asof"
+        assert attrs["mloda.join.asof.left_time_column"] == "lt"
+        assert attrs["mloda.join.asof.right_time_column"] == "rt"
+        assert attrs["mloda.join.asof.direction"] == "nearest"
+        assert attrs["mloda.join.asof.allow_exact_matches"] is False
+        assert attrs["mloda.join.asof.tolerance_seconds"] == 120.0
+        assert "mloda.join.asof.tolerance" not in attrs
+
+    @pytest.mark.parametrize("tolerance", [5, 2.5], ids=["int", "float"])
+    def test_asof_join_with_numeric_tolerance_records_it_as_given(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], tolerance: float
+    ) -> None:
+        config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt", tolerance=tolerance)
+
+        attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
+
+        assert attrs["mloda.join.asof.tolerance"] == tolerance
+        assert type(attrs["mloda.join.asof.tolerance"]) is type(tolerance)
+        assert "mloda.join.asof.tolerance_seconds" not in attrs
+
+    def test_asof_join_without_tolerance_records_neither_tolerance_key(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt")
+
+        attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
+
+        assert attrs["mloda.join.asof.left_time_column"] == "lt"
+        assert attrs["mloda.join.asof.allow_exact_matches"] is True
+        assert "mloda.join.asof.tolerance" not in attrs
+        assert "mloda.join.asof.tolerance_seconds" not in attrs
+
+    def test_asof_join_with_bool_tolerance_records_neither_tolerance_key(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt", tolerance=True)
+
+        attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
+
+        assert attrs["mloda.join.asof.left_time_column"] == "lt"
+        assert "mloda.join.asof.tolerance" not in attrs
+        assert "mloda.join.asof.tolerance_seconds" not in attrs
+
+    def test_join_keys_absent_for_a_keyless_join(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        attrs = self._join_attributes(otel_capture, join_type="append", join_keys=None)
+
+        assert attrs["mloda.join.type"] == "append"
+        assert "mloda.join.keys" not in attrs
+
+    def test_coerce_time_columns_is_never_recorded(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        config = AsOfJoinConfig(left_time_column="lt", right_time_column="rt", coerce_time_columns=True)
+
+        attrs = self._join_attributes(otel_capture, join_type="asof", asof_config=config)
+
+        assert attrs["mloda.join.asof.left_time_column"] == "lt"
+        assert not any("coerce" in key for key in attrs), attrs
+
+    def test_declared_attributes_are_not_set_on_a_join_span(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        attrs = self._join_attributes(otel_capture, join_type="inner", declared_attributes={"dataset": "orders"})
+
+        assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
 
 
 class _Target:
@@ -1817,6 +1955,26 @@ class TestOtelExtenderRunScopeFullRuns:
         assert root.context is not None
         assert root.context.trace_id != uuid.UUID(attributes["mloda.run.id"]).int
 
+    def test_run_all_with_a_link_puts_the_join_span_under_the_run_root(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+
+        result = run_joined_features(OtelExtender(tracer_provider=provider))
+
+        assert sorted(result) == [110, 220]
+        spans = exporter.get_finished_spans()
+        root = assert_well_formed_trace(spans)
+        assert root.name == "mloda.run"
+        joins = _named(exporter, "join inner")
+        assert len(joins) == 1, [span.name for span in spans]
+        assert joins[0].parent is not None
+        assert joins[0].parent.span_id == _ids(root)[1]
+        attributes = joins[0].attributes or {}
+        assert attributes["mloda.join.type"] == "inner"
+        assert attributes["mloda.join.keys"] == ("left_id=right_id",)
+        assert attributes["mloda.run.id"] == (root.attributes or {})["mloda.run.id"]
+
     def test_prepared_plan_run_twice_gives_one_trace_and_one_root_per_run(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
@@ -2075,15 +2233,16 @@ class TestOtelExtenderRootSpanHooks:
         step = next(span for span in exporter.get_finished_spans() if span.name != "mloda.run")
         assert _ids(step)[0] == uuid.UUID(run_id).int
 
+    @pytest.mark.parametrize("hook", [ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.JOIN])
     def test_step_span_is_a_child_of_the_known_root(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         run_id = str(uuid.uuid4())
 
         _start_run(otel, run_id)
-        _step(otel, run_id)
+        _step(otel, run_id, hook=hook)
         _complete_run(otel, run_id)
 
         spans = exporter.get_finished_spans()
@@ -2377,12 +2536,26 @@ class TestOtelExtenderStepSpanNaming:
         assert "mloda.step.run_id" not in single_span_attributes(exporter)
 
     @pytest.mark.parametrize(
+        ("join_type", "expected"), [("inner", "join inner"), ("asof", "join asof"), (None, "join")]
+    )
+    def test_join_span_name_carries_the_join_type(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], join_type: str | None, expected: str
+    ) -> None:
+        provider, exporter = otel_capture
+
+        with _join_context(join_type=join_type).activate():
+            OtelExtender(tracer_provider=provider)(lambda: None)
+
+        assert single_span(exporter).name == expected
+
+    @pytest.mark.parametrize(
         "hook",
         [
             ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
             ExtenderHook.VALIDATE_INPUT_FEATURE,
             ExtenderHook.VALIDATE_OUTPUT_FEATURE,
             ExtenderHook.INPUT_DATA_LOAD,
+            ExtenderHook.JOIN,
         ],
     )
     def test_every_span_carries_the_plan_id_when_set(

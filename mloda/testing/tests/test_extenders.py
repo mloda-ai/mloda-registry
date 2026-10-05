@@ -284,6 +284,51 @@ class TestRunCsvFeature:
         assert run_all.call_args.kwargs[keyword] == value
 
 
+class _JoinRecorder(Extender):
+    """Breaking pass-through probe wrapping JOIN; records the active HookContext's join_type and join_keys."""
+
+    def __init__(self) -> None:
+        self.raise_on_error = True
+        self.joins: list[tuple[str | None, tuple[str, ...] | None]] = []
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.JOIN}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        assert context is not None
+        self.joins.append((context.join_type, context.join_keys))
+        return func(*args, **kwargs)
+
+
+class TestRunJoinedFeatures:
+    """Fixture: left (1, 2, 3) x (10, 20, 30), right (1, 2, 4) x (100, 200, 400); the consumer returns
+    left_value + right_value, so the inner join keeps ids 1 and 2 and yields {110, 220} (row order unspecified)."""
+
+    def test_returns_the_joined_column(self) -> None:
+        result = runners.run_joined_features()
+
+        assert sorted(result) == [110, 220]
+
+    def test_join_hook_fires_once_with_inner_type_and_distinct_keys(self) -> None:
+        recorder = _JoinRecorder()
+
+        runners.run_joined_features(recorder)
+
+        assert recorder.joins == [("inner", ("left_id=right_id",))]
+
+    def test_consecutive_runs_do_not_interfere(self) -> None:
+        first_recorder = _JoinRecorder()
+        second_recorder = _JoinRecorder()
+
+        first = runners.run_joined_features(first_recorder)
+        second = runners.run_joined_features(second_recorder)
+
+        assert sorted(first) == sorted(second) == [110, 220]
+        assert len(first_recorder.joins) == 1
+        assert len(second_recorder.joins) == 1
+
+
 class TestFailingFeatureGroup:
     def test_distinct_names_produce_distinct_classes(self) -> None:
         first = failing_feature_group("boom_one")
