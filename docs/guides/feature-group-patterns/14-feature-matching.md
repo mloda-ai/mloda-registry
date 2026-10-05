@@ -50,7 +50,7 @@ def match_feature_group_criteria(
 
 **Note:** For sibling backends that share one feature name and differ by a discriminator option, see [Backend Families](28-backend-families.md).
 
-**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) and `match_guard` are not guarded, though: they run inside the matcher itself, so an override must delegate to keep them, via `super().match_feature_group_criteria()` on a plain group or `cls.match_parser_criteria()` on a mixin group.
+**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) and `match_guard` are not guarded, though: they run inside the matcher itself, so an override keeps them only by delegating to `super().match_feature_group_criteria()`, which also applies the parent's name rules. `cls.match_parser_criteria()` on a mixin group keeps strict values only, not `match_guard`.
 
 ---
 
