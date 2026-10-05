@@ -25,7 +25,9 @@ The default `match_feature_group_criteria()` checks in order:
 5. Explicit names       → name in feature_names_supported()
 ```
 
-First `True` wins. If FeatureChainParserMixin is used, pattern matching is also applied.
+The first rule that returns `True` claims the name. If FeatureChainParserMixin is used, pattern matching is also applied.
+
+A claimed name still has to pass the group's `PROPERTY_MAPPING`: since mloda 0.15.0 the default matcher of a plain group runs the strict-value and `match_guard` checks, and the class-definition presence guard runs the required-presence check (on a patterned group, only for names its pattern owns). An optional key declares `default=None`; see [Options: Validation](11-options.md#validation-and-conditional-requirements).
 
 ---
 
@@ -48,7 +50,7 @@ def match_feature_group_criteria(
 
 **Note:** For sibling backends that share one feature name and differ by a discriminator option, see [Backend Families](28-backend-families.md).
 
-**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) is not guarded, though - it runs inside the matcher itself, so an override must delegate through `cls.match_parser_criteria()` to keep it.
+**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) and `match_guard` are not guarded, though: they run inside the matcher itself, so an override must delegate to keep them, via `super().match_feature_group_criteria()` on a plain group or `cls.match_parser_criteria()` on a mixin group.
 
 ---
 
@@ -341,7 +343,7 @@ Use `element_validator` to validate option values with a callable instead of che
 
 When an element validator is present, it **replaces** the `allowed_values` membership check rather than adding to it. It receives each parsed element and must return `True` if valid.
 
-A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log unless the spec is strict or declares `expected` (see [Whole-Value Guards](#whole-value-guards-with-match_guard)).
+A falsy return raises `ValueError`, but the matcher catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log unless the spec is strict or declares `expected` (see [Whole-Value Guards](#whole-value-guards-with-match_guard)).
 
 ```python
 from mloda.provider import property_spec

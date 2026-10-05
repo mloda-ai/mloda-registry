@@ -117,7 +117,7 @@ from mloda.provider import FeatureGroup, property_spec
 
 class ArithmeticFeature(FeatureGroup):
     PROPERTY_MAPPING: ClassVar = {
-        "operation_type": property_spec("Arithmetic operation", context=False),
+        "operation_type": property_spec("Arithmetic operation", context=False, default=None),
     }
 ```
 
@@ -143,9 +143,9 @@ See [`ffill/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda
 
 ## Validation and Conditional Requirements
 
-When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
+A `PROPERTY_MAPPING` declares validation rules and conditional requirements directly on option entries. Every `FeatureGroup` enforces them, with or without `FeatureChainParserMixin` (plain groups since mloda 0.15.0):
 
-- **`element_validator`**: Validate each parsed element with a callable (requires `strict=True`). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
+- **`element_validator`**: Validate each parsed element with a callable (requires `strict=True`). A falsy return raises `ValueError`, which the matcher turns into a non-match plus a rejection reason in the resolution error.
 - **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported unless the spec is strict or declares `expected` (a phrase completing "must be ...", such as `expected="a list of column names"`). Both echo the rejected value to the user (strict in full, `expected` shortened), so declare neither on a key that can carry a secret.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
 
@@ -155,7 +155,9 @@ See [Feature Matching: Key Differences](14-feature-matching.md#key-differences-f
 
 **Since mloda 0.11.0, both match paths enforce this.** Required-key presence and strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) both run on the string/name-path match now, not just the configuration path. A `PROPERTY_MAPPING` key declaring no default at all (`NO_DEFAULT`; a declared `default=None` already exempts the key), without `required_when`, and without `deferred_binding=True`, must be present in the merged options on either path. `DefaultOptionKeys.in_features` is excluded from this presence check; its count is enforced separately via `MIN_IN_FEATURES`/`MAX_IN_FEATURES`. `deferred_binding` (above) is the one path-specific exemption: it skips only the name-path presence check, for a value the group parses itself from the name rather than through a `PROPERTY_MAPPING`-bound capture.
 
-Required-key **presence** holds even when the class overrides `match_feature_group_criteria()`, since the check is installed as a class-definition-time guard. **Strict-value validation is not guarded**: it runs inside the matcher an override replaces, so an override must delegate through `cls.match_parser_criteria()` to keep it.
+Since mloda 0.15.0 a plain `FeatureGroup` enforces the declaration too: strict values and `match_guard` on every match, and required presence on its options when it declares no `PREFIX_PATTERN`/`SUFFIX_PATTERN` (a patterned group checks presence for the names its pattern owns). A key without a default is required, so declare an optional key with `default=None`.
+
+Required-key **presence** holds even when the class overrides `match_feature_group_criteria()`, since the check is installed as a class-definition-time guard. **Strict-value validation and `match_guard` are not guarded**: they run inside the matcher an override replaces, so an override must delegate to keep them, via `super().match_feature_group_criteria()` on a plain group or `cls.match_parser_criteria()` on a mixin group.
 
 Before mloda 0.11.0, required-key presence was checked on the configuration path only, so a chained name missing a required option could match and fail later inside `calculate_feature`.
 
