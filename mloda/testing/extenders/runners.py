@@ -134,26 +134,27 @@ class _JoinSource:
         return pa.table(cls._columns)
 
 
-# Module-level (not function-local) so MULTIPROCESSING can pickle the link by path.
+# Module-level so MULTIPROCESSING can pickle the link by path.
+# The column prefix keeps them from colliding with a host's features once registered.
 class JoinLeft(_JoinSource, FeatureGroup):
     """Left PyArrow source of the join."""
 
-    _columns = {"left_id": [1, 2, 3], "left_value": [10, 20, 30]}
-    _index_column = "left_id"
+    _columns = {"mloda_testing_left_id": [1, 2, 3], "mloda_testing_left_value": [10, 20, 30]}
+    _index_column = "mloda_testing_left_id"
 
 
 class JoinRight(_JoinSource, FeatureGroup):
     """Right PyArrow source of the join."""
 
-    _columns = {"right_id": [1, 2, 4], "right_value": [100, 200, 400]}
-    _index_column = "right_id"
+    _columns = {"mloda_testing_right_id": [1, 2, 4], "mloda_testing_right_value": [100, 200, 400]}
+    _index_column = "mloda_testing_right_id"
 
 
 class JoinedSum(FeatureGroup):
-    """Adds `left_value` and `right_value`, null-safe; forces the join of both sources."""
+    """Adds `mloda_testing_left_value` and `mloda_testing_right_value`, null-safe; forces the join of both sources."""
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        return {Feature("left_value"), Feature("right_value")}
+        return {Feature("mloda_testing_left_value"), Feature("mloda_testing_right_value")}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
@@ -161,7 +162,7 @@ class JoinedSum(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        pairs = zip(data["left_value"].to_pylist(), data["right_value"].to_pylist())
+        pairs = zip(data["mloda_testing_left_value"].to_pylist(), data["mloda_testing_right_value"].to_pylist())
         return {cls.get_class_name(): [None if a is None or b is None else a + b for a, b in pairs]}
 
 
@@ -170,10 +171,12 @@ def run_joined_features(
     parallelization_modes: set[ParallelizationMode] | None = None,
     flight_server: Any | None = None,
 ) -> list[Any]:
-    """Run an inner join of two PyArrow sources (left_id=right_id) into a consumer that sums
-    `left_value` and `right_value`; return the summed column. Optional parallelization_modes and
-    flight_server forward straight to mloda.run_all."""
-    link = Link.inner(JoinSpec(JoinLeft, Index(("left_id",))), JoinSpec(JoinRight, Index(("right_id",))))
+    """Run an inner join of two PyArrow sources (mloda_testing_left_id=mloda_testing_right_id) into a
+    consumer that sums `mloda_testing_left_value` and `mloda_testing_right_value`; return the summed
+    column. Optional parallelization_modes and flight_server forward straight to mloda.run_all."""
+    link = Link.inner(
+        JoinSpec(JoinLeft, Index(("mloda_testing_left_id",))), JoinSpec(JoinRight, Index(("mloda_testing_right_id",)))
+    )
     plugin_collector = PluginCollector.enabled_feature_groups({JoinLeft, JoinRight, JoinedSum})
     column_name = JoinedSum.get_class_name()
     results = mloda.run_all(

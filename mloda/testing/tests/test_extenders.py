@@ -303,14 +303,14 @@ class _JoinRecorder(Extender):
 
 class TestRunJoinedFeatures:
     """Fixture: left (1, 2, 3) x (10, 20, 30), right (1, 2, 4) x (100, 200, 400); the consumer returns
-    left_value + right_value, so the inner join keeps ids 1 and 2 and yields {110, 220} (row order unspecified)."""
+    mloda_testing_left_value + mloda_testing_right_value, so the inner join keeps ids 1 and 2 and yields {110, 220} (row order unspecified)."""
 
     def test_join_hook_fires_once_with_inner_type_and_distinct_keys(self) -> None:
         recorder = _JoinRecorder()
 
         runners.run_joined_features(recorder)
 
-        assert recorder.joins == [("inner", ("left_id=right_id",))]
+        assert recorder.joins == [("inner", ("mloda_testing_left_id=mloda_testing_right_id",))]
 
     def test_consecutive_runs_do_not_interfere(self) -> None:
         first_recorder = _JoinRecorder()

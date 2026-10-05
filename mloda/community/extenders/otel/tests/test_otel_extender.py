@@ -1980,10 +1980,12 @@ class TestOtelExtenderRunScopeFullRuns:
         assert join["parent_span_id"] == root["span_id"], records
         attributes = join["attributes"]
         assert attributes["mloda.join.type"] == "inner"
-        assert attributes["mloda.join.keys"] == ["left_id=right_id"]
+        assert attributes["mloda.join.keys"] == ["mloda_testing_left_id=mloda_testing_right_id"]
         assert attributes["mloda.run.id"] == root["attributes"]["mloda.run.id"]
         if mode == ParallelizationMode.MULTIPROCESSING:
             assert "mloda.subprocess.worker_index" in attributes, join
+        else:
+            assert "mloda.subprocess.worker_index" not in attributes, join
 
     def test_prepared_plan_run_twice_gives_one_trace_and_one_root_per_run(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
