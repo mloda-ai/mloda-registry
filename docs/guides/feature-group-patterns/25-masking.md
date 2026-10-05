@@ -83,7 +83,7 @@ feature = Feature(
 
 result = mloda.run_all(
     [feature],
-    compute_frameworks={"PandasDataFrame"},
+    compute_frameworks=["PandasDataFrame"],
 )
 ```
 

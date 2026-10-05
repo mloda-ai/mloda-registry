@@ -134,7 +134,7 @@ regression_test:
 - **Reference behavior**: PyArrow's `pc.utf8_upper("héllo")` is `"HÉLLO"`.
 - **Native SQLite behavior**: `UPPER('héllo')` returns `'HéLLO'`. `REVERSE` is not implemented.
 - **Mitigation kind**: Excluded op.
-- **How**: `SqliteStringOps._validate_string_match` returns `True` only for `trim` and `length`. Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks={"SqliteRelation"}` refuses to match at resolution time. The test class mirrors the decision through `supported_ops()`.
+- **How**: `SqliteStringOps._validate_string_match` returns `True` only for `trim` and `length`. Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]` refuses to match at resolution time. The test class mirrors the decision through `supported_ops()`.
 - **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and `supported_ops()` restricts the test suite to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
 - **Related**: Resolved from #146 via #147.
 

@@ -77,7 +77,7 @@ PluginLoader.all()
 features = [
     Feature("ts__sessionize_30_minute", Options(context={"partition_by": ["user_id"]})),
 ]
-result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ```
 
 ---

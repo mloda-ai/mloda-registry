@@ -42,7 +42,7 @@ features = [
     Feature("name__length"),
 ]
 
-result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ```
 
 No `Options` needed. The feature name alone is enough.
@@ -89,7 +89,7 @@ class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
         return {"trim", "length"}
 ```
 
-If you request `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks={"SqliteRelation"}`, the SQLite feature group will not match and the engine falls back to resolving the feature elsewhere (or errors). See [Supported ops](04-supported-ops.md) for how this pattern generalizes.
+If you request `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]`, the SQLite feature group will not match and the engine falls back to resolving the feature elsewhere (or errors). See [Supported ops](04-supported-ops.md) for how this pattern generalizes.
 
 ---
 

@@ -155,7 +155,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 
 results = mloda.run_all(
     [Feature("asof_event_id"), Feature("asof_event_price")],
-    compute_frameworks={PandasDataFrame},
+    compute_frameworks=[PandasDataFrame],
     links={link},
     plugin_collector=PluginCollector.enabled_feature_groups(
         {EventFeatureGroup, QuoteFeatureGroup, EventPriceFeatureGroup}

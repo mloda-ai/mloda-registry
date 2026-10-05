@@ -181,7 +181,7 @@ class RdfLibSparqlFeatureGroup(KgFeatureGroup):
 ```python
 mloda.run_all(
     [Feature("knows", options=Options(context={"query_text": "SELECT ..."}))],
-    compute_frameworks={PythonDictFramework},
+    compute_frameworks=[PythonDictFramework],
     data_access_collection=DataAccessCollection(credentials=[{"rdflib_sparql": {"locator": "graph.ttl"}}]),
 )
 ```

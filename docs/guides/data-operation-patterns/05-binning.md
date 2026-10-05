@@ -98,7 +98,7 @@ features = [
     Feature("value_int__qbin_4"),  # quartiles
 ]
 
-result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ```
 
 Row count matches the input; each new column contains integers in `[0, N-1]` (or NULL for unbinnable rows).

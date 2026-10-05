@@ -50,7 +50,6 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 
 - `parallelization_modes` — Override parallelization per run
 - `flight_server` — Arrow Flight server for distributed execution
-- `function_extender` — Per-run extender overrides
 
 ## Full Documentation
 

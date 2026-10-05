@@ -52,7 +52,7 @@ features = [
     ),
 ]
 
-result = mloda.run_all(features, compute_frameworks={"DuckdbRelation"})
+result = mloda.run_all(features, compute_frameworks=["DuckdbRelation"])
 ```
 
 Every row in `result` has the same number of columns plus the two new ones. Within each `region`, `value_int__sum_window` holds the same value on every row.

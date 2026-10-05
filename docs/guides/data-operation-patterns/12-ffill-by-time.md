@@ -30,7 +30,7 @@ PluginLoader.all()
 features = [
     Feature("price__ffill", Options(context={"order_by": "ts", "partition_by": ["symbol"]})),
 ]
-result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ```
 
 ---

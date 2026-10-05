@@ -125,7 +125,7 @@ features = [
     Feature("event_time__round_5_minute"),  # nearest 5-minute boundary, half-up
 ]
 
-result = mloda.run_all(features, compute_frameworks={"PyArrowTable"})
+result = mloda.run_all(features, compute_frameworks=["PyArrowTable"])
 ```
 
 Row count matches the input; each new column has the same timestamp type (resolution and tz) as the source.

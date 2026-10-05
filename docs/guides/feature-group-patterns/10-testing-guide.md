@@ -71,7 +71,7 @@ The rule that a FeatureGroup must return columns even at zero rows (see [calcula
 def test_empty_source_keeps_schema():
     result = mloda.run_all(  # no matching data
         [Feature.not_typed("my_feature")],
-        compute_frameworks={PythonDictFramework},
+        compute_frameworks=[PythonDictFramework],
     )
     assert result[0] == {"my_feature": []}  # zero rows, schema intact
 ```

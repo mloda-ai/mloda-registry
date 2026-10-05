@@ -73,7 +73,7 @@ features = [
     Feature("name__upper"),
 ]
 
-result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ```
 
 Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space.

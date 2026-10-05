@@ -27,7 +27,7 @@ As long as sibling readers have distinct class names, they cannot collide: each 
 
 ### The reserved "BaseInputData" key
 
-When a reader matches, the `(ReaderClass, data_access)` pair is stored under the reserved `"BaseInputData"` options key and consumed by `init_reader` at load time. The class-name option key is the normal way to select a reader; advanced callers and tests may preseed the reserved key directly. Setting it twice with different values raises `ValueError`.
+While matching, the `(ReaderClass, data_access)` pair is written under the reserved `"BaseInputData"` options key, then moved onto `Feature.input_data_match` and removed from options (it may carry credentials). `BaseInputData.init_reader` takes that pair at load time. The class-name option key is the normal way to select a reader; tests may call `feature_scope_data_access` directly, which writes the key into the given `Options`. Setting it twice with different values raises `ValueError`. Two candidates that both match raise `Multiple feature groups found`, naming each candidate and its source.
 
 ## Sibling Readers Under One Root FeatureGroup
 
@@ -178,7 +178,7 @@ End to end, run the feature through `mloda.run_all` with `PluginCollector.enable
 
 | File | Description |
 |------|-------------|
-| [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, class-or-string key helper, `init_reader` |
+| [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, class-or-string key helper, `init_reader` (takes the matched `(ReaderClass, data_access)` pair) |
 | [read_file.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_file.py) | `ReadFile` base, `match_subclass_data_access` seam |
 | [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py) | The pinned selection contract |
 | [test_reader_declines_chain_separated_names.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_reader_declines_chain_separated_names.py) | Pins the chain/column-separated-name decline contract for `ReadFile`/`ReadDB` |

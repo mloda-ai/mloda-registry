@@ -73,7 +73,7 @@ PluginLoader.all()
 features = [
     Feature("price__resample_1_hour_mean", Options(context={"time_column": "ts", "partition_by": ["symbol"]})),
 ]
-result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ```
 
 The result has one row per occupied hour per symbol, not one row per input event.
