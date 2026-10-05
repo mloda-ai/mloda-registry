@@ -295,7 +295,7 @@ def test_new_binary_packages_are_registered_with_dev_extra() -> None:
 
 def test_no_configured_package_names_the_community_bundle_outside_dev() -> None:
     """Consumers depend on the mixin package, never on the mloda-community bundle (exact name, not prefixes)."""
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     violations: list[str] = []
     for pkg_name, cfg in packages.items():
         specs = {"dependencies": cfg.get("dependencies", [])}
@@ -308,7 +308,7 @@ def test_no_configured_package_names_the_community_bundle_outside_dev() -> None:
 
 
 def test_consumers_name_the_binary_model_package_instead_of_the_bundle() -> None:
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     mixin = "mloda-community-binary-model"
     for pkg_name in ("mloda-enterprise", "mloda-enterprise-binary-example", "mloda-enterprise-anonymizer"):
         names = [_dep_name(dep) for dep in packages[pkg_name].get("dependencies", [])]
