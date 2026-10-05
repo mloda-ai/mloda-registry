@@ -11,8 +11,8 @@ import sys
 
 SEAM_SOURCE = "mloda/testing/extenders/openlineage.py"
 TABLE_NAMES = ("OPENLINEAGE_EXTENDER_SEAMS", "OPENLINEAGE_EXTENDER_ATTRIBUTE_SEAMS")
-# `minor!:` is deliberately rejected: it releases a major.
-_MINOR = re.compile(r"^minor(\([^)]+\))?: .+")
+# Every type has a custom releaseRule in .releaserc.yaml, so `!` does not escalate: `minor!:` still releases a minor.
+_MINOR = re.compile(r"^minor(\([^)]+\))?!?: .+")
 
 
 def seam_tables(source: str) -> str | None:

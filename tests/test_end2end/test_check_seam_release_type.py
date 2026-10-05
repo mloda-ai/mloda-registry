@@ -75,11 +75,11 @@ class TestSeamTables:
 
 
 class TestIsMinor:
-    @pytest.mark.parametrize("subject", ["minor: x", "minor(lineage): x"])
+    @pytest.mark.parametrize("subject", ["minor: x", "minor(lineage): x", "minor!: x", "minor(lineage)!: x"])
     def test_accepted(self, subject: str) -> None:
         assert chk.is_minor(subject) is True
 
-    @pytest.mark.parametrize("subject", ["minor!: x", "fix: x", "feat: x", "minorx: x", "Minor: x"])
+    @pytest.mark.parametrize("subject", ["fix!: x", "fix: x", "feat: x", "minorx: x", "Minor: x"])
     def test_rejected(self, subject: str) -> None:
         assert chk.is_minor(subject) is False
 
