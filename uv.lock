@@ -755,6 +755,7 @@ source = { editable = "mloda/community" }
 dependencies = [
     { name = "mloda" },
     { name = "mloda-community-aggregation" },
+    { name = "mloda-community-binary-model" },
     { name = "mloda-community-binning" },
     { name = "mloda-community-data-operations" },
     { name = "mloda-community-datetime" },
@@ -793,6 +794,7 @@ otel = [
 requires-dist = [
     { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-aggregation", editable = "mloda/community/feature_groups/data_operations/aggregation" },
+    { name = "mloda-community-binary-model", editable = "mloda/community/feature_groups/binary_model" },
     { name = "mloda-community-binning", editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" },
     { name = "mloda-community-data-operations", editable = "mloda/community/feature_groups/data_operations" },
     { name = "mloda-community-datetime", editable = "mloda/community/feature_groups/data_operations/row_preserving/datetime" },
@@ -1850,7 +1852,7 @@ version = "0.8.0"
 source = { editable = "mloda/enterprise" }
 dependencies = [
     { name = "mloda" },
-    { name = "mloda-community" },
+    { name = "mloda-community-binary-model" },
     { name = "mloda-community-extenders-shared" },
 ]
 
@@ -1874,7 +1876,7 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.0,<0.2.0" },
-    { name = "mloda-community", editable = "mloda/community" },
+    { name = "mloda-community-binary-model", editable = "mloda/community/feature_groups/binary_model" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.37,<2" },
@@ -1887,7 +1889,7 @@ name = "mloda-enterprise-anonymizer"
 version = "0.8.0"
 source = { editable = "mloda/enterprise/feature_groups/anonymizer" }
 dependencies = [
-    { name = "mloda-community" },
+    { name = "mloda-community-binary-model" },
 ]
 
 [package.optional-dependencies]
@@ -1905,7 +1907,7 @@ wheel = [
 [package.metadata]
 requires-dist = [
     { name = "mloda-anonymizer-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
-    { name = "mloda-community", specifier = ">=0.8.0" },
+    { name = "mloda-community-binary-model", specifier = ">=0.8.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -1945,7 +1947,7 @@ name = "mloda-enterprise-binary-example"
 version = "0.8.0"
 source = { editable = "mloda/enterprise/feature_groups/binary_example" }
 dependencies = [
-    { name = "mloda-community" },
+    { name = "mloda-community-binary-model" },
 ]
 
 [package.optional-dependencies]
@@ -1962,7 +1964,7 @@ wheel = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda-community", specifier = ">=0.8.0" },
+    { name = "mloda-community-binary-model", specifier = ">=0.8.0" },
     { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
@@ -2092,7 +2094,7 @@ dependencies = [
 [package.optional-dependencies]
 binary-model = [
     { name = "cryptography" },
-    { name = "mloda-community" },
+    { name = "mloda-community-binary-model" },
     { name = "pyarrow" },
 ]
 dev = [
@@ -2109,7 +2111,7 @@ otel = [
 requires-dist = [
     { name = "cryptography", marker = "extra == 'binary-model'", specifier = ">=44" },
     { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
-    { name = "mloda-community", marker = "extra == 'binary-model'", editable = "mloda/community" },
+    { name = "mloda-community-binary-model", marker = "extra == 'binary-model'", editable = "mloda/community/feature_groups/binary_model" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
     { name = "pyarrow" },

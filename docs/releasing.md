@@ -22,8 +22,7 @@ workflow_dispatch → semantic-release → PyPI publish
    is when the job runs), then builds and uploads wheels with `twine --skip-existing`,
    so a rerun after a partial upload does not fail on the files that already made it.
    Upload order is the published order (`scripts/published_packages.py`, which rejects a
-   config that is not dependency-first), bundles after everything they pin (only
-   `mloda-testing` follows them, for its `binary-model` extra's `mloda-community` pin), so a
+   config that is not dependency-first), bundles after everything they pin, so a
    new bundle version appears on PyPI only after everything it pins is already there.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
@@ -90,7 +89,7 @@ workflow can pace or retry around. See
 With dependency-first upload order (see [Flow](#flow)), every uploaded package's same-release
 requirements are already on PyPI, so a rejected, partial upload leaves nothing already
 uploaded uninstallable; a rerun just uploads the rest. `mloda-enterprise` cannot resolve at a
-newer version than `mloda-community`: it needs `mloda-community` and
+newer version than `mloda-community`: it needs `mloda-community-binary-model` and
 `mloda-community-extenders-shared` at its own version or later and, through its own `[openlineage]`
 extra, `mloda-community-openlineage` at its own version or a later patch of that minor, and
 `mloda-community` pins each of the packages it owns exactly.

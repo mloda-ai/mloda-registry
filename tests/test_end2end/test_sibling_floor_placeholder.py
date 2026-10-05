@@ -545,13 +545,14 @@ def test_synthetic_mloda_testing_package_gets_no_self_entry() -> None:
     assert sources == {_DEP: _WORKSPACE}, f"expected only the {_DEP!r} source, got {sources!r}"
 
 
-def test_mloda_testing_gets_source_entry_for_its_optional_community_dependency() -> None:
-    """mloda-testing's extra names mloda-community, a sibling only in an extra: it needs a source or uv will not lock."""
+def test_mloda_testing_gets_source_entry_for_its_optional_binary_model_dependency() -> None:
+    """mloda-testing's extra names mloda-community-binary-model, a sibling only in an extra: it needs a source or uv will not lock."""
     shared, packages_config = gen.load_configs()
 
     sources = _generated_uv_sources("mloda-testing", packages_config["packages"], shared)
 
-    assert sources == {"mloda-community": _WORKSPACE}, f"expected only the mloda-community source, got {sources!r}"
+    expected = {"mloda-community-binary-model": _WORKSPACE}
+    assert sources == expected, f"expected only the mloda-community-binary-model source, got {sources!r}"
 
 
 def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -598,11 +599,12 @@ def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> N
         "mloda-community-resample",
         "mloda-community-otel",
         "mloda-community-openlineage",
+        "mloda-community-binary-model",
     ):
         assert community_sources.get(name) == _WORKSPACE, (
             f"expected mloda-community sources[{name!r}] == {_WORKSPACE!r}, got {community_sources!r}"
         )
-    for name in ("mloda-community", "mloda-community-openlineage"):
+    for name in ("mloda-community-binary-model", "mloda-community-openlineage"):
         assert enterprise_sources.get(name) == _WORKSPACE, (
             f"expected mloda-enterprise sources[{name!r}] == {_WORKSPACE!r}, got {enterprise_sources!r}"
         )
@@ -991,7 +993,7 @@ def test_published_package_dev_extra_naming_an_unpublished_sibling_is_accepted()
 
 # A real, unpublished configured package (see config/packages.toml), used to prove the unpublished-sibling
 # guard also covers extras merged in from [defaults].optional_dependencies.
-_UNPUBLISHED_REAL_PACKAGE = "mloda-community-binary-model"
+_UNPUBLISHED_REAL_PACKAGE = "mloda-enterprise-binary-example"
 
 # A real, published, non-bundle top-level package that declares no optional_dependencies of its own, so a
 # default extra is the only source of any extra it carries.

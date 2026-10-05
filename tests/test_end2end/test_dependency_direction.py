@@ -293,6 +293,20 @@ def test_new_binary_packages_are_registered_with_dev_extra() -> None:
         )
 
 
+def test_no_configured_package_names_the_community_bundle_outside_dev() -> None:
+    """Consumers depend on the mixin package, never on the mloda-community bundle (exact name, not prefixes)."""
+    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    violations: list[str] = []
+    for pkg_name, cfg in packages.items():
+        specs = {"dependencies": cfg.get("dependencies", [])}
+        for extra, extra_deps in cfg.get("optional_dependencies", {}).items():
+            if extra != "dev":
+                specs[f"extra {extra}"] = extra_deps
+        for where, deps in specs.items():
+            violations.extend(f"{pkg_name} ({where}): {dep}" for dep in deps if _dep_name(dep) == "mloda-community")
+    assert violations == [], f"no package may depend on the mloda-community bundle: {violations}"
+
+
 def _is_mloda_testing_import(node: ast.AST) -> bool:
     """True for an Import whose dotted name starts with 'mloda.testing', or an ImportFrom whose
     module starts with 'mloda.testing'. No exemption for function scope or TYPE_CHECKING blocks:

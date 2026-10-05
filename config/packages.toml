@@ -29,23 +29,25 @@ entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
 
 # --- Binary model ---
-# The mixin ships in the community bundle, the example in the enterprise bundle; neither is published
-# standalone yet. mloda-testing[binary-model] (the simulated binary and the conformance kit) is a dev
+# The mixin is published standalone and also pinned by the community bundle; the example ships in the
+# enterprise bundle. mloda-testing[binary-model] (the simulated binary and the conformance kit) is a dev
 # dependency only: nothing under mloda/community or mloda/enterprise imports mloda.testing at runtime.
 # The contract rules (constants, line/stream parsing) live in the mixin's own
 # mloda.community.feature_groups.binary_model.contract; mloda-testing[binary-model] takes them from
-# mloda-community, never the reverse.
+# the mixin package, never the reverse.
 
 [packages.mloda-community-binary-model]
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/binary_model"
+published = true
+py_typed = true
 optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
 
 [packages.mloda-enterprise-binary-example]
 description = "Example enterprise FeatureGroup backed by a licensed binary model"
-# The mixin package is unpublished and ships only inside the mloda-community bundle.
-dependencies = ["mloda-community>={version}"]
+# Sibling floor policy: docs/packaging.md#sibling-dependency-floors
+dependencies = ["mloda-community-binary-model>={version}"]
 path = "mloda/enterprise/feature_groups/binary_example"
 # The wheel is an optional extra from the mloda-binary-wrapper repo, never a hard dependency.
 optional_dependencies = { pyarrow = ["pyarrow>=25"], wheel = ["mloda-example-binary>=0.1.0,<0.2.0"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
@@ -53,7 +55,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-enterprise-anonymizer]
 description = "Enterprise FeatureGroup that pseudonymizes a column via the licensed anonymizer binary"
-dependencies = ["mloda-community>={version}"]
+dependencies = ["mloda-community-binary-model>={version}"]
 path = "mloda/enterprise/feature_groups/anonymizer"
 # The wheel is an optional extra, never a hard dependency; the bundle re-exports it as mloda-enterprise[anonymizer].
 optional_dependencies = { pyarrow = ["pyarrow>=25"], wheel = ["mloda-anonymizer-binary>=0.1.0,<0.2.0"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
@@ -259,6 +261,7 @@ dependencies = [
     "mloda-community-extenders-shared=={version}",
     "mloda-community-example=={version}",
     "mloda-community-example-a=={version}",
+    "mloda-community-binary-model=={version}",
     "mloda-community-data-operations=={version}",
     "mloda-community-aggregation=={version}",
     "mloda-community-rank=={version}",
@@ -286,22 +289,23 @@ py_typed = true
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
-# mloda-community floor: the binary FeatureGroups (example, anonymizer) subclass the community binary-model mixin, and a manifest
-# import that fails on a missing mloda.community module aborts plugin discovery.
-dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}", "mloda-community>={version}"]
+# Mixin floor: the binary FeatureGroups (example, anonymizer) subclass the binary-model mixin, and a manifest
+# import that fails on a missing mloda.community module aborts plugin discovery. It is `>=`, not `~=`, because
+# they use only the mixin's public names (docs/packaging.md#sibling-dependency-floors).
+dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}", "mloda-community-binary-model>={version}"]
 path = "mloda/enterprise"
 published = true
 entry_point_bundle = true
 optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"], anonymizer = ["mloda-anonymizer-binary>=0.1.0,<0.2.0", "pyarrow>=25"] }
 py_typed = true
 
-# After the bundles: mloda-testing[binary-model] pins mloda-community (the kit checks binaries with the
-# mixin's own parsers), and every other package names mloda-testing only in a dev extra.
+# mloda-testing[binary-model] pins the mixin package (the kit checks binaries with the mixin's own
+# parsers), and every other package names mloda-testing only in a dev extra.
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow"]
 path = "mloda/testing"
 published = true
-optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.20,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community>={version}"] }
+optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.20,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>={version}"] }
 py_typed = true

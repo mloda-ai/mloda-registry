@@ -288,8 +288,8 @@ def test_overlap_check_ignores_an_unpublished_wheel(tmp_path: Path) -> None:
     verify = _verify_published_wheels_have_a_single_owner()
     shared_path = "mloda/community/extenders/shared/foo.py"
     bundle = _write_wheel_with_files(tmp_path, "mloda-community", [shared_path])
-    unpublished = _write_wheel_with_files(tmp_path, "mloda-community-binary-model", [shared_path])
-    wheels = {"mloda-community": bundle, "mloda-community-binary-model": unpublished}
+    unpublished = _write_wheel_with_files(tmp_path, "mloda-enterprise-binary-example", [shared_path])
+    wheels = {"mloda-community": bundle, "mloda-enterprise-binary-example": unpublished}
 
     errors = verify(wheels, ["mloda-community"])
 

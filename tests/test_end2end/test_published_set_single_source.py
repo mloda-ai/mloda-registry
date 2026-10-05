@@ -46,11 +46,12 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 # The released set, in config order: registry, the shared extenders package, the examples, the otel and
 # openlineage extenders, the data-operations base plus its plugin packages, the two bundles, which own
 # (dependencies/extras) every published package nested under their path, and finally testing, whose
-# binary-model extra pins mloda-community, so the published order is dependency-first.
+# binary-model extra pins mloda-community-binary-model, so the published order is dependency-first.
 _EXPECTED_PUBLISHED = [
     "mloda-registry",
     "mloda-community-extenders-shared",
     "mloda-community-example",
+    "mloda-community-binary-model",
     "mloda-community-example-a",
     "mloda-community-otel",
     "mloda-community-openlineage",
@@ -79,7 +80,6 @@ _EXPECTED_PUBLISHED = [
 
 # Every unpublished package, which reaches users only inside the community and enterprise bundle wheels.
 _BUNDLE_ONLY = [
-    "mloda-community-binary-model",
     "mloda-enterprise-binary-example",
     "mloda-enterprise-anonymizer",
     "mloda-enterprise-audit",
@@ -970,7 +970,7 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
         ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
         ("mloda-community", "all", ["mloda-community-otel", "mloda-community-openlineage"]),
         ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
-        ("mloda-testing", "binary-model", ["mloda-community"]),
+        ("mloda-testing", "binary-model", ["mloda-community-binary-model"]),
     ]
     assert entries == expected, f"internal_extra_members() yielded {entries!r}, expected exactly {expected!r}"
 
@@ -1032,8 +1032,8 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
         ),
         ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
         ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
-        ("mloda-testing", "mloda-testing==9.9.9", False, ["mloda-community"]),
-        ("mloda-testing", "mloda-testing[binary-model]==9.9.9", True, ["mloda-community"]),
+        ("mloda-testing", "mloda-testing==9.9.9", False, ["mloda-community-binary-model"]),
+        ("mloda-testing", "mloda-testing[binary-model]==9.9.9", True, ["mloda-community-binary-model"]),
     ]
     assert jobs == expected, f"verification_jobs() yielded {jobs!r}, expected exactly {expected!r}"
 
@@ -1454,9 +1454,14 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
         for name, cfg in packages.items()
         if cfg["path"].startswith(prefix) and name not in owned
     }
-    assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
-
     listed = _wheel_packages(bundle, packages)
+    if not nested:
+        # The bundle owns every nested package: its wheel ships only its own root, typed.
+        root = packages[bundle]["path"].replace("/", ".")
+        data = _generated(bundle, packages)["tool"]["setuptools"]["package-data"]
+        assert listed == [root], f"the {bundle} wheel owns every nested package, so it must ship only {root}: {listed}"
+        assert data == {root: ["py.typed"]}, f"the {bundle} wheel must ship the py.typed of {root}: {data}"
+        return
 
     missing = sorted(name for name, dotted in nested.items() if dotted not in listed)
     assert missing == [], (

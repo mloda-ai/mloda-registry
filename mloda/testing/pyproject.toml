@@ -18,7 +18,7 @@ requires-python = ">=3.10,<3.15"
 dev = ["pytest>=9.0.3"]
 otel = ["opentelemetry-sdk>=1.30,<2"]
 openlineage = ["openlineage-python>=1.20,<2"]
-binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community>=0.8.0"]
+binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>=0.8.0"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
@@ -32,4 +32,4 @@ packages = ["mloda.testing", "mloda.testing.binary_model", "mloda.testing.data_c
 "mloda.testing" = ["py.typed"]
 
 [tool.uv.sources]
-mloda-community = { workspace = true }
+mloda-community-binary-model = { workspace = true }

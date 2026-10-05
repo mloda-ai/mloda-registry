@@ -41,6 +41,8 @@ Upgrading with pip from a `mloda-community` release that still shipped the plugi
 pip install --force-reinstall "mloda-community[otel]"
 ```
 
+With an older `mloda-community` still installed alongside `mloda-enterprise`, uninstalling or pip-upgrading `mloda-community` can delete the binary-model mixin's files; fix it with `pip install --force-reinstall mloda-community-binary-model`.
+
 If you installed one of the old standalone 0.2.7 example packages (`mloda-community-example-b`, `mloda-community-compute-frameworks-example`, `mloda-community-extenders-example`, `mloda-enterprise-example`, `mloda-enterprise-compute-frameworks-example`, `mloda-enterprise-extenders-example`), uninstall it; it shares files with the old bundles, so a pip upgrade of the bundle deletes them and leaves it broken.
 
 Keep `mloda-community`, `mloda-enterprise` and any plugin installed on its own at the same version, and upgrade them together. The bundle pins the packages it owns exactly, so upgrading one alone leaves a version conflict that pip reports without stopping the install.
@@ -71,7 +73,7 @@ The OTel and OpenLineage extenders now ship only through `mloda-community[otel]`
 | `mloda-community-sessionization` | `{ts}__sessionize_30_minute` (gap-threshold session id) | [sessionization](docs/guides/data-operation-patterns/15-sessionization.md) |
 | `mloda-community-resample` | `{col}__resample_1_hour_mean` (events onto a regular time grid) | [resample](docs/guides/data-operation-patterns/14-resample.md) |
 
-Options such as `partition_by` and `order_by`, plus the shared contracts, are in the [data operation patterns](docs/guides/data-operation-patterns/index.md). Also published: `mloda-community-data-operations` (the shared base classes) and the example packages `mloda-community-example` and `mloda-community-example-a`. `config/packages.toml` is the source of truth for the package list.
+Options such as `partition_by` and `order_by`, plus the shared contracts, are in the [data operation patterns](docs/guides/data-operation-patterns/index.md). Also published: `mloda-community-data-operations` (the shared base classes), `mloda-community-binary-model` (the mixin for binary-backed FeatureGroups) and the example packages `mloda-community-example` and `mloda-community-example-a`. `config/packages.toml` is the source of truth for the package list.
 
 ## PyPI packages
 

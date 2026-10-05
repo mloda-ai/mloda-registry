@@ -11,7 +11,7 @@ version = "0.8.0"
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 license = "LicenseRef-Proprietary"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.15.0,<0.16.0", "mloda-community-extenders-shared>=0.8.0", "mloda-community>=0.8.0"]
+dependencies = ["mloda>=0.15.0,<0.16.0", "mloda-community-extenders-shared>=0.8.0", "mloda-community-binary-model>=0.8.0"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
@@ -40,6 +40,6 @@ packages = ["mloda.enterprise", "mloda.enterprise.extenders.audit", "mloda.enter
 "mloda.enterprise" = ["py.typed"]
 
 [tool.uv.sources]
-mloda-community = { workspace = true }
+mloda-community-binary-model = { workspace = true }
 mloda-community-extenders-shared = { workspace = true }
 mloda-community-openlineage = { workspace = true }
