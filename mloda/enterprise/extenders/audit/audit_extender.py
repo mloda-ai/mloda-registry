@@ -334,7 +334,9 @@ class AuditExtender(Extender):
         manifest log (and is refused there). A mismatch with an existing seal and every other exception (including
         anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. With
         "raise" it propagates; core logs it at ERROR and never fails the run because of it, regardless of
-        raise_on_error/fail_closed."""
+        raise_on_error/fail_closed. After a seal it made, it rotates the segment when segment_max_bytes /
+        segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
+        seal_failure_policy; the run stays sealed)."""
         if run_id is None:
             return
         self._run_sealed.pop(run_id, None)  # the run is over: a later call re-reads the manifest log

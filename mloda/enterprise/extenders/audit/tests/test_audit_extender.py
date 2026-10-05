@@ -229,20 +229,24 @@ def _refuser_pickled_second_instance(tmp_path: Path, fail_closed: bool) -> tuple
     return pickle.loads(pickle.dumps(second)), audit_path  # nosec
 
 
-def _rotated_after_run_1(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path]:
-    """An extender (genesis log_id "log-a") that sealed run-1, then a segment rotation under the same signer."""
+def _rotated_after_run_1(tmp_path: Path, auto: bool = False, **kwargs: Any) -> tuple[AuditExtender, Path, Path]:
+    """An extender (genesis log_id "log-a") that sealed run-1, then a segment rotation under the same signer:
+    manual, or (auto) the extender's own after the seal via segment_max_bytes=1."""
     audit_path, manifest_path = _sealing_config(tmp_path)
     _append_records(audit_path, [_minimal_audit_record("run-1")])
+    extra: dict[str, Any] = {"segment_max_bytes": 1} if auto else {}
     extender = AuditExtender(
         NdjsonAuditSink(audit_path),
         audit_path=audit_path,
         manifest_path=manifest_path,
         signer=_hmac_signer(),
         log_id="log-a",
+        **extra,
         **kwargs,
     )
     extender.on_run_complete("run-1")
-    rotate_ndjson_segment(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
+    if not auto:
+        rotate_ndjson_segment(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
     return extender, audit_path, manifest_path
 
 
@@ -1624,15 +1628,20 @@ class TestAuditExtenderSealing:
         assert call.calls == 0
         assert audit_path.read_bytes() == before  # no deny record either, in either posture
 
+    @pytest.mark.parametrize("rotation", ["manual", "auto"])
     @pytest.mark.parametrize("indexed", [False, True], ids=["no_index", "index"])
     def test_a_run_sealed_in_an_archived_segment_is_refused_after_a_rotation(
-        self, tmp_path: Path, indexed: bool
+        self, tmp_path: Path, indexed: bool, rotation: str
     ) -> None:
         extra: dict[str, Any] = {"seal_index_path": tmp_path / "index.sqlite"} if indexed else {}
-        extender, audit_path, manifest_path = _rotated_after_run_1(tmp_path, **extra)
+        extender, audit_path, manifest_path = _rotated_after_run_1(tmp_path, auto=rotation == "auto", **extra)
         with make_hook_context(run_id="run-2", tenant_id=_TENANT).activate():
             extender(_CountingCall())
         extender.on_run_complete("run-2")  # seals in the new segment, so the index is rebuilt
+        assert extender.seal_failures == 0
+        if rotation == "auto":  # the run-2 seal rotated again
+            archived = manifest_path.with_name(manifest_path.name + ".000002")
+            assert json.loads(archived.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-2"
         second = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer(), **extra)
         call = _CountingCall()
         before = audit_path.read_bytes()
@@ -2044,19 +2053,12 @@ class TestAuditExtenderSealing:
 
     @staticmethod
     def _rotating_extender(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path, NdjsonHeadAnchor]:
-        audit_path, manifest_path = _sealing_config(tmp_path)
+        _, manifest_path = _sealing_config(tmp_path)
         anchor = NdjsonHeadAnchor(tmp_path / "anchor.ndjson")
-        _append_records(audit_path, [_minimal_audit_record("run-1")])
-        extender = AuditExtender(
-            sink=NdjsonAuditSink(audit_path),
-            audit_path=audit_path,
-            manifest_path=manifest_path,
-            signer=_hmac_signer(),
-            log_id="log-a",
-            head_anchor=anchor,
-            **kwargs,
+        extender = TestAuditExtenderSealing._failing_seal_extender(
+            tmp_path, log_id="log-a", head_anchor=anchor, **kwargs
         )
-        return extender, audit_path, manifest_path, anchor
+        return extender, tmp_path / "audit.ndjson", manifest_path, anchor
 
     @staticmethod
     def _archive(path: Path) -> Path:
@@ -2109,33 +2111,6 @@ class TestAuditExtenderSealing:
         assert extender.seal_failures == 0
         assert not self._archive(audit_path).exists()
         assert not self._archive(manifest_path).exists()
-
-    @pytest.mark.parametrize("indexed", [False, True], ids=["no_index", "index"])
-    def test_after_an_auto_rotation_the_next_run_seals_in_the_new_segment_and_the_old_one_stays_refused(
-        self, tmp_path: Path, indexed: bool
-    ) -> None:
-        extra: dict[str, Any] = {"seal_index_path": tmp_path / "index.sqlite"} if indexed else {}
-        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_bytes=1, **extra)
-        extender.on_run_complete("run-1")
-        assert self._archive(manifest_path).exists()
-        with make_hook_context(run_id="run-2", tenant_id=_TENANT).activate():
-            extender(_CountingCall())
-
-        extender.on_run_complete("run-2")
-
-        assert extender.seal_failures == 0
-        archived = self._archive(manifest_path).with_name(manifest_path.name + ".000002")
-        assert json.loads(archived.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-2"
-        live = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
-        assert [line.get("kind") for line in live] == ["genesis"]
-        heads = [json.loads(line)["head"] for line in (tmp_path / "anchor.ndjson").read_text().splitlines()]
-        verify_ndjson_segments(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a", anchored_heads=heads)
-        second = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer(), **extra)
-        call = _CountingCall()
-        with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
-            with pytest.raises(SealedRunRefusedError):
-                second(call)
-        assert call.calls == 0
 
     def test_no_rotation_when_the_run_was_already_sealed(self, tmp_path: Path) -> None:
         extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path)
