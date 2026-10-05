@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import stat
+import sys
 from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from mloda.enterprise.extenders.audit import (
     RunAlreadySealedError,
     RunNotPendingError,
     _core,
+    _seal_index,
     seal_ndjson_runs,
     verify_ndjson_log,
 )
@@ -395,6 +397,10 @@ class TestSealIndex:
     def _stable(manifests: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
         return [{k: v for k, v in m.items() if k not in ("sealed_at", "signature")} for m in manifests]
 
+    @staticmethod
+    def _chainless(manifests: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        return [{k: v for k, v in m.items() if k != "previous_manifest_hash"} for m in TestSealIndex._stable(manifests)]
+
     def _audit_parses_of_one_seal(
         self, monkeypatch: pytest.MonkeyPatch, directory: Path, prior: int, *, indexed: bool
     ) -> int:
@@ -539,10 +545,7 @@ class TestSealIndex:
         seen = self._count_audit_parses(monkeypatch, audit_path)
         seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-c", seal_index_path=index_path)
 
-        def chainless(manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            return [{k: v for k, v in m.items() if k != "previous_manifest_hash"} for m in self._stable(manifests)]
-
-        assert chainless(fast) == chainless(full)
+        assert self._chainless(fast) == self._chainless(full)
         assert len(seen) <= 2
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
@@ -803,6 +806,40 @@ class TestSealIndex:
 
         assert [m["run_id"] for m in manifests] == ["run-next"]
         assert index_path.read_bytes() == before
+
+    def test_without_sqlite3_an_indexed_seal_matches_an_unindexed_one_and_warns_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live", 2, indexed=False)
+        _write_records(audit_path, [_record("run-next", 99), _record("run-after", 100)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+        monkeypatch.setitem(sys.modules, "sqlite3", None)
+        monkeypatch.setattr(_seal_index, "_sqlite_missing_logged", False)
+
+        ref = [
+            seal_ndjson_runs(
+                tmp_path / "ref" / "audit.ndjson",
+                tmp_path / "ref" / "manifests.ndjson",
+                signer=_signer(),
+                run_id=run_id,
+            )[0]
+            for run_id in ("run-next", "run-after")
+        ]
+
+        with caplog.at_level(logging.WARNING, logger=_AUDIT_LOGGER):
+            live = [
+                seal_ndjson_runs(
+                    audit_path, manifest_path, signer=_signer(), run_id=run_id, seal_index_path=index_path
+                )[0]
+                for run_id in ("run-next", "run-after")
+            ]
+
+        assert self._chainless(live) == self._chainless(ref)
+        assert live[0]["previous_manifest_hash"] == ref[0]["previous_manifest_hash"]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert sorted(p.name for p in (tmp_path / "live").iterdir()) == ["audit.ndjson", "manifests.ndjson"]
+        warnings = [r for r in caplog.records if r.name == _AUDIT_LOGGER and r.levelno == logging.WARNING]
+        assert [r.getMessage() for r in warnings] == ["seal_index_path is ignored: sqlite3 is not available"]
 
     def test_the_index_file_is_created_with_owner_only_permissions(self, tmp_path: Path) -> None:
         _, _, index_path = _indexed_log(tmp_path / "live", 1)
