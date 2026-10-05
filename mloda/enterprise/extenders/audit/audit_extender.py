@@ -173,11 +173,10 @@ class AuditExtender(Extender):
     emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
-    so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the
-    segment with rotate_ndjson_segment after an auto-seal once the audit file reaches that size or the live
-    segment's genesis that age; that run's completion pays for verifying the whole outgoing segment, and a
-    rotation failure counts in seal_failures and follows seal_failure_policy. seal_index_path opts into a rebuildable seal index cache; it needs the
-    sealing config and must not alias audit_path, manifest_path or the anchor path."""
+    so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the segment
+    after an auto-seal once the audit file reaches that size or the segment that age; a rotation failure counts in
+    seal_failures and follows seal_failure_policy. seal_index_path opts into a rebuildable seal index cache; it needs
+    the sealing config and must not alias audit_path, manifest_path or the anchor path."""
 
     def __init__(
         self,
@@ -246,8 +245,8 @@ class AuditExtender(Extender):
                 or segment_max_age is not None
             ):
                 raise ValueError(
-                    "AuditExtender log_id, head_anchor, seal_failure_policy, seal_index_path, segment_max_bytes and segment_max_age "
-                    "need the sealing config "
+                    "AuditExtender log_id, head_anchor, seal_failure_policy, seal_index_path, segment_max_bytes and "
+                    "segment_max_age need the sealing config "
                     "(audit_path, manifest_path and signer), else there is nothing to seal"
                 )
         elif audit_path is None or manifest_path is None:
