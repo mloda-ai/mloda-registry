@@ -187,6 +187,8 @@ class OtelExtender(Extender):
         caller = _carrier_or_active_span_context(run.carrier)
         with self._lock:
             plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None
+            if plan_ints is not None:
+                self._plan_ints.move_to_end(plan.plan_id)
         if plan_ints is not None:
             parent: Context | None = _context_from_ints(plan_ints)
             links = [Link(caller)] if caller is not None else None
@@ -259,6 +261,8 @@ class OtelExtender(Extender):
                 )
             )
         state = dict(self.__dict__)
+        with self._lock:
+            state["_run_roots"] = dict(self._run_roots)
         for key in ("_lock", "_root_spans", "_plan_ints", "_plan_spans"):
             state.pop(key, None)
         if failure_reason is not None:

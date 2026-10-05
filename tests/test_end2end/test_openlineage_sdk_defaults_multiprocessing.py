@@ -57,3 +57,8 @@ def test_use_sdk_defaults_client_emits_inside_the_spawned_worker(
     assert {"START", "COMPLETE"} <= worker_event_types, (
         f"no spawned worker emitted a START and COMPLETE event (parent pid {os.getpid()}): {lines}"
     )
+
+    parent_lines = [line for line in lines if line.split(":", 1)[0] == str(os.getpid())]
+    assert [line.split(":", 1)[1] for line in parent_lines] == ["START", "COMPLETE"], (
+        f"the parent process must emit exactly the run START and COMPLETE, got {parent_lines}"
+    )

@@ -77,10 +77,16 @@ def _attributes(record: Mapping[str, Any], key: bytes | None) -> dict[str, Any]:
     return attributes
 
 
+def _is_hex(value: str, length: int) -> bool:
+    return len(value) == length and all(c in "0123456789abcdefABCDEF" for c in value) and int(value, 16) != 0
+
+
 def _correlation_context(record: Mapping[str, Any]) -> Any:
     trace_id: str | None = record.get("trace_id")
     span_id: str | None = record.get("span_id")
     if trace_id is None or span_id is None or _is_blank(trace_id) or _is_blank(span_id):
+        return None
+    if not (_is_hex(trace_id, 32) and _is_hex(span_id, 16)):
         return None
     from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, set_span_in_context
 

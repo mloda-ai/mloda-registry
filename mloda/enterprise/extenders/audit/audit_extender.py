@@ -376,7 +376,7 @@ class AuditExtender(Extender):
                     phase="run",
                     enforced=True,
                     start_time=None,
-                    trace=trace_ids(getattr(run, "carrier", None)),
+                    trace=trace_ids(run.carrier),
                 )
             )
             raise
@@ -402,7 +402,9 @@ class AuditExtender(Extender):
 
     def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
         """Auto-seal `plan.plan_id` when a plan-time refusal record was written under it (the refusal never
-        reaches on_run_complete); a no-op otherwise. Same sealing path and failure handling as on_run_complete."""
+        reaches on_run_complete); a no-op otherwise. Same sealing path as on_run_complete, but core only logs
+        exceptions from this hook, so under seal_failure_policy="raise" a plan seal failure is counted in
+        seal_failures and logged, not raised."""
         if plan.plan_id in self._plan_refusals:
             self._plan_refusals.discard(plan.plan_id)
             self._auto_seal(plan.plan_id)

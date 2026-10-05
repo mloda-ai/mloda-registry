@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import copy
 import datetime
 import logging
 import pickle  # nosec
@@ -1672,6 +1673,35 @@ class TestOtelExtenderRunAll:
         identity = load_attrs.get("mloda.data_access.identity")
         assert isinstance(identity, str) and identity.endswith("data.csv"), load_attrs
 
+    def test_plan_scope_multiprocessing_worker_parents_to_the_run_root_under_the_plan_span(
+        self, tmp_path: Path, flight_server: Any
+    ) -> None:
+        marker_path = tmp_path / "spans.jsonl"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, records=True)
+
+        result = run_csv_feature(
+            tmp_path,
+            OtelExtender(tracer_provider=provider, trace_scope="plan"),
+            parallelization_modes={ParallelizationMode.MULTIPROCESSING},
+            flight_server=flight_server,
+        )
+
+        assert result == [1, 3]
+        records = read_span_records(marker_path)
+        plan_records = [record for record in records if record["name"] == "mloda.plan"]
+        root_records = [record for record in records if record["name"] == "mloda.run"]
+        calculate_records = [record for record in records if record["name"].startswith("calculate ")]
+        assert len(plan_records) == 1, records
+        assert len(root_records) == 1, records
+        assert len(calculate_records) == 1, records
+        plan_record, root_record, calculate_record = plan_records[0], root_records[0], calculate_records[0]
+        assert "mloda.subprocess.worker_index" in calculate_record["attributes"], calculate_record
+        assert root_record["parent_span_id"] == plan_record["span_id"], records
+        assert calculate_record["parent_span_id"] == root_record["span_id"], records
+        assert {plan_record["trace_id"], root_record["trace_id"], calculate_record["trace_id"]} == {
+            plan_record["trace_id"]
+        }, records
+
 
 def _plan(plan_id: str) -> PlanContext:
     return PlanContext(
@@ -1850,6 +1880,32 @@ class TestOtelExtenderRunScopeFullRuns:
         run_value_int(otel)
 
         assert len(_by_trace(exporter)) == 2
+
+    def test_one_shared_extender_used_by_two_threads_gives_each_run_its_own_trace(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                run_value_int(otel)
+            except BaseException as exc:  # surfaced below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+
+        assert errors == []
+        traces = _by_trace(exporter)
+        assert len(traces) == 2
+        for spans in traces.values():
+            assert assert_well_formed_trace(spans).name == "mloda.run"
+        assert len(_named(exporter, "mloda.run")) == 2
 
 
 class TestOtelExtenderPlanScopeFullRuns:
@@ -2074,9 +2130,40 @@ class TestOtelExtenderRootSpanHooks:
         run_id = str(uuid.uuid4())
 
         _start_run(otel, run_id)
+        assert otel._run_roots == {}
         _complete_run(otel, run_id)
 
-        assert not any(isinstance(value, dict) and value for value in otel.__getstate__().values())
+        assert otel._run_roots == {}
+
+    def test_no_op_provider_without_carrier_or_caller_span_stores_nothing(self) -> None:
+        otel = OtelExtender(tracer_provider=trace.NoOpTracerProvider())
+
+        _start_run(otel, str(uuid.uuid4()))
+
+        assert otel._run_roots == {}
+
+    def test_no_op_provider_with_a_carrier_stores_the_carrier_span_ints(self) -> None:
+        otel = OtelExtender(tracer_provider=trace.NoOpTracerProvider())
+        run_id = str(uuid.uuid4())
+        carrier, carrier_trace_id, carrier_span_id = inject_parent_carrier()
+
+        _start_run(otel, run_id, carrier=carrier)
+
+        assert [roots[:2] for roots in otel._run_roots.values()] == [(carrier_trace_id, carrier_span_id)]
+
+    def test_no_op_provider_with_a_caller_span_stores_the_caller_span_ints(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=trace.NoOpTracerProvider())
+        run_id = str(uuid.uuid4())
+
+        with provider.get_tracer("mloda-testing-caller").start_as_current_span("caller") as caller:
+            context = caller.get_span_context()
+            _start_run(otel, run_id)
+
+        assert [roots[:2] for roots in otel._run_roots.values()] == [(context.trace_id, context.span_id)]
+        assert list(otel._run_roots) == [run_id]
 
 
 class TestOtelExtenderPlanSpanHooks:
@@ -2166,6 +2253,33 @@ class TestOtelExtenderPlanSpanHooks:
         assert _ids(roots[evicted])[0] != _ids(plan_spans["p1"])[0]
         assert roots[kept].parent is not None
         assert roots[kept].parent.span_id == _ids(plan_spans["p3"])[1]
+
+    def test_a_plan_whose_runs_keep_coming_is_not_evicted(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(otel_extender_module, "_MAX_PLAN_SPANS", 2)
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider, trace_scope="plan")
+        for plan_id in ("pa", "pb"):
+            otel.on_plan_start(_plan(plan_id))
+            otel.on_plan_complete(_plan(plan_id), LifecycleOutcome(status="succeeded"))
+        refresh = str(uuid.uuid4())
+        _start_run(otel, refresh, plan_id="pa")
+        _complete_run(otel, refresh)
+        otel.on_plan_start(_plan("pc"))
+        otel.on_plan_complete(_plan("pc"), LifecycleOutcome(status="succeeded"))
+        plan_spans = {(span.attributes or {})["mloda.plan.id"]: span for span in _named(exporter, "mloda.plan")}
+
+        kept, evicted = str(uuid.uuid4()), str(uuid.uuid4())
+        _start_run(otel, kept, plan_id="pa")
+        _complete_run(otel, kept)
+        _start_run(otel, evicted, plan_id="pb")
+        _complete_run(otel, evicted)
+
+        roots = {(span.attributes or {})["mloda.run.id"]: span for span in _named(exporter, "mloda.run")}
+        assert roots[kept].parent is not None
+        assert roots[kept].parent.span_id == _ids(plan_spans["pa"])[1]
+        assert roots[evicted].parent is None
 
 
 class TestOtelExtenderStepSpanNaming:
@@ -2304,6 +2418,27 @@ class TestOtelExtenderRootSpanPickling:
         names = [record["name"] for record in read_span_records(marker_path)]
         assert names.count("mloda.run") == 2
         assert names.count("mloda.plan") == 1
+
+    def test_copy_does_not_share_the_run_roots_with_the_original(self, tmp_path: Path) -> None:
+        otel, _ = self._marker_extender(tmp_path)
+        run_id = str(uuid.uuid4())
+        _start_run(otel, run_id)
+
+        duplicate = copy.copy(otel)
+        _complete_run(otel, run_id)
+
+        assert run_id in duplicate._run_roots
+        assert duplicate._run_roots is not otel._run_roots
+
+    def test_pickled_state_run_roots_is_a_snapshot(self, tmp_path: Path) -> None:
+        otel, _ = self._marker_extender(tmp_path)
+        run_id = str(uuid.uuid4())
+        _start_run(otel, run_id)
+
+        state = otel.__getstate__()
+        _complete_run(otel, run_id)
+
+        assert run_id in state["_run_roots"]
 
 
 class TestOtelExtenderClose:

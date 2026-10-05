@@ -698,6 +698,30 @@ class TestOtelLogAuditSinkMapping:
         assert not log.log_record.trace_id
         assert not log.log_record.span_id
 
+    @pytest.mark.parametrize(
+        ("trace_id", "span_id"),
+        [
+            ("xyz", _SPAN_ID),
+            (_TRACE_ID, "xyz"),
+            ("12", "34"),
+            (_TRACE_ID + "0", _SPAN_ID),
+            (_TRACE_ID, _SPAN_ID + "0"),
+        ],
+        ids=["bad_trace_hex", "bad_span_hex", "too_short", "trace_too_long", "span_too_long"],
+    )
+    def test_malformed_ids_still_emit_the_log_uncorrelated(
+        self, log_exporter: InMemoryLogRecordExporter, trace_id: str, span_id: str
+    ) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "trace_id": trace_id, "span_id": span_id}
+        baseline = _attributes(_write_one(log_exporter, _audit_record(tenant_id="tenant-1")))
+        log_exporter.clear()
+
+        log = _write_one(log_exporter, record)
+
+        assert not log.log_record.trace_id
+        assert not log.log_record.span_id
+        assert _attributes(log).keys() == baseline.keys()
+
     def test_no_other_record_key_is_forwarded_and_the_raw_principal_appears_nowhere(
         self, log_exporter: InMemoryLogRecordExporter
     ) -> None:
