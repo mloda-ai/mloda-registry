@@ -1,4 +1,4 @@
-"""Record helpers shared by the audit sink (audit_extender.py) and the run-manifest sealer (run_manifest.py)."""
+"""Record helpers shared by the audit sink, the OTel log sink and the run manifest modules."""
 
 from __future__ import annotations
 

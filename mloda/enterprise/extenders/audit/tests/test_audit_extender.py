@@ -1232,7 +1232,7 @@ class TestAuditExtenderClose:
 class TestAuditExtenderSealing:
     """on_run_complete(run_id) auto-seals a finished run when audit_path/manifest_path/signer are configured;
     otherwise (or with run_id=None) it is a no-op. Direct construction and direct on_run_complete calls, no
-    mloda.run_all: the seal machinery itself is exercised end-to-end in test_run_manifest.py."""
+    mloda.run_all: the seal machinery itself is exercised end-to-end in test_run_manifest.py and its sibling test modules."""
 
     def test_run_id_none_is_a_noop_even_when_sealing_is_configured(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"

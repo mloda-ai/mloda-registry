@@ -1,4 +1,4 @@
-"""Fixtures for the run manifest tests."""
+"""Fixtures shared by every test module in this directory."""
 
 from __future__ import annotations
 
