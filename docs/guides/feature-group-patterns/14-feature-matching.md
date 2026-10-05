@@ -27,7 +27,7 @@ The default `match_feature_group_criteria()` checks in order:
 
 The first rule that returns `True` claims the name. If FeatureChainParserMixin is used, pattern matching is also applied.
 
-A claimed name still has to pass the group's `PROPERTY_MAPPING`: since mloda 0.15.0 the default matcher of a plain group runs the strict-value and `match_guard` checks, and the class-definition presence guard runs the required-presence check (on a patterned group, only for names its pattern owns). An optional key declares `default=None`; see [Options: Validation](11-options.md#validation-and-conditional-requirements).
+A claimed name must still pass the group's `PROPERTY_MAPPING`: since mloda 0.15.0 a plain group's default matcher runs the strict-value and `match_guard` checks, and the presence guard checks required keys (on a patterned group, only for names its pattern owns). Declare an optional key with `default=None`; see [Options: Validation](11-options.md#validation-and-conditional-requirements).
 
 ---
 
