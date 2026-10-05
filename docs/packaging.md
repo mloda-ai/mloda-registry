@@ -96,11 +96,12 @@ normalizes to a configured sibling package; any other use of `{version}` fails g
 dependent built on a sibling's private seams (enterprise lineage on community OpenLineage); it accepts only
 patch releases of the minor it was built with. The `~=` pin binds only through the extra, so install
 enterprise lineage as `mloda-enterprise[openlineage]`. It only holds if a seam change ships as a `minor:`
-commit; under `fix:` or `feat:` it is a patch release, which `~=` admits.
+commit; any other type (`fix:`, `feat:`, `refactor:`, even with a `!` breaking marker) is a patch
+release, which `~=` admits.
 
 Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders-shared>={version}"`
-because its runtime code imports only public names from it (`tests/test_end2end/test_dependency_direction.py`
-guards this). A `~=` there would also cap the `mloda-community` bundle, which pins that package exactly.
+because its runtime code uses only public names from it and subclasses none of its classes
+(`tests/test_end2end/test_dependency_direction.py` guards this). A `~=` there would also cap the `mloda-community` bundle, which pins that package exactly.
 
 Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
 sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships

@@ -90,9 +90,10 @@ workflow can pace or retry around. See
 With dependency-first upload order (see [Flow](#flow)), every uploaded package's same-release
 requirements are already on PyPI, so a rejected, partial upload leaves nothing already
 uploaded uninstallable; a rerun just uploads the rest. `mloda-enterprise` cannot resolve at a
-newer version than `mloda-community`: it needs `mloda-community-extenders-shared` at its own
-version or later and, through its own `[openlineage]` extra, `mloda-community-openlineage` at a
-patch release of its own minor, and `mloda-community` pins each of the packages it owns exactly.
+newer version than `mloda-community`: it needs `mloda-community` and
+`mloda-community-extenders-shared` at its own version or later and, through its own `[openlineage]`
+extra, `mloda-community-openlineage` at its own version or a later patch of that minor, and
+`mloda-community` pins each of the packages it owns exactly.
 Install both bundles at the same version and upgrade them together: upgrading one alone, or a
 single owned package, leaves a conflict that pip reports without stopping the install.
 
