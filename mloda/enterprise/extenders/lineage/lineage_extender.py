@@ -69,7 +69,7 @@ class MlodaRunFacet(RunFacet):
     featureGroupVersion: str = attr.field()
     pluginVersion: str | None = attr.field()
     computeFramework: str = attr.field()
-    maskedFeatures: list[str] = attr.field()
+    declaredMasking: list[str] = attr.field()
     structureHash: str = attr.field()
 
     @staticmethod
@@ -118,7 +118,7 @@ class LineageFacetsExtender(OpenLineageExtender):
             featureGroupVersion=context.feature_group_version or "unknown",
             pluginVersion=context.plugin_version,
             computeFramework=context.compute_framework_name or "unknown",
-            maskedFeatures=masked,
+            declaredMasking=masked,
             structureHash=_structure_hash(context, masked, _source_columns(context, func, args)),
             producer=self.producer,
         )
@@ -153,12 +153,11 @@ class LineageFacetsExtender(OpenLineageExtender):
                 return facets
             edges = [(inputs[0].namespace, inputs[0].name, column)]
             description = None
-        masking = True if name in _masked_features(context, func, args) else None
-        facets["columnLineage"] = self._column_lineage_facet(name, edges, masking, description)
+        facets["columnLineage"] = self._column_lineage_facet(name, edges, description)
         return facets
 
     def _column_lineage_facet(
-        self, name: str, edges: list[tuple[str, str, str]], masking: bool | None, description: str | None
+        self, name: str, edges: list[tuple[str, str, str]], description: str | None
     ) -> column_lineage_dataset.ColumnLineageDatasetFacet:
         """`edges` are (namespace, dataset name, field) triples."""
         return column_lineage_dataset.ColumnLineageDatasetFacet(
@@ -170,9 +169,7 @@ class LineageFacetsExtender(OpenLineageExtender):
                             name=dataset,
                             field=field,
                             transformations=[
-                                column_lineage_dataset.Transformation(
-                                    type="DIRECT", masking=masking, description=description
-                                )
+                                column_lineage_dataset.Transformation(type="DIRECT", description=description)
                             ],
                         )
                         for namespace, dataset, field in edges
