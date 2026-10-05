@@ -27,7 +27,7 @@ As long as sibling readers have distinct class names, they cannot collide: each 
 
 ### Several Accepting Readers
 
-Distinct names only protect pinned features. Without a pin, every reader in the family probes the `DataAccessCollection`, and when more than one accepts, the feature fails to resolve (`No feature groups found`) with the root group's match-hook reason `ValueError: Several readers accept the data access for feature(s) ...`; no reader wins by order. A feature pinning several readers that all accept fails the same way (`pins several readers that accept it`). Resolve an overlap, with your own readers or with a stock one owning the same suffix, by one of:
+Distinct names only protect pinned features. Without a pin, every reader in the family probes the `DataAccessCollection`, and when more than one accepts, the feature fails to resolve (`No feature groups found`) with the root group's match-hook reason `ValueError: Several readers accept the data access for feature(s) ...`; no reader wins by order. A feature pinning several readers that all accept fails with `pins several readers that accept it`. Resolve an overlap, with your own readers or with a stock one owning the same suffix, by one of:
 
 - **Subclass the reader you extend.** A subclass that accepts an equal data access replaces its parent instead of conflicting (a custom `.csv` reader subclasses `CsvReader`).
 - **Narrow `match_subclass_data_access`** (suffix, scheme, host) so the accepts are disjoint.

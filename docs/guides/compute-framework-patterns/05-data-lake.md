@@ -35,6 +35,9 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
 Declare the requirement as in [Category 3](03-stateful-connection.md#declare-the-connection-requirement): `SELF_MANAGED` when the framework still runs without a supplied catalog (Iceberg works on the table objects it is given), `REQUIRED` when it cannot, with `_connection_matches()` accepting a catalog or a table:
 
 ```python
+from mloda.provider import ConnectionRequirement
+
+
 @classmethod
 def connection_requirement(cls) -> ConnectionRequirement:
     return ConnectionRequirement.SELF_MANAGED
