@@ -1,4 +1,4 @@
-"""Tests for step_run_id and owner_name: the step identity helpers shared by the OpenLineage, OTel and audit extenders."""
+"""Tests for the step identity helpers step_run_id and owner_name."""
 
 from __future__ import annotations
 

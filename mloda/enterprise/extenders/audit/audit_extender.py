@@ -173,7 +173,8 @@ class AuditExtender(Extender):
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
     not track code changes).
-    record_version 2 (compliant also needs a non-blank principal; enforced marks a fail_closed refusal); an absent key means not recorded. With audit_path,
+    record_version 2 (compliant also needs a non-blank principal; enforced marks a fail_closed refusal); an absent
+    key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished, whatever its outcome. Each run() of a prepared session gets a fresh run_id, so a rerun
     is audited and sealed as its own run; a calculation under an already-sealed run_id (only possible by hand)
@@ -183,7 +184,8 @@ class AuditExtender(Extender):
     before setup, so on_run_complete never fires for it; with the sealing config, on_plan_complete auto-seals it
     under its plan_id. A record with no run_id is attributed to its plan_id, so without that config a
     seal_ndjson_runs sweep seals it under that plan_id (target it, not a blanket sweep, while another run may be
-    live; find it via verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new
+    live; find it via verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and
+    head_anchor (each new
     head is emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor
     error, or a mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Under "raise" the instance sets core's
