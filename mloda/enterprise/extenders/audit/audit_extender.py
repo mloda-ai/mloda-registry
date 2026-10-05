@@ -167,10 +167,10 @@ class AuditExtender(Extender):
     is audited, and when the sink writes to audit_path, on_run_complete counts its record outside the seal as a
     seal failure (under "raise" that fails the run).
     A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
-    before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays).
-    A record with no run_id is attributed to its plan_id, so a seal_ndjson_runs sweep seals it under that plan_id
-    (target it, not a blanket sweep, while another run may be live; find it via
-    verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new
+    before setup, so on_run_complete never fires for it; with the sealing config, on_plan_complete auto-seals it
+    under its plan_id. A record with no run_id is attributed to its plan_id, so without that config a
+    seal_ndjson_runs sweep seals it under that plan_id (target it, not a blanket sweep, while another run may be
+    live; find it via verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new
     head is emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor
     error, or a mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Under "raise" the instance sets core's
@@ -305,6 +305,7 @@ class AuditExtender(Extender):
         self._segment_max_bytes = segment_max_bytes
         self._segment_max_age = segment_max_age
         self.seal_failures = 0
+        self._plan_refusals: set[str] = set()
         self._pickle_drop_warning = WarnOncePerInstance()
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
@@ -376,9 +377,18 @@ class AuditExtender(Extender):
         After a seal it made, it rotates the segment when segment_max_bytes / segment_max_age is passed; a rotation
         failure is a seal failure too (counted and handled by seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
         at WARNING) and retries the seal once."""
-        run_id = run.run_id
-        if run_id is None:
+        if run.run_id is None:
             return
+        self._auto_seal(run.run_id)
+
+    def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
+        """Auto-seal `plan.plan_id` when a plan-time refusal record was written under it (the refusal never
+        reaches on_run_complete); a no-op otherwise. Same sealing path and failure handling as on_run_complete."""
+        if plan.plan_id in self._plan_refusals:
+            self._plan_refusals.discard(plan.plan_id)
+            self._auto_seal(plan.plan_id)
+
+    def _auto_seal(self, run_id: str) -> None:
         if self._signer is None:
             if self._audit_path is not None:
                 self._pickle_drop_warning.warn_once(
@@ -571,6 +581,8 @@ class AuditExtender(Extender):
                 except IdentityRequiredError as refusal:
                     # Unguarded on purpose: a sink failure must propagate (chained to the refusal), never be swallowed.
                     self.sink.write(self._build_record(context, [], status="error", error_type=_error_type(refusal)))
+                    if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED and context.plan_id is not None:
+                        self._plan_refusals.add(context.plan_id)
                     raise
             if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED:
                 return func(*args, **kwargs)

@@ -20,6 +20,7 @@ import time
 import uuid
 import weakref
 from collections.abc import Callable, Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -30,12 +31,21 @@ import pytest
 import requests
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import BaseInputData
-from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, LifecycleOutcome, RunContext
+from mloda.steward import (
+    CompositeExtender,
+    Extender,
+    ExtenderHook,
+    HookContext,
+    LifecycleOutcome,
+    PlanContext,
+    RunContext,
+)
 from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
+from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import (
@@ -48,7 +58,7 @@ from mloda.testing.extenders.openlineage import (
     assert_openlineage_extender_seams,
     make_recording_client,
 )
-from mloda.testing.extenders.runners import _value_int_plus_one_feature_group, run_value_int
+from mloda.testing.extenders.runners import _value_int_plus_one_feature_group, expected_value_int, run_value_int
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, RunState
 from openlineage.client.facet_v2 import documentation_dataset, nominal_time_run, parent_run, schema_dataset
@@ -1724,6 +1734,225 @@ class TestOpenLineageExtenderParentRunFacet:
         assert isinstance(parent, parent_run.ParentRunFacet)
         assert parent.job.namespace == "custom-ns"
         assert parent.job.name == "custom.root"
+
+
+_PLAN_ID = "plan-0001"
+
+
+def _plan() -> PlanContext:
+    return PlanContext(
+        plan_id=_PLAN_ID, tenant_id=None, project_id=None, principal=None, created_at=datetime.now(timezone.utc)
+    )
+
+
+def _plan_facet(event: Any) -> dict[str, Any]:
+    facet: dict[str, Any] = json.loads(Serde.to_json(event))["run"]["facets"]["mlodaPlan"]
+    return facet
+
+
+class TestOpenLineageExtenderParentRun:
+    """on_run_start emits START for the run itself (job root_job_name, runId = run_id, mlodaPlan facet);
+    on_run_complete emits COMPLETE, FAIL or ABORT, only when START was emitted."""
+
+    def test_run_start_emits_a_parent_start_event(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        started_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+        extender = OpenLineageExtender(client=client)
+
+        extender.on_run_start(RunContext(run_id=_RUN_A, plan_id=_PLAN_ID, started_at=started_at), _plan(), ())
+
+        assert len(transport.events) == 1
+        event = transport.events[0]
+        assert event.eventType == RunState.START
+        assert event.run.runId == _RUN_A
+        assert (event.job.namespace, event.job.name) == ("mloda", "mloda.run_all")
+        assert datetime.fromisoformat(event.eventTime) == started_at
+        assert _plan_facet(event)["planId"] == _PLAN_ID
+        assert _plan_facet(event)["_producer"] == extender.producer
+        assert event.producer == extender.producer
+
+    def test_run_start_uses_the_custom_namespace_and_root_job_name_and_now_without_started_at(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client, job_namespace="custom-ns", root_job_name="custom.root")
+        before = datetime.now(timezone.utc)
+
+        extender.on_run_start(RunContext(run_id=_RUN_A), _plan(), ())
+
+        event = transport.events[0]
+        assert (event.job.namespace, event.job.name) == ("custom-ns", "custom.root")
+        assert datetime.fromisoformat(event.eventTime) >= before
+
+    @pytest.mark.parametrize(
+        ("status", "state"),
+        [
+            pytest.param("succeeded", RunState.COMPLETE, id="succeeded"),
+            pytest.param("failed", RunState.FAIL, id="failed"),
+            pytest.param("cancelled", RunState.ABORT, id="cancelled"),
+        ],
+    )
+    def test_run_complete_emits_the_terminal_event_for_the_outcome(
+        self, status: Any, state: RunState, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status=status))
+
+        assert [event.eventType for event in transport.events] == [RunState.START, state]
+        terminal = transport.events[1]
+        assert terminal.run.runId == _RUN_A
+        assert terminal.job.name == "mloda.run_all"
+        assert _plan_facet(terminal)["planId"] == _PLAN_ID
+
+    def test_run_complete_without_an_emitted_start_emits_nothing(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        extender.on_run_complete(RunContext(run_id=_RUN_A), LifecycleOutcome(status="succeeded"))
+
+        assert transport.events == []
+
+    def test_a_terminal_event_is_emitted_once_per_started_run(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+
+    def test_inert_extender_emits_no_parent_events(self) -> None:
+        extender = OpenLineageExtender()
+        run = RunContext(run_id=_RUN_A)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+    def test_run_without_a_run_id_emits_nothing(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=None)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert transport.events == []
+
+    def test_a_failed_parent_start_trips_the_breaker_for_the_run(self, caplog: pytest.LogCaptureFixture) -> None:
+        transport = _FailingEmitTransport(_connection_error)
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
+        composite = CompositeExtender([extender])
+        sentinel = object()
+
+        with caplog.at_level(logging.WARNING):
+            extender.on_run_start(RunContext(run_id=_RUN_X), _plan(), ())
+            assert transport.emit_attempts == 1
+            with make_hook_context(run_id=_RUN_X).activate():
+                assert composite(lambda: sentinel) is sentinel
+
+        assert transport.emit_attempts == 1
+        assert len(_breaker_records(caplog)) == 1
+
+    def test_a_failed_parent_start_emits_no_terminal_event(self) -> None:
+        transport = _FailingEmitTransport(_connection_error)
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
+        run = RunContext(run_id=_RUN_X)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert transport.emit_attempts == 1
+
+    def test_run_complete_clears_the_breaker_and_the_started_state(self) -> None:
+        transport = _FailingEmitTransport(_connection_error)
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
+        run = RunContext(run_id=_RUN_X)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+        assert extender._tripped_runs == {}
+
+        transport.failing = False
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+        assert transport.emit_attempts == 3
+
+    def test_raise_on_error_true_propagates_a_failed_parent_start(self) -> None:
+        transport = _FailingEmitTransport(_connection_error)
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport), raise_on_error=True)
+
+        with pytest.raises(ConnectionError):
+            extender.on_run_start(RunContext(run_id=_RUN_X), _plan(), ())
+
+    def test_raise_on_error_true_refuses_the_run_on_a_failed_parent_start(self) -> None:
+        transport = _FailingEmitTransport(_connection_error)
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport), raise_on_error=True)
+
+        with pytest.raises(Exception):
+            run_value_int(extender)
+
+    def test_a_failed_parent_start_never_fails_the_run_by_default(self) -> None:
+        transport = _FailingEmitTransport(_connection_error)
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
+
+        assert run_value_int(extender) == expected_value_int()
+
+    def test_step_runs_keep_only_the_parent_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        run_value_int(OpenLineageExtender(client=client))
+
+        steps = [event for event in transport.events if event.job.name != "mloda.run_all"]
+        assert steps
+        for event in steps:
+            assert "mlodaPlan" not in (event.run.facets or {})
+
+    def test_step_run_id_is_derived_from_the_run_job_features_and_framework(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run_id = str(uuid.uuid4())
+        context = make_hook_context(
+            run_id=run_id,
+            feature_group_class="pkg.Group",
+            feature_names=("b", "a"),
+            compute_framework_name="PyArrowTable",
+        )
+
+        with context.activate():
+            extender(lambda: None)
+
+        assert transport.events[0].run.runId == step_run_id(run_id, "pkg.Group", ("a", "b"), "PyArrowTable")
+
+    def test_step_run_id_falls_back_to_a_random_uuid_without_a_derivable_run_id(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        for _ in range(2):
+            with make_hook_context(run_id=None).activate():
+                extender(lambda: None)
+
+        starts = [event.run.runId for event in transport.events if event.eventType == RunState.START]
+        assert len(set(starts)) == 2
+        for value in starts:
+            uuid.UUID(value)
 
 
 class TestOpenLineageExtenderInputDataLoadCorrelation:

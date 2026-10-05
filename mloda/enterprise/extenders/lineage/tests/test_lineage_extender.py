@@ -333,8 +333,13 @@ def _job(feature_group: type[FeatureGroup], suffix: str = "") -> str:
     return f"{feature_group.__module__}.{feature_group.__qualname__}{suffix}"
 
 
+def _step_events(events: list[RunEvent]) -> list[RunEvent]:
+    """Drops the parent run's events (job mloda.run_all)."""
+    return [event for event in events if event.job.name != "mloda.run_all"]
+
+
 def _calculate_run_events(events: list[RunEvent]) -> list[RunEvent]:
-    return [event for event in events if not event.job.name.endswith(_VALIDATION_JOB_SUFFIXES)]
+    return [event for event in _step_events(events) if not event.job.name.endswith(_VALIDATION_JOB_SUFFIXES)]
 
 
 def _run(
@@ -551,8 +556,17 @@ def _structure_hash(func: Callable[..., Any] | None = None, args: tuple[Any, ...
 
 @pytest.fixture
 def ol_capture() -> Iterator[tuple[OpenLineageClient, RecordingTransport]]:
-    """A fresh, isolated (client, transport) pair per test."""
-    yield make_recording_client()
+    """A fresh, isolated (client, transport) pair per test. The transport drops the parent run's events (job
+    mloda.run_all), so these step-level tests see only step runs."""
+    client, transport = make_recording_client()
+    record = transport.emit
+
+    def emit_steps_only(event: Any) -> None:
+        if event.job.name != "mloda.run_all":
+            record(event)
+
+    transport.emit = emit_steps_only  # type: ignore[method-assign]
+    yield client, transport
 
 
 class TestLineageFacetsExtenderContract(OpenLineageExtenderTestMixin):
@@ -1653,7 +1667,7 @@ class TestLineageFacetsValidationRuns:
 
         _run(LineageFacetsExtender(client=client), list(_PassingValidators.outputs), _PassingValidators)
 
-        assert {event.job.name for event in transport.events} == {
+        assert {event.job.name for event in _step_events(transport.events)} == {
             _job(_Root),
             _job(_PassingValidators),
             _job(_PassingValidators, f".{_VALIDATE_INPUT}"),
@@ -1940,7 +1954,7 @@ class TestLineageFacetsRunFacet:
             return {
                 event.job.name: _run_facet(event).structureHash
                 for event in transport.events
-                if event.eventType == RunState.START
+                if event.eventType == RunState.START and event.job.name != "mloda.run_all"
             }
 
         first, second = start_hashes(), start_hashes()

@@ -10,6 +10,7 @@ import os
 import sys
 import textwrap
 import threading
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
@@ -18,7 +19,7 @@ from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
-from mloda.steward import CompositeExtender, Extender, ExtenderHook
+from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
 from openlineage.client.client import Event, OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
 from openlineage.client.facet_v2 import parent_run
@@ -28,7 +29,13 @@ from openlineage.client.transport.transport import Config, Transport
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
-from mloda.testing.extenders.runners import run_csv_feature, run_two_features
+from mloda.testing.extenders.runners import (
+    failing_feature_group,
+    prepare_value_int,
+    run_csv_feature,
+    run_failing_feature,
+    run_two_features,
+)
 
 
 class RecordingTransport(Transport):
@@ -213,6 +220,36 @@ def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
     return found
 
 
+ROOT_JOB_NAME = "mloda.run_all"
+
+
+class _CalculateContextProbe(Extender):
+    """Records the HookContext of every calculate step it wraps, so a test can derive the expected step run ids."""
+
+    def __init__(self) -> None:
+        self.raise_on_error = False
+        self.priority = 200
+        self.contexts: list[HookContext] = []
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        if context is not None:
+            self.contexts.append(context)
+        return func(*args, **kwargs)
+
+
+def _root_events(events: list[RunEvent]) -> list[RunEvent]:
+    return [event for event in events if event.job.name == ROOT_JOB_NAME]
+
+
+def _plan_id_of(event: RunEvent) -> Any:
+    payload = json.loads(Serde.to_json(event))
+    return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get("planId")
+
+
 class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     """Contract for OpenLineage-emitting extenders. Host provides extender_class and make_openlineage_extender."""
 
@@ -271,8 +308,9 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         return {"START", "COMPLETE"}
 
     def calculate_run_events(self, events: list[RunEvent]) -> list[RunEvent]:
-        """The events of the calculate runs only; override to drop the events of any other run the host emits."""
-        return events
+        """The events of the calculate runs only: drops the parent run's events (job ROOT_JOB_NAME); override to
+        drop the events of any other run the host emits."""
+        return [event for event in events if event.job.name != ROOT_JOB_NAME]
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))
@@ -734,6 +772,78 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
         run_ids = {event.run.runId for event in start_events}
         assert len(run_ids) >= 2
+
+    def test_openlineage_run_all_emits_one_parent_run_start_and_complete(self) -> None:
+        client, transport = make_recording_client()
+        run_two_features(self.make_openlineage_extender(client))
+
+        root_events = _root_events(transport.events)
+        assert [event.eventType for event in root_events] == [RunState.START, RunState.COMPLETE]
+        assert {event.run.runId for event in root_events} == {root_events[0].run.runId}
+        step_events = self.calculate_run_events(transport.events)
+        parent_run_ids = set()
+        for event in step_events:
+            parent = (event.run.facets or {})["parent"]
+            assert isinstance(parent, parent_run.ParentRunFacet)
+            assert parent.job.name == ROOT_JOB_NAME
+            parent_run_ids.add(parent.run.runId)
+        assert parent_run_ids == {root_events[0].run.runId}
+        assert _plan_id_of(root_events[0]) is not None
+        assert _plan_id_of(root_events[1]) == _plan_id_of(root_events[0])
+        assert not any(_plan_id_of(event) for event in step_events)
+
+    def test_openlineage_failing_run_all_emits_a_parent_run_fail(self) -> None:
+        client, transport = make_recording_client()
+        feature_group = failing_feature_group("mloda_testing_ol_parent_fail")
+
+        with pytest.raises(Exception):
+            run_failing_feature(feature_group, self.make_openlineage_extender(client))
+
+        root_events = _root_events(transport.events)
+        assert [event.eventType for event in root_events] == [RunState.START, RunState.FAIL]
+        assert _plan_id_of(root_events[1]) == _plan_id_of(root_events[0])
+
+    def test_openlineage_prepared_plan_run_twice_emits_two_parent_runs_with_one_plan_id(self) -> None:
+        client, transport = make_recording_client()
+        session = prepare_value_int(self.make_openlineage_extender(client))
+
+        session.run()
+        session.run()
+
+        root_events = _root_events(transport.events)
+        assert [event.eventType for event in root_events] == [
+            RunState.START,
+            RunState.COMPLETE,
+            RunState.START,
+            RunState.COMPLETE,
+        ]
+        assert root_events[0].run.runId == root_events[1].run.runId
+        assert root_events[2].run.runId == root_events[3].run.runId
+        assert root_events[0].run.runId != root_events[2].run.runId
+        plan_ids = {_plan_id_of(event) for event in root_events}
+        assert len(plan_ids) == 1
+        assert None not in plan_ids
+
+    def test_openlineage_run_all_step_run_ids_are_derived_from_the_parent_run_id(self) -> None:
+        client, transport = make_recording_client()
+        probe = _CalculateContextProbe()
+        run_two_features(self.make_openlineage_extender(client), probe)
+
+        root_run_id = _root_events(transport.events)[0].run.runId
+        assert probe.contexts
+        expected = set()
+        for context in probe.contexts:
+            assert context.feature_group_class is not None
+            key = json.dumps(
+                [context.feature_group_class, sorted(context.feature_names), context.compute_framework_name]
+            )
+            expected.add(str(uuid.uuid5(uuid.UUID(root_run_id), key)))
+        step_start_ids = {
+            event.run.runId
+            for event in self.calculate_run_events(transport.events)
+            if event.eventType == RunState.START
+        }
+        assert step_start_ids == expected
 
     def test_openlineage_run_all_reader_backed_feature_reports_input_dataset(self, tmp_path: Path) -> None:
         client, transport = make_recording_client()

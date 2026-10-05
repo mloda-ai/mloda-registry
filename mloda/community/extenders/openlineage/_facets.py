@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import attr
 
-from openlineage.client.facet_v2 import DatasetFacet
+from openlineage.client.facet_v2 import DatasetFacet, RunFacet
 
 _SCHEMA_URL = "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/_facets.py"
 
@@ -16,4 +16,13 @@ class MlodaDataAccessFacet(DatasetFacet):
     @staticmethod
     def _get_schema() -> str:
         # The module in this repo, not a hosted JSON schema.
+        return _SCHEMA_URL
+
+
+@attr.define
+class MlodaPlanRunFacet(RunFacet):
+    planId: str = attr.field()
+
+    @staticmethod
+    def _get_schema() -> str:
         return _SCHEMA_URL

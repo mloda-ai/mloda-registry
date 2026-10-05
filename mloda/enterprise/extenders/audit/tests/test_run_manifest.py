@@ -23,7 +23,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from mloda.steward import verified_context
+from mloda.steward import LifecycleOutcome, PlanContext, verified_context
 from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
@@ -2603,11 +2603,9 @@ class TestRunManifestRunAll:
         assert values == expected_value_int()
         verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
-    def test_run_all_fail_closed_plan_time_refusal_is_not_auto_sealed_but_a_manual_sweep_still_seals_it(
-        self, tmp_path: Path
-    ) -> None:
-        """on_run_complete never fires for a plan-time refusal (core's hook contract), so its deny record stays
-        unsealed until a manual sweep; the record has no run_id, so the sweep seals it under its plan_id."""
+    def test_run_all_fail_closed_plan_time_refusal_is_auto_sealed_under_its_plan_id(self, tmp_path: Path) -> None:
+        """A plan-time refusal never reaches on_run_complete, so on_plan_complete seals its deny record under
+        the plan_id (the record has no run_id)."""
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         signer = _signer()
@@ -2628,6 +2626,33 @@ class TestRunManifestRunAll:
         assert records[0]["hook"] == "FEATURE_GROUP_MATCHED"
         assert records[0]["run_id"] is None
         assert records[0]["plan_id"] is not None
+        manifests = _read_lines(manifest_path)
+        assert len(manifests) == 1
+        assert manifests[0]["run_id"] == records[0]["plan_id"]
+        assert manifests[0]["compliant"] is False
+        verify_ndjson_log(audit_path, manifest_path, signer=signer)
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer)
+        assert coverage.unattributed_lines == 0
+        assert coverage.unsealed_lines == {}
+        assert coverage.sealed_runs == 1
+
+    def test_run_all_fail_closed_plan_time_refusal_without_sealing_config_is_sealed_by_a_manual_sweep(
+        self, tmp_path: Path
+    ) -> None:
+        """An extender with no sealing config leaves the plan-time deny record unsealed until a manual sweep,
+        which seals it under its plan_id."""
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        signer = _signer()
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path), fail_closed=True)
+
+        with pytest.raises(IdentityRequiredError):
+            run_value_int(extender)
+
+        records = _read_lines(audit_path)
+        assert len(records) == 1
+        assert records[0]["hook"] == "FEATURE_GROUP_MATCHED"
+        assert records[0]["run_id"] is None
         assert not manifest_path.exists()
         before = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer)
         assert before.unattributed_lines == 0
@@ -2642,3 +2667,77 @@ class TestRunManifestRunAll:
         assert len(manifests) == 1
         assert manifests[0]["run_id"] == records[0]["plan_id"]
         assert manifests[0]["compliant"] is False
+
+    def test_on_plan_complete_without_a_plan_time_record_attempts_no_seal(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_signer(),
+        )
+        plan = PlanContext(
+            plan_id="plan-without-records",
+            tenant_id=None,
+            project_id=None,
+            principal=None,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs") as seal:
+            extender.on_plan_complete(plan, LifecycleOutcome(status="succeeded"))
+
+        seal.assert_not_called()
+
+    def test_run_all_without_a_plan_time_record_seals_only_under_the_run_id(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_signer(),
+        )
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", wraps=seal_ndjson_runs) as seal:
+            with verified_context(tenant_id="tenant-42"):
+                run_value_int(extender)
+
+        records = _read_lines(audit_path)
+        run_ids = {record["run_id"] for record in records}
+        plan_ids = {record["plan_id"] for record in records}
+        assert len(run_ids) == 1
+        assert [call.kwargs["run_id"] for call in seal.call_args_list] == [next(iter(run_ids))]
+        assert next(iter(plan_ids)) not in {call.kwargs["run_id"] for call in seal.call_args_list}
+
+    def test_a_later_run_seals_separately_from_an_earlier_auto_sealed_plan_refusal(self, tmp_path: Path) -> None:
+        """The same extender first refuses a plan (sealed under its plan_id), then completes a later run (sealed
+        under its run_id); the two seals do not collide."""
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        signer = _signer()
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=signer,
+            fail_closed=True,
+        )
+
+        with pytest.raises(IdentityRequiredError):
+            run_value_int(extender)
+        with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
+            run_value_int(extender)
+
+        records = _read_lines(audit_path)
+        refusal_plan_id = next(r["plan_id"] for r in records if r["hook"] == "FEATURE_GROUP_MATCHED")
+        run_ids = {r["run_id"] for r in records if r["run_id"] is not None}
+        assert len(run_ids) == 1
+        manifests = _read_lines(manifest_path)
+        assert {manifest["run_id"] for manifest in manifests} == {refusal_plan_id, *run_ids}
+        assert len(manifests) == 2
+        verify_ndjson_log(audit_path, manifest_path, signer=signer)
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer)
+        assert coverage.unsealed_lines == {}
+        assert coverage.sealed_runs == 2

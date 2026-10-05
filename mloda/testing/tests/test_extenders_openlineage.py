@@ -185,12 +185,20 @@ class TestOpenLineageExtenderTestMixinShape:
         assert mixin.ambient_sink_captured([transport]) == [event]
         assert mixin.ambient_sink_captured([RecordingTransport()]) == []
 
-    def test_calculate_run_events_defaults_to_identity(self) -> None:
+    def test_calculate_run_events_defaults_to_identity_for_step_events(self) -> None:
         events = [_build_run_event(), _build_run_event()]
 
         mixin = OpenLineageExtenderTestMixin()
         assert mixin.calculate_run_events(events) == events
         assert mixin.calculate_run_events([]) == []
+
+    def test_calculate_run_events_drops_the_parent_run_events(self) -> None:
+        step_event = _build_run_event()
+        root_event = _build_run_event()
+        root_event.job = Job(namespace="mloda", name="mloda.run_all")
+
+        mixin = OpenLineageExtenderTestMixin()
+        assert mixin.calculate_run_events([root_event, step_event, root_event]) == [step_event]
 
 
 class _DirectTransportProbeOpenLineageExtender(Extender):

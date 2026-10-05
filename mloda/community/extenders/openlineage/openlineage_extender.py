@@ -19,12 +19,15 @@ from mloda.steward import (
     HookContext,
     LifecycleOutcome,
     OutputSchema,
+    PlanContext,
     RunContext,
     WarnOncePerInstance,
     pickle_failure_reason,
 )
 
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
+from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
+from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
@@ -166,6 +169,8 @@ class OpenLineageExtender(Extender):
         self._closed = False
         self._finalizer: weakref.finalize[..., Any] | None = None
         self._tripped_runs: dict[str, float] = {}
+        self._started_runs: set[str] = set()
+        self._plan_ids: dict[str, str] = {}
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -242,12 +247,13 @@ class OpenLineageExtender(Extender):
         finally:
             state.lock.release()
 
-    def _emit(self, event: RunEvent) -> bool:
+    def _emit(self, event: RunEvent, run_id: str | None = None) -> bool:
         client = self._get_client()
         if client is None:
             return False
-        context = HookContext.current()
-        run_id = context.run_id if context is not None else None
+        if run_id is None:
+            context = HookContext.current()
+            run_id = context.run_id if context is not None else None
         breaker_run = run_id if run_id is not None and not self.raise_on_error else None
         if breaker_run is not None and event.eventType == RunState.START:
             with self._client_lock:
@@ -278,10 +284,62 @@ class OpenLineageExtender(Extender):
             raise
         return True
 
+    def _parent_event(self, state: RunState, run: RunContext, plan_id: str | None, event_time: str) -> RunEvent:
+        assert run.run_id is not None
+        facets: dict[str, Any] = {}
+        if plan_id is not None:
+            # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+            from mloda.community.extenders.openlineage._facets import MlodaPlanRunFacet
+
+            facets["mlodaPlan"] = MlodaPlanRunFacet(planId=plan_id, producer=self.producer)
+        return RunEvent(
+            eventType=state,
+            eventTime=event_time,
+            run=Run(runId=run.run_id, facets=facets),
+            job=Job(namespace=self.job_namespace, name=self.root_job_name),
+            producer=self.producer,
+            inputs=[],
+            outputs=[],
+        )
+
+    def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
+        if run.run_id is None:
+            return
+        started_at = run.started_at.isoformat() if run.started_at is not None else _now_iso()
+        try:
+            emitted = self._emit(self._parent_event(RunState.START, run, plan.plan_id, started_at), run_id=run.run_id)
+        except Exception as exc:
+            if self.raise_on_error:
+                raise
+            logger.warning("%s failed to emit the parent START event: %s", type(self).__name__, type(exc).__name__)
+            return
+        if emitted:
+            with self._client_lock:
+                self._started_runs.add(run.run_id)
+            self._plan_ids[run.run_id] = plan.plan_id
+
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
-        with self._client_lock:
-            if run.run_id is not None:
+        if run.run_id is None:
+            return
+        try:
+            with self._client_lock:
+                started = run.run_id in self._started_runs
+            if started:
+                state = {"succeeded": RunState.COMPLETE, "failed": RunState.FAIL}.get(outcome.status, RunState.ABORT)
+                plan_id = self._plan_ids.get(run.run_id)
+                try:
+                    self._emit(self._parent_event(state, run, plan_id, _now_iso()), run_id=run.run_id)
+                except Exception as exc:
+                    if self.raise_on_error:
+                        raise
+                    logger.warning(
+                        "%s failed to emit the parent %s event: %s", type(self).__name__, state.name, type(exc).__name__
+                    )
+        finally:
+            with self._client_lock:
                 self._tripped_runs.pop(run.run_id, None)
+                self._started_runs.discard(run.run_id)
+            self._plan_ids.pop(run.run_id, None)
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
@@ -303,6 +361,8 @@ class OpenLineageExtender(Extender):
             # client it needs from here on, so a later pickle of the copy treats that client as owned.
             state["_owns_client"] = True
         state["_tripped_runs"] = {}
+        state["_started_runs"] = set()
+        state["_plan_ids"] = {}
         del state["_client_lock"]
         state.pop("_finalizer", None)
         del state["_close_state"]
@@ -431,7 +491,13 @@ class OpenLineageExtender(Extender):
         """One Run: START, func inside an open invocation, then FAIL/ABORT or COMPLETE. build_inputs gets the
         gathered inputs and the raised exception (None on success); build_outputs gets the gathered inputs and
         runs on success only."""
-        run = Run(runId=str(uuid.uuid4()), facets=run_facets)
+        context = HookContext.current()
+        derived = (
+            step_run_id(context.run_id, job.name, context.feature_names, context.compute_framework_name)
+            if context is not None
+            else None
+        )
+        run = Run(runId=derived or str(uuid.uuid4()), facets=run_facets)
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 
         # Unguarded on purpose: this call must propagate naturally so CompositeExtender's
@@ -486,10 +552,6 @@ class OpenLineageExtender(Extender):
                 outputs=outputs,
             )
         )
-
-
-def owner_name(context: HookContext, func: Any) -> str:
-    return context.feature_group_class or Extender.feature_group_name(func)
 
 
 def _now_iso() -> str:
