@@ -34,6 +34,7 @@ from mloda.steward import (
     LifecycleOutcome,
     PlanContext,
     RunContext,
+    scrub_credentials,
 )
 from mloda.user import ParallelizationMode
 from opentelemetry import trace
@@ -1010,7 +1011,7 @@ class TestOtelExtenderContentCapture:
         ("value", "fragments"),
         [
             pytest.param(["postgresql://u:hunter2@h/db"], ["hunter2"], id="short-dsn-in-list"),  # nosec
-            pytest.param(["postgresql://user:password@host/db"], ["sword", "password"], id="dsn-tail-kept"),  # nosec
+            pytest.param(["postgresql://user:password@host/db"], ["sword", "password"], id="dsn-cut-mid-password"),  # nosec
             pytest.param(
                 ["https://bucket.s3.amazonaws.com/k.csv?X-Amz-Signature=deadbeefcafe&X-Amz-Credential=AKIAXYZ123"],
                 ["deadbeefcafe", "AKIAXYZ123", "XYZ123"],
@@ -1018,6 +1019,13 @@ class TestOtelExtenderContentCapture:
             ),  # nosec
             pytest.param(_CredentialRepr(), ["hunter2"], id="instance-repr"),
             pytest.param({"password": "hunter2"}, ["hunter2"], id="key-based-secret"),  # nosec
+            pytest.param(
+                {"very_long_prefix_name_service_password": "hunter2"},  # nosec
+                ["hunter2"],
+                id="long-secret-key",
+            ),
+            pytest.param({"password": ("a", "hunter2")}, ["hunter2"], id="tuple-under-secret-key"),  # nosec
+            pytest.param("password=hunter2", ["hunter2"], id="top-level-str"),  # nosec
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1038,6 +1046,24 @@ class TestOtelExtenderContentCapture:
         preview = str(attrs[_CONTENT_ATTRIBUTE])
         for fragment in fragments:
             assert fragment not in preview, preview
+
+    def test_raising_result_repr_still_emits_span_and_returns_result(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        class _RaisingRepr:
+            def __repr__(self) -> str:
+                raise RuntimeError("repr boom")
+
+        provider, exporter = otel_capture
+        context = make_hook_context()
+        otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
+        result = _RaisingRepr()
+
+        with context.activate():
+            returned = otel(instrument(context, lambda: result))
+
+        assert returned is result
+        assert len(exporter.get_finished_spans()) == 1
 
 
 class TestOtelExtenderPreCallInstrumentationFailure:
@@ -1146,6 +1172,40 @@ class TestOtelExtenderContentPreviewCost:
             "preview; it must bound the cost of previewing a large result instead of materializing "
             "str(result) in full before truncating"
         )
+
+    @pytest.mark.parametrize("kind", ["str", "list-of-str", "repr-object"])
+    def test_scrub_credentials_inputs_stay_bounded(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        monkeypatch: pytest.MonkeyPatch,
+        kind: str,
+    ) -> None:
+        real_scrub = scrub_credentials
+        lengths: list[int] = []
+
+        def recording_scrub(text: str, *args: Any, **kwargs: Any) -> Any:
+            lengths.append(len(text))
+            return real_scrub(text, *args, **kwargs)
+
+        monkeypatch.setattr("mloda.community.extenders.otel.otel_extender.scrub_credentials", recording_scrub)
+
+        big = "a" * 2_000_000
+
+        class _BigRepr:
+            def __repr__(self) -> str:
+                return big
+
+        results: dict[str, Any] = {"str": big, "list-of-str": [big], "repr-object": _BigRepr()}
+        result = results[kind]
+        provider, exporter = otel_capture
+        context = make_hook_context()
+        otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
+
+        with context.activate():
+            otel(instrument(context, lambda: result))
+
+        assert lengths, "scrub_credentials was never called"
+        assert max(lengths) < 50_000, max(lengths)
 
 
 class TestOtelExtenderLoadSpanParenting:
