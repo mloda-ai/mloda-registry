@@ -105,32 +105,18 @@ def test_the_receipt_names_the_policy_that_admitted_the_rows() -> None:
     assert receipt["verdicts"] == {"admitted": 7}, "every journal row was judged, not only the cited ones"
 
 
-def test_the_receipt_names_the_steps_and_package_that_produced_it() -> None:
-    [receipt] = evidence_receipts(_run("revenue__sources"))
-    assert receipt["produced_by"] == "SourcesFeatureGroup"
-    assert receipt["package"]["name"] == "mloda-community-german-ledger"
-    groups = [s["feature_group"] for s in receipt["plan"]]
-    assert "SkrAccountFeatureGroup" in groups and "TestClosing2025" in groups, groups
-
-
 _LEAF_DIST = "mloda-community-german-ledger"
 _BUNDLE_DIST = "mloda-community"
 
 
-def _fake_versions(monkeypatch: pytest.MonkeyPatch, versions: dict[str, str | None]) -> None:
-    """Patch ``importlib.metadata.version``: a ``None`` value raises PackageNotFoundError, unlisted names
-    delegate to the real function."""
-    real_version = importlib.metadata.version
-
-    def fake_version(distribution_name: str) -> str:
-        if distribution_name in versions:
-            version = versions[distribution_name]
-            if version is None:
-                raise importlib.metadata.PackageNotFoundError(distribution_name)
-            return version
-        return real_version(distribution_name)
-
-    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+def test_the_receipt_names_the_steps_and_package_that_produced_it() -> None:
+    [receipt] = evidence_receipts(_run("revenue__sources"))
+    assert receipt["produced_by"] == "SourcesFeatureGroup"
+    assert receipt["package"]["name"] == "mloda-community-german-ledger"
+    assert receipt["package"]["distribution"] in (_LEAF_DIST, _BUNDLE_DIST)
+    assert receipt["package"]["version"]
+    groups = [s["feature_group"] for s in receipt["plan"]]
+    assert "SkrAccountFeatureGroup" in groups and "TestClosing2025" in groups, groups
 
 
 @pytest.mark.parametrize(
@@ -145,7 +131,12 @@ def _fake_versions(monkeypatch: pytest.MonkeyPatch, versions: dict[str, str | No
 def test_the_package_version_comes_from_the_leaf_then_the_bundle(
     monkeypatch: pytest.MonkeyPatch, installed: dict[str, str | None], version: str | None, distribution: str | None
 ) -> None:
-    _fake_versions(monkeypatch, installed)
+    def fake_version(name: str) -> str:
+        if installed[name] is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return str(installed[name])
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
     assert receipt_module._package() == {"name": _LEAF_DIST, "version": version, "distribution": distribution}
 
 
@@ -223,7 +214,7 @@ def test_the_receipt_lists_its_citations_structured() -> None:
     assert all(set(c) == {"file", "fingerprint", "record", "leg"} for c in citations)
 
 
-# --- why this producer, and what else could have answered -------------------------------------
+# --- why this producer, and what else could have answered -----------------------------------------
 
 
 def test_the_receipt_says_why_each_producer_answered() -> None:
