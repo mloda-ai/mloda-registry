@@ -6,7 +6,7 @@ import inspect
 import json
 from dataclasses import asdict
 from importlib import metadata
-from typing import Any, Optional
+from typing import Any
 
 from mloda.steward import Extender, ExtenderHook
 from mloda.user import mloda
@@ -119,14 +119,14 @@ def evidence_receipts(result: Any, diagnosis: Any = None) -> list[dict[str, Any]
     return receipts
 
 
-def refusal_receipt(error: BaseException) -> Optional[dict[str, Any]]:
+def refusal_receipt(error: BaseException) -> dict[str, Any] | None:
     """The receipt of a refused run: which refusal stopped it and how its rows were judged.
 
     A refusal raises, so a run that is refused returns no result to read receipts from. This
     finds the admissibility refusal in the exception chain mloda raised and returns its
     verdict counts, or None when the error is no counted refusal.
     """
-    seen: Optional[BaseException] = error
+    seen: BaseException | None = error
     while seen is not None:
         if isinstance(seen, (AdmissibilityRefused, InadmissibleTotal)) and seen.verdicts is not None:
             return {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from decimal import Decimal, localcontext
-from typing import Any, Optional
+from typing import Any
 
 import pyarrow as pa
 from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
@@ -27,7 +27,7 @@ class InadmissibleTotal(Exception):
     how much of the journal stood in the way.
     """
 
-    def __init__(self, message: str, verdicts: Optional[dict[str, int]] = None) -> None:
+    def __init__(self, message: str, verdicts: dict[str, int] | None = None) -> None:
         super().__init__(message)
         self.verdicts = verdicts
 
@@ -64,7 +64,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def compute_framework_rule(cls) -> Any:
         return {PyArrowTable}
 
-    def input_features(self, options: Options, feature_name: Any) -> Optional[set[Feature]]:
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
         source = str(feature_name).rsplit("__", 1)[0]
         return {Feature(source)}
 
