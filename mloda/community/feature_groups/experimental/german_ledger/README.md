@@ -128,7 +128,8 @@ its receipts. To each receipt it adds what mloda knows:
 - from `RunResult.plan` and `frames()`: the producing step and the compute steps of the plan;
 - `citations`, each origin read field by field (`file`, `fingerprint`, `record`, `leg`; see
   `parse_citation`);
-- this package's version, with the `distribution` it was read from (the `mloda-community` bundle on a normal install);
+- this package's version, with the `distribution` it was read from (normally the
+  `mloda-community` bundle);
 - `resolution`, from `mloda.diagnose` on the same arguments: per feature, the group `chosen`,
   the groups that `also_matched` (shadowed, e.g. by a subclass), and those that `declined`, with
   stage and reason. A diagnosis that does not match the run's plan is refused.
