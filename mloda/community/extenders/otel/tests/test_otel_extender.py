@@ -1306,6 +1306,34 @@ class TestOtelExtenderLoadSpanAttributes:
 
         assert "mloda.data_access.identity" not in single_span_attributes(exporter)
 
+    @pytest.mark.parametrize(
+        ("identity", "is_fallback"),
+        [("str", True), ("/data/x.csv", False), ("/data/x.csv", None)],
+        ids=["fallback", "real", "unset"],
+    )
+    def test_load_identity_is_fallback_attribute_follows_the_context_flag(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        identity: str,
+        is_fallback: bool | None,
+    ) -> None:
+        provider, exporter = otel_capture
+        context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD,
+            data_access_identity=identity,
+            data_access_identity_is_fallback=is_fallback,
+        )
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda *_: "loaded-data", "raw")
+
+        attrs = single_span_attributes(exporter)
+        if is_fallback is None:
+            assert "mloda.data_access.identity_is_fallback" not in attrs
+        else:
+            assert attrs["mloda.data_access.identity_is_fallback"] is is_fallback
+
     def test_load_format_attribute(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
         context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_format="csv")
@@ -1672,6 +1700,7 @@ class TestOtelExtenderRunAll:
         assert load_attrs.get("mloda.data_access.format") is not None
         identity = load_attrs.get("mloda.data_access.identity")
         assert isinstance(identity, str) and identity.endswith("data.csv"), load_attrs
+        assert load_attrs.get("mloda.data_access.identity_is_fallback") is False, load_attrs
 
     def test_plan_scope_multiprocessing_worker_parents_to_the_run_root_under_the_plan_span(
         self, tmp_path: Path, flight_server: Any

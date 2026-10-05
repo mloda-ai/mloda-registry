@@ -459,6 +459,8 @@ def _set_load_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.data_access.identity", identity)
     if context.data_access_format is not None:
         span.set_attribute("mloda.data_access.format", context.data_access_format)
+    if context.data_access_identity_is_fallback is not None:
+        span.set_attribute("mloda.data_access.identity_is_fallback", context.data_access_identity_is_fallback)
 
 
 def _set_declared_attributes(span: Span, context: HookContext) -> None:
