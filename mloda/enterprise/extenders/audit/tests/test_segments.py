@@ -380,9 +380,7 @@ class TestSegmentRotation:
             return real_open(file, *args, **kwargs)
 
         with patch("builtins.open", spy):
-            sealed = run_manifest_module._is_run_sealed_unverified(
-                manifest_path, "run-a", index_path if indexed else None
-            )
+            sealed = _segments._sealed_in_archives(manifest_path, "run-a", index_path if indexed else None)
 
         assert sealed is True
         assert (str(_archive(manifest_path)) in opened) is (not indexed)

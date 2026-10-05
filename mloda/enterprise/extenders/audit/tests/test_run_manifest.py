@@ -40,7 +40,6 @@ from mloda.enterprise.extenders.audit import (
     NdjsonAuditSink,
     RunAlreadySealedError,
     RunNotPendingError,
-    SealedRunRefusedError,
     TeeAuditSink,
     _core,
     manifest_hash,
@@ -253,7 +252,6 @@ class TestRunManifestPublicApi:
             "ManifestVerificationError",
             "RunNotPendingError",
             "RunAlreadySealedError",
-            "SealedRunRefusedError",
             "seal_run",
             "manifest_hash",
             "verify_manifest",
@@ -293,9 +291,9 @@ class TestRunManifestPublicApi:
     def test_run_already_sealed_error_is_a_run_not_pending_error(self) -> None:
         assert issubclass(RunAlreadySealedError, RunNotPendingError)
 
-    def test_sealed_run_refused_error_is_a_runtime_error_but_not_a_value_error(self) -> None:
-        assert issubclass(SealedRunRefusedError, RuntimeError)
-        assert not issubclass(SealedRunRefusedError, ValueError)
+    def test_sealed_run_refused_error_is_not_exported(self) -> None:
+        assert "SealedRunRefusedError" not in audit_package.__all__
+        assert not hasattr(audit_package, "SealedRunRefusedError")
 
     def test_append_records_and_canonical_json_come_from_one_shared_private_records_module(self) -> None:
         import mloda.enterprise.extenders.audit._records as records_module

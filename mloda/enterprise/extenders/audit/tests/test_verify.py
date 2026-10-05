@@ -1870,15 +1870,15 @@ class TestMalformedNdjsonLines:
     def test_max_line_bytes_defaults_to_64_mib(self) -> None:
         assert getattr(run_manifest_module, "MAX_LINE_BYTES", None) == 64 * 1024 * 1024
 
-    def test_the_sealed_lookup_skips_an_oversized_line(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_the_scan_for_run_skips_an_oversized_line(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, manifest_path = _sealed_log(tmp_path)
         _cap(monkeypatch)
         _append_line(manifest_path, _oversized_line({"run_id": "run-z"}))
 
-        assert run_manifest_module._is_run_sealed_unverified(manifest_path, "run-z") is False
-        assert run_manifest_module._is_run_sealed_unverified(manifest_path, "run-a") is True
+        assert _core._scan_for_run(manifest_path, "run-z") is False
+        assert _core._scan_for_run(manifest_path, "run-a") is True
 
-    @pytest.mark.parametrize("reader", ["read-ndjson", "sealed-lookup", "anchor-latest", "quarantine"])
+    @pytest.mark.parametrize("reader", ["read-ndjson", "scan-for-run", "anchor-latest", "quarantine"])
     def test_no_reader_reads_an_oversized_line_whole(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str
     ) -> None:
@@ -1897,7 +1897,7 @@ class TestMalformedNdjsonLines:
         _patch_bindings(monkeypatch, "open", spy_open)
         calls: dict[str, Callable[[], object]] = {
             "read-ndjson": lambda: list(_core._read_ndjson(path)),
-            "sealed-lookup": lambda: run_manifest_module._is_run_sealed_unverified(path, "run-z"),
+            "scan-for-run": lambda: _core._scan_for_run(path, "run-z"),
             "anchor-latest": lambda: NdjsonHeadAnchor(path).latest(),
             "quarantine": lambda: _quarantine(tmp_path, path, manifest_path, dry_run=True),
         }

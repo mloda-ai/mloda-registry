@@ -89,7 +89,6 @@ from mloda.enterprise.extenders.audit._core import (
     _rotation_entry,
     _rotation_transition,
     _RunDigest,
-    _scan_for_run,
     _seal,
     _Uncovered,
     _unlink_durably,
@@ -109,7 +108,6 @@ from mloda.enterprise.extenders.audit._quarantine import verify_quarantine_log a
 from mloda.enterprise.extenders.audit._records import _is_blank
 from mloda.enterprise.extenders.audit._seal_index import (
     _audit_scan_from,
-    _indexed_lookup,
     _Scan,
     _scan_audit_tail,
     _sqlite,
@@ -141,19 +139,6 @@ for _public in (
 del _public
 
 logger = logging.getLogger(__name__)
-
-
-def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str, index_path: str | Path | None = None) -> bool:
-    """Unverified read without the lock: a seal holds the exclusive lock while it digests the audit log, so a
-    calculation must not wait on it. True iff a line naming run_id decodes to a JSON object with
-    that run_id; a line that does not decode (torn, or mid-append) is skipped, not treated as sealed; a
-    decodable one, even unterminated, counts. With `index_path` (read-only, no signature check) a hint hit is
-    confirmed at its offset and only the bytes after the checkpoint are scanned; anything unusable scans it all."""
-    if index_path is not None:
-        found = _indexed_lookup(manifest_path, run_id, index_path)
-        if found is not None:
-            return found
-    return _scan_for_run(manifest_path, run_id) or _sealed_in_archives(manifest_path, run_id)
 
 
 def _check_run_against_seal(

@@ -22,7 +22,6 @@ from mloda.enterprise.extenders.audit._core import (
     _read_lines,
     _read_ndjson,
     _record_run_id,
-    _scan_for_run,
     _sha256,
     _signature_block,
     _signing_payload,
@@ -177,22 +176,6 @@ def _read_index(db: ModuleType, index_path: str | Path, run_id: str) -> tuple[An
         raise ValueError("seal index checkpoint is missing, oversized or not text")
     entry = _decode_line("seal index checkpoint", row[0].encode("utf-8"))
     return entry, None if hint is None else hint[0]
-
-
-def _indexed_lookup(manifest_path: str | Path, run_id: str, index_path: str | Path) -> bool | None:
-    """Whether the index says run_id is sealed, or None when it cannot be trusted (caller scans everything)."""
-    db = _sqlite()
-    if db is None or not os.path.exists(index_path):
-        return None
-    try:
-        entry, hint = _read_index(db, index_path, run_id)
-        if not _checkpoint_fresh(entry, manifest_path):
-            return None
-        if hint is not None:
-            return True if _hint_names_run(manifest_path, hint, run_id) else None
-        return _scan_for_run(manifest_path, run_id, entry["end"]) or _indexed_archive(db, index_path, run_id)
-    except Exception:  # an untrusted index must never fail the calculation: any error means a full scan
-        return None
 
 
 def _audit_scan_from(entry: Mapping[str, Any], audit_path: str | Path) -> _AuditScan | None:
