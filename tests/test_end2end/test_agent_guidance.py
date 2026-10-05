@@ -38,10 +38,9 @@ def test_supply_chain_guidance_documents_package_exemptions() -> None:
 
 
 def test_type_hints_guidance_matches_ruff_select() -> None:
-    """Every UP rule named in the type hints guidance must be selected in pyproject.toml."""
-    codes = re.findall(r"UP\d+", _single_bullet("- **Type hints**:"))
+    """The UP rules documented in the type hints guidance must match the ones selected in pyproject.toml."""
+    codes = set(re.findall(r"UP\d+", _single_bullet("- **Type hints**:")))
     assert codes, "type hints bullet names no UP rule"
 
-    selected = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["ruff"]["lint"]["select"]
-    for code in codes:
-        assert code in selected, f"{code} is documented but not in [tool.ruff.lint] select"
+    select = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["ruff"]["lint"]["select"]
+    assert codes == {rule for rule in select if rule.startswith("UP")}
