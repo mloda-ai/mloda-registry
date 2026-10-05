@@ -291,7 +291,7 @@ py_typed = true
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 # Mixin floor: the binary FeatureGroups (example, anonymizer) subclass the binary-model mixin, and a manifest
 # import that fails on a missing mloda.community module aborts plugin discovery. It is `>=`, not `~=`, because
-# they use only the mixin's public names (docs/packaging.md#sibling-dependency-floors).
+# they use only its public names, which includes subclassing it (docs/packaging.md#sibling-dependency-floors).
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}", "mloda-community-binary-model>={version}"]
 path = "mloda/enterprise"
 published = true

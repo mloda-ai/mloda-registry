@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import os
+import re
 import runpy
 import subprocess  # nosec
 import sys
@@ -232,9 +233,9 @@ def _install_and_probe(
                 errors.append(f"{specifier}: import {module} failed:\n{result.stderr[-500:]}")
         elif result.returncode == 0:
             errors.append(f"{specifier}: {member} ({module}) imports without the extra")
-        elif "ModuleNotFoundError" in result.stderr and f"'{module}'" in result.stderr:
-            # Only a ModuleNotFoundError naming the member proves the extra gates it; anything
-            # else (a broken parent, a SyntaxError, a crashed interpreter) is a real failure.
+        elif _missing_module_covers(result.stderr, module):
+            # Only a ModuleNotFoundError naming the member or a parent package of it proves the
+            # member is absent; anything else (a SyntaxError, a crashed interpreter) is a real failure.
             messages.append(f"  ✓ {member}: correctly not installed")
         else:
             errors.append(
@@ -273,6 +274,15 @@ def _install_and_probe_external(
     else:
         messages.append(f"  ✓ installed: {', '.join(distributions)}")
     return messages, errors
+
+
+def _missing_module_covers(stderr: str, module: str) -> bool:
+    """True when stderr is a ModuleNotFoundError for module or one of its parent packages."""
+    match = re.search(r"ModuleNotFoundError: No module named '([^']+)'", stderr)
+    if match is None:
+        return False
+    missing = match.group(1)
+    return module == missing or module.startswith(missing + ".")
 
 
 def main() -> int:

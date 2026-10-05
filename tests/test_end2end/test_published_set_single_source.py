@@ -46,7 +46,7 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 # The released set, in config order: registry, the shared extenders package, the examples, the otel and
 # openlineage extenders, the data-operations base plus its plugin packages, the two bundles, which own
 # (dependencies/extras) every published package nested under their path, and finally testing, whose
-# binary-model extra pins mloda-community-binary-model, so the published order is dependency-first.
+# binary-model extra pins the mloda-community-binary-model package.
 _EXPECTED_PUBLISHED = [
     "mloda-registry",
     "mloda-community-extenders-shared",
@@ -409,6 +409,44 @@ def test_published_set_contains_the_bundles() -> None:
     assert set(_BUNDLES) <= set(flagged), (
         f"config/packages.toml does not flag bundles {sorted(set(_BUNDLES) - set(flagged))} as 'published = true'"
     )
+
+
+_MEMBER_MODULE = "mloda.community.feature_groups.binary_model"
+
+
+@pytest.mark.parametrize(
+    ("stderr", "accepted"),
+    [
+        ("ModuleNotFoundError: No module named 'mloda.community'", True),
+        (f"ModuleNotFoundError: No module named '{_MEMBER_MODULE}'", True),
+        ("ModuleNotFoundError: No module named 'pyarrow'", False),
+        (f"ModuleNotFoundError: No module named '{_MEMBER_MODULE}_x'", False),
+        ("ModuleNotFoundError: No module named 'mloda.comm'", False),
+    ],
+)
+def test_install_and_probe_accepts_a_gated_member_only_when_it_or_a_parent_package_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stderr: str, accepted: bool
+) -> None:
+    """A bare install lacking the member's parent package (No module named 'mloda.community') proves the member
+    is not installed; an unrelated or lookalike module name does not."""
+    monkeypatch.syspath_prepend(str(_EXTRAS_SCRIPT.parent))
+    extras = load_script("verify_extras", _EXTRAS_SCRIPT)
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        is_member_import = command[-1] == f"import {_MEMBER_MODULE}"
+        return subprocess.CompletedProcess(
+            command, 1 if is_member_import else 0, "", stderr if is_member_import else ""
+        )
+
+    monkeypatch.setattr(extras.subprocess, "run", fake_run)
+
+    messages, errors = extras._install_and_probe(
+        "mloda-testing==9.9.9", (), False, {"mloda-community-binary-model": _MEMBER_MODULE}, str(tmp_path)
+    )
+
+    assert (errors == []) is accepted, f"stderr {stderr!r}: expected accepted={accepted}, got errors {errors!r}"
+    if accepted:
+        assert messages == ["  \u2713 mloda-community-binary-model: correctly not installed"], messages
 
 
 def test_published_flag_marks_exactly_the_released_distributions() -> None:

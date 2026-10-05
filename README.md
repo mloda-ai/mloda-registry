@@ -41,7 +41,7 @@ Upgrading with pip from a `mloda-community` release that still shipped the plugi
 pip install --force-reinstall "mloda-community[otel]"
 ```
 
-With an older `mloda-community` still installed alongside `mloda-enterprise`, uninstalling or pip-upgrading `mloda-community` can delete the binary-model mixin's files; fix it with `pip install --force-reinstall mloda-community-binary-model`.
+With an older `mloda-community` still installed alongside `mloda-enterprise`, `mloda-testing[binary-model]` or anything else that depends on the mixin, uninstalling or pip-upgrading `mloda-community` can delete the binary-model mixin's files; fix it with `pip install --force-reinstall mloda-community-binary-model`.
 
 If you installed one of the old standalone 0.2.7 example packages (`mloda-community-example-b`, `mloda-community-compute-frameworks-example`, `mloda-community-extenders-example`, `mloda-enterprise-example`, `mloda-enterprise-compute-frameworks-example`, `mloda-enterprise-extenders-example`), uninstall it; it shares files with the old bundles, so a pip upgrade of the bundle deletes them and leaves it broken.
 
