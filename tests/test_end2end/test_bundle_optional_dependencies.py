@@ -111,20 +111,21 @@ def test_mloda_community_declares_extra_matching_pin_source(
 def _bundle_extra_leaf_dev_pairs(
     packages: dict[str, dict[str, Any]], leaf_extra: str = "dev"
 ) -> list[tuple[str, str, str, str, str]]:
-    """``(bundle, extra, extra spec, leaf, leaf extra spec)`` for each bundle extra entry a nested leaf also lists in
-    its ``leaf_extra`` extra (``dev`` by default)."""
+    """``(bundle, extra, extra spec, leaf, leaf extra spec)`` for each bundle extra entry a nested leaf the bundle
+    wheel ships (not owns) also lists in its ``leaf_extra`` extra (``dev`` by default)."""
     pairs: list[tuple[str, str, str, str, str]] = []
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
             continue
         prefix = bundle_cfg["path"] + "/"
+        owned = set(gen.bundle_owned_names(bundle_cfg, packages))
 
         for extra_name, extra_deps in bundle_cfg.get("optional_dependencies", {}).items():
             if extra_name in ("all", "dev"):
                 continue
             for extra_spec in extra_deps:
                 for leaf_name, leaf_cfg in packages.items():
-                    if not leaf_cfg["path"].startswith(prefix):
+                    if not leaf_cfg["path"].startswith(prefix) or leaf_name in owned:
                         continue
                     for dev_spec in leaf_cfg.get("optional_dependencies", {}).get(leaf_extra, []):
                         if _dep_name(dev_spec) == _dep_name(extra_spec):
@@ -134,8 +135,9 @@ def _bundle_extra_leaf_dev_pairs(
 
 @pytest.mark.parametrize("leaf_extra", ("dev", "wheel", "pyarrow"))
 def test_bundle_extra_floor_matches_leaf_extra_entry(leaf_extra: str) -> None:
-    """A bundle extra's floor for an external dependency must equal the same dependency's entry in the
-    ``dev``, ``wheel`` or ``pyarrow`` extra of every nested leaf that lists it, so the two places cannot drift apart."""
+    """A bundle extra's floor for an external dependency must equal the same dependency's entry in the ``dev``,
+    ``wheel`` or ``pyarrow`` extra of every nested leaf the bundle wheel ships that lists it, so the two places cannot
+    drift apart."""
     packages = _packages()
     checked = 0
 
@@ -445,6 +447,38 @@ def test_bundle_shipped_leaves_helper_detects_an_extra_only_external_dependency(
 
     # No bundle-shipped (unowned) leaf has such a dependency today; the _ROWS-parametrized test above
     # exercises the same mechanism non-vacuously for the owned mloda-community-otel/-openlineage leaves.
+
+
+def test_bundle_extra_leaf_pairs_skip_owned_leaves_and_keep_shipped_leaves() -> None:
+    """A bundle extra is paired only with nested leaves the bundle wheel ships; an owned published leaf
+    carries its own wheel and extras, so its entry must not be compared."""
+    packages: dict[str, dict[str, Any]] = {
+        "sandbox-bundle": {
+            "description": "sandbox",
+            "path": "sandbox/bundle",
+            "published": True,
+            "entry_point_bundle": True,
+            "dependencies": ["sandbox-bundle-owned=={version}"],
+            "optional_dependencies": {"ledger": ["pyarrow>=25", "defusedxml>=0.7"]},
+        },
+        "sandbox-bundle-owned": {
+            "description": "sandbox",
+            "path": "sandbox/bundle/owned",
+            "published": True,
+            "optional_dependencies": {"pyarrow": ["pyarrow"]},
+        },
+        "sandbox-bundle-shipped": {
+            "description": "sandbox",
+            "path": "sandbox/bundle/shipped",
+            "optional_dependencies": {"pyarrow": ["pyarrow>=25"]},
+        },
+    }
+
+    pairs = _bundle_extra_leaf_dev_pairs(packages, "pyarrow")
+
+    assert pairs == [("sandbox-bundle", "ledger", "pyarrow>=25", "sandbox-bundle-shipped", "pyarrow>=25")], (
+        f"expected only the shipped leaf to be paired, got {pairs!r}"
+    )
 
 
 # root -> a real transitive dependency of that root's own distribution (not the root itself), used to

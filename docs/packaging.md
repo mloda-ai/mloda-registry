@@ -325,8 +325,8 @@ dependency (today `cryptography` behind `mloda-enterprise[ed25519]` and `opentel
 5. Add the install row to the README and to the install table under
    [Individual packages](#individual-packages).
 
-Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_dev_entry`
-enforces that pair.
+Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_extra_entry`
+enforces that pair for every nested leaf the bundle wheel ships (owned leaves ship their own wheel and are skipped).
 
 The dependency can also be a first-party sibling (`mloda-community-openlineage` behind
 `mloda-enterprise[openlineage]`). Spell its floor `{version}` in both places
