@@ -23,9 +23,11 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, Status, StatusCod
 
 from mloda.community.extenders.otel import OtelExtender
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
+from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
+    assert_well_formed_trace,
     inject_parent_carrier,
     make_picklable_span_capture,
     make_span_capture,
@@ -290,6 +292,141 @@ class _CachedTracerProbeOtelExtender(Extender):
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                 raise
+
+
+class _ProbeHost(OtelExtenderTestMixin):
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _CachedTracerProbeOtelExtender
+
+    def make_otel_extender(self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None) -> Extender:
+        return _CachedTracerProbeOtelExtender(tracer_provider=tracer_provider)
+
+
+class TestExpectedSpanName:
+    def test_defaults_to_none_when_no_names_are_declared(self) -> None:
+        assert OtelExtenderTestMixin.expected_span_name(make_hook_context()) is None
+
+    def test_defaults_to_the_declared_name_for_the_context_hook(self) -> None:
+        class _Host(_ProbeHost):
+            @classmethod
+            def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "named"}
+
+        assert _Host.expected_span_name(make_hook_context()) == "named"
+        assert _Host.expected_span_name(make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD)) is None
+
+    def test_span_names_per_hook_uses_the_override_not_the_static_name(self) -> None:
+        class _Host(_ProbeHost):
+            @classmethod
+            def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "static-name-never-emitted"}
+
+            @classmethod
+            def expected_span_name(cls, context: HookContext) -> str | None:
+                return _SPAN_NAME
+
+        _Host().test_otel_span_names_per_hook()
+
+    def test_span_names_per_hook_fails_when_the_override_disagrees(self) -> None:
+        class _Host(_ProbeHost):
+            @classmethod
+            def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: _SPAN_NAME}
+
+            @classmethod
+            def expected_span_name(cls, context: HookContext) -> str | None:
+                return "something else"
+
+        with pytest.raises(AssertionError):
+            _Host().test_otel_span_names_per_hook()
+
+    def test_sink_probe_expected_content_uses_the_override(self) -> None:
+        class _Host(_ProbeHost):
+            @classmethod
+            def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "static"}
+
+            @classmethod
+            def expected_span_name(cls, context: HookContext) -> str | None:
+                return "overridden"
+
+        assert _Host().sink_probe_expected_content() == {"overridden"}
+
+    def test_sink_probe_expected_content_context_names_the_data_creator(self) -> None:
+        seen: list[str | None] = []
+
+        class _Host(_ProbeHost):
+            @classmethod
+            def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "static"}
+
+            @classmethod
+            def expected_span_name(cls, context: HookContext) -> str | None:
+                seen.append(context.feature_group_class)
+                return "x"
+
+        _Host().sink_probe_expected_content()
+        assert seen
+        assert seen[0] is not None
+        assert seen[0].endswith("PyArrowDataOpsTestDataCreator")
+
+
+class TestAssertWellFormedTrace:
+    @staticmethod
+    def _spans(*edges: tuple[str, str | None]) -> list[Any]:
+        """Finished spans from (name, parent name) edges; ids are derived per name."""
+        provider, exporter = make_span_capture()
+        tracer = provider.get_tracer("test-extenders-otel")
+        started: dict[str, Any] = {}
+        for name, parent in edges:
+            context = set_span_in_context(started[parent]) if parent in started else None
+            span = tracer.start_span(name, context=context)
+            started[name] = span
+        for span in started.values():
+            span.end()
+        return list(exporter.get_finished_spans())
+
+    def test_accepts_one_root_with_children(self) -> None:
+        spans = self._spans(("root", None), ("a", "root"), ("b", "a"))
+        assert assert_well_formed_trace(spans).name == "root"
+
+    def test_rejects_two_roots(self) -> None:
+        with pytest.raises(AssertionError):
+            assert_well_formed_trace(self._spans(("r1", None), ("r2", None)))
+
+    def test_rejects_a_parent_that_is_not_among_the_spans(self) -> None:
+        spans = [span for span in self._spans(("root", None), ("mid", "root"), ("leaf", "mid")) if span.name != "mid"]
+        with pytest.raises(AssertionError):
+            assert_well_formed_trace(spans)
+
+    def test_accepts_a_root_whose_parent_is_the_caller_span(self) -> None:
+        carrier, _, caller_span_id = inject_parent_carrier()
+        provider, exporter = make_span_capture()
+        tracer = provider.get_tracer("test-extenders-otel")
+        with tracer.start_as_current_span("root", context=propagate.extract(carrier)):
+            with tracer.start_as_current_span("child"):
+                pass
+        spans = exporter.get_finished_spans()
+        assert assert_well_formed_trace(spans, caller_span_id=caller_span_id).name == "root"
+        with pytest.raises(AssertionError):
+            assert_well_formed_trace(spans)
+
+    def test_rejects_two_trace_ids(self) -> None:
+        provider, exporter = make_span_capture()
+        tracer = provider.get_tracer("test-extenders-otel")
+        with tracer.start_as_current_span("one"):
+            pass
+        with tracer.start_as_current_span("two"):
+            pass
+        with pytest.raises(AssertionError):
+            assert_well_formed_trace(exporter.get_finished_spans())
+
+
+class TestRunAllWellFormedTraceContract:
+    def test_fails_for_an_extender_whose_spans_all_hang_off_a_missing_parent(self) -> None:
+        with pytest.raises(AssertionError):
+            _ProbeHost().test_otel_run_all_spans_share_one_trace_id()
 
 
 class TestOwnFailureDefaultDetectsNoFault:

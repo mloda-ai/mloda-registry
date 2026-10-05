@@ -5,13 +5,25 @@ from __future__ import annotations
 import logging
 import os
 import reprlib
+import threading
+from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
-from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance, pickle_failure_reason
+from mloda.steward import (
+    Extender,
+    ExtenderHook,
+    HookContext,
+    LifecycleOutcome,
+    PlanContext,
+    RunContext,
+    WarnOncePerInstance,
+    pickle_failure_reason,
+)
 from opentelemetry import trace
 from opentelemetry.context import Context
 from opentelemetry.trace import (
+    Link,
     NonRecordingSpan,
     Span,
     SpanContext,
@@ -23,6 +35,7 @@ from opentelemetry.trace import (
 )
 
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
+from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
 
 logger = logging.getLogger(__name__)
@@ -30,6 +43,11 @@ logger = logging.getLogger(__name__)
 _TRACER_NAME = "mloda_community_otel"
 _CONTENT_PREVIEW_MAX_LEN = 200
 _TRUTHY_ENV_VALUES = {"true", "1"}
+
+# Plan span contexts kept for parenting run roots (FIFO eviction); read at call time.
+_MAX_PLAN_SPANS = 1024
+
+_SpanInts = tuple[int, int, int]  # (trace_id, span_id, trace_flags)
 
 # Fixed, nonzero placeholder span id used as the parent span id when synthesizing a NonRecordingSpan
 # from a run_id (no real parent span was ever created; only the deterministic trace_id matters here).
@@ -66,7 +84,7 @@ _NO_SDK_PROVIDER_MESSAGE = (
 )
 
 _SPAN_NAMES: dict[ExtenderHook, str] = {
-    ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "mloda.calculate",
+    ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "calculate",
     ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
     ExtenderHook.VALIDATE_OUTPUT_FEATURE: "mloda.validate.output",
     ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
@@ -97,7 +115,11 @@ class OtelExtender(Extender):
     holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
     ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a picklable
     custom provider is kept as-is. close() flushes the resolved provider, capped at close_timeout
-    (default 1s), and never calls shutdown() (core, not the extender, owns provider lifetime)."""
+    (default 1s), and never calls shutdown() (core, not the extender, owns provider lifetime).
+    on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
+    the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
+    run roots under it, linking the caller or carrier span; "run" (default) emits no plan span. Calculate spans
+    are named `calculate <FeatureGroup>`. Without a known root, spans fall back to the carrier or run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -108,7 +130,11 @@ class OtelExtender(Extender):
         mask: Callable[[Any], Any] | None = None,
         tracer_provider: TracerProvider | None = None,
         use_sdk_defaults: bool = False,
+        trace_scope: Literal["run", "plan"] = "run",
     ) -> None:
+        if trace_scope not in ("run", "plan"):
+            raise ValueError(f"OtelExtender trace_scope must be 'run' or 'plan', got {trace_scope!r}")
+        self.trace_scope = trace_scope
         if capture_content is True and mask is None:
             raise ValueError("OtelExtender capture_content=True requires a mask")
         self.raise_on_error = raise_on_error
@@ -119,6 +145,70 @@ class OtelExtender(Extender):
         self._inert_warning = WarnOncePerInstance()  # shared by the inert and no-SDK warnings
         self._pickle_drop_warning = WarnOncePerInstance()
         self._no_mask_warning = WarnOncePerInstance()
+        self._init_span_state()
+
+    def _init_span_state(self) -> None:
+        self._lock = threading.Lock()
+        self._run_roots: dict[str, _SpanInts] = {}
+        self._root_spans: dict[str, Span] = {}
+        self._plan_ints: OrderedDict[str, _SpanInts] = OrderedDict()
+        self._plan_spans: dict[str, Span] = {}
+
+    def _tracer(self) -> trace.Tracer:
+        return trace.get_tracer(_TRACER_NAME, tracer_provider=self._resolve_tracer_provider())
+
+    def on_plan_start(self, plan: PlanContext) -> None:
+        if self.trace_scope != "plan":
+            return
+        span = self._tracer().start_span("mloda.plan", attributes={"mloda.plan.id": plan.plan_id})
+        span_context = span.get_span_context()
+        if not span_context.is_valid:
+            return
+        with self._lock:
+            self._plan_spans[plan.plan_id] = span
+            self._plan_ints[plan.plan_id] = _ints(span_context)
+            self._plan_ints.move_to_end(plan.plan_id)
+            while len(self._plan_ints) > _MAX_PLAN_SPANS:
+                self._plan_ints.popitem(last=False)
+
+    def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
+        with self._lock:
+            span = self._plan_spans.pop(plan.plan_id, None)
+        if span is not None:
+            _end_with_outcome(span, outcome, status_attribute=None)
+
+    def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
+        run_id = run.run_id
+        if run_id is None:
+            return
+        attributes: dict[str, str] = {"mloda.run.id": run_id}
+        if plan.plan_id is not None:
+            attributes["mloda.plan.id"] = plan.plan_id
+        caller = _carrier_or_active_span_context(run.carrier)
+        with self._lock:
+            plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None
+        if plan_ints is not None:
+            parent: Context | None = _context_from_ints(plan_ints)
+            links = [Link(caller)] if caller is not None else None
+        else:
+            parent = extract_carrier(run.carrier) if run.carrier else None
+            links = None
+        span = self._tracer().start_span("mloda.run", context=parent, links=links, attributes=attributes)
+        span_context = span.get_span_context()
+        if not span_context.is_valid:
+            return
+        with self._lock:
+            self._run_roots[run_id] = _ints(span_context)
+            self._root_spans[run_id] = span
+
+    def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
+        if run.run_id is None:
+            return
+        with self._lock:
+            self._run_roots.pop(run.run_id, None)
+            span = self._root_spans.pop(run.run_id, None)
+        if span is not None:
+            _end_with_outcome(span, outcome, status_attribute="mloda.run.status")
 
     def _configured_tracer_provider(self) -> TracerProvider | None:
         """Injected provider wins, else the global SDK provider when use_sdk_defaults, else None."""
@@ -169,9 +259,17 @@ class OtelExtender(Extender):
                 )
             )
         state = dict(self.__dict__)
+        for key in ("_lock", "_root_spans", "_plan_ints", "_plan_spans"):
+            state.pop(key, None)
         if failure_reason is not None:
             state["_tracer_provider"] = None
         return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        run_roots = self.__dict__.get("_run_roots", {})
+        self._init_span_state()
+        self._run_roots = run_roots
 
     def wraps(self) -> set[ExtenderHook]:
         return {
@@ -183,17 +281,20 @@ class OtelExtender(Extender):
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         context = HookContext.current()
-        span_name = _SPAN_NAMES.get(context.hook, "mloda.unknown") if context is not None else "mloda.unknown"
+        span_name = _span_name(context)
 
         tracer_provider = self._resolve_tracer_provider()
         tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=tracer_provider)
-        parent_context = _parent_context(context)
+        with self._lock:
+            root = self._run_roots.get(context.run_id) if context is not None and context.run_id else None
+        parent_context = _parent_context(context, root)
         with tracer.start_as_current_span(
             span_name, record_exception=False, context=parent_context, set_status_on_exception=False
         ) as span:
             if context is not None:
                 try:
                     _set_context_attributes(span, context)
+                    _set_step_attributes(span, context, func)
                     if context.hook == ExtenderHook.INPUT_DATA_LOAD:
                         _set_load_attributes(span, context)
                 except BaseException as exc:
@@ -246,9 +347,48 @@ class OtelExtender(Extender):
         return _BOUNDED_REPR.repr(value)[:_CONTENT_PREVIEW_MAX_LEN]
 
 
-def _parent_context(context: HookContext | None) -> Context | None:
+def _ints(span_context: SpanContext) -> _SpanInts:
+    return (span_context.trace_id, span_context.span_id, int(span_context.trace_flags))
+
+
+def _context_from_ints(ints: _SpanInts) -> Context:
+    trace_id, span_id, flags = ints
+    span_context = SpanContext(trace_id=trace_id, span_id=span_id, is_remote=True, trace_flags=TraceFlags(flags))
+    return set_span_in_context(NonRecordingSpan(span_context))
+
+
+def _carrier_or_active_span_context(carrier: Any) -> SpanContext | None:
+    if carrier:
+        span_context = trace.get_current_span(extract_carrier(carrier)).get_span_context()
+    else:
+        span_context = trace.get_current_span().get_span_context()
+    return span_context if span_context.is_valid else None
+
+
+def _end_with_outcome(span: Span, outcome: LifecycleOutcome, status_attribute: str | None) -> None:
+    if status_attribute is not None:
+        span.set_attribute(status_attribute, outcome.status)
+    if outcome.status == "failed":
+        span.set_status(Status(StatusCode.ERROR))
+        if outcome.error_type is not None:
+            span.set_attribute("error.type", outcome.error_type)
+    span.end()
+
+
+def _span_name(context: HookContext | None) -> str:
+    if context is None:
+        return "mloda.unknown"
+    name = _SPAN_NAMES.get(context.hook, "mloda.unknown")
+    if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and context.feature_group_class is not None:
+        return f"{name} {context.feature_group_class.rsplit('.', 1)[-1]}"
+    return name
+
+
+def _parent_context(context: HookContext | None, root: _SpanInts | None = None) -> Context | None:
     """Pick the parent context for the span to be started, by priority (highest first):
 
+    0. A run root known for context.run_id (see on_run_start): its context is the parent, winning over the
+       carrier. For INPUT_DATA_LOAD an ambient span of the root's trace wins (None returned).
     1. INPUT_DATA_LOAD only: a valid ambient active span (e.g. the enclosing mloda.calculate span)
        wins and None is returned, making the load span its child. If a carrier or run_id is also set,
        the ambient span wins only when its trace id matches theirs; otherwise falls through to 2/3.
@@ -262,6 +402,12 @@ def _parent_context(context: HookContext | None) -> Context | None:
     if context is None:
         return None
 
+    if root is not None:
+        ambient = trace.get_current_span().get_span_context()
+        if context.hook == ExtenderHook.INPUT_DATA_LOAD and ambient.is_valid and ambient.trace_id == root[0]:
+            return None
+        return _context_from_ints(root)
+
     if context.hook == ExtenderHook.INPUT_DATA_LOAD:
         ambient_span_context = trace.get_current_span().get_span_context()
         if ambient_span_context.is_valid:
@@ -274,9 +420,10 @@ def _parent_context(context: HookContext | None) -> Context | None:
     if context.carrier:
         return extract_carrier(context.carrier)
 
-    if context.run_id is not None:
+    run_trace_id = _run_trace_id(context)
+    if run_trace_id is not None:
         span_context = SpanContext(
-            trace_id=trace_id_from_run_id(context.run_id),
+            trace_id=run_trace_id,
             span_id=_RUN_ID_PARENT_SPAN_ID,
             is_remote=True,
             trace_flags=TraceFlags(TraceFlags.SAMPLED),
@@ -290,9 +437,16 @@ def _expected_trace_id(context: HookContext) -> int | None:
     """The trace id the carrier/run_id fallback rule would give (carrier wins), per _parent_context's priority."""
     if context.carrier:
         return trace.get_current_span(extract_carrier(context.carrier)).get_span_context().trace_id
-    if context.run_id is not None:
+    return _run_trace_id(context)
+
+
+def _run_trace_id(context: HookContext) -> int | None:
+    if context.run_id is None:
+        return None
+    try:
         return trace_id_from_run_id(context.run_id)
-    return None
+    except ValueError:
+        return None
 
 
 def _set_load_attributes(span: Span, context: HookContext) -> None:
@@ -319,6 +473,16 @@ def _set_declared_attributes(span: Span, context: HookContext) -> None:
         count += 1
 
 
+def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
+    if context.hook != ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+        return
+    step_id = step_run_id(
+        context.run_id, owner_name(context, func), context.feature_names, context.compute_framework_name
+    )
+    if step_id is not None:
+        span.set_attribute("mloda.step.run_id", step_id)
+
+
 def _set_context_attributes(span: Span, context: HookContext) -> None:
     span.set_attribute("mloda.operation.name", _OPERATION_NAMES.get(context.hook, "unknown"))
     if context.feature_group_class is not None:
@@ -336,5 +500,7 @@ def _set_context_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.plugin.version", context.plugin_version)
     if context.run_id is not None:
         span.set_attribute("mloda.run.id", context.run_id)
+    if context.plan_id is not None:
+        span.set_attribute("mloda.plan.id", context.plan_id)
     if context.worker_index is not None:
         span.set_attribute("mloda.subprocess.worker_index", context.worker_index)

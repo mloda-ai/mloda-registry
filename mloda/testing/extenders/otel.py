@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
-from mloda.steward import Extender, ExtenderHook
+from mloda.steward import Extender, ExtenderHook, HookContext
 from opentelemetry import propagate
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
@@ -20,6 +20,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode, Tracer
 from opentelemetry.trace import TracerProvider as ApiTracerProvider
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import run_two_features
@@ -68,6 +69,25 @@ def inject_parent_carrier() -> tuple[dict[str, str], int, int]:
         trace_id = span_context.trace_id
         span_id = span_context.span_id
     return carrier, trace_id, span_id
+
+
+def assert_well_formed_trace(spans: Sequence[ReadableSpan], caller_span_id: int | None = None) -> ReadableSpan:
+    """One trace id; exactly one span without a parent (or whose parent is caller_span_id), returned as the
+    root; every other span's parent span id is among the spans' ids."""
+    contexts = [span.context for span in spans]
+    assert all(context is not None for context in contexts), spans
+    assert len({context.trace_id for context in contexts if context is not None}) == 1, spans
+    span_ids = {context.span_id for context in contexts if context is not None}
+    roots = [
+        span
+        for span in spans
+        if span.parent is None or (caller_span_id is not None and span.parent.span_id == caller_span_id)
+    ]
+    assert len(roots) == 1, [(span.name, span.parent) for span in spans]
+    for span in spans:
+        if span is not roots[0]:
+            assert span.parent is not None and span.parent.span_id in span_ids, (span.name, span.parent)
+    return roots[0]
 
 
 @contextmanager
@@ -220,6 +240,12 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         return None
 
     @classmethod
+    def expected_span_name(cls, context: HookContext) -> str | None:
+        """Span name expected for this hook context; None skips it. Override when names depend on the context."""
+        names = cls.expected_span_names()
+        return None if names is None else names.get(context.hook)
+
+    @classmethod
     def trace_id_from_run_id(cls, run_id: str) -> int | None:
         """The cross-process correlation mapping; return None to skip the derivation test."""
         return uuid.UUID(run_id).int
@@ -262,10 +288,15 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         return extender, lambda: [span.name for span in exporter.get_finished_spans()]
 
     def sink_probe_expected_content(self) -> set[str] | None:
-        expected = self.expected_span_names()
-        if expected is None:
+        if self.expected_span_names() is None:
             return None
-        return {expected[self.context_hook()]}
+        # The sink probe and real-worker markers observe real runs, whose calculate step is the data creator.
+        creator = PyArrowDataOpsTestDataCreator
+        context = make_hook_context(
+            hook=self.context_hook(), feature_group_class=f"{creator.__module__}.{creator.__qualname__}"
+        )
+        name = self.expected_span_name(context)
+        return None if name is None else {name}
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(TracerProvider, "get_tracer", side_effect=RuntimeError("otel instrumentation boom"))
@@ -298,10 +329,13 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         wraps = self.make_extender().wraps()
         assert set(expected) <= wraps
 
-        for hook, name in expected.items():
+        for hook in expected:
+            context = make_hook_context(hook=hook)
+            name = self.expected_span_name(context)
+            assert name is not None
             provider, exporter = make_span_capture()
             extender = self.make_otel_extender(provider)
-            with make_hook_context(hook=hook).activate():
+            with context.activate():
                 extender(lambda: None)
             assert single_span(exporter).name == name
 
@@ -527,13 +561,15 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
 
         spans = exporter.get_finished_spans()
         assert len(spans) >= 2
-        trace_ids = set()
-        for span in spans:
-            assert span.context is not None
-            trace_ids.add(span.context.trace_id)
-        assert len(trace_ids) == 1
+        assert_well_formed_trace(spans)
 
-        expected = self.expected_span_names()
-        if expected is not None and ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE in expected:
-            span_names = {span.name for span in spans}
-            assert expected[ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE] in span_names
+        names = self.expected_span_names()
+        if names is not None and ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE in names:
+            calculate = [s for s in spans if (s.attributes or {}).get("mloda.operation.name") == "calculate"]
+            assert calculate, [s.name for s in spans]
+            for span in calculate:
+                group = (span.attributes or {}).get("mloda.feature_group.name")
+                context = make_hook_context(
+                    hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, feature_group_class=group
+                )
+                assert span.name == self.expected_span_name(context)

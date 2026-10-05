@@ -70,4 +70,4 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
         "worker never emitted a span for OtelExtender(use_sdk_defaults=True)"
     )
     span_names = marker_path.read_text().splitlines()
-    assert "mloda.calculate" in span_names, span_names
+    assert any(name.startswith("calculate ") for name in span_names), span_names
