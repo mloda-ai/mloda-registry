@@ -12,9 +12,9 @@ from mloda.provider import FeatureGroup, FeatureResolutionError
 from mloda.user import DataAccessCollection, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.policy import JournalFeatureGroup
-from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup  # noqa: F401
-from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.policy import JournalFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
 
 
 class UngatedJournal(JournalFeatureGroup):

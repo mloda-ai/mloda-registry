@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader, parse_descriptor_bytes
+from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader, parse_descriptor_bytes
 
 HERE = Path(__file__).parent
 DOSSIER_A = HERE / "fixtures" / "dossier_a"

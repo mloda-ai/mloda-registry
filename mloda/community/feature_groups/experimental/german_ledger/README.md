@@ -3,6 +3,11 @@
 Totals from German ledger exports that carry the ledger lines behind them, or a refusal
 that names the reason.
 
+**Status: experimental.** The package lives under
+`mloda.community.feature_groups.experimental`. It has no stability guarantee: the import
+path, the API and the receipt format may change or move in any release, including a patch
+release.
+
 - **Reads:** GDPdU/GoBD dossiers (`index.xml` + data file) and DATEV-Format EXTF 700
   booking batches.
 - **Answers:** `revenue__sources` returns the total **and** the cited rows it was summed
@@ -18,7 +23,7 @@ from datetime import date
 from mloda.user import DataAccessCollection, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger import AdmissibilityPolicyGroup
+from mloda.community.feature_groups.experimental.german_ledger import AdmissibilityPolicyGroup
 
 
 class Closing2025(AdmissibilityPolicyGroup):
@@ -127,7 +132,7 @@ its receipts. To each receipt it adds what mloda knows:
   stage and reason. A diagnosis that does not match the run's plan is refused.
 
 ```python
-from mloda.community.feature_groups.german_ledger import run_with_receipts
+from mloda.community.feature_groups.experimental.german_ledger import run_with_receipts
 from mloda.steward import verified_context
 
 with verified_context(principal="pruefer@kanzlei.example"):

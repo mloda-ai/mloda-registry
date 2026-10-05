@@ -22,9 +22,9 @@ from mloda.provider import FeatureResolutionError
 from mloda.user import DataAccessCollection, PluginLoader, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup  # noqa: F401
-from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
-from mloda.community.feature_groups.german_ledger.tests import _host  # noqa: F401  (the host policy)
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401  (the host policy)
 
 PluginLoader.all()
 

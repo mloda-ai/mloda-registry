@@ -20,8 +20,8 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.german_ledger.datev import DatevExtfReader
-from mloda.community.feature_groups.german_ledger.policy import (
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityRefused,
     Festschreibung,
     ForFormat,
@@ -29,7 +29,11 @@ from mloda.community.feature_groups.german_ledger.policy import (
     PeriodBound,
     apply_rules,
 )
-from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, GdpduReader, is_admitted
+from mloda.community.feature_groups.experimental.german_ledger.reader import (
+    ADMISSIBILITY_COLUMN,
+    GdpduReader,
+    is_admitted,
+)
 
 HERE = Path(__file__).parent
 FIX = HERE / "fixtures"
