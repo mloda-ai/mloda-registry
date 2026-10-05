@@ -14,6 +14,7 @@ a nested package stays out of its parent's wheel, published or not, with the
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from collections.abc import Callable
 from copy import deepcopy
@@ -1043,6 +1044,190 @@ def test_verification_jobs_of_an_empty_entries_list_is_empty() -> None:
     """No internal extras means no install jobs at all."""
     jobs = _verification_jobs([], "9.9.9")
     assert jobs == [], f"verification_jobs([], ...) returned {jobs!r}, expected an empty list"
+
+
+_EXTERNAL_EXTRAS_FN = "external_bundle_extras"
+_EXTERNAL_JOB_FN = "_install_and_probe_external"
+
+
+def _external_extra_entries(
+    packages: dict[str, dict[str, Any]],
+) -> list[tuple[str, str, list[str], list[str]]]:
+    """The (bundle, extra, external distributions, binary wheel distributions) entries verify_extras derives."""
+    entries = _script_fn(
+        _EXTRAS_SCRIPT, _EXTERNAL_EXTRAS_FN, "derive the third-party bundle extras to verify from config/packages.toml"
+    )(packages)
+    return [(bundle, extra, list(names), list(binaries)) for bundle, extra, names, binaries in entries]
+
+
+def _external_extra_probe(distributions: list[str], binary_distributions: list[str]) -> str:
+    """The probe program source verify_extras runs in the venv of an external-extra install."""
+    source: str = _script_fn(
+        _EXTRAS_SCRIPT, "external_extra_probe", "build the probe program for an external extra install"
+    )(distributions, binary_distributions)
+    return source
+
+
+def _run_probe(distributions: list[str], binary_distributions: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run the probe program with the dev interpreter."""
+    source = _external_extra_probe(distributions, binary_distributions)
+    return subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)  # nosec
+
+
+class _FakeProcess:
+    """Stand-in for subprocess.CompletedProcess; the script reads returncode and stderr."""
+
+    def __init__(self, returncode: int = 0, stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def _fake_external_run(
+    monkeypatch: pytest.MonkeyPatch, failing: Callable[[list[str]], bool] | None = None, stderr: str = ""
+) -> list[list[str]]:
+    """Replace subprocess.run with a recorder; a command matching ``failing`` exits 1 with ``stderr``."""
+    calls: list[list[str]] = []
+
+    def _fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeProcess:
+        calls.append(command)
+        if failing is not None and failing(command):
+            return _FakeProcess(1, stderr)
+        return _FakeProcess(0)
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    return calls
+
+
+def _run_external_job(tmp_path: Path, binaries: list[str]) -> tuple[list[str], list[str]]:
+    """Run one external job for the enterprise anonymizer extra against the (faked) subprocess.run."""
+    result: tuple[list[str], list[str]] = _script_fn(
+        _EXTRAS_SCRIPT, _EXTERNAL_JOB_FN, "install one third-party extra and probe it"
+    )(
+        "mloda-enterprise[anonymizer]==9.9.9",
+        ("mloda.enterprise",),
+        ["mloda-anonymizer-binary", "pyarrow"],
+        binaries,
+        str(tmp_path),
+    )
+    return result
+
+
+def test_external_bundle_extras_yields_exactly_the_third_party_bundle_extras() -> None:
+    """The bundle extras that name third-party distributions are the ones never installed by the internal jobs."""
+    entries = _external_extra_entries(_packages())
+    expected = [
+        ("mloda-enterprise", "ed25519", ["cryptography"], []),
+        ("mloda-enterprise", "otel", ["opentelemetry-api"], []),
+        ("mloda-enterprise", "anonymizer", ["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"]),
+    ]
+    assert entries == expected, f"external_bundle_extras() yielded {entries!r}, expected exactly {expected!r}"
+
+
+def test_external_bundle_extras_synthetic_config_applies_every_rule() -> None:
+    """Skips dev, configured-only extras, non-bundle and unpublished-bundle packages; keeps only the external
+    names of a mixed extra; takes binary wheels only from a shipped leaf's wheel extra, not an owned leaf's."""
+    packages: dict[str, dict[str, Any]] = {
+        "sb": {
+            "description": "sandbox",
+            "path": "sb",
+            "published": True,
+            "entry_point_bundle": True,
+            "dependencies": ["sb-owned=={version}"],
+            "optional_dependencies": {
+                "dev": ["pytest>=9"],
+                "internal": ["sb-owned=={version}"],
+                "mixed": ["Foo_Bar>=1", "sb-owned=={version}", "bar-binary>=0.1", "ownedbin>=1"],
+                "plain": ["baz>=2"],
+            },
+        },
+        "sb-owned": {
+            "description": "sandbox",
+            "path": "sb/owned",
+            "published": True,
+            "optional_dependencies": {"wheel": ["ownedbin>=1"]},
+        },
+        "sb-shipped": {
+            "description": "sandbox",
+            "path": "sb/shipped",
+            "entry_point_groups": ["mloda.feature_groups"],
+            "optional_dependencies": {"wheel": ["bar-binary>=0.1,<0.2"]},
+        },
+        "plain-pkg": {
+            "description": "sandbox",
+            "path": "plain",
+            "published": True,
+            "optional_dependencies": {"x": ["notbundle>=1"]},
+        },
+        "hidden": {
+            "description": "sandbox",
+            "path": "hidden",
+            "entry_point_bundle": True,
+            "optional_dependencies": {"x": ["hiddenext>=1"]},
+        },
+    }
+
+    entries = _external_extra_entries(packages)
+
+    expected = [
+        ("sb", "mixed", ["Foo_Bar", "bar-binary", "ownedbin"], ["bar-binary"]),
+        ("sb", "plain", ["baz"], []),
+    ]
+    assert entries == expected, f"external_bundle_extras() yielded {entries!r}, expected exactly {expected!r}"
+
+
+def test_external_job_runs_venv_install_owner_import_then_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The external job creates a fresh venv, installs the extra, imports the owner surface, then runs the probe."""
+    calls = _fake_external_run(monkeypatch)
+
+    messages, errors = _run_external_job(tmp_path, ["mloda-anonymizer-binary"])
+
+    assert errors == [], f"_install_and_probe_external() reported {errors!r} for an all-success fake"
+    assert len(calls) == 4, f"expected venv, install, owner import and probe (4 commands), got {calls!r}"
+    assert calls[0][:2] == ["uv", "venv"], f"first command must create the venv, got {calls[0]!r}"
+    assert calls[1][:3] == ["uv", "pip", "install"], f"second command must install, got {calls[1]!r}"
+    assert calls[1][-1] == "mloda-enterprise[anonymizer]==9.9.9", f"install must end with the specifier: {calls[1]!r}"
+    assert calls[2][1:] == ["-c", "import mloda.enterprise"], f"third command must import the owner: {calls[2]!r}"
+    probe = _external_extra_probe(["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"])
+    assert calls[3][1] == "-c" and calls[3][2] == probe, f"last command must run the probe program: {calls[3]!r}"
+    assert calls[2][0] == calls[3][0], "owner import and probe must use the same venv python"
+
+
+def test_external_job_stops_when_the_install_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A failed install is reported against the specifier and nothing runs after it."""
+    calls = _fake_external_run(monkeypatch, failing=lambda c: c[:3] == ["uv", "pip", "install"], stderr="boom")
+
+    messages, errors = _run_external_job(tmp_path, [])
+
+    assert len(calls) == 2, f"commands after the failed install must not run, got {calls!r}"
+    assert len(errors) == 1 and "mloda-enterprise[anonymizer]==9.9.9" in errors[0] and "boom" in errors[0], errors
+
+
+def test_external_job_reports_a_failing_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A probe that exits non-zero becomes an error carrying the specifier and the probe's message."""
+    _fake_external_run(monkeypatch, failing=lambda c: c[1:2] == ["-c"] and "metadata" in c[2], stderr="missing-dist")
+
+    messages, errors = _run_external_job(tmp_path, ["mloda-anonymizer-binary"])
+
+    assert len(errors) == 1 and "mloda-enterprise[anonymizer]==9.9.9" in errors[0] and "missing-dist" in errors[0], (
+        errors
+    )
+
+
+def test_external_probe_fails_naming_a_missing_binary_wheel() -> None:
+    """The dev env has no anonymizer wheel, so the probe must exit non-zero and name it."""
+    result = _run_probe(["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"])
+
+    assert result.returncode != 0, "probe exited 0 although mloda-anonymizer-binary is not installed"
+    assert "mloda-anonymizer-binary" in result.stderr, f"probe stderr must name the distribution: {result.stderr!r}"
+
+
+def test_external_probe_passes_for_installed_distributions_without_a_binary() -> None:
+    """An installed external distribution with no binary wheel needs only the version lookup."""
+    result = _run_probe(["pyarrow"], [])
+
+    assert result.returncode == 0, f"probe exited {result.returncode} for installed pyarrow: {result.stderr!r}"
 
 
 @pytest.mark.parametrize("env_name", _TOX_PUBLISHED_ENVS)

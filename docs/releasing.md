@@ -45,7 +45,7 @@ set, tox envs and verify scripts are the ones that release shipped, not main's. 
 |-----|--------|
 | `verify-published` | The released set installs together and imports |
 | `verify-published-independent` | Every published distribution installs and imports on its own |
-| `verify-extras` | The `[all]` extras resolve and pull in their variants |
+| `verify-extras` | The `[all]` extras resolve and pull in their variants, and each bundle's third-party extras install |
 | `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
 
 `verify-published` installs with the `exclude-newer` window lifted for the released set; see
@@ -66,7 +66,7 @@ The released set is the `published = true` flag in `config/packages.toml`.
 `.github/workflows/release.yaml` and the install list of the `verify-published` tox env
 are both filled from that one command, so they cannot drift apart.
 `verify-published-independent` derives its installed set from that same `published` flag,
-and `verify-extras` derives its internal extras from `config/packages.toml`'s
+and `verify-extras` derives its internal and third-party extras from `config/packages.toml`'s
 `optional_dependencies`, so neither script names a package by hand.
 
 Flagging a package does not publish it: it ships with the next release run, and the weekly
