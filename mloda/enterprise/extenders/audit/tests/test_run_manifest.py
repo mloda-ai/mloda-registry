@@ -344,6 +344,11 @@ class TestRunManifestPublicApi:
         assert inspect.getsourcefile(obj) == str(package / f"{home}.py")
         assert re.search(rf"^(class|def) {name}\b", inspect.getsource(obj), re.MULTILINE)
 
+    def test_every_facade_exception_is_a_recorded_exception(self) -> None:
+        objs = {n: getattr(run_manifest_module, n) for n, _ in _FACADE_HOMES}
+        exceptions = {n for n, obj in objs.items() if inspect.isclass(obj) and issubclass(obj, BaseException)}
+        assert exceptions == set(_RECORDED_EXCEPTIONS)
+
     @pytest.mark.parametrize("name", _RECORDED_EXCEPTIONS)
     def test_recorded_exceptions_keep_their_error_type_and_pickle(self, name: str) -> None:
         cls = getattr(run_manifest_module, name)
