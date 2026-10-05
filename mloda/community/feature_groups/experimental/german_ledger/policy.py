@@ -24,7 +24,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import pyarrow as pa
 from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
@@ -52,7 +52,7 @@ class AdmissibilityRefused(Exception):
     (see apply_rules), and is None when it comes before any row was judged.
     """
 
-    def __init__(self, message: str, verdicts: Optional[dict[str, int]] = None) -> None:
+    def __init__(self, message: str, verdicts: dict[str, int] | None = None) -> None:
         super().__init__(message)
         self.verdicts = verdicts
 
@@ -91,14 +91,14 @@ class _ReaderJournal(FeatureGroup):
     no READER and matches nothing.
     """
 
-    READER: Optional[type[BaseInputData]] = None
+    READER: type[BaseInputData] | None = None
 
     @classmethod
     def match_feature_group_criteria(
         cls,
         feature_name: Any,
         options: Options,
-        data_access_collection: Optional[DataAccessCollection] = None,
+        data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
         """Gate on the name BEFORE the inherited root/input-data rules.
 
@@ -112,7 +112,7 @@ class _ReaderJournal(FeatureGroup):
         return super().match_feature_group_criteria(feature_name, options, data_access_collection)
 
     @classmethod
-    def input_data(cls) -> Optional[BaseInputData]:
+    def input_data(cls) -> BaseInputData | None:
         # Returned directly: match_data_access takes the first matching subclass in the shared
         # pool, so a stock CsvReader could otherwise claim a dossier folder holding a .csv.
         return cls.READER() if cls.READER is not None else None
@@ -490,8 +490,8 @@ class AdmissibilityPolicyGroup(FeatureGroup):
 
     RULES: tuple[AdmissibilityRule, ...] = ()
     # Shorthand for RULES = (LateEntryCutoff(LOCK_DATE, PERIOD_END, BOOKING_COLUMN, KEYING_COLUMN),)
-    LOCK_DATE: Optional[date] = None
-    PERIOD_END: Optional[date] = None
+    LOCK_DATE: date | None = None
+    PERIOD_END: date | None = None
     BOOKING_COLUMN = "Buchungsdatum"
     KEYING_COLUMN = "Erfassungsdatum"
 
@@ -520,11 +520,11 @@ class AdmissibilityPolicyGroup(FeatureGroup):
         cls,
         feature_name: Any,
         options: Options,
-        data_access_collection: Optional[DataAccessCollection] = None,
+        data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
         return cls.configured() and str(feature_name) == ADMITTED
 
-    def input_features(self, options: Options, feature_name: Any) -> Optional[set[Feature]]:
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
         return {Feature(JOURNAL)}
 
     @classmethod

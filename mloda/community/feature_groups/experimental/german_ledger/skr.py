@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from typing import Any, Optional
+from typing import Any
 
 import pyarrow as pa
 from mloda.provider import FeatureGroup, FeatureSet
@@ -97,7 +97,7 @@ class LedgerProfile:
     # How this exporter signs its amounts: "as-declared" (each line in its account's own
     # direction, as a Sachkonten export writes it) or "soll-positiv" (+Soll/-Haben). None
     # states nothing, and a journal that states nothing either is then taken as declared.
-    sign: Optional[str] = None
+    sign: str | None = None
 
     def __post_init__(self) -> None:
         if self.sign not in (None, AS_DECLARED, SOLL_POSITIVE):
@@ -210,7 +210,7 @@ def _refuse_long_sachkonten(table: pa.Table, profile: LedgerProfile) -> None:
         )
 
 
-def _gross_reason(account: int, bu: str, automatic: frozenset[int]) -> Optional[str]:
+def _gross_reason(account: int, bu: str, automatic: frozenset[int]) -> str | None:
     """Why a revenue leg's booked amount includes VAT, or None when it stands as booked."""
     if bu == _LIFTS_AUTOMATIC:
         return None
@@ -282,7 +282,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
         cls,
         feature_name: Any,
         options: Options,
-        data_access_collection: Optional[DataAccessCollection] = None,
+        data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
         """Gate on the semantic catalog BEFORE the inherited rules.
 
@@ -294,7 +294,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
             return False
         return super().match_feature_group_criteria(feature_name, options, data_access_collection)
 
-    def input_features(self, options: Options, feature_name: Any) -> Optional[set[Feature]]:
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
         return {Feature(ADMITTED)}
 
     @classmethod
