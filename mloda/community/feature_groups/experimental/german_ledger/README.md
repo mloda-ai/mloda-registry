@@ -12,7 +12,8 @@ release.
   booking batches.
 - **Answers:** `revenue__sources` returns the total **and** the cited rows it was summed
   from (`GL.txt@642915ba8de6:6`). A row no admissibility policy cleared never counts.
-- **Refuses by name** instead of guessing: an undeclared encoding, a post-cutoff entry into
+- **Refuses by name** instead of guessing: bytes that do not decode (GDPdU: the declared code
+  page, cp1252 when none is declared; DATEV: UTF-8 or Windows-1252), a post-cutoff entry into
   a closed period, an old DATEV version, overlapping batches, and so on.
 
 ## Quickstart
@@ -86,8 +87,9 @@ class DatevClosing2025(AdmissibilityPolicyGroup):
 
 All rules run in the one policy step. If any rule refuses, the refusal names every rule that
 refused. Otherwise each row gets **one** stamp: `admitted:all-of;rules=…` only when every rule
-admitted it, and `outside-scope:all-of;…;outside=<rule>` as soon as one did not. Only
-admissions are totalled. A single rule stamps under its own name, as before.
+admitted it, and `outside-scope:all-of;…;outside=<rule>` as soon as one did not. A total
+needs every journal row admitted: a single row that is not, outside-scope included, refuses it
+(`InadmissibleTotal`). A single rule stamps under its own name, as before.
 
 **One host, both formats.** The late-entry cutoff needs an `Erfassungsdatum` that DATEV does
 not carry, and `Festschreibung` needs a flag that GDPdU does not carry. `ForFormat` scopes a

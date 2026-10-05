@@ -37,7 +37,7 @@ def _names(groups: Any) -> list[str]:
 
 
 def _resolution(diagnosis: Any) -> list[dict[str, Any]]:
-    """F1: per feature, which group answered, which others could have, and which declined.
+    """Per feature, which group answered, which others could have, and which declined.
 
     In mloda more than one group can claim a name, and a subclass is kept over its parent. A
     group that matched but was not chosen was shadowed; that is the audit risk, so it is named.

@@ -17,7 +17,7 @@ Erfassungsdatum, so the late-entry cutoff refuses every batch) and it does not k
 accounts are Automatikkonten -- that is a property of the chart, handled by the concept.
 
 Deliberately strict, like the probe: no delimiter sniffing, no encoding guessing beyond the
-two the format is written in, no repair of spreadsheet damage.
+two the format is written in, no repair of spreadsheet damage beyond a leading zero lost from a date.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Isolated: a subclass that quietly takes over a concept is named in the receipt (F1).
+"""Isolated: a subclass that quietly takes over a concept is named in the receipt.
 
 A subprocess because the subclass registers process-wide and would shadow the concept for every
 later test.
