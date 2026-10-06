@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import reprlib
 import threading
 from collections import OrderedDict
@@ -65,6 +66,8 @@ _RUN_ID_PARENT_SPAN_ID = 0x0000000000000001
 # is large enough to hold a presigned URL with a session token.
 _SCRUB_WINDOW = 8192
 _SECRET_KEY_TAIL = 64
+# Authorization keys core's anchored pattern misses (X-Authorization, HTTP_AUTHORIZATION, ...).
+_AUTHORIZATION_KEY = re.compile(r"(?:^|[-_])authorization(?:[-_]header)?\Z", re.IGNORECASE)
 
 
 def _scrub_ends(text: str) -> str:
@@ -74,8 +77,12 @@ def _scrub_ends(text: str) -> str:
 
 
 def _is_secret_key(key: object) -> bool:
+    if isinstance(key, bytes):
+        key = key.decode("latin-1")
     if not isinstance(key, str):
         return False
+    if _AUTHORIZATION_KEY.search(key):
+        return True
     # Token-shaped value so the Authorization pattern (scheme word or token only) fires.
     probe = f"{key[-_SECRET_KEY_TAIL:]}=x1"
     return scrub_credentials(probe) != probe
@@ -88,7 +95,7 @@ def _sorted_if_possible(keys: list[Any]) -> list[Any]:
         return keys
 
 
-# Scrubs before reprlib's cut and redacts values under secret-named dict keys.
+# Scrubs before reprlib's cut and redacts values under secret-named dict keys and secret-keyed pairs.
 class _ScrubbingRepr(reprlib.Repr):
     def repr_str(self, x: str, level: int) -> str:
         return super().repr_str(_scrub_ends(x), level)
@@ -105,6 +112,11 @@ class _ScrubbingRepr(reprlib.Repr):
         if len(x) > self.maxdict:
             pieces.append("...")
         return "{" + ", ".join(pieces) + "}"
+
+    def repr_tuple(self, x: tuple[Any, ...], level: int) -> str:
+        if level > 0 and len(x) == 2 and _is_secret_key(x[0]):
+            return "(%s, '***')" % self.repr1(x[0], level - 1)
+        return super().repr_tuple(x, level)
 
     def repr_instance(self, x: object, level: int) -> str:
         try:

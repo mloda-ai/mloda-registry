@@ -24,7 +24,7 @@ from mloda.testing.extenders.flush import active_close_context, blocking_flush_p
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
     CountingExtender,
-    FailingFeatureGroup,
+    MlodaTestingFailingFeatureGroup,
     expected_value_int,
     failing_feature_group,
     run_csv_feature,
@@ -423,6 +423,8 @@ class TestFailingFeatureGroup:
         second = failing_feature_group("boom_two")
 
         assert first is not second
+        assert first.__name__.startswith("MlodaTesting")
+        assert second.__name__.startswith("MlodaTesting")
         assert first.feature_name == "boom_one"
         assert second.feature_name == "boom_two"
         assert first.calls == 0
@@ -437,7 +439,7 @@ class TestFailingFeatureGroup:
         assert fg.calls == 1
 
     def test_base_feature_name_is_never_requested_sentinel(self) -> None:
-        assert FailingFeatureGroup.feature_name == "mloda_testing_never_requested"
+        assert MlodaTestingFailingFeatureGroup.feature_name == "mloda_testing_never_requested"
 
     def test_minted_class_reports_a_real_version(self) -> None:
         fg = failing_feature_group("boom_version")
