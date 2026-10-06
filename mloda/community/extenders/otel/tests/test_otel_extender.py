@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import copy
+import dataclasses
 import datetime
 import logging
 import pickle  # nosec
@@ -30,6 +31,7 @@ from mloda.steward import (
     CompositeExtender,
     Extender,
     ExtenderHook,
+    FeatureResolutionError,
     HookContext,
     LifecycleOutcome,
     PlanContext,
@@ -2172,7 +2174,7 @@ class TestOtelExtenderTraceScopeOption:
 
 
 class TestOtelExtenderRunScopeFullRuns:
-    """trace_scope="run" (default): one trace and one mloda.run root per run, no plan span."""
+    """trace_scope="run" (default): one trace and one mloda.run root per run, no plan span unless the plan fails."""
 
     def test_run_all_is_one_well_formed_trace_rooted_at_mloda_run(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -2370,7 +2372,7 @@ class TestOtelExtenderRunScopeFullRuns:
         provider, exporter = otel_capture
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
 
-        with pytest.raises(Exception, match="mloda_testing_otel_unresolvable") as excinfo:
+        with pytest.raises(FeatureResolutionError, match="mloda_testing_otel_unresolvable"):
             mloda.prepare(
                 ["mloda_testing_otel_unresolvable"],
                 compute_frameworks=[PyArrowTable],
@@ -2382,7 +2384,6 @@ class TestOtelExtenderRunScopeFullRuns:
         assert plan.name == "mloda.plan"
         assert _named(exporter, "mloda.run") == []
         assert plan.status.status_code == StatusCode.ERROR
-        assert type(excinfo.value).__name__ == "FeatureResolutionError"
         assert (plan.attributes or {})["error.type"] == "FeatureResolutionError"
 
 
@@ -2624,6 +2625,8 @@ class TestOtelExtenderRootSpanHooks:
         assert otel._run_roots == {}
         otel.on_plan_start(_plan("plan-1"))
         otel.on_plan_complete(_plan("plan-1"), LifecycleOutcome(status="failed", error_type="KeyError"))
+        assert otel._plan_spans == {}
+        assert not otel._plan_ints
 
     def test_no_op_provider_without_carrier_or_caller_span_stores_nothing(self) -> None:
         otel = OtelExtender(tracer_provider=trace.NoOpTracerProvider())
@@ -2657,7 +2660,9 @@ class TestOtelExtenderRootSpanHooks:
 
 
 class TestOtelExtenderPlanSpanHooks:
-    def test_run_scope_emits_no_plan_span(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
+    def test_run_scope_emits_no_plan_span_for_a_succeeded_plan(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
 
@@ -2685,7 +2690,10 @@ class TestOtelExtenderPlanSpanHooks:
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, trace_scope=trace_scope)
-        completed = _plan("plan-1", structure_hash)
+        completed = dataclasses.replace(
+            _plan("plan-1", structure_hash),
+            created_at=datetime.datetime(2026, 1, 2, 3, 4, 5, 678901, tzinfo=datetime.timezone.utc),
+        )
 
         otel.on_plan_start(_plan("plan-1"))
         assert exporter.get_finished_spans() == ()
@@ -2704,12 +2712,7 @@ class TestOtelExtenderPlanSpanHooks:
         else:
             assert span.status.status_code != StatusCode.ERROR
         if trace_scope == "run":
-            created_ns = (
-                (completed.created_at - datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc))
-                // datetime.timedelta(microseconds=1)
-                * 1000
-            )
-            assert span.start_time == created_ns
+            assert span.start_time == 1767323045678901000
             assert span.parent is None
 
     @pytest.mark.parametrize(
