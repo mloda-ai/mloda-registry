@@ -17,7 +17,7 @@ requires-python = ">=3.10,<3.15"
 [project.optional-dependencies]
 dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"]
 pyarrow = ["pyarrow>=25"]
-wheel = ["mloda-example-binary>=0.1.0,<0.2.0"]
+wheel = ["mloda-example-binary>=0.1.2,<0.2.0"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

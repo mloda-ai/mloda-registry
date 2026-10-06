@@ -1875,7 +1875,7 @@ otel = [
 requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.15.1,<0.16.0" },
-    { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.0,<0.2.0" },
+    { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.1,<0.2.0" },
     { name = "mloda-community-binary-model", editable = "mloda/community/feature_groups/binary_model" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
@@ -1906,7 +1906,7 @@ wheel = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda-anonymizer-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
+    { name = "mloda-anonymizer-binary", marker = "extra == 'wheel'", specifier = ">=0.1.1,<0.2.0" },
     { name = "mloda-community-binary-model", specifier = ">=0.8.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
@@ -1965,7 +1965,7 @@ wheel = [
 [package.metadata]
 requires-dist = [
     { name = "mloda-community-binary-model", specifier = ">=0.8.0" },
-    { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
+    { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.2,<0.2.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },

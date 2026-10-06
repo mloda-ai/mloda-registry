@@ -18,7 +18,7 @@ requires-python = ">=3.10,<3.15"
 ed25519 = ["cryptography>=42"]
 otel = ["opentelemetry-api>=1.37,<2"]
 openlineage = ["mloda-community-openlineage~=0.8.0"]
-anonymizer = ["mloda-anonymizer-binary>=0.1.0,<0.2.0", "pyarrow>=25"]
+anonymizer = ["mloda-anonymizer-binary>=0.1.1,<0.2.0", "pyarrow>=25"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
