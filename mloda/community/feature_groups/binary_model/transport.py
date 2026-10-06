@@ -126,7 +126,7 @@ def _windows_owned_by_current_user(path: Path) -> bool:
     advapi32.EqualSid.argtypes = [pvoid, pvoid]
 
     def token_sid(token: Any, info_class: int) -> tuple[Any, Any]:
-        """The SID pointer of a token information class, plus the buffer that keeps it alive."""
+        """The SID pointer of a token information class, plus its backing buffer."""
         size = wintypes.DWORD(0)
         advapi32.GetTokenInformation(token, info_class, None, 0, ctypes.byref(size))  # sizing call, fails by design
         if size.value == 0:
@@ -219,7 +219,7 @@ def default_parent() -> Path:
 class InvocationDirectory:
     """A private, owner-only directory for one binary invocation, created under a per-user parent
     (or the given one) and reaping dead siblings on entry (contract: Data handling). Liveness is an exclusive
-    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows), whose parent must be owned by the user and not a reparse point."""
+    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows)."""
 
     def __init__(self, parent: Path | None = None) -> None:
         self.parent = parent if parent is not None else default_parent()

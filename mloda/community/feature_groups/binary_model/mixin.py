@@ -164,7 +164,8 @@ def _write_ipc_stream(
     max_batch_rows: int = _DEFAULT_MAX_BATCH_ROWS,
 ) -> None:
     """Write ``table`` as an Arrow IPC stream into ``sink``, batched small enough that no single array
-    exceeds ``max_batch_bytes`` and no batch exceeds ``max_batch_rows`` rows (contract: Capabilities); a zero-row table writes a schema-only stream. The
+    exceeds ``max_batch_bytes`` and no batch exceeds ``max_batch_rows`` rows (contract: Capabilities);
+    a zero-row table writes a schema-only stream. The
     ``large_string``/``string_view`` -> ``utf8`` cast happens here, per batch, after splitting on
     ``table``'s own, still-large-typed batches, since casting the whole table up front could
     overflow ``utf8``'s 32-bit offsets even though no individual cell is oversized."""

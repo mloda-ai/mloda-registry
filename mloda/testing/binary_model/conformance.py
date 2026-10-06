@@ -707,10 +707,8 @@ class BinaryModelConformanceBase:
         ],
     )
     def test_license_malformed_claim_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A well-signed token whose claim is lax-parseable but not strictly well-formed (timestamp
-        without seconds, compact timestamp, unpadded ``max_release_date``, float ``v``): exit 3
-        (spec: Verification step 5; contract: License). Parametrized by attribute name like
-        ``test_license_tampered_is_invalid``."""
+        """A well-signed token with a lax-parseable but malformed claim: exit 3
+        (spec: Verification step 5; contract: License)."""
         malformed_text = getattr(self, attr_name)
         license_path = write_text(tmp_path / "license.txt", malformed_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
