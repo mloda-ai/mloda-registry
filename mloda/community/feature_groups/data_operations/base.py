@@ -282,7 +282,7 @@ def assert_key_columns_present(
 
 
 def key_column_features(options: Options, sources: Iterable[Feature]) -> set[Feature]:
-    """Features for the partition, order, time and mask columns named in ``options``, minus the sources."""
+    """Plain features for the partition, order, time and mask columns named in ``options``, minus the sources."""
     names: list[str] = []
     partition_by = options.get(PARTITION_BY)
     if partition_by:
@@ -294,15 +294,8 @@ def key_column_features(options: Options, sources: Iterable[Feature]) -> set[Fea
     mask_spec = parse_mask_spec(options.get(MASK_KEY))
     names.extend(spec[0] for spec in mask_spec or [])
 
-    source_list = list(sources)
-    taken = {str(source.name) for source in source_list}
-    group = dict(source_list[0].options.group) if source_list else {}
-    keys: set[Feature] = set()
-    for name in names:
-        if name not in taken:
-            taken.add(name)
-            keys.add(Feature(name, options=Options(group=dict(group))))
-    return keys
+    taken = {str(source.name) for source in sources}
+    return {Feature(name) for name in dict.fromkeys(names) if name not in taken}
 
 
 class KeyColumnInputsMixin:

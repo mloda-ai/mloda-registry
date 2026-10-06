@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
-from mloda.user import Options
+from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     assert_key_columns_present,
@@ -25,6 +25,7 @@ from mloda.community.feature_groups.data_operations.base import (
     is_column_ref,
     is_positive_int,
     is_scalar_number,
+    key_column_features,
     positive_int_value,
     scalar_number_value,
 )
@@ -366,3 +367,31 @@ class TestAssertKeyColumnsPresent:
     def test_order_label_overrides_the_order_by_label(self) -> None:
         with pytest.raises(ValueError, match=r"time_column 'ts' is not present in the dict input"):
             assert_key_columns_present({"a": [1]}, order_by="ts", order_label="time_column")
+
+
+_GROUPED_SOURCE = Feature("x_max", Options(group={"aggregation_type": "max", "in_features": "x"}))
+
+
+class TestKeyColumnFeatures:
+    """``key_column_features`` returns plain ``Feature(name)`` keys, never copying source group options."""
+
+    @pytest.mark.parametrize(
+        "options, expected",
+        [
+            ({"partition_by": ["region", "team"]}, {"region", "team"}),
+            ({"partition_by": None}, set()),
+            ({"partition_by": []}, set()),
+            ({"order_by": ("ts",)}, {"ts"}),
+            ({"mask": ("flag", "equal", 1)}, {"flag"}),
+            ({"mask": [("flag", "equal", 1), ("kind", "equal", 2)]}, {"flag", "kind"}),
+        ],
+    )
+    def test_keys_are_plain_features(self, options: dict[str, Any], expected: set[str]) -> None:
+        keys = key_column_features(Options(context=options), [_GROUPED_SOURCE])
+        assert keys == {Feature(name) for name in expected}
+        assert all(not key.options.group for key in keys)
+
+    def test_dedupes_against_source_of_same_name(self) -> None:
+        source = Feature("region", Options(group={"k": "v"}))
+        keys = key_column_features(Options(context={"partition_by": ["region", "team"]}), [source])
+        assert keys == {Feature("team")}
