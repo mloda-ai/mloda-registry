@@ -289,6 +289,27 @@ class TestVerifyLicenseTokenAcceptance:
         result = verify_license_token(token, keys=UNIT_KEYS, plugin_id=PLUGIN_ID, now=NOW_VALID)
         assert result.in_grace is False
 
+    @pytest.mark.parametrize("claim", ["iat", "nbf", "exp"])
+    @pytest.mark.parametrize(
+        "stamp",
+        [
+            pytest.param("2026-01-01T00:00:00Z", id="z_suffix"),
+            pytest.param("2026-01-01T02:00:00+02:00", id="non_utc_offset"),
+            pytest.param("2026-01-01T00:00:00.5+00:00", id="fraction_1_digit"),
+            pytest.param("2026-01-01T00:00:00.123Z", id="fraction_3_digits"),
+            pytest.param("2026-01-01T00:00:00.123456+00:00", id="fraction_6_digits"),
+            pytest.param("2026-01-01T00:00:00.123456789Z", id="fraction_9_digits"),
+        ],
+    )
+    def test_rfc3339_timestamp_accepted(self, claim: str, stamp: str) -> None:
+        """Timestamps accepted in the RFC 3339 forms the Rust gate accepts, on every supported Python."""
+        if claim == "exp":
+            stamp = stamp.replace("2026-01-01", "2026-06-01")
+        result = verify_license_token(
+            _signed(_claims(**{claim: stamp})), keys=UNIT_KEYS, plugin_id=PLUGIN_ID, now=NOW_VALID
+        )
+        assert result.in_grace is False
+
     def test_verified_license_is_frozen(self) -> None:
         result = verify_license_token(_signed(_claims()), keys=UNIT_KEYS, plugin_id=PLUGIN_ID, now=NOW_VALID)
         with pytest.raises(dataclasses.FrozenInstanceError):
@@ -344,6 +365,37 @@ class TestVerifyLicenseTokenRejections:
 
     def test_schema_version_two_rejected(self) -> None:
         self._reject(_signed(_claims(v=2)))
+
+    @pytest.mark.parametrize("version", [1.0, True], ids=["float", "bool"])
+    def test_non_integer_schema_version_rejected(self, version: Any) -> None:
+        """``v`` must be exactly the int 1, like the Rust gate's ``as_i64``."""
+        self._reject(_signed(_claims(v=version)))
+
+    @pytest.mark.parametrize("claim", ["iat", "nbf", "exp"])
+    @pytest.mark.parametrize(
+        "stamp",
+        [
+            pytest.param("2020-01-01T00:00+00:00", id="no_seconds"),
+            pytest.param("20200101T000000Z", id="compact"),
+            pytest.param("2020-01-01t00:00:00Z", id="lowercase_t"),
+            pytest.param("2020-01-01T00:00:00z", id="lowercase_z"),
+            pytest.param("2020-01-01T00:00:00", id="missing_offset"),
+            pytest.param("\u0662020-01-01T00:00:00Z", id="non_ascii_digit_prefix"),
+            pytest.param("2020-01-01T00:00:00+00:00\n", id="trailing_newline"),
+            pytest.param("2020-01-01T00:00:00.Z", id="empty_fraction"),
+        ],
+    )
+    def test_non_rfc3339_timestamp_rejected(self, claim: str, stamp: str) -> None:
+        """Timestamps outside the strict RFC 3339 shape the Rust gate parses are rejections."""
+        if claim == "exp":
+            stamp = stamp.replace("2020", "2036")  # keep exp in the future so only the format can reject
+        self._reject(_signed(_claims(**{claim: stamp})))
+
+    @pytest.mark.parametrize("claim", ["iat", "nbf", "exp"])
+    def test_non_ascii_digit_timestamp_rejected(self, claim: str) -> None:
+        """Arabic-Indic digits in place of ASCII digits (same shape, same value) are rejected."""
+        stamp = "2026-01-01T00:00:00+00:00" if claim != "exp" else "2036-01-01T00:00:00+00:00"
+        self._reject(_signed(_claims(**{claim: stamp.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))})))
 
     def test_missing_required_claim_rejected(self) -> None:
         claims = _claims()
@@ -419,3 +471,20 @@ class TestMaxReleaseDate:
             _signed(_claims()), keys=UNIT_KEYS, plugin_id=PLUGIN_ID, now=NOW_VALID, release_date=date(2099, 1, 1)
         )
         assert result.in_grace is False
+
+    @pytest.mark.parametrize(
+        "stamp",
+        [
+            pytest.param("2026-3-1", id="unpadded"),
+            pytest.param("2026-9-6", id="unpadded_month_day"),
+            pytest.param("\u0662\u0660\u0662\u0666-03-01", id="non_ascii_digits"),
+            pytest.param("2026-03-01\n", id="trailing_newline"),
+        ],
+    )
+    def test_malformed_max_release_date_rejected(self, stamp: str) -> None:
+        """``max_release_date`` must be exactly ``YYYY-MM-DD`` with ASCII digits, like the Rust gate."""
+        token = _signed(_claims(max_release_date=stamp))
+        with pytest.raises(LicenseVerificationError):
+            verify_license_token(
+                token, keys=UNIT_KEYS, plugin_id=PLUGIN_ID, now=NOW_VALID, release_date=date(2026, 3, 1)
+            )

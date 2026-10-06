@@ -322,6 +322,22 @@ class BinaryModelConformanceBase:
 
     missing_plugins_claim_text: ClassVar[str] = license_vectors.missing_plugins_claim_token()
 
+    @property
+    def timestamp_without_seconds_license_text(self) -> str:
+        return license_vectors.timestamp_without_seconds_license_token([self.plugin_id])
+
+    @property
+    def compact_timestamp_license_text(self) -> str:
+        return license_vectors.compact_timestamp_license_token([self.plugin_id])
+
+    @property
+    def unpadded_max_release_date_license_text(self) -> str:
+        return license_vectors.unpadded_max_release_date_license_token([self.plugin_id])
+
+    @property
+    def float_schema_version_license_text(self) -> str:
+        return license_vectors.float_schema_version_license_token([self.plugin_id])
+
     # ``in_grace_license_text`` is time-relative: an override must return a token currently inside its grace window.
     @property
     def in_grace_license_text(self) -> str:
@@ -677,6 +693,26 @@ class BinaryModelConformanceBase:
         constants."""
         tampered_text = getattr(self, attr_name)
         license_path = write_text(tmp_path / "license.txt", tampered_text)
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
+        result = self._kit_run_with_config(valid_config_path, env)
+        assert_error_response(result, LICENSE_INVALID)
+
+    @pytest.mark.parametrize(
+        "attr_name",
+        [
+            pytest.param("timestamp_without_seconds_license_text", id="timestamp_without_seconds"),
+            pytest.param("compact_timestamp_license_text", id="compact_timestamp"),
+            pytest.param("unpadded_max_release_date_license_text", id="unpadded_max_release_date"),
+            pytest.param("float_schema_version_license_text", id="float_schema_version"),
+        ],
+    )
+    def test_license_malformed_claim_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
+        """A well-signed token whose claim is lax-parseable but not strictly well-formed (timestamp
+        without seconds, compact timestamp, unpadded ``max_release_date``, float ``v``): exit 3
+        (spec: Verification step 5; contract: License). Parametrized by attribute name like
+        ``test_license_tampered_is_invalid``."""
+        malformed_text = getattr(self, attr_name)
+        license_path = write_text(tmp_path / "license.txt", malformed_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
