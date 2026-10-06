@@ -55,14 +55,12 @@ class _ExampleTestLicense(BinaryExampleFeatureGroup):
     """Production class, real wheel (no BINARY_COMMAND_OVERRIDE), shared test-signed license."""
 
     LICENSE_KEY_OVERRIDE = valid_license_token([BinaryExampleFeatureGroup.BINARY_PLUGIN_ID])
-    LICENSE_FILE_OVERRIDE = ""  # an ambient MLODA_LICENSE_FILE is read first and would mask the test key
 
 
 class _AnonymizerTestLicense(AnonymizerFeatureGroup):
     """Production class, real wheel (no BINARY_COMMAND_OVERRIDE), shared test-signed license."""
 
     LICENSE_KEY_OVERRIDE = valid_license_token([AnonymizerFeatureGroup.BINARY_PLUGIN_ID])
-    LICENSE_FILE_OVERRIDE = ""  # an ambient MLODA_LICENSE_FILE is read first and would mask the test key
 
 
 @dataclass(frozen=True)
@@ -221,9 +219,13 @@ def _run_end_to_end(case: _Case, feature_class: type[BinaryExampleFeatureGroup] 
 
 
 @pytest.mark.parametrize("case_name", list(_CASES))
-def test_test_license_class_suppresses_ambient_license_file(case_name: str) -> None:
-    """An empty LICENSE_FILE_OVERRIDE stops forwarding MLODA_LICENSE_FILE, which the binary reads before the key."""
-    assert _CASES[case_name].test_license_class.LICENSE_FILE_OVERRIDE == ""
+def test_test_license_class_ignores_ambient_license_file(case_name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit test key stops the ambient MLODA_LICENSE_FILE being forwarded, which the binary reads first."""
+    monkeypatch.setenv("MLODA_LICENSE_FILE", "/ambient/license.txt")
+    case = _CASES[case_name]
+    env = case.test_license_class.binary_environment()
+    assert "MLODA_LICENSE_FILE" not in env
+    assert env["MLODA_LICENSE_KEY"] == case.test_license_class.LICENSE_KEY_OVERRIDE
 
 
 def test_real_binary_end_to_end_with_valid_test_license(real_case: _RealCase) -> None:

@@ -89,10 +89,13 @@ def minimal_environment(
     itself defaults to ``os.environ``). ``source_env`` also supplies ``PATH`` and ``SYSTEMROOT``,
     so ``source_env={}`` drops them too; ``inherit_license=False`` (the canonical spelling; an
     explicit empty ``license_file`` / ``license_key`` does the same) suppresses only the license
-    variables. ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
+    variables. A non-empty explicit ``license_file`` or ``license_key`` means neither variable is
+    inherited (the binary reads the file first, so an inherited file would mask an explicit key).
+    ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
     binary itself runs with its private invocation directory as its cwd."""
     source = os.environ if source_env is None else source_env
-    inherited: Mapping[str, str] = source if inherit_license else {}
+    explicit = bool(license_file) or bool(license_key)
+    inherited: Mapping[str, str] = source if inherit_license and not explicit else {}
     env: dict[str, str] = {"PATH": source.get("PATH") or os.defpath}
 
     if os.name == "nt":

@@ -620,6 +620,23 @@ class TestLicenseOverrides:
         result = _OverrideBeatsEnvModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.num_rows == 1
 
+    def test_license_key_override_beats_an_ambient_expired_license_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        ambient = tmp_path / "ambient_license.txt"
+        ambient.write_text(expired_license_token([PLUGIN_ID]), encoding="utf-8")
+        monkeypatch.setenv("MLODA_LICENSE_FILE", str(ambient))
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+
+        class _KeyBeatsAmbientFileModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = PLUGIN_ID
+            BINARY_COMMAND_OVERRIDE = STUB_CMD
+            LICENSE_KEY_OVERRIDE = valid_license_token([PLUGIN_ID])
+
+        table = pa.table({"col_a": ["alpha"]})
+        result = _KeyBeatsAmbientFileModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.num_rows == 1
+
     def test_empty_license_overrides_suppress_ambient_license_variables(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MLODA_LICENSE_FILE", "/ambient/license.txt")
         monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")

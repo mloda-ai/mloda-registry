@@ -214,6 +214,34 @@ class TestMinimalEnvironment:
         assert result["MLODA_LICENSE_FILE"] == "/f/license.txt"
         assert result["MLODA_LICENSE_KEY"] == "inline-key"
 
+    def test_explicit_license_key_stops_inheriting_ambient_license_file(self) -> None:
+        result = minimal_environment(
+            license_key="explicit-key",
+            source_env={"PATH": "/usr/bin", "MLODA_LICENSE_FILE": "/from/env/license.txt"},
+        )
+        assert result["MLODA_LICENSE_KEY"] == "explicit-key"
+        assert "MLODA_LICENSE_FILE" not in result
+
+    def test_explicit_license_file_stops_inheriting_ambient_license_key(self) -> None:
+        result = minimal_environment(
+            license_file="/explicit/license.txt",
+            source_env={"PATH": "/usr/bin", "MLODA_LICENSE_KEY": "env-key"},
+        )
+        assert result["MLODA_LICENSE_FILE"] == str(Path("/explicit/license.txt").resolve())
+        assert "MLODA_LICENSE_KEY" not in result
+
+    def test_empty_explicit_license_file_alone_still_inherits_ambient_license_key(self) -> None:
+        result = minimal_environment(
+            license_file="",
+            source_env={
+                "PATH": "/usr/bin",
+                "MLODA_LICENSE_FILE": "/from/env/license.txt",
+                "MLODA_LICENSE_KEY": "env-key",
+            },
+        )
+        assert "MLODA_LICENSE_FILE" not in result
+        assert result["MLODA_LICENSE_KEY"] == "env-key"
+
     def test_source_env_defaults_to_os_environ(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PATH", "/from/os/environ")
         result = minimal_environment()
