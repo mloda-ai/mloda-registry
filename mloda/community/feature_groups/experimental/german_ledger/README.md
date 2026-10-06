@@ -36,7 +36,7 @@ class Closing2025(AdmissibilityPolicyGroup):
 
 results = mloda.run_all(
     features=["revenue__sources"],
-    compute_frameworks={PyArrowTable},
+    compute_frameworks=[PyArrowTable],
     data_access_collection=DataAccessCollection(folders={"path/to/dossier"}),
 )
 for table in results:
@@ -47,9 +47,11 @@ Three rules keep it predictable:
 
 1. **Import, don't auto-load.** Importing the package registers its feature groups. Do not
    call `PluginLoader.all()` until [mloda#1745](https://github.com/mloda-ai/mloda/issues/1745)
-   is fixed: it loads the stock `ReadFileFeature`, which then claims the same names, and the
-   request fails with "Multiple feature groups found". For the same reason the package
-   declares no entry point yet.
+   is fixed: it loads the stock read feature groups, which then claim the same names, and the
+   request fails with "Multiple feature groups found" (on mloda 0.15 `ReadDocumentFeature`
+   appears with the stock `TextFileReader` on the dossier's `GL.txt` as its source). For the same reason the package
+   declares no entry point yet. A collection holding both formats (GDPdU and DATEV) must pin
+   one reader by its option key (`GdpduReader` or `DatevExtfReader`); unpinned, it is refused.
 2. **Exactly one policy per process.** Your subclass of `AdmissibilityPolicyGroup` is the
    policy. With none, `revenue__sources` does not resolve. With two, resolution refuses.
    Either way there is no number. Need several checks? List them as rules in that one
@@ -139,7 +141,7 @@ from mloda.community.feature_groups.experimental.german_ledger import run_with_r
 from mloda.steward import verified_context
 
 with verified_context(principal="pruefer@kanzlei.example"):
-    result, [receipt] = run_with_receipts(["revenue__sources"], compute_frameworks={PyArrowTable}, ...)
+    result, [receipt] = run_with_receipts(["revenue__sources"], compute_frameworks=[PyArrowTable], ...)
 receipt["basis"]["catalogue"]   # {"name": "SKR04_2025", "accounts": [[4000, 4499]], "fingerprint": "..."}
 receipt["run"]["principal"]     # "pruefer@kanzlei.example"
 ```

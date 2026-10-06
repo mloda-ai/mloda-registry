@@ -20,7 +20,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
-from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader
+from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL, GdpduReader
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
@@ -395,7 +395,7 @@ def test_a_folder_with_no_booking_batch_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_reader_claims_a_batch_folder_and_nothing_else(tmp_path: Path) -> None:
-    assert DatevExtfReader.match_subclass_data_access(str(LEDERMANN), ["x"], Options()) == str(LEDERMANN)
+    assert DatevExtfReader.match_subclass_data_access(str(LEDERMANN), [JOURNAL], Options()) == str(LEDERMANN)
     gdpdu = HERE / "fixtures" / "dossier_a"
     assert DatevExtfReader.match_subclass_data_access(str(gdpdu), ["x"], Options()) is None
     assert GdpduReader.match_subclass_data_access(str(LEDERMANN), ["x"], Options()) is None
@@ -479,19 +479,10 @@ def _run(folder: Path, features: list[str | Feature]) -> Any:
 
     return mloda.run_all(
         features=features,
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(folder)}),
         plugin_collector=PLUGINS,
     )
-
-
-def _cause(exc: BaseException, kind: type[BaseException]) -> BaseException | None:
-    seen: BaseException | None = exc
-    while seen is not None:
-        if isinstance(seen, kind):
-            return seen
-        seen = seen.__cause__ or seen.__context__
-    return None
 
 
 def test_a_datev_folder_resolves_to_the_datev_journal() -> None:
@@ -512,6 +503,8 @@ def test_the_late_entry_cutoff_refuses_a_datev_batch_it_cannot_evaluate() -> Non
     """DATEV has no Erfassungsdatum. The GDPdU cutoff must fail closed, not pass (§3.1 item 8)."""
     from mloda.community.feature_groups.experimental.german_ledger.policy import LateEntryRefused
 
+    from ._host import _cause
+
     with pytest.raises(Exception) as info:
         _run(LEDERMANN, ["revenue__sources"])
     refusal = _cause(info.value, LateEntryRefused)
@@ -520,8 +513,8 @@ def test_the_late_entry_cutoff_refuses_a_datev_batch_it_cannot_evaluate() -> Non
 
 
 def test_a_folder_holding_both_formats_is_refused_not_shadowed(tmp_path: Path) -> None:
-    """Core refuses before resolution: both journals claim the feature, each with its own
-    reader, and mloda 0.14.0 aborts on the conflicting readers rather than picking one."""
+    """Neither reader is pinned, so both journals claim the feature with their own reader and
+    mloda 0.15 refuses the ambiguity (reader overlap) rather than picking one."""
     both = tmp_path / "both"
     shutil.copytree(HERE / "fixtures" / "dossier_a", both)
     shutil.copy(LEDERMANN / "EXTF_Buchungsstapel.csv", both)

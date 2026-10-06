@@ -23,11 +23,8 @@ from mloda.provider import FeatureResolutionError
 from mloda.user import DataAccessCollection, Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.experimental.german_ledger.policy import (
-    JOURNAL,
-    AdmissibilityPolicyGroup,
-    unprefixed,
-)
+from mloda.community.feature_groups.experimental.german_ledger.policy import AdmissibilityPolicyGroup, unprefixed
+from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL
 from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
 from mloda.community.feature_groups.experimental.german_ledger.sources import (  # noqa: F401
     InadmissibleTotal,
@@ -41,7 +38,7 @@ FIX = Path(__file__).parent.parent / "fixtures"
 def ask(plugin_collector: Any = None) -> dict[str, Any]:
     res = mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
         plugin_collector=plugin_collector,
     )

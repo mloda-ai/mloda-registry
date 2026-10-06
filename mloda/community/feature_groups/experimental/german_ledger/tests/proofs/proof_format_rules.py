@@ -51,7 +51,7 @@ SkrAccountFeatureGroup.CHART = "04"
 def _revenue(folder: Path) -> object:
     results = mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(folder)}),
     )
     [value] = [v for t in results for v in t.column("revenue__sources~value").to_pylist()]

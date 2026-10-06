@@ -2,7 +2,7 @@
 
 Lists the concrete FeatureGroup classes for the ``mloda.feature_groups`` entry point. The entry
 point is NOT declared yet (see pyproject.toml): entry points are only loaded by
-``PluginLoader.all()``, which also loads the stock ``ReadFileFeature`` and collides with these
+``PluginLoader.all()``, which also loads the stock read feature groups and collides with these
 groups until mloda#1745 is fixed. Enabling it is one line in config/packages.toml.
 
 AdmissibilityPolicyGroup is absent on purpose: the base is inert, and the live policy is a

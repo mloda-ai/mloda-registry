@@ -38,7 +38,7 @@ from mloda.provider import FeatureSet
 from mloda.user import DataAccessCollection, Options
 from mloda_plugins.feature_group.input_data.read_file import ReadFile
 
-from .reader import _ORIGIN_COLUMN
+from .reader import _ORIGIN_COLUMN, decline_unconfirmed
 
 
 class DatevRefusal(ValueError):
@@ -450,7 +450,7 @@ class DatevExtfReader(ReadFile):
             candidates = [str(data_access)]
         for candidate in candidates:
             if os.path.isdir(candidate) and _batch_files(candidate):
-                return candidate
+                return None if decline_unconfirmed(cls, feature_names, options, "GdpduReader") else candidate
         return None
 
     @classmethod

@@ -34,6 +34,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from .datev import DatevExtfReader
 from .reader import (
     ADMISSIBILITY_COLUMN,
+    JOURNAL,
     GdpduReader,
     admissibility_verdict,
     describe_verdicts,
@@ -41,7 +42,6 @@ from .reader import (
     outside_scope_verdict,
 )
 
-JOURNAL = "gdpdu_journal"
 ADMITTED = f"{JOURNAL}__admitted"
 
 
@@ -113,8 +113,8 @@ class _ReaderJournal(FeatureGroup):
 
     @classmethod
     def input_data(cls) -> BaseInputData | None:
-        # Returned directly: match_data_access takes the first matching subclass in the shared
-        # pool, so a stock CsvReader could otherwise claim a dossier folder holding a .csv.
+        # Returned directly: 0.15 raises when several readers accept, so the stock CsvReader
+        # must not be left in the pool to also accept a dossier folder holding a .csv.
         return cls.READER() if cls.READER is not None else None
 
     @classmethod

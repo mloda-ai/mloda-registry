@@ -38,3 +38,12 @@ def plugins_with(policy: type[AdmissibilityPolicyGroup]) -> PluginCollector:
 
 
 PLUGINS = plugins_with(TestClosing2025)
+
+
+def _cause(exc: BaseException, kind: type[BaseException]) -> BaseException | None:
+    seen: BaseException | None = exc
+    while seen is not None:
+        if isinstance(seen, kind):
+            return seen
+        seen = seen.__cause__ or seen.__context__
+    return None

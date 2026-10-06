@@ -51,7 +51,7 @@ SkrAccountFeatureGroup.CHART = "03"
 def _run(folder: Path, feature: str) -> list[dict[str, list[object]]]:
     results = mloda.run_all(
         features=[feature],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(folder)}),
     )
     return [t.to_pydict() for t in results]
