@@ -91,17 +91,19 @@ def test_collision_gate() -> None:
 
 
 def test_plugin_loader_all() -> None:
-    """mloda#1745 pinned: after PluginLoader.all(), stock ReadFileFeature claims our names.
+    """mloda#1745 pinned: after PluginLoader.all(), stock read feature groups claim our names.
 
-    GdpduReader stays a ReadFile subclass by decision (30 Sep), so the stock family asks
-    it too. Entry-point plugins are only discovered through PluginLoader.all(), so this is
-    the packaged path, not an edge case. When #1745 lands upstream this fails on purpose:
-    flip it to assert the revenue total instead.
+    GdpduReader declines every name but gdpdu_journal, yet the stock TextFileReader still
+    accepts the dossier's GL.txt. On mloda 0.15 the collision is between SkrAccountFeatureGroup
+    and ReadDocumentFeature, the latter resolved through TextFileReader. Entry-point plugins
+    are only discovered through PluginLoader.all(), so this is the packaged path, not an
+    edge case. When #1745 lands upstream this fails on purpose: flip it to assert the total.
     """
     proof = _run_proof("proof_plugin_loader_all")
     assert proof.returncode == 0, proof.stdout + proof.stderr
     assert "COLLISION REPRODUCED" in proof.stdout
-    assert "ReadFileFeature" in proof.stdout, "the second claimant must be the stock family"
+    assert "ReadDocumentFeature" in proof.stdout, "the second claimant must be the stock document family"
+    assert "SkrAccountFeatureGroup" in proof.stdout and "TextFileReader" in proof.stdout, proof.stdout
 
 
 def test_german_decimal() -> None:
@@ -127,7 +129,7 @@ def test_path_confinement() -> None:
 def test_origins_survive_aggregation() -> None:
     res = mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
         plugin_collector=PLUGINS,
     )
@@ -147,7 +149,7 @@ def test_guard_fails_closed_without_second_clock() -> None:
         try:
             mloda.run_all(
                 features=["revenue__sources"],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 data_access_collection=DataAccessCollection(folders={str(d)}),
                 plugin_collector=PLUGINS,
             )
@@ -175,7 +177,7 @@ def test_both_concepts_in_one_request() -> None:
     """
     res = mloda.run_all(
         features=["revenue__sources", "receivables__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
         plugin_collector=PLUGINS,
     )
@@ -216,7 +218,7 @@ def test_per_row_missing_keying_date_fails_closed() -> None:
         try:
             mloda.run_all(
                 features=["revenue__sources"],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 data_access_collection=DataAccessCollection(folders={str(d)}),
                 plugin_collector=PLUGINS,
             )
@@ -287,7 +289,7 @@ def test_an_unpriced_contributing_line_makes_the_total_unstateable() -> None:
 
         res = mloda.run_all(
             features=["revenue__sources"],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             data_access_collection=DataAccessCollection(folders={str(d)}),
             plugin_collector=PLUGINS,
         )
@@ -349,7 +351,7 @@ def test_missing_booking_date_fails_closed() -> None:
         try:
             mloda.run_all(
                 features=["revenue__sources"],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 data_access_collection=DataAccessCollection(folders={str(d)}),
                 plugin_collector=PLUGINS,
             )
@@ -492,7 +494,7 @@ def test_all_null_amounts_return_null_not_a_sourced_zero() -> None:
 
         res = mloda.run_all(
             features=["revenue__sources"],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             data_access_collection=DataAccessCollection(folders={str(d)}),
             plugin_collector=PLUGINS,
         )
@@ -557,7 +559,7 @@ def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
         try:
             mloda.run_all(
                 features=["revenue__sources"],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 data_access_collection=DataAccessCollection(folders={str(d)}),
                 plugin_collector=PLUGINS,
             )
@@ -849,7 +851,7 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
             try:
                 mloda.run_all(
                     features=["revenue__sources"],
-                    compute_frameworks={PyArrowTable},
+                    compute_frameworks=[PyArrowTable],
                     data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
                     plugin_collector=plugins_with(FakeStamp),
                 )
@@ -961,7 +963,7 @@ def test_a_fully_priced_concept_still_totals() -> None:
     """The guard against over-correction: unknown amounts must not make every total null."""
     res = mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
         plugin_collector=PLUGINS,
     )
@@ -1386,7 +1388,7 @@ def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
 
     mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
         function_extender={Recorder()},
         plugin_collector=PLUGINS,

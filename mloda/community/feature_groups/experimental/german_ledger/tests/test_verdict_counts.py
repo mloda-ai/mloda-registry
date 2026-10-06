@@ -51,7 +51,7 @@ def _dossier(tmp_path: Path, extra_line: str) -> Path:
 def _run(folder: Path) -> None:
     mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(folder)}),
         plugin_collector=PLUGINS,
     )

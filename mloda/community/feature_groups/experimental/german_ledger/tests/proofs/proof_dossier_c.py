@@ -39,7 +39,7 @@ class Closing2025C(AdmissibilityPolicyGroup):
 
 results = mloda.run_all(
     features=["revenue__sources", "receivables__sources"],
-    compute_frameworks={PyArrowTable},
+    compute_frameworks=[PyArrowTable],
     data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_c")}),
 )
 got = {c: t.column(c).to_pylist()[0] for t in results for c in t.column_names}

@@ -48,7 +48,7 @@ def catalogue() -> Iterator[None]:
 def _run(*features: str) -> Any:
     return mloda.run_all(
         features=list(features),
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(DOSSIER_A)}),
         plugin_collector=PLUGINS,
     )
@@ -163,7 +163,7 @@ def test_the_receipt_carries_the_run_and_the_verified_principal() -> None:
     with verified_context(principal="pruefer@kanzlei.example", tenant_id="mandant-456"):
         _, [receipt] = run_with_receipts(
             ["revenue__sources"],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             data_access_collection=DataAccessCollection(folders={str(DOSSIER_A)}),
             plugin_collector=PLUGINS,
         )
@@ -175,7 +175,7 @@ def test_the_receipt_carries_the_run_and_the_verified_principal() -> None:
 def test_without_a_verified_context_the_principal_is_stated_as_unknown() -> None:
     _, [receipt] = run_with_receipts(
         ["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(DOSSIER_A)}),
         plugin_collector=PLUGINS,
     )
@@ -220,7 +220,7 @@ def test_the_receipt_lists_its_citations_structured() -> None:
 def test_the_receipt_says_why_each_producer_answered() -> None:
     _, receipts = run_with_receipts(
         ["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(DOSSIER_A)}),
         plugin_collector=PLUGINS,
     )
@@ -237,7 +237,7 @@ def test_a_diagnosis_of_another_request_is_refused() -> None:
     """The resolution must describe this run; a diagnosis of a different plan would lie."""
     other = mloda.diagnose(
         ["receivables__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(DOSSIER_A)}),
         plugin_collector=PLUGINS,
     )

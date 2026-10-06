@@ -36,7 +36,7 @@ class QuietRevision(SkrAccountFeatureGroup):
 
 _, [receipt] = run_with_receipts(
     ["revenue__sources"],
-    compute_frameworks={PyArrowTable},
+    compute_frameworks=[PyArrowTable],
     data_access_collection=DataAccessCollection(folders={str(DOSSIER_A)}),
 )
 revenue = next(r for r in receipt["resolution"] if r["feature"] == "revenue")

@@ -53,7 +53,7 @@ class ExporterB(SkrAccountFeatureGroup):
 def ask(folder: str) -> Any:
     return mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(FIX / folder)}),
     )
 

@@ -38,7 +38,7 @@ SkrAccountFeatureGroup.CHART = "04"
 def _total(folder: Path, concept: str) -> tuple[object, list[str]]:
     results = mloda.run_all(
         features=[f"{concept}__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(folder)}),
     )
     got = {k: v for t in results for k, v in t.to_pydict().items()}

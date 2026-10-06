@@ -15,11 +15,14 @@ from typing import Any
 import defusedxml.ElementTree as ET
 import pyarrow as pa
 from defusedxml import DefusedXmlException
-from mloda.provider import FeatureSet
+from mloda.provider import INPUT_DATA_STAGE, FeatureSet, record_match_rejection
 from mloda.user import DataAccessCollection, Options
 from mloda_plugins.feature_group.input_data.read_file import ReadFile
 
 INDEX_NAME = "index.xml"
+
+# The one feature name both readers confirm.
+JOURNAL = "gdpdu_journal"
 
 # The citation column the reader adds. A descriptor declaring this name would be silently
 # overwritten by it, so the name is reserved rather than shared.
@@ -449,6 +452,20 @@ def _fingerprint(descriptor_bytes: bytes, raw: bytes) -> str:
     return hashlib.sha256(descriptor_bytes + b"\x00" + raw).hexdigest()[:12]
 
 
+def decline_unconfirmed(cls: type[ReadFile], feature_names: list[str], options: Options, sibling: str) -> bool:
+    """True, with a recorded rejection, when `cls` must not answer: it only confirms JOURNAL,
+    and stands down when the sibling reader's option key pins the other format."""
+    name = cls.get_class_name()
+    if sibling in options:
+        reason = f"{name} declines: {sibling} is pinned by option key"
+    elif any(n != JOURNAL for n in feature_names):
+        reason = f"{name} confirms only {JOURNAL!r}, not the requested feature name"
+    else:
+        return False
+    record_match_rejection(name, reason, stage=INPUT_DATA_STAGE)
+    return True
+
+
 class GdpduReader(ReadFile):
     """Claims a dossier *directory* by its index.xml, not a file by suffix."""
 
@@ -514,9 +531,12 @@ class GdpduReader(ReadFile):
 
         for candidate in candidates:
             if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, INDEX_NAME)):
-                return candidate
-            if os.path.basename(candidate) == INDEX_NAME and os.path.isfile(candidate):
-                return os.path.dirname(candidate)
+                found = candidate
+            elif os.path.basename(candidate) == INDEX_NAME and os.path.isfile(candidate):
+                found = os.path.dirname(candidate)
+            else:
+                continue
+            return None if decline_unconfirmed(cls, feature_names, options, "DatevExtfReader") else found
         return None
 
     @classmethod

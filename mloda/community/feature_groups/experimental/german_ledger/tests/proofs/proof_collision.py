@@ -34,7 +34,7 @@ class UngatedJournal(JournalFeatureGroup):
 try:
     mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(
             folders={str(Path(__file__).parent.parent / "fixtures" / "dossier_a")}
         ),

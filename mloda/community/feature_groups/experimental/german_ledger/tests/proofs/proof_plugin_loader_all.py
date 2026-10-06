@@ -1,10 +1,11 @@
 """Isolated: the same request after `PluginLoader.all()` (mloda#1745, open).
 
-GdpduReader subclasses ReadFile to reuse its code, which also enrols it in the stock
-ReadFile family. `PluginLoader.all()` imports the stock `ReadFileFeature`, whose input data
-is ReadFile() -- it asks every ReadFile subclass, GdpduReader included, and GdpduReader claims
-any name once a dossier folder is present. The journal's own name gate cannot help: the
-second claimant is a different feature group asking the same reader.
+`PluginLoader.all()` imports the stock read feature groups. GdpduReader now declines every
+name but `gdpdu_journal`, but the stock `ReadDocumentFeature` still claims `revenue`: its
+TextFileReader accepts the dossier's GL.txt. On mloda 0.15 the refusal reads "Multiple feature
+groups found" with ReadDocumentFeature (source: TextFileReader on GL.txt) beside
+SkrAccountFeatureGroup. The journal's own name gate cannot help: the second claimant is a
+different feature group.
 
 This matters for packaging, not just for tests: entry-point plugins are only discovered
 through `PluginLoader.all()`, so a host that installs this from mloda-registry and loads it
@@ -31,7 +32,7 @@ PluginLoader.all()
 try:
     results = mloda.run_all(
         features=["revenue__sources"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(
             folders={str(Path(__file__).parent.parent / "fixtures" / "dossier_a")}
         ),
