@@ -71,6 +71,7 @@ class MlodaRunFacet(RunFacet):
     computeFramework: str = attr.field()
     declaredMasking: list[str] = attr.field()
     structureHash: str = attr.field()
+    declaredAttributes: dict[str, str | int | float | bool] = attr.field()
 
     @staticmethod
     def _get_schema() -> str:
@@ -120,6 +121,7 @@ class LineageFacetsExtender(OpenLineageExtender):
             computeFramework=context.compute_framework_name or "unknown",
             declaredMasking=masked,
             structureHash=_structure_hash(context, masked, _source_columns(context, func, args)),
+            declaredAttributes=dict(context.declared_attributes or {}),
             producer=self.producer,
         )
         return facets

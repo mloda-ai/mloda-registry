@@ -322,7 +322,7 @@ Step run ids derive from the run: `step_run_id(run_id, job_name, feature_names, 
 
 - `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, or, for a root step that declares its source column, from the one dataset it loaded.
 - `dataQualityAssertions` on validation runs: one assertion named after the validator, `success` true or false.
-- a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `declaredMasking` and `structureHash`.
+- a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `declaredMasking`, `structureHash` and `declaredAttributes` (the step's `HookContext.declared_attributes`, `{}` when none).
 
 `declaredMasking` is the sorted names of the features that declare masking. Masking is declared, never inferred: set the class attribute `masking = True` on the feature group, or the option `masking=True` in the feature's own `context`. It must be the boolean `True`; a `group` key, the string `"true"` and a context key the step only received from another step do not count. It is unrelated to core's `mask`. The extender emits no standard OpenLineage `masking` transformation, since nothing enforces masking yet; the declaration is only recorded in the `mloda` facet and `structureHash`.
 

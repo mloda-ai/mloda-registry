@@ -84,6 +84,7 @@ _BUNDLE_ONLY = [
     "mloda-enterprise-anonymizer",
     "mloda-enterprise-audit",
     "mloda-enterprise-lineage",
+    "mloda-community-german-ledger",
 ]
 
 _DATA_OPERATIONS = "mloda-community-data-operations"
@@ -1205,6 +1206,8 @@ def test_external_bundle_extras_yields_exactly_the_third_party_bundle_extras() -
     """The bundle extras that name third-party distributions are the ones never installed by the internal jobs."""
     entries = _external_extra_entries(_packages())
     expected = [
+        ("mloda-community", "german-ledger", ["pyarrow", "defusedxml"], []),
+        ("mloda-community", "all", ["pyarrow", "defusedxml"], []),
         ("mloda-enterprise", "ed25519", ["cryptography"], []),
         ("mloda-enterprise", "otel", ["opentelemetry-api"], []),
         ("mloda-enterprise", "anonymizer", ["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"]),
@@ -1480,7 +1483,7 @@ def _bundle_dependency_names(bundle: str, packages: dict[str, dict[str, Any]]) -
     return named
 
 
-@pytest.mark.parametrize(("bundle", "has_unowned_nested"), [("mloda-community", False), ("mloda-enterprise", True)])
+@pytest.mark.parametrize(("bundle", "has_unowned_nested"), [("mloda-community", True), ("mloda-enterprise", True)])
 def test_bundle_wheel_still_ships_every_nested_package(bundle: str, has_unowned_nested: bool) -> None:
     """Bundles ship all nested code, published or not, except a nested package the bundle owns through its
     own dependencies or a non-dev extra."""

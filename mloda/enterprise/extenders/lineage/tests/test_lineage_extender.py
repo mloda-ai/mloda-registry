@@ -1839,6 +1839,23 @@ class TestLineageFacetsRunFacet:
             assert payload["run"]["facets"]["mloda"]["structureHash"] == facet.structureHash
         assert _run_facet(transport.events[0]).structureHash == _run_facet(transport.events[1]).structureHash
 
+    @pytest.mark.parametrize(
+        "declared", [None, {}, {"policy.verdict": "admitted:p;a=1", "n": 2, "ratio": 0.5, "on": True}]
+    )
+    def test_declared_attributes_come_from_the_hook_context(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], declared: dict[str, Any] | None
+    ) -> None:
+        client, transport = ol_capture
+
+        with make_hook_context(declared_attributes=declared).activate():
+            LineageFacetsExtender(client=client)(lambda: None)
+
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert _run_facet(event).declaredAttributes == (declared or {})
+            payload = json.loads(Serde.to_json(event))
+            assert payload["run"]["facets"]["mloda"]["declaredAttributes"] == (declared or {})
+
     def test_present_on_the_fail_event(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
         client, transport = ol_capture
 
@@ -2040,3 +2057,45 @@ class TestLineageFacetsBareCalls:
         assert all(_run_facet(event).declaredMasking == [] for event in transport.events)
         assert [t.masking for t in _transformations(transport.events[-1], "out")] == [None]
         assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
+
+
+class TestLineageFacetsGermanLedgerPolicy:
+    """DoD: a real policy step's declared verdict reaches the run facet, and matches the rows' stamp."""
+
+    def test_the_policy_step_declares_the_stamp_its_cited_rows_carry(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        pytest.importorskip("defusedxml")
+        host = pytest.importorskip("mloda.community.feature_groups.experimental.german_ledger.tests._host")
+        from mloda.user import DataAccessCollection
+
+        from mloda.community.feature_groups.experimental.german_ledger.reader import (
+            ADMISSIBILITY_COLUMN,
+            GdpduReader,
+        )
+
+        dossier = Path(host.__file__).parent / "fixtures" / "twin_2025" / "gdpdu"
+        [stamp] = set(
+            host.TestClosing2025.clear(GdpduReader.load_data(str(dossier), FeatureSet()))
+            .column(ADMISSIBILITY_COLUMN)
+            .to_pylist()
+        )
+        client, transport = ol_capture
+
+        mloda.run_all(
+            ["revenue__sources"],
+            compute_frameworks=[PyArrowTable],
+            data_access_collection=DataAccessCollection(folders={str(dossier)}),
+            plugin_collector=host.PLUGINS,
+            function_extender={LineageFacetsExtender(client=client)},
+        )
+
+        policy = _complete(transport.events, _job(host.TestClosing2025))
+        assert _run_facet(policy).declaredAttributes == {"policy.verdict": stamp}
+
+        from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+
+        skr = _complete(transport.events, _job(SkrAccountFeatureGroup))
+        declared = SkrAccountFeatureGroup.declared_attributes(None)
+        assert {"chart", "catalogue", "catalogue.fingerprint"} <= set(declared)
+        assert _run_facet(skr).declaredAttributes == declared
