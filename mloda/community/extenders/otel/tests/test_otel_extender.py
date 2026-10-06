@@ -841,6 +841,21 @@ class _PairDeque(deque[Any]):
     pass
 
 
+class _RedactedTuple(tuple[Any, ...]):
+    def __repr__(self) -> str:
+        return "_RedactedTuple(***)"
+
+
+class _RaisingRepr:
+    def __repr__(self) -> str:
+        raise RuntimeError("repr boom")
+
+
+class _RaisingDict(dict[Any, Any]):
+    def __getitem__(self, key: Any) -> Any:
+        raise RuntimeError("getitem boom")
+
+
 class TestOtelExtenderContentCapture:
     """Metadata-only by default; capture_content=True or MLODA_OTEL_TRACE_CONTENT opts in, mask redacts."""
 
@@ -1165,6 +1180,11 @@ class TestOtelExtenderContentCapture:
             pytest.param(_PairSet([("password", "hunter2")]), ["hunter2"], id="set-subclass-pair"),  # nosec
             pytest.param(_PairFrozenSet([("password", "hunter2")]), ["hunter2"], id="frozenset-subclass-pair"),  # nosec
             pytest.param(_PairDeque([("password", "hunter2")]), ["hunter2"], id="deque-subclass-pair"),  # nosec
+            pytest.param(
+                _RedactedTuple(("sk_live_abcdef123456",)),  # nosec
+                ["sk_live_abcdef123456"],
+                id="self-redacting-tuple-subclass",
+            ),
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1210,23 +1230,26 @@ class TestOtelExtenderContentCapture:
         preview = str(single_span_attributes(exporter)[_CONTENT_ATTRIBUTE])
         assert "visible" in preview, preview
 
+    @pytest.mark.parametrize(
+        "result",
+        [
+            pytest.param(_RaisingRepr(), id="raising-repr"),
+            pytest.param(_RaisingDict({"k": "v"}), id="raising-dict-subclass"),
+        ],
+    )
     def test_raising_result_repr_still_emits_span_and_returns_result(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], result: Any
     ) -> None:
-        class _RaisingRepr:
-            def __repr__(self) -> str:
-                raise RuntimeError("repr boom")
-
         provider, exporter = otel_capture
         context = make_hook_context()
         otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
-        result = _RaisingRepr()
 
         with context.activate():
             returned = otel(instrument(context, lambda: result))
 
         assert returned is result
         assert len(exporter.get_finished_spans()) == 1
+        assert _CONTENT_ATTRIBUTE in single_span_attributes(exporter)
 
 
 class TestOtelExtenderPreCallInstrumentationFailure:
