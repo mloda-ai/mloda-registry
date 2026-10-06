@@ -256,6 +256,8 @@ class OtelExtender(Extender):
         with self._lock:
             span = self._plan_spans.pop(plan.plan_id, None)
         if span is not None:
+            if plan.structure_hash is not None:
+                span.set_attribute("mloda.plan.structure_hash", plan.structure_hash)
             _end_with_outcome(span, outcome, status_attribute=None)
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
@@ -265,6 +267,8 @@ class OtelExtender(Extender):
         attributes: dict[str, str] = {"mloda.run.id": run_id}
         if plan.plan_id is not None:
             attributes["mloda.plan.id"] = plan.plan_id
+        if plan.structure_hash is not None:
+            attributes["mloda.plan.structure_hash"] = plan.structure_hash
         caller = _carrier_or_active_span_context(run.carrier)
         with self._lock:
             plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None

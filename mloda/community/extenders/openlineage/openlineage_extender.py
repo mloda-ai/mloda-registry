@@ -170,7 +170,7 @@ class OpenLineageExtender(Extender):
         self._finalizer: weakref.finalize[..., Any] | None = None
         self._tripped_runs: dict[str, float] = {}
         self._started_runs: set[str] = set()
-        self._plan_ids: dict[str, str] = {}
+        self._plans: dict[str, PlanContext] = {}
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -287,14 +287,16 @@ class OpenLineageExtender(Extender):
             raise
         return True
 
-    def _parent_event(self, state: RunState, run: RunContext, plan_id: str | None, event_time: str) -> RunEvent:
+    def _parent_event(self, state: RunState, run: RunContext, plan: PlanContext | None, event_time: str) -> RunEvent:
         assert run.run_id is not None
         facets: dict[str, Any] = {}
-        if plan_id is not None:
+        if plan is not None and plan.plan_id is not None:
             # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
             from mloda.community.extenders.openlineage._facets import MlodaPlanRunFacet
 
-            facets["mlodaPlan"] = MlodaPlanRunFacet(planId=plan_id, producer=self.producer)
+            facets["mlodaPlan"] = MlodaPlanRunFacet(
+                planId=plan.plan_id, structureHash=plan.structure_hash, producer=self.producer
+            )
         return RunEvent(
             eventType=state,
             eventTime=event_time,
@@ -310,7 +312,7 @@ class OpenLineageExtender(Extender):
             return
         started_at = run.started_at.isoformat() if run.started_at is not None else _now_iso()
         try:
-            emitted = self._emit(self._parent_event(RunState.START, run, plan.plan_id, started_at), run_id=run.run_id)
+            emitted = self._emit(self._parent_event(RunState.START, run, plan, started_at), run_id=run.run_id)
         except Exception as exc:
             if self.raise_on_error:
                 raise
@@ -319,7 +321,7 @@ class OpenLineageExtender(Extender):
         if emitted:
             with self._client_lock:
                 self._started_runs.add(run.run_id)
-            self._plan_ids[run.run_id] = plan.plan_id
+            self._plans[run.run_id] = plan
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         if run.run_id is None:
@@ -329,9 +331,9 @@ class OpenLineageExtender(Extender):
                 started = run.run_id in self._started_runs
             if started:
                 state = {"succeeded": RunState.COMPLETE, "failed": RunState.FAIL}.get(outcome.status, RunState.ABORT)
-                plan_id = self._plan_ids.get(run.run_id)
+                plan = self._plans.get(run.run_id)
                 try:
-                    self._emit(self._parent_event(state, run, plan_id, _now_iso()), run_id=run.run_id)
+                    self._emit(self._parent_event(state, run, plan, _now_iso()), run_id=run.run_id)
                 except Exception as exc:
                     if self.raise_on_error:
                         raise
@@ -342,7 +344,7 @@ class OpenLineageExtender(Extender):
             with self._client_lock:
                 self._tripped_runs.pop(run.run_id, None)
                 self._started_runs.discard(run.run_id)
-            self._plan_ids.pop(run.run_id, None)
+            self._plans.pop(run.run_id, None)
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
@@ -365,7 +367,7 @@ class OpenLineageExtender(Extender):
             state["_owns_client"] = True
         state["_tripped_runs"] = {}
         state["_started_runs"] = set()
-        state["_plan_ids"] = {}
+        state["_plans"] = {}
         del state["_client_lock"]
         state.pop("_finalizer", None)
         del state["_close_state"]

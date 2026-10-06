@@ -219,6 +219,7 @@ Audit records are `record_version` 2. Beyond the identity fields they carry:
 - `input_feature_edges` (`{feature: sorted input names}`, or null) next to `input_features`.
 - `host` (the process hostname), `worker_index` and `start_time` (UTC ISO, taken before the wrapped call; equal to `event_time` on refusal and `RUN_START` records).
 - `step_run_id`, the deterministic id of the step (see [Run correlation](#run-correlation)); null without a `run_id` and on match and `RUN_START` records.
+- `structure_hash`, the run's `PlanContext.structure_hash` (cached from `on_run_start`); null without a `run_id`, so on match records.
 - `trace_id` and `span_id` (hex), best effort: the active OTel span when the audit call started, else the carrier's trace id with a null `span_id`, else null. They need `opentelemetry-api` and are null without it.
 
 Verification does not depend on the record version, so a v2 log seals and verifies like any other.
@@ -301,12 +302,12 @@ extender = AuditExtender(
 
 ### OTel root span and trace_scope
 
-`OtelExtender` starts a root span `mloda.run` in `on_run_start` (attributes `mloda.run.id`, `mloda.plan.id`) and ends it in `on_run_complete` with `mloda.run.status` (`succeeded`, `failed` or `cancelled`; `failed` also sets `error.type` and span status `ERROR`). Step spans (`calculate <FeatureGroup>`, the short class name; plain `calculate` without one) are children of that root; calculate, validate and load spans carry `mloda.step.uuid` (core's `step_uuid`) when set. Join spans (`join <join_type>`, plain `join` without a type) are also children of the root and carry `mloda.join.type`, `mloda.join.left_feature_group` and `mloda.join.right_feature_group` (`module.qualname`), `mloda.join.keys` (`left=right` column pairs, so column names are exported, never values) and, for as-of joins, `mloda.join.asof.*` (time columns, `direction`, `allow_exact_matches`, and `tolerance`, a number in the time column's units, or `tolerance_seconds` for a `timedelta`); unset ones are omitted. The root's parent is the run carrier if there is one, else the caller's active span.
+`OtelExtender` starts a root span `mloda.run` in `on_run_start` (attributes `mloda.run.id`, `mloda.plan.id`, `mloda.plan.structure_hash`) and ends it in `on_run_complete` with `mloda.run.status` (`succeeded`, `failed` or `cancelled`; `failed` also sets `error.type` and span status `ERROR`). Step spans (`calculate <FeatureGroup>`, the short class name; plain `calculate` without one) are children of that root; calculate, validate and load spans carry `mloda.step.uuid` (core's `step_uuid`) when set. Join spans (`join <join_type>`, plain `join` without a type) are also children of the root and carry `mloda.join.type`, `mloda.join.left_feature_group` and `mloda.join.right_feature_group` (`module.qualname`), `mloda.join.keys` (`left=right` column pairs, so column names are exported, never values) and, for as-of joins, `mloda.join.asof.*` (time columns, `direction`, `allow_exact_matches`, and `tolerance`, a number in the time column's units, or `tolerance_seconds` for a `timedelta`); unset ones are omitted. The root's parent is the run carrier if there is one, else the caller's active span.
 
 `trace_scope` picks the trace shape; anything else raises `ValueError`:
 
 - `"run"` (default): no plan span, one trace per run.
-- `"plan"`: `on_plan_start` opens a `mloda.plan` span that parents every run of the plan; the caller's active span or the carrier becomes a span link instead of the parent. If the plan span is unknown, the run is parented as in `"run"` mode.
+- `"plan"`: `on_plan_start` opens a `mloda.plan` span that parents every run of the plan and gets `mloda.plan.structure_hash` when it ends; the caller's active span or the carrier becomes a span link instead of the parent. If the plan span is unknown, the run is parented as in `"run"` mode.
 
 Caveats of `"plan"` mode: a span has one parent, hence the link; head sampling keeps or drops all runs of a plan together; a long-lived plan (prepared once, run often) makes one long trace. `explain` and `diagnose` also emit plan spans that no run follows.
 
@@ -314,7 +315,7 @@ A sampled-out root drops its children. Once a root exists, the trace id is the S
 
 ### Run correlation
 
-`OpenLineageExtender` (and `LineageFacetsExtender`) emit a parent run in `on_run_start` and `on_run_complete`: START, then COMPLETE, FAIL (failed) or ABORT (cancelled) for the job `root_job_name`, with `runId` equal to the mloda `run_id` and the run facet `mlodaPlan` (`planId`). Step runs reference it through the `parent` facet and carry no `mlodaPlan`. A parent START transport failure with `raise_on_error=False` trips the run's breaker, and with `raise_on_error=True` it refuses the run; no parent events are emitted when the extender is inert, and no terminal event when the START was not emitted.
+`OpenLineageExtender` (and `LineageFacetsExtender`) emit a parent run in `on_run_start` and `on_run_complete`: START, then COMPLETE, FAIL (failed) or ABORT (cancelled) for the job `root_job_name`, with `runId` equal to the mloda `run_id` and the run facet `mlodaPlan` (`planId` and `structureHash`, the plan fingerprint; not the per-step `structureHash` of the `mloda` facet below). Step runs reference it through the `parent` facet and carry no `mlodaPlan`. A parent START transport failure with `raise_on_error=False` trips the run's breaker, and with `raise_on_error=True` it refuses the run; no parent events are emitted when the extender is inert, and no terminal event when the START was not emitted.
 
 Step run ids derive from the run: `step_run_id(run_id, job_name, feature_names, compute_framework_name, step_uuid)` (`mloda.community.extenders.shared`) is a UUIDv5 over the run id and `[job, sorted feature names, framework, step uuid]`, or `None` when the run id is missing or not a UUID. OpenLineage uses it as the step `runId`, `AuditExtender` as the record's `step_run_id`, and `OtelExtender` as `mloda.step.run_id` on calculate spans, so the three join on it; all pass core's `HookContext.step_uuid`, so two steps of one run never share an id. Without a step uuid (hook-only use) the key omits it, and such steps can collide. Ids only join between extenders of the same registry release, since the key changed with the step uuid.
 
@@ -486,7 +487,7 @@ The mixin pins:
 - a nested `INPUT_DATA_LOAD` becomes an input named by the context's `data_access_identity`, and the URI query string and user information of its raw data access (`args[0]`) reach no event, when the extender wraps that hook
 - the calculate context's declared `input_features` become inputs too, on both COMPLETE and FAIL, so a host must report them
 - a START emit failure under warning-only mode never prevents the wrapped call from running
-- `run_all` emits exactly one parent START and one COMPLETE for the root job, and every step's parent runId equals that run id; the parent run carries the `mlodaPlan` facet with the plan id; a failing run gives FAIL; preparing once and running twice gives two parent runs with the same plan id
+- `run_all` emits exactly one parent START and one COMPLETE for the root job, and every step's parent runId equals that run id; the parent run carries the `mlodaPlan` facet with the plan id and structure hash; a failing run gives FAIL; preparing once and running twice gives two parent runs with the same plan id and structure hash
 - a calculate step's runId equals `step_run_id(...)` (see [Run correlation](#run-correlation))
 
 Record the context's `data_access_identity`, not `args[0]`: a host that records the raw data access fails, and so does one that drops the identity, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, or `user:password@` in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.

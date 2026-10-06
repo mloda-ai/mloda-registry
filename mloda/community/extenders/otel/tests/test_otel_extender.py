@@ -2099,8 +2099,9 @@ class TestOtelExtenderRunAll:
         }, records
 
 
-def _plan(plan_id: str) -> PlanContext:
+def _plan(plan_id: str, structure_hash: str | None = None) -> PlanContext:
     return PlanContext(
+        structure_hash=structure_hash,
         plan_id=plan_id,
         tenant_id=None,
         project_id=None,
@@ -2113,8 +2114,14 @@ def _run(run_id: str, plan_id: str = "plan-1", carrier: dict[str, str] | None = 
     return RunContext(run_id=run_id, plan_id=plan_id, carrier=carrier)
 
 
-def _start_run(otel: OtelExtender, run_id: str, plan_id: str = "plan-1", carrier: dict[str, str] | None = None) -> None:
-    otel.on_run_start(_run(run_id, plan_id, carrier), Mock(plan_id=plan_id), ())
+def _start_run(
+    otel: OtelExtender,
+    run_id: str,
+    plan_id: str = "plan-1",
+    carrier: dict[str, str] | None = None,
+    structure_hash: str | None = None,
+) -> None:
+    otel.on_run_start(_run(run_id, plan_id, carrier), Mock(plan_id=plan_id, structure_hash=structure_hash), ())
 
 
 def _complete_run(otel: OtelExtender, run_id: str, status: Any = "succeeded", error_type: str | None = None) -> None:
@@ -2247,6 +2254,9 @@ class TestOtelExtenderRunScopeFullRuns:
         plan_ids = {(root.attributes or {})["mloda.plan.id"] for root in roots}
         assert len(run_ids) == 2
         assert len(plan_ids) == 1
+        hashes = {(root.attributes or {}).get("mloda.plan.structure_hash") for root in roots}
+        assert len(hashes) == 1
+        assert all(hashes)
 
     def test_failed_run_marks_the_root_error(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
@@ -2433,7 +2443,7 @@ class TestOtelExtenderRootSpanHooks:
         otel = OtelExtender(tracer_provider=provider)
         run_id = str(uuid.uuid4())
 
-        _start_run(otel, run_id, plan_id="plan-x")
+        _start_run(otel, run_id, plan_id="plan-x", structure_hash="abc123")
         assert exporter.get_finished_spans() == ()
         _complete_run(otel, run_id)
 
@@ -2443,8 +2453,21 @@ class TestOtelExtenderRootSpanHooks:
         assert span.attributes is not None
         assert span.attributes["mloda.run.id"] == run_id
         assert span.attributes["mloda.plan.id"] == "plan-x"
+        assert span.attributes["mloda.plan.structure_hash"] == "abc123"
         assert span.attributes["mloda.run.status"] == "succeeded"
         assert span.status.status_code != StatusCode.ERROR
+
+    def test_root_span_omits_the_structure_hash_when_none(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        run_id = str(uuid.uuid4())
+
+        _start_run(otel, run_id)
+        _complete_run(otel, run_id)
+
+        assert "mloda.plan.structure_hash" not in (single_span(exporter).attributes or {})
 
     @pytest.mark.parametrize("status", ["failed", "cancelled"])
     def test_non_success_status_is_recorded(
@@ -2637,16 +2660,28 @@ class TestOtelExtenderPlanSpanHooks:
 
         otel.on_plan_start(_plan("plan-1"))
         assert exporter.get_finished_spans() == ()
-        otel.on_plan_complete(_plan("plan-1"), outcome)
+        otel.on_plan_complete(_plan("plan-1", "abc123"), outcome)
 
         span = single_span(exporter)
         assert span.name == "mloda.plan"
         assert (span.attributes or {})["mloda.plan.id"] == "plan-1"
+        assert (span.attributes or {})["mloda.plan.structure_hash"] == "abc123"
         if is_error:
             assert span.status.status_code == StatusCode.ERROR
             assert (span.attributes or {})["error.type"] == "KeyError"
         else:
             assert span.status.status_code != StatusCode.ERROR
+
+    def test_plan_scope_plan_span_omits_the_structure_hash_when_none(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider, trace_scope="plan")
+
+        otel.on_plan_start(_plan("plan-1"))
+        otel.on_plan_complete(_plan("plan-1"), LifecycleOutcome(status="succeeded"))
+
+        assert "mloda.plan.structure_hash" not in (single_span(exporter).attributes or {})
 
     def test_plan_span_is_a_child_of_the_caller_active_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]

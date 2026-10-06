@@ -245,6 +245,11 @@ def _root_events(events: list[RunEvent]) -> list[RunEvent]:
     return [event for event in events if event.job.name == ROOT_JOB_NAME]
 
 
+def _structure_hash_of(event: RunEvent) -> Any:
+    payload = json.loads(Serde.to_json(event))
+    return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get("structureHash")
+
+
 def _plan_id_of(event: RunEvent) -> Any:
     payload = json.loads(Serde.to_json(event))
     return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get("planId")
@@ -823,6 +828,9 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         plan_ids = {_plan_id_of(event) for event in root_events}
         assert len(plan_ids) == 1
         assert None not in plan_ids
+        structure_hashes = {_structure_hash_of(event) for event in root_events}
+        assert len(structure_hashes) == 1
+        assert all(structure_hashes)
 
     def test_openlineage_run_all_step_run_ids_are_derived_from_the_parent_run_id(self) -> None:
         client, transport = make_recording_client()
