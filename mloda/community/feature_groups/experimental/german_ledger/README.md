@@ -5,7 +5,7 @@ that names the reason.
 
 **Status: experimental.** The package lives under
 `mloda.community.feature_groups.experimental`. It has no stability guarantee: the import
-path, the API and the receipt format may change or move in any release, including a patch
+path, the API and the evidence keys may change or move in any release, including a patch
 release.
 
 - **Reads:** GDPdU/GoBD dossiers (`index.xml` + data file) and DATEV-Format EXTF 700
@@ -111,69 +111,36 @@ A row that no rule applies to is refused, because nothing vouched for it. A row'
 from its citation: a DATEV citation names a leg (`/K`, `/G`), a GDPdU citation never does. In
 the stamp, the scoped rule is named `gdpdu.late-entry-cutoff`, `datev.festschreibung`.
 
-## Evidence receipt
+## Evidence on HookContext
 
-Each `<concept>__sources` total carries a third column, `~receipt`, beside `~value` and
-`~origins`. The citations name the rows; the receipt names what the total depended on:
+mloda hands each step's declared attributes to extenders as `HookContext.declared_attributes`.
+This package declares:
 
-| Field | From | Says |
+| Group | Keys | Says |
 |---|---|---|
-| `policies`, `verdicts` | the stamps on every journal row | which policy admitted the rows, and how many rows got each verdict |
-| `basis.profile` | `SkrAccountFeatureGroup` | which columns were read as account and amount |
-| `basis.chart`, `basis.catalogue` | `SkrAccountFeatureGroup` | the chart (SKR03/SKR04), the catalogue's name, its accounts for this concept, and a fingerprint over the whole catalogue in force |
-| `basis.sign` | the journal | `soll-positiv` (DATEV) or `as-declared` (GDPdU) |
-| `total`, `lines`, `unpriced` | `SourcesFeatureGroup` | the total and how many lines stand behind it |
-| `run` | mloda's `HookContext` | `run_id`, versions, and the `tenant_id`/`project_id`/`principal` a platform set with `mloda.steward.verified_context` |
+| `AdmissibilityPolicyGroup` (policy step) | `policy.verdict` | the stamp a fully admitted row carries, rule parameters included |
+| `SkrAccountFeatureGroup` (concept step) | `chart`, `catalogue`, `catalogue.fingerprint` | the chart (SKR03/SKR04), the catalogue's name, and a fingerprint over the whole catalogue in force |
 
-`run_with_receipts(features, **run_all_kwargs)` runs the request and returns the result with
-its receipts. To each receipt it adds what mloda knows:
-- from `RunResult.plan` and `frames()`: the producing step and the compute steps of the plan;
-- `citations`, each origin read field by field (`file`, `fingerprint`, `record`, `leg`; see
-  `parse_citation`);
-- this package's version, with the `distribution` it was read from (normally the
-  `mloda-community` bundle);
-- `resolution`, from `mloda.diagnose` on the same arguments: per feature, the group `chosen`,
-  the groups that `also_matched` (shadowed, e.g. by a subclass), and those that `declined`, with
-  stage and reason. A diagnosis that does not match the run's plan is refused.
+The selected profile (which columns were read as account and amount) and the sign convention
+depend on the data, so they live in `~basis`, a JSON string on the concept's rows. The total
+carries it as `<concept>~basis` beside `~value` and `~origins`, or null when its rows carry
+none. Rows computed under two bases are refused: one total has one basis.
 
-```python
-from mloda.community.feature_groups.experimental.german_ledger import run_with_receipts
-from mloda.steward import verified_context
+- **Community route:** `OtelExtender` emits each declared key as a `mloda.declared.<key>` span
+  attribute.
+- **Enterprise route:** `LineageFacetsExtender` puts them in the `mloda` run facet's
+  `declaredAttributes`.
+- **Resolution evidence:** `mloda.diagnose` says, per feature, the group chosen, the groups
+  that also matched and those that declined, with stage and reason.
 
-with verified_context(principal="pruefer@kanzlei.example"):
-    result, [receipt] = run_with_receipts(["revenue__sources"], compute_frameworks=[PyArrowTable], ...)
-receipt["basis"]["catalogue"]   # {"name": "SKR04_2025", "accounts": [[4000, 4499]], "fingerprint": "..."}
-receipt["run"]["principal"]     # "pruefer@kanzlei.example"
-```
+**A refused run is counted too.** `AdmissibilityRefused`, `LateEntryRefused` and
+`InadmissibleTotal` carry `verdicts`, the rows counted by kind (`admitted`, `outside-scope`,
+`refused`, `unevaluated`, `malformed`, `unstamped`), and say it in the message.
 
-**Why `run_with_receipts` and not a plain `run_all`:** mloda builds a step's `HookContext` only
-when an extender wraps the step. `run_with_receipts` adds a pass-through `ReceiptContext`
-unless you already wrap `calculate_feature`. After a plain `run_all`, `evidence_receipts(result)`
-still works, but `run` is all `None` and there is no `resolution`.
-
-**A refused run is counted too.** A refusal raises, so there is no result to read receipts
-from. Instead, `AdmissibilityRefused`, `LateEntryRefused` and `InadmissibleTotal` carry
-`verdicts`, the rows counted by kind (`admitted`, `outside-scope`, `refused`,
-`unevaluated`, `malformed`, `unstamped`), and say it in the message. `refusal_receipt(error)`
-finds that refusal in the exception mloda raised:
-
-```python
-try:
-    run_with_receipts(["revenue__sources"], ...)
-except Exception as error:
-    refusal_receipt(error)  # {"refused": "InadmissibleTotal", "verdicts": {"admitted": 7, "outside-scope": 1}, ...}
-```
-
-**Mapping to OpenLineage (nothing is emitted).** The receipt is shaped so a lineage consumer
-can take it without rework:
-- `run.run_id` maps to the OpenLineage run;
-- each `plan` step (`PlanStep`) maps to a job;
-- the reader's `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset;
-- `policies`/`verdicts`, `basis` and `resolution` map to a custom run facet.
-
-The format is our own and versioned (`RECEIPT_VERSION = 1`). Read fields by name: new fields
-may be added within a version. It moves to `declared_attributes` with mloda 0.15
-(mloda-registry #887). It is not tamper-proof: anything inside the process can write one.
+**Mapping to OpenLineage.** With `LineageFacetsExtender` the policy step's `mloda` run facet
+carries `policy.verdict` and the concept step's carries the catalogue keys, beside the run and
+the job. The reader's `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input
+dataset. Nothing here is tamper-proof: anything inside the process can write these attributes.
 
 ## Formats
 

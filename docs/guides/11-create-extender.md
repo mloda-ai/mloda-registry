@@ -408,7 +408,7 @@ Step run ids derive from the run: `step_run_id(run_id, job_name, feature_names, 
 
 - `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, or, for a root step that declares its source column, from the one dataset it loaded.
 - `dataQualityAssertions` on validation runs: one assertion named after the validator, `success` true or false.
-- a `mloda` run facet: `declaredMasking` and `structureHash`.
+- a `mloda` run facet: `declaredMasking`, `structureHash` and `declaredAttributes` (the step's `HookContext.declared_attributes`, `{}` when none).
 
 With `classification_undeclared` set, each output dataset carries a `tags` facet entry `mloda.data.classification` (source `mloda`) with its own feature's effective level, so a span and a dataset of one multi-output step can differ. `declaredMasking` records a declaration (class attribute or own option), but only a masking group (class attribute) that declares its own level caps the effective level (see the classification paragraph under [Verified run context](#verified-run-context)); `declaredMasking` and `structureHash` are unchanged.
 

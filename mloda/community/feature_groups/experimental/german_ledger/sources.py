@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from decimal import Decimal, localcontext
 from typing import Any
 
 import pyarrow as pa
 from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
-from mloda.steward import HookContext
 from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from .reader import ADMISSIBILITY_COLUMN, describe_verdicts, is_admitted, verdict_kind
-
-# Bumped when a field changes meaning; new fields may be added within a version, so a consumer
-# reads the fields it knows by name.
-RECEIPT_VERSION = 1
 
 
 class InadmissibleTotal(Exception):
@@ -200,51 +194,17 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             # Null value with a null list is one statement; an empty list beside a null total
             # reads as "we looked and found nothing", which claims more than we know.
             out[f"{requested}~origins"] = pa.array([origins if pairs else None], type=pa.list_(pa.string()))
-            out[f"{requested}~receipt"] = pa.array(
-                [cls._receipt(data, source, total, origins, unpriced, stamps)], type=pa.string()
-            )
+            out[f"{requested}~basis"] = pa.array([cls._basis(data, source)], type=pa.string())
         return pa.table(out)
 
     @staticmethod
-    def _run_context() -> dict[str, Any]:
-        """Who ran this, from the framework's own context for this step.
-
-        tenant/project/principal are what a platform set through `mloda.steward.verified_context`
-        for the run; a feature's Options cannot set them. None means no platform said, which a
-        receipt states rather than hides. Outside a run (a direct call) there is no context.
-        """
-        ctx = HookContext.current()
-        fields = ("run_id", "tenant_id", "project_id", "principal", "feature_group_version", "plugin_version")
-        return {f: None if ctx is None else getattr(ctx, f) for f in fields}
-
-    @classmethod
-    def _receipt(cls, data: Any, source: str, total: Any, origins: list[str], unpriced: int, stamps: list[Any]) -> str:
-        """What this total depended on, beyond its rows: the policy, and the concept's basis.
-
-        Our own format for now; it moves to `declared_attributes` with mloda 0.15
-        (mloda-registry #887). `evidence_receipts` adds what the framework knows.
-        """
+    def _basis(data: Any, source: str) -> str | None:
+        """The one concept basis the rows carry, or None when they carry none."""
         basis_col = f"{source}~basis"
-        basis: Any = None
-        if basis_col in data.column_names:
-            distinct = {b for b in data.column(basis_col).to_pylist() if b is not None}
-            # One total, one definition. Two bases means rows computed under two catalogues
-            # were joined, and no single receipt could be true of the sum.
-            if len(distinct) > 1:
-                raise ValueError(f"{source}: rows carry {len(distinct)} different concept bases; one total has one")
-            basis = json.loads(distinct.pop()) if distinct else None
-        kinds = Counter(str(s).split(":", 1)[0] for s in stamps)
-        return json.dumps(
-            {
-                "receipt": RECEIPT_VERSION,
-                "concept": source,
-                "total": None if total is None else str(total),
-                "lines": len(origins),
-                "unpriced": unpriced,
-                "verdicts": dict(sorted(kinds.items())),
-                "policies": sorted({str(s) for s in stamps}),
-                "basis": basis,
-                "run": cls._run_context(),
-            },
-            sort_keys=True,
-        )
+        if basis_col not in data.column_names:
+            return None
+        distinct = {b for b in data.column(basis_col).to_pylist() if b is not None}
+        # One total, one definition. Two bases means rows computed under two catalogues were joined.
+        if len(distinct) > 1:
+            raise ValueError(f"{source}: rows carry {len(distinct)} different concept bases; one total has one")
+        return distinct.pop() if distinct else None

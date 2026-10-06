@@ -2,8 +2,8 @@
 
 A refusal is the moment the numbers matter most, so it must not be the moment they are
 dropped. Each admissibility refusal carries `verdicts` -- per row, how many were admitted,
-outside the scope, refused or could not be evaluated -- in the same shape as a receipt's
-`verdicts`, and says it in its message. `refusal_receipt` reads it from a failed run.
+outside the scope, refused or could not be evaluated -- and says it in its message. A failed
+run reaches it by walking the exception chain.
 """
 
 import shutil
@@ -24,10 +24,9 @@ from mloda.community.feature_groups.experimental.german_ledger.policy import (
     apply_rules,
 )
 from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader
-from mloda.community.feature_groups.experimental.german_ledger.receipt import refusal_receipt
-from mloda.community.feature_groups.experimental.german_ledger.sources import RECEIPT_VERSION, InadmissibleTotal
+from mloda.community.feature_groups.experimental.german_ledger.sources import InadmissibleTotal
 
-from ._host import PLUGINS
+from ._host import PLUGINS, _cause
 
 DOSSIER_A = Path(__file__).parent / "fixtures" / "dossier_a"
 CUTOFF = LateEntryCutoff(lock_date=date(2026, 1, 15), period_end=date(2025, 12, 31))
@@ -94,22 +93,19 @@ def test_a_total_refused_for_an_outside_row_counts_its_verdicts(tmp_path: Path) 
     folder = _dossier(tmp_path, "8;4000;100,00;05.01.2026;06.01.2026;Umsatz Januar")
     with pytest.raises(Exception) as info:
         _run(folder)
-    receipt = refusal_receipt(info.value)
-    assert receipt is not None
-    assert receipt["refused"] == "InadmissibleTotal"
-    assert receipt["verdicts"] == {"admitted": 7, "outside-scope": 1}
-    assert receipt["receipt"] == RECEIPT_VERSION
-    assert "7 admitted, 1 outside-scope" in receipt["message"], receipt["message"]
+    refusal = _cause(info.value, InadmissibleTotal)
+    assert isinstance(refusal, InadmissibleTotal), info.value
+    assert refusal.verdicts == {"admitted": 7, "outside-scope": 1}
+    assert "7 admitted, 1 outside-scope" in str(refusal), str(refusal)
 
 
 def test_a_late_entry_refusal_in_a_run_counts_its_verdicts(tmp_path: Path) -> None:
     folder = _dossier(tmp_path, "8;4000;100,00;20.12.2025;20.01.2026;nachgebucht")
     with pytest.raises(Exception) as info:
         _run(folder)
-    receipt = refusal_receipt(info.value)
-    assert receipt is not None
-    assert receipt["refused"] == "LateEntryRefused"
-    assert receipt["verdicts"] == {"admitted": 7, "refused": 1}
+    refusal = _cause(info.value, LateEntryRefused)
+    assert isinstance(refusal, LateEntryRefused), info.value
+    assert refusal.verdicts == {"admitted": 7, "refused": 1}
 
 
 def test_a_total_over_unstamped_rows_counts_them() -> None:
@@ -131,13 +127,4 @@ def test_a_total_over_unstamped_rows_counts_them() -> None:
     fs.add(Feature("revenue__sources"))
     with pytest.raises(InadmissibleTotal) as info:
         SourcesFeatureGroup.calculate_feature(rows, fs)
-    assert refusal_receipt(info.value) == {
-        "receipt": RECEIPT_VERSION,
-        "refused": "InadmissibleTotal",
-        "message": str(info.value),
-        "verdicts": {"unstamped": 3},
-    }
-
-
-def test_an_error_that_is_no_counted_refusal_has_no_refusal_receipt() -> None:
-    assert refusal_receipt(ValueError("something else")) is None
+    assert info.value.verdicts == {"unstamped": 3}

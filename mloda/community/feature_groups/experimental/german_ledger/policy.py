@@ -370,6 +370,19 @@ class ForFormat(AdmissibilityRule):
         return out
 
 
+def _stamp(rules: Sequence[AdmissibilityRule], outcomes: tuple[str, ...]) -> str:
+    """The verdict one row carries, from each rule's outcome for it."""
+    outside = [r.name for r, o in zip(rules, outcomes) if o == OUTSIDE]
+    if len(rules) == 1:
+        issue = outside_scope_verdict if outside else admissibility_verdict
+        return issue(rules[0].name, **rules[0].parameters())
+    params: dict[str, object] = {"rules": ",".join(r.name for r in rules)}
+    if outside:
+        params["outside"] = ",".join(outside)
+    params.update({f"{r.name}.{k}": v for r in rules for k, v in r.parameters().items()})
+    return (outside_scope_verdict if outside else admissibility_verdict)(ALL_OF, **params)
+
+
 def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table:
     """Run every rule over the journal in one step, then stamp each row with one verdict.
 
@@ -452,19 +465,8 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
     # A total is worth what the admissibility of its rows is worth, so the verdict travels
     # WITH the data as evidence. SourcesFeatureGroup totals only affirmative verdicts, so a
     # row any rule did not vouch for yields no number rather than a total it silently joins.
-    def stamp(outcomes: tuple[str, ...]) -> str:
-        outside = [r.name for r, o in zip(rules, outcomes) if o == OUTSIDE]
-        if len(rules) == 1:
-            issue = outside_scope_verdict if outside else admissibility_verdict
-            return issue(rules[0].name, **rules[0].parameters())
-        params: dict[str, object] = {"rules": ",".join(names)}
-        if outside:
-            params["outside"] = ",".join(outside)
-        params.update({f"{r.name}.{k}": v for r in rules for k, v in r.parameters().items()})
-        return (outside_scope_verdict if outside else admissibility_verdict)(ALL_OF, **params)
-
     cache: dict[tuple[str, ...], str] = {}
-    stamps = [cache[row] if row in cache else cache.setdefault(row, stamp(row)) for row in zip(*judged)]
+    stamps = [cache[row] if row in cache else cache.setdefault(row, _stamp(rules, row)) for row in zip(*judged)]
     return table.append_column(ADMISSIBILITY_COLUMN, pa.array(stamps, type=pa.string()))
 
 
@@ -534,6 +536,12 @@ class AdmissibilityPolicyGroup(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         return _prefixed(cls.clear(unprefixed(data, JOURNAL)), ADMITTED)
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> dict[str, str | int | float | bool]:
+        """The stamp a fully admitted row carries, for the extender hooks."""
+        rules = cls.rules()
+        return {"policy.verdict": _stamp(rules, tuple(ADMIT for _ in rules))} if rules else {}
 
     @classmethod
     def clear(cls, table: pa.Table) -> pa.Table:

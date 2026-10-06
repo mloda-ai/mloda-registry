@@ -4,17 +4,20 @@ The subprocess proofs live in proofs/: each one registers classes process-wide, 
 in its own process.
 """
 
+import json
 import shutil
 import subprocess  # nosec
 import sys
 import tempfile
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pytest
 from mloda.provider import FeatureSet
-from mloda.user import DataAccessCollection, Options, mloda
+from mloda.user import DataAccessCollection, Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.experimental.german_ledger.policy import (
@@ -22,8 +25,10 @@ from mloda.community.feature_groups.experimental.german_ledger.policy import (
     JournalFeatureGroup,
 )
 from mloda.community.feature_groups.experimental.german_ledger.reader import (
+    ADMISSIBILITY_COLUMN,
     GdpduReader,
     _resolve_within,
+    admissibility_verdict,
     parse_descriptor,
 )
 from mloda.community.feature_groups.experimental.german_ledger.skr import SKR04_2025, SkrAccountFeatureGroup
@@ -134,11 +139,52 @@ def test_origins_survive_aggregation() -> None:
         plugin_collector=PLUGINS,
     )
     cols = {c for t in res for c in t.column_names}
-    assert cols == {"revenue__sources~value", "revenue__sources~origins", "revenue__sources~receipt"}, cols
+    assert cols == {"revenue__sources~value", "revenue__sources~origins", "revenue__sources~basis"}, cols
     total = [t.column("revenue__sources~value").to_pylist()[0] for t in res][0]
     origins = [t.column("revenue__sources~origins").to_pylist()[0] for t in res][0]
     assert str(total) == "45385.06", total
     assert len(origins) == 5 and all(":" in o and "@" in o for o in origins)
+
+
+def _stamped_rows(*bases: str | None) -> pa.Table:
+    """Admitted, cited revenue rows, one per basis."""
+    n = len(bases)
+    return pa.table(
+        {
+            "revenue~value": pa.array([Decimal("1.00")] * n, type=pa.decimal128(38, 2)),
+            "revenue~origins": [f"GL.txt@4564dc0deef2:{i}" for i in range(n)],
+            "revenue~basis": pa.array(list(bases), type=pa.string()),
+            ADMISSIBILITY_COLUMN: [admissibility_verdict("p")] * n,
+        }
+    )
+
+
+def _sources_of(rows: pa.Table) -> pa.Table:
+    fs = FeatureSet()
+    fs.add(Feature("revenue__sources"))
+    out: pa.Table = SourcesFeatureGroup.calculate_feature(rows, fs)
+    return out
+
+
+def test_the_total_carries_the_one_basis_of_its_rows() -> None:
+    """`~basis` is the rows' single basis JSON string, not a parsed copy and not a receipt."""
+    basis = json.dumps({"concept": "revenue", "chart": "SKR04"}, sort_keys=True)
+    out = _sources_of(_stamped_rows(basis, basis, None))
+    assert set(out.column_names) == {"revenue__sources~value", "revenue__sources~origins", "revenue__sources~basis"}
+    assert out.column("revenue__sources~basis").to_pylist() == [basis]
+
+
+def test_a_total_over_rows_with_no_basis_states_a_null_basis() -> None:
+    out = _sources_of(_stamped_rows(None, None))
+    assert out.column("revenue__sources~basis").to_pylist() == [None]
+
+
+def test_a_total_over_rows_of_two_bases_is_refused() -> None:
+    """One total has one definition; rows computed under two catalogues must not be summed."""
+    one = json.dumps({"catalogue": {"fingerprint": "aaaaaaaaaaaa"}})
+    other = json.dumps({"catalogue": {"fingerprint": "bbbbbbbbbbbb"}})
+    with pytest.raises(ValueError, match="2 different concept bases"):
+        _sources_of(_stamped_rows(one, other))
 
 
 def test_guard_fails_closed_without_second_clock() -> None:
@@ -187,8 +233,8 @@ def test_both_concepts_in_one_request() -> None:
         "revenue__sources~origins",
         "receivables__sources~value",
         "receivables__sources~origins",
-        "revenue__sources~receipt",
-        "receivables__sources~receipt",
+        "revenue__sources~basis",
+        "receivables__sources~basis",
     }, set(got)
     assert str(got["revenue__sources~value"]) == "45385.06", got["revenue__sources~value"]
     assert str(got["receivables__sources~value"]) == "5000.00", got["receivables__sources~value"]
