@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.version import Version
 
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from tests.script_loader import load_script
@@ -338,6 +340,66 @@ class TestInstallExtraGuard:
 
         with pytest.raises(AssertionError, match="must look like"):
             _assert_install_extra_brings_the_wheel("pkg", _Bad, {})
+
+
+# Releases that trust no production license key and reject every license, per normalized distribution.
+_KEYLESS_WHEEL_RELEASES: dict[str, list[str]] = {
+    "mloda-anonymizer-binary": ["0.1.0"],
+    "mloda-example-binary": ["0.1.0", "0.1.1"],
+}
+
+
+def _keyless_wheel_release_violations(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Requirements on a binary wheel whose specifier admits a release listed in `_KEYLESS_WHEEL_RELEASES`."""
+    violations: list[str] = []
+    for name, cfg in packages.items():
+        requirements = {"dependencies": cfg.get("dependencies", [])}
+        requirements.update(cfg.get("optional_dependencies", {}))
+        for where, deps in requirements.items():
+            for dep in deps:
+                keyless = _KEYLESS_WHEEL_RELEASES.get(_dep_name(dep))
+                if keyless is None:
+                    continue
+                specifier = Requirement(dep).specifier
+                violations.extend(
+                    f"{name}.{where}: {dep} admits {version}"
+                    for version in keyless
+                    if specifier.contains(Version(version), prereleases=True)
+                )
+    return violations
+
+
+def test_binary_wheel_floors_exclude_releases_that_trust_no_key() -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    declared = {
+        _dep_name(_assert_binary_wheel_distribution(n, cls))
+        for n, _c, cls in _licensed_plugin_classes_by_package(packages)
+    }
+    assert set(_KEYLESS_WHEEL_RELEASES) == declared, (
+        f"_KEYLESS_WHEEL_RELEASES must have one entry per binary wheel {sorted(declared)}"
+    )
+    violations = _keyless_wheel_release_violations(packages)
+    assert violations == [], f"binary wheel floors admit releases that trust no production key: {violations}"
+
+
+class TestKeylessWheelReleaseViolations:
+    """Exercises `_keyless_wheel_release_violations` against synthetic config."""
+
+    def test_reports_a_floor_admitting_a_keyless_release(self) -> None:
+        packages = {"pkg": {"optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.0,<0.2.0"]}}}
+        assert _keyless_wheel_release_violations(packages) == [
+            "pkg.wheel: mloda-example-binary>=0.1.0,<0.2.0 admits 0.1.0",
+            "pkg.wheel: mloda-example-binary>=0.1.0,<0.2.0 admits 0.1.1",
+        ]
+
+    def test_accepts_a_floor_above_every_keyless_release(self) -> None:
+        packages = {"pkg": {"optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.2,<0.2.0"]}}}
+        assert _keyless_wheel_release_violations(packages) == []
+
+    def test_parses_a_requirement_with_an_environment_marker(self) -> None:
+        packages = {"pkg": {"dependencies": ["mloda_anonymizer_binary>=0.1.0,<0.2.0; python_version >= '3.10'"]}}
+        violations = _keyless_wheel_release_violations(packages)
+        assert [v.rsplit(" ", 1)[1] for v in violations] == ["0.1.0"], violations
 
 
 def test_new_binary_packages_are_registered_with_dev_extra() -> None:
