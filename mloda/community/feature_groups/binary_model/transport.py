@@ -5,6 +5,8 @@ per-invocation directory, and running the binary itself over stdin/stdout or fil
 
 from __future__ import annotations
 
+import errno
+import functools
 import getpass
 import io
 import json
@@ -78,41 +80,97 @@ def _windows_pid_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def _is_reparse_point(path: Path) -> bool:
-    """Whether ``path`` is a Windows reparse point (symlink or junction)."""
-    return bool(getattr(os.lstat(path), "st_file_attributes", 0) & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
-
-
-def _windows_owned_by_current_user(path: Path) -> bool:
-    """Whether ``path`` is owned by the current user (token user or owner SID), Administrators or
-    LocalSystem on Windows; raises ``OSError`` when an API call fails."""
+@functools.lru_cache(maxsize=None)
+def _windows_api() -> Any:
+    """The Windows API surface (DLLs, structures, SID helpers) with argtypes and restypes set once."""
     if sys.platform != "win32":
-        return True
+        raise OSError("the Windows security API is only available on Windows")
     import ctypes
     from ctypes import wintypes
+    from types import SimpleNamespace
 
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     pvoid = ctypes.c_void_p
-    advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
-    advapi32.GetNamedSecurityInfoW.argtypes = [
+    ppvoid = ctypes.POINTER(pvoid)
+
+    class SECURITY_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("nLength", wintypes.DWORD),
+            ("lpSecurityDescriptor", pvoid),
+            ("bInheritHandle", wintypes.BOOL),
+        ]
+
+    class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    class ACL(ctypes.Structure):
+        _fields_ = [
+            ("AclRevision", ctypes.c_ubyte),
+            ("Sbz1", ctypes.c_ubyte),
+            ("AclSize", wintypes.WORD),
+            ("AceCount", wintypes.WORD),
+            ("Sbz2", wintypes.WORD),
+        ]
+
+    class ACE_HEADER(ctypes.Structure):
+        _fields_ = [("AceType", ctypes.c_ubyte), ("AceFlags", ctypes.c_ubyte), ("AceSize", wintypes.WORD)]
+
+    kernel32.CreateDirectoryW.restype = wintypes.BOOL
+    kernel32.CreateDirectoryW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(SECURITY_ATTRIBUTES)]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
         wintypes.LPCWSTR,
         wintypes.DWORD,
         wintypes.DWORD,
-        ctypes.POINTER(pvoid),
-        ctypes.POINTER(pvoid),
-        ctypes.POINTER(pvoid),
-        ctypes.POINTER(pvoid),
-        ctypes.POINTER(pvoid),
+        pvoid,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
     ]
+    kernel32.GetFileInformationByHandle.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.POINTER(BY_HANDLE_FILE_INFORMATION)]
     kernel32.LocalFree.restype = pvoid
     kernel32.LocalFree.argtypes = [pvoid]
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     kernel32.GetCurrentProcess.argtypes = []
-    advapi32.OpenProcessToken.restype = wintypes.BOOL
-    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
     kernel32.CloseHandle.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    advapi32.GetSecurityInfo.restype = wintypes.DWORD
+    advapi32.GetSecurityInfo.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ppvoid,
+        ppvoid,
+        ppvoid,
+        ppvoid,
+        ppvoid,
+    ]
+    advapi32.GetAce.restype = wintypes.BOOL
+    advapi32.GetAce.argtypes = [pvoid, wintypes.DWORD, ppvoid]
+    advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+    advapi32.ConvertSidToStringSidW.argtypes = [pvoid, ctypes.POINTER(wintypes.LPWSTR)]
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ppvoid,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
     advapi32.GetTokenInformation.restype = wintypes.BOOL
     advapi32.GetTokenInformation.argtypes = [
         wintypes.HANDLE,
@@ -144,30 +202,162 @@ def _windows_owned_by_current_user(path: Path) -> bool:
             raise ctypes.WinError(ctypes.get_last_error())
         return buf
 
-    owner = pvoid()
-    descriptor = pvoid()
-    error = advapi32.GetNamedSecurityInfoW(
-        str(path), 1, 1, ctypes.byref(owner), None, None, None, ctypes.byref(descriptor)
-    )  # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION
+    return SimpleNamespace(
+        advapi32=advapi32,
+        kernel32=kernel32,
+        SECURITY_ATTRIBUTES=SECURITY_ATTRIBUTES,
+        BY_HANDLE_FILE_INFORMATION=BY_HANDLE_FILE_INFORMATION,
+        ACL=ACL,
+        ACE_HEADER=ACE_HEADER,
+        token_sid=token_sid,
+        well_known_sid=well_known_sid,
+    )
+
+
+def _windows_trusted_sids(*, for_ace: bool) -> tuple[list[Any], list[Any]]:
+    """The addresses of the trusted SIDs (token user, token owner, Administrators, LocalSystem and, with
+    ``for_ace``, CREATOR OWNER and OWNER RIGHTS), plus the buffers that must stay alive while they are used."""
+    if sys.platform != "win32":
+        raise OSError("the Windows security API is only available on Windows")
+    import ctypes
+    from ctypes import wintypes
+
+    api = _windows_api()
+    token = wintypes.HANDLE()
+    if not api.advapi32.OpenProcessToken(api.kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        user_sid, user_buf = api.token_sid(token, 1)  # TokenUser
+        owner_sid, owner_buf = api.token_sid(token, 4)  # TokenOwner
+    finally:
+        api.kernel32.CloseHandle(token)
+    # WinBuiltinAdministratorsSid, WinLocalSystemSid, then WinCreatorOwnerSid, WinCreatorOwnerRightsSid
+    well_known = [api.well_known_sid(sid_type) for sid_type in ((26, 22, 3, 71) if for_ace else (26, 22))]
+    return [user_sid, owner_sid, *(ctypes.addressof(buf) for buf in well_known)], [user_buf, owner_buf, *well_known]
+
+
+def _windows_create_private_dir(path: Path, *, exist_ok: bool) -> None:
+    """Create ``path`` (not its ancestors) owner-only: on Windows with a protected DACL granting only the
+    current user, Administrators and LocalSystem, so nothing inherited from the parent applies."""
+    if sys.platform != "win32":
+        path.mkdir(mode=0o700, exist_ok=exist_ok)
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    api = _windows_api()
+    sids, _keepalive = _windows_trusted_sids(for_ace=False)
+    sid_text = wintypes.LPWSTR()
+    if not api.advapi32.ConvertSidToStringSidW(sids[0], ctypes.byref(sid_text)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        sddl = f"D:P(A;OICI;FA;;;{sid_text.value})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+    finally:
+        api.kernel32.LocalFree(sid_text)
+    descriptor = ctypes.c_void_p()
+    if not api.advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        attributes = api.SECURITY_ATTRIBUTES(ctypes.sizeof(api.SECURITY_ATTRIBUTES), descriptor, False)
+        if api.kernel32.CreateDirectoryW(str(path), ctypes.byref(attributes)):
+            return
+        error = ctypes.get_last_error()
+    finally:
+        api.kernel32.LocalFree(descriptor)
+    if error == 183:  # ERROR_ALREADY_EXISTS
+        if exist_ok:
+            return
+        raise FileExistsError(errno.EEXIST, "directory already exists", str(path))
+    raise ctypes.WinError(error)
+
+
+def _windows_parent_refusal(handle: Any) -> str | None:
+    """Why the directory behind ``handle`` is not a trusted parent, or ``None``; raises ``OSError`` on API failure."""
+    if sys.platform != "win32":
+        raise OSError("the Windows security API is only available on Windows")
+    import ctypes
+    from ctypes import wintypes
+
+    api = _windows_api()
+    info = api.BY_HANDLE_FILE_INFORMATION()
+    if not api.kernel32.GetFileInformationByHandle(handle, ctypes.byref(info)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if info.dwFileAttributes & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+        return "a symlink or junction"
+    if not info.dwFileAttributes & 0x10:  # FILE_ATTRIBUTE_DIRECTORY
+        return "not a directory"
+
+    owner = ctypes.c_void_p()
+    dacl = ctypes.c_void_p()
+    descriptor = ctypes.c_void_p()
+    # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION
+    error = api.advapi32.GetSecurityInfo(
+        handle, 1, 0x1 | 0x4, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor)
+    )
     if error:
-        raise OSError(None, ctypes.FormatError(error), str(path), error)
+        raise OSError(None, ctypes.FormatError(error), None, error)
     try:
         if owner.value is None:
-            raise OSError(None, "no owner", str(path))
-        token = wintypes.HANDLE()
-        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
-            raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            user_sid, user_buf = token_sid(token, 1)  # TokenUser
-            owner_sid, owner_buf = token_sid(token, 4)  # TokenOwner
-        finally:
-            kernel32.CloseHandle(token)
-        admins = well_known_sid(26)  # WinBuiltinAdministratorsSid
-        system = well_known_sid(22)  # WinLocalSystemSid
-        trusted = (user_sid, owner_sid, ctypes.addressof(admins), ctypes.addressof(system))
-        return any(bool(advapi32.EqualSid(owner.value, sid)) for sid in trusted)
+            raise OSError(None, "no owner")
+        owner_sids, _owner_keepalive = _windows_trusted_sids(for_ace=False)
+        if not any(bool(api.advapi32.EqualSid(owner.value, sid)) for sid in owner_sids):
+            return "not owned by the current user; delete it so it is recreated"
+        writable = "writable by another user; delete it so it is recreated"
+        if dacl.value is None:
+            return writable
+        ace_sids, _ace_keepalive = _windows_trusted_sids(for_ace=True)
+        write_bits = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000
+        for index in range(ctypes.cast(dacl, ctypes.POINTER(api.ACL))[0].AceCount):
+            ace = ctypes.c_void_p()
+            if not api.advapi32.GetAce(dacl, index, ctypes.byref(ace)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            assert ace.value is not None
+            header = api.ACE_HEADER.from_address(ace.value)
+            if header.AceFlags & 0x08:  # INHERIT_ONLY_ACE
+                continue
+            if header.AceType == 1:  # ACCESS_DENIED_ACE_TYPE
+                continue
+            if header.AceType != 0:  # anything but ACCESS_ALLOWED_ACE_TYPE
+                return writable
+            mask = wintypes.DWORD.from_address(ace.value + 4).value
+            if mask & write_bits and not any(bool(api.advapi32.EqualSid(ace.value + 8, sid)) for sid in ace_sids):
+                return writable
+        return None
     finally:
-        kernel32.LocalFree(descriptor)
+        api.kernel32.LocalFree(descriptor)
+
+
+def _windows_open_parent(path: Path) -> tuple[Any, str | None]:
+    """Open ``path`` once without following a reparse point and check, from that handle, that it is a
+    directory owned by a trusted principal whose DACL lets no other principal write. Returns ``(handle, None)``
+    for the caller to close, or ``(None, reason)`` when refused; raises ``OSError`` when an API call fails.
+    The handle forbids deleting or renaming the directory while held."""
+    if sys.platform != "win32":
+        return None, None
+    import ctypes
+
+    api = _windows_api()
+    # READ_CONTROL | FILE_READ_ATTRIBUTES; FILE_SHARE_READ | FILE_SHARE_WRITE; OPEN_EXISTING;
+    # FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+    handle = api.kernel32.CreateFileW(str(path), 0x20000 | 0x80, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+    if handle is None or handle == ctypes.c_void_p(-1).value:  # INVALID_HANDLE_VALUE
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        reason = _windows_parent_refusal(handle)
+    except BaseException:
+        api.kernel32.CloseHandle(handle)
+        raise
+    if reason is not None:
+        api.kernel32.CloseHandle(handle)
+        return None, reason
+    return handle, None
+
+
+def _windows_close_handle(handle: Any) -> None:
+    """Close a handle from ``_windows_open_parent``; a no-op for ``None`` or off Windows."""
+    if handle is None or sys.platform != "win32":
+        return
+    _windows_api().kernel32.CloseHandle(handle)
 
 
 def minimal_environment(
@@ -226,20 +416,36 @@ def default_parent() -> Path:
 class InvocationDirectory:
     """A private, owner-only directory for one binary invocation, created under a per-user parent
     (or the given one) and reaping dead siblings on entry (contract: Data handling). Liveness is an exclusive
-    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows)."""
+    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows). On Windows
+    the parent is created owner-only and held open without delete sharing until exit."""
 
     def __init__(self, parent: Path | None = None) -> None:
         self.parent = parent if parent is not None else default_parent()
         self.path: Path
         self._lock_fd: int | None = None
+        self._parent_handle: Any = None
 
     def __enter__(self) -> InvocationDirectory:
         try:
-            self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if os.name == "nt":
+                self.parent.parent.mkdir(parents=True, exist_ok=True)
+                _windows_create_private_dir(self.parent, exist_ok=True)
+            else:
+                self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         except OSError as exc:
             raise BinaryUnavailableError(f"cannot create {self.parent}: {exc}") from exc
         self._validate_parent()
+        try:
+            return self._create_invocation_dir()
+        except BaseException:
+            self._close_parent_handle()
+            raise
 
+    def _close_parent_handle(self) -> None:
+        handle, self._parent_handle = self._parent_handle, None
+        _windows_close_handle(handle)
+
+    def _create_invocation_dir(self) -> InvocationDirectory:
         self._reap_dead_siblings()
 
         name = f"{os.getpid()}-{secrets.token_hex(4)}"
@@ -248,7 +454,7 @@ class InvocationDirectory:
             with _OWNED_LOCK:
                 _OWNED_PATHS.add(path)
             try:
-                path.mkdir(mode=0o700)
+                _windows_create_private_dir(path, exist_ok=False)
                 path.chmod(0o700)
             except BaseException as exc:
                 with _OWNED_LOCK:
@@ -290,22 +496,21 @@ class InvocationDirectory:
         return self
 
     def _validate_parent(self) -> None:
-        """On Windows refuse a parent that is a symlink or junction or not owned by the current user
-        (owner and symlink/junction only, no ACL check). On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
+        """On Windows refuse a parent that is a symlink or junction, not a directory, not owned by a trusted
+        principal, or writable by another one, checked on one open handle that is held until exit. On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
         writable by a group other than the current process's own (contract: Data handling): a
         directory shared with the process's own group, the common user-private-group scheme, is
         not a foreign-write risk, but world-writable or a foreign group is."""
         if os.name == "nt":
-            if _is_reparse_point(self.parent):
-                raise BinaryUnavailableError(f"refusing to use {self.parent}: a symlink or junction")
             try:
-                owned = _windows_owned_by_current_user(self.parent)
+                handle, reason = _windows_open_parent(self.parent)
             except OSError as exc:
-                raise BinaryUnavailableError(f"refusing to use {self.parent}: cannot read its owner: {exc}") from exc
-            if not owned:
                 raise BinaryUnavailableError(
-                    f"refusing to use {self.parent}: not owned by the current user; delete it so it is recreated"
-                )
+                    f"refusing to use {self.parent}: cannot read its security info: {exc}"
+                ) from exc
+            if reason is not None:
+                raise BinaryUnavailableError(f"refusing to use {self.parent}: {reason}")
+            self._parent_handle = handle
             return
         stat_result = os.lstat(self.parent)
         if stat.S_ISLNK(stat_result.st_mode):
@@ -323,12 +528,15 @@ class InvocationDirectory:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        shutil.rmtree(self.path, ignore_errors=True)
-        with _OWNED_LOCK:
-            _OWNED_PATHS.discard(self.path)
-        if self._lock_fd is not None:
-            os.close(self._lock_fd)
-            self._lock_fd = None
+        try:
+            shutil.rmtree(self.path, ignore_errors=True)
+            with _OWNED_LOCK:
+                _OWNED_PATHS.discard(self.path)
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
+        finally:
+            self._close_parent_handle()
 
     def _reap_dead_siblings(self) -> None:
         try:

@@ -109,18 +109,30 @@ def _hold_lock(lock_file: Path) -> int:
     return fd
 
 
+_PARENT_HANDLE = object()
+
+
 def _as_windows(
     monkeypatch: pytest.MonkeyPatch,
     alive: Callable[[int], bool],
-    owned: Callable[[Path], bool] = lambda path: True,
-    reparse: bool = False,
-) -> None:
+    reason: str | None = None,
+    open_error: OSError | None = None,
+) -> list[Any]:
     """Patch ``os.name`` to ``nt``; call after every ``Path`` is built, as ``Path`` may refuse to instantiate under ``nt``.
-    The owner and reparse-point checks are stubbed to pass unless ``owned`` or ``reparse`` say otherwise."""
+    The parent open is stubbed to hand out a sentinel handle unless ``reason`` or ``open_error`` say otherwise;
+    returns the list of handles passed to the stubbed close."""
+    closed: list[Any] = []
+
+    def open_parent(path: Path) -> tuple[Any, str | None]:
+        if open_error is not None:
+            raise open_error
+        return (None, reason) if reason is not None else (_PARENT_HANDLE, None)
+
     monkeypatch.setattr(transport, "_windows_pid_alive", alive)
-    monkeypatch.setattr(transport, "_windows_owned_by_current_user", owned)
-    monkeypatch.setattr(transport, "_is_reparse_point", lambda path: reparse)
+    monkeypatch.setattr(transport, "_windows_open_parent", open_parent)
+    monkeypatch.setattr(transport, "_windows_close_handle", closed.append)
     monkeypatch.setattr(os, "name", "nt")
+    return closed
 
 
 def _own_zombie_children() -> list[int]:
@@ -771,11 +783,12 @@ class TestInvocationDirectory:
             real_mkdir(self, *args, **kwargs)
 
         monkeypatch.setattr(Path, "mkdir", failing_mkdir)
-        _as_windows(monkeypatch, lambda queried: True)
+        closed = _as_windows(monkeypatch, lambda queried: True)
         with pytest.raises(BinaryUnavailableError, match="cannot create an invocation directory"):
             with InvocationDirectory(parent=parent):
                 pass
         assert transport._OWNED_PATHS == owned_before
+        assert closed == [_PARENT_HANDLE]
         assert list(parent.iterdir()) == []
 
     @pytest.mark.parametrize("failure", [OSError(errno.EPERM, "denied"), KeyboardInterrupt()])
@@ -790,7 +803,7 @@ class TestInvocationDirectory:
             raise failure
 
         monkeypatch.setattr(Path, "chmod", failing_chmod)
-        _as_windows(monkeypatch, lambda queried: True)
+        closed = _as_windows(monkeypatch, lambda queried: True)
         if isinstance(failure, OSError):
             with pytest.raises(BinaryUnavailableError, match="cannot create an invocation directory"):
                 with InvocationDirectory(parent=parent):
@@ -800,6 +813,7 @@ class TestInvocationDirectory:
                 with InvocationDirectory(parent=parent):
                     pass
         assert transport._OWNED_PATHS == owned_before
+        assert closed == [_PARENT_HANDLE]
         assert list(parent.iterdir()) == []
 
     def test_windows_non_oserror_from_mkdir_propagates_unchanged(
@@ -816,25 +830,56 @@ class TestInvocationDirectory:
             real_mkdir(self, *args, **kwargs)
 
         monkeypatch.setattr(Path, "mkdir", interrupted_mkdir)
-        _as_windows(monkeypatch, lambda queried: True)
+        closed = _as_windows(monkeypatch, lambda queried: True)
         with pytest.raises(KeyboardInterrupt):
             with InvocationDirectory(parent=parent):
                 pass
         assert transport._OWNED_PATHS == owned_before
+        assert closed == [_PARENT_HANDLE]
 
     def test_windows_owned_parent_is_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         parent = tmp_path / TEMP_PARENT_NAME
         parent.mkdir(parents=True)
+        closed = _as_windows(monkeypatch, lambda queried: True)
+        child_existed_at_close: list[bool] = []
+        child_path: list[Path] = []
+
+        def close_handle(handle: Any) -> None:
+            closed.append(handle)
+            child_existed_at_close.append(child_path[0].exists())
+
+        monkeypatch.setattr(transport, "_windows_close_handle", close_handle)
+        with InvocationDirectory(parent=parent) as inv:
+            child_path.append(inv.path)
+            assert inv.path.is_dir()
+            assert closed == []
+        assert closed == [_PARENT_HANDLE]
+        assert child_existed_at_close == [False]
+
+    def test_windows_parent_is_created_and_child_is_private(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        parent = tmp_path / "outer" / TEMP_PARENT_NAME
+        calls: list[tuple[Path, bool]] = []
+        real_create = transport._windows_create_private_dir
+
+        def spy_create(path: Path, *, exist_ok: bool) -> None:
+            calls.append((path, exist_ok))
+            real_create(path, exist_ok=exist_ok)
+
+        monkeypatch.setattr(transport, "_windows_create_private_dir", spy_create)
         _as_windows(monkeypatch, lambda queried: True)
         with InvocationDirectory(parent=parent) as inv:
-            assert inv.path.is_dir()
+            assert calls == [(parent, True), (inv.path, False)]
 
     @pytest.mark.parametrize(
         ("kind", "fragments"),
         [
             ("foreign", ["not owned by the current user", "delete it"]),
-            ("unreadable", ["cannot read its owner", "boom"]),
+            ("unreadable", ["cannot read its security info", "boom"]),
             ("reparse", ["symlink or junction"]),
+            ("writable", ["writable by another user", "delete it"]),
+            ("not_a_directory", ["not a directory"]),
         ],
     )
     def test_windows_refuses_untrusted_parent(
@@ -842,33 +887,102 @@ class TestInvocationDirectory:
     ) -> None:
         parent = tmp_path / TEMP_PARENT_NAME
         parent.mkdir(parents=True)
-
-        def owned(path: Path) -> bool:
-            if kind == "unreadable":
-                raise OSError("boom")
-            return kind != "foreign"
-
-        _as_windows(monkeypatch, lambda queried: True, owned=owned, reparse=kind == "reparse")
+        reasons = {
+            "foreign": "not owned by the current user; delete it so it is recreated",
+            "reparse": "a symlink or junction",
+            "writable": "writable by another user; delete it so it is recreated",
+            "not_a_directory": "not a directory",
+        }
+        closed = _as_windows(
+            monkeypatch,
+            lambda queried: True,
+            reason=reasons.get(kind),
+            open_error=OSError("boom") if kind == "unreadable" else None,
+        )
         with pytest.raises(BinaryUnavailableError) as excinfo:
             with InvocationDirectory(parent=parent):
                 pass
         for fragment in fragments:
             assert fragment in str(excinfo.value)
         assert list(parent.iterdir()) == []
+        assert closed == []
+
+
+def _system32(name: str) -> str:
+    return str(Path(os.environ["SYSTEMROOT"]) / "System32" / name)
+
+
+def _grant_everyone(path: Path, rights: str) -> None:
+    subprocess.run(
+        [_system32("icacls.exe"), str(path), "/grant", f"*S-1-1-0:{rights}"], check=True, capture_output=True
+    )  # nosec B603
+
+
+def _open_reason(path: Path) -> str | None:
+    """Open ``path`` with the real parent check, close any handle and return the refusal reason."""
+    handle, reason = transport._windows_open_parent(path)
+    transport._windows_close_handle(handle)
+    return reason
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")
-class TestWindowsOwnedByCurrentUser:
-    def test_fresh_directory_is_owned(self, tmp_path: Path) -> None:
+class TestWindowsParentSecurity:
+    def test_private_directory_is_accepted(self, tmp_path: Path) -> None:
         fresh = tmp_path / "fresh"
-        fresh.mkdir()
-        assert transport._windows_owned_by_current_user(fresh) is True
+        transport._windows_create_private_dir(fresh, exist_ok=False)
+        assert _open_reason(fresh) is None
+
+    def test_create_private_dir_exist_ok(self, tmp_path: Path) -> None:
+        fresh = tmp_path / "fresh"
+        transport._windows_create_private_dir(fresh, exist_ok=False)
+        transport._windows_create_private_dir(fresh, exist_ok=True)
+        with pytest.raises(FileExistsError):
+            transport._windows_create_private_dir(fresh, exist_ok=False)
 
     def test_system_root_is_not_owned(self) -> None:
-        assert transport._windows_owned_by_current_user(Path(os.environ["SYSTEMROOT"])) is False
+        assert "not owned by the current user" in str(_open_reason(Path(os.environ["SYSTEMROOT"])))
 
-    def test_plain_directory_is_not_a_reparse_point(self, tmp_path: Path) -> None:
-        assert transport._is_reparse_point(tmp_path) is False
+    def test_file_is_not_a_directory(self, tmp_path: Path) -> None:
+        file = tmp_path / "file"
+        file.write_text("x")
+        assert _open_reason(file) == "not a directory"
+
+    def test_inherited_everyone_write_is_refused_but_private_creation_is_accepted(self, tmp_path: Path) -> None:
+        outer = tmp_path / "outer"
+        outer.mkdir()
+        _grant_everyone(outer, "(OI)(CI)W")
+        plain = outer / "inner"
+        plain.mkdir()
+        assert "writable by another user" in str(_open_reason(plain))
+        private = outer / "inner2"
+        transport._windows_create_private_dir(private, exist_ok=False)
+        assert _open_reason(private) is None
+        with InvocationDirectory(parent=private) as inv:
+            assert _open_reason(inv.path) is None
+
+    def test_inherit_only_everyone_ace_does_not_taint_the_parent_or_the_child(self, tmp_path: Path) -> None:
+        parent = tmp_path / "parent"
+        transport._windows_create_private_dir(parent, exist_ok=False)
+        _grant_everyone(parent, "(OI)(CI)(IO)F")
+        assert _open_reason(parent) is None
+        with InvocationDirectory(parent=parent) as inv:
+            assert _open_reason(inv.path) is None
+
+    def test_junction_is_refused(self, tmp_path: Path) -> None:
+        target = tmp_path / "target"
+        target.mkdir()
+        link = tmp_path / "link"
+        subprocess.run(
+            [_system32("cmd.exe"), "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True
+        )  # nosec B603
+        assert "symlink or junction" in str(_open_reason(link))
+
+    def test_parent_cannot_be_renamed_while_the_invocation_runs(self, tmp_path: Path) -> None:
+        parent = tmp_path / "parent"
+        with InvocationDirectory(parent=parent):
+            with pytest.raises(PermissionError):
+                os.rename(parent, tmp_path / "moved")
+        os.rename(parent, tmp_path / "moved")
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")
