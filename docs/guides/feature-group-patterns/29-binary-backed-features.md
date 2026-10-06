@@ -20,6 +20,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 | `BINARY_PROBE_TIMEOUT_SECONDS` | Wall-clock limit per probe (each of `--version` and `--capabilities`, default 60s); on timeout the whole process group is terminated on POSIX, only the child on Windows, and `BinaryUnavailableError` raised |
 | `FILE_TRANSPORT_THRESHOLD_BYTES` | Inputs above it travel through `--input` / `--output` files instead of stdin / stdout |
 | `MAX_BATCH_BYTES` | Upper bound per record batch sent to the binary; oversized batches are split until they fit, keeping `utf8` arrays clear of the 2 GiB offset limit |
+| `MAX_BATCH_ROWS` | Upper bound on rows per record batch; keeps a binary's output arrays clear of the offset limit when it writes more bytes per row than it reads |
 
 The wheel is imported inside the call, never at module level of the FeatureGroup or its `manifest.py`: mloda's plugin loader aborts discovery on a `ModuleNotFoundError` it does not know as optional, and a missing wheel must only fail the call.
 

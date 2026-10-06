@@ -332,7 +332,22 @@ class _TinyBatchStubModel(StubModel):
     MAX_BATCH_BYTES = 64
 
 
+class _RowCappedStubModel(StubModel):
+    MAX_BATCH_ROWS = 2
+
+
 class TestBatching:
+    @pytest.mark.parametrize("model", [_TinyBatchStubModel, _RowCappedStubModel], ids=["bytes_capped", "rows_capped"])
+    def test_capped_model_returns_same_result_as_uncapped(self, model: type[StubModel]) -> None:
+        rows = {"col_a": [f"value-{i}" for i in range(7)]}
+        table = pa.table(rows)
+        result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        expected = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.column("col_a_hash").to_pylist() == expected.column("col_a_hash").to_pylist()
+
+    def test_default_max_batch_rows(self) -> None:
+        assert mixin.BinaryModelMixin.MAX_BATCH_ROWS == 1 << 20
+
     def test_tiny_max_batch_bytes_still_returns_every_row_correctly(self) -> None:
         rows = {"col_a": [f"value-{i}" for i in range(50)]}
         table = pa.table(rows)
@@ -793,6 +808,21 @@ def _stream_bytes(table: pa.Table, max_batch_bytes: int) -> bytes:
 
 
 class TestWriteIpcStreamBatching:
+    def test_max_batch_rows_caps_every_batch(self) -> None:
+        values = [f"v{i}" for i in range(7)]
+        table = pa.table({"col_a": values})
+        sink = io.BytesIO()
+        mixin._write_ipc_stream(table, 1_000_000, sink, max_batch_rows=2)
+        batches = list(pa.ipc.open_stream(sink.getvalue()))
+        assert all(batch.num_rows <= 2 for batch in batches)
+        assert [v for b in batches for v in b.column("col_a").to_pylist()] == values
+
+    def test_rows_per_batch_takes_the_smaller_of_row_cap_and_byte_count(self) -> None:
+        table = pa.table({"col_a": ["x" * 100] * 10})
+        byte_count = mixin._rows_per_batch(table, 1_000_000)
+        assert mixin._rows_per_batch(table, 1_000_000, max_batch_rows=2) == 2
+        assert mixin._rows_per_batch(table, 1_000_000, max_batch_rows=byte_count + 5) == byte_count
+
     def test_skewed_table_never_writes_a_multi_row_batch_over_the_limit(self) -> None:
         """1000 one-character strings plus two 1000-byte strings: the mean-bytes-per-row estimate
         badly underestimates the cost of a batch that happens to include an outlier row, so a
