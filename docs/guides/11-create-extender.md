@@ -300,6 +300,8 @@ extender = AuditExtender(
 
 ## Tracing and run correlation
 
+To export these spans and events to a backend (Collector, sampling, privacy defaults, multiprocessing), see [Export Telemetry to Any Backend](12-export-telemetry.md).
+
 ### OTel root span and trace_scope
 
 `OtelExtender` starts a root span `mloda.run` in `on_run_start` (attributes `mloda.run.id`, `mloda.plan.id`, `mloda.plan.structure_hash`) and ends it in `on_run_complete` with `mloda.run.status` (`succeeded`, `failed` or `cancelled`; `failed` also sets `error.type` and span status `ERROR`). Step spans (`calculate <FeatureGroup>`, the short class name; plain `calculate` without one) are children of that root; calculate, validate and load spans carry `mloda.step.uuid` (core's `step_uuid`) when set. Join spans (`join <join_type>`, plain `join` without a type) are also children of the root and carry `mloda.join.type`, `mloda.join.left_feature_group` and `mloda.join.right_feature_group` (`module.qualname`), `mloda.join.keys` (`left=right` column pairs, so column names are exported, never values) and, for as-of joins, `mloda.join.asof.*` (time columns, `direction`, `allow_exact_matches`, and `tolerance`, a number in the time column's units, or `tolerance_seconds` for a `timedelta`); unset ones are omitted. The root's parent is the run carrier if there is one, else the caller's active span.
