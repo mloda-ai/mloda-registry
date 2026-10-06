@@ -20,6 +20,7 @@ def test_step_run_id_is_the_uuid5_of_the_run_id_and_the_step_key() -> None:
     expected = str(uuid.uuid5(uuid.UUID(_RUN_ID), json.dumps(["job", ["a", "b"], "PyArrowTable"])))
 
     assert step_run_id(_RUN_ID, "job", ("b", "a"), "PyArrowTable") == expected
+    assert step_run_id(_RUN_ID, "job", ("b", "a"), "PyArrowTable", None) == expected
 
 
 def test_step_run_id_with_a_step_uuid_appends_it_to_the_key() -> None:
@@ -27,19 +28,6 @@ def test_step_run_id_with_a_step_uuid_appends_it_to_the_key() -> None:
     expected = str(uuid.uuid5(uuid.UUID(_RUN_ID), key))
 
     assert step_run_id(_RUN_ID, "job", ("b", "a"), "PyArrowTable", _STEP_UUID) == expected
-
-
-def test_step_run_id_differs_only_by_step_uuid() -> None:
-    other = uuid.UUID("6f1c2d3e-4a5b-4c6d-8e7f-0123456789ac")
-
-    assert step_run_id(_RUN_ID, "job", ("a",), "fw", _STEP_UUID) != step_run_id(_RUN_ID, "job", ("a",), "fw", other)
-
-
-def test_step_run_id_without_a_step_uuid_is_the_legacy_value() -> None:
-    legacy = str(uuid.uuid5(uuid.UUID(_RUN_ID), json.dumps(["job", ["a"], "fw"])))
-
-    assert step_run_id(_RUN_ID, "job", ("a",), "fw", None) == legacy
-    assert step_run_id(_RUN_ID, "job", ("a",), "fw") == legacy
 
 
 def test_step_run_id_ignores_feature_name_order_and_accepts_any_iterable() -> None:

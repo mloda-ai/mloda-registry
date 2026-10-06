@@ -1799,16 +1799,6 @@ class TestOpenLineageExtenderParentRun:
         assert event.producer == extender.producer
         assert "structureHash" not in _plan_facet(event)
 
-    def test_run_start_facet_carries_the_structure_hash(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-
-        extender.on_run_start(RunContext(run_id=_RUN_A, plan_id=_PLAN_ID), _plan("h" * 64), ())
-
-        assert _plan_facet(transport.events[0])["structureHash"] == "h" * 64
-
     def test_run_start_uses_the_custom_namespace_and_root_job_name_and_now_without_started_at(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -1848,7 +1838,7 @@ class TestOpenLineageExtenderParentRun:
         assert "structureHash" not in _plan_facet(terminal)
 
     @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
-    def test_run_complete_facet_carries_the_structure_hash(
+    def test_start_and_terminal_facets_carry_the_structure_hash(
         self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
@@ -1858,7 +1848,8 @@ class TestOpenLineageExtenderParentRun:
         extender.on_run_start(run, _plan("h" * 64), ())
         extender.on_run_complete(run, LifecycleOutcome(status=status))
 
-        assert _plan_facet(transport.events[1])["structureHash"] == "h" * 64
+        assert len(transport.events) == 2
+        assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
 
     def test_run_complete_without_an_emitted_start_emits_nothing(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

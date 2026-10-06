@@ -1307,20 +1307,24 @@ class TestAuditExtenderStructureHash:
 
         assert [record["structure_hash"] for record in sink.records] == [_STRUCTURE_HASH, None]
 
-    def test_a_record_of_a_run_never_started_has_none(self) -> None:
+    @pytest.mark.parametrize("setup", ["never_started", "started_without_hash", "plan_time_matched"])
+    def test_a_record_without_a_run_structure_hash_has_none(self, setup: str) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
-
-        _calculate_in_run(extender, _RUN_UUID)
-
-        assert sink.records[0]["structure_hash"] is None
-
-    def test_a_run_started_with_no_structure_hash_has_none(self) -> None:
-        sink = InMemoryAuditSink()
-        extender = AuditExtender(sink=sink)
-
-        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(None), ())
-        _calculate_in_run(extender, _RUN_UUID)
+        if setup == "started_without_hash":
+            extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(None), ())
+        if setup == "plan_time_matched":
+            extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
+            with make_hook_context(
+                hook=ExtenderHook.FEATURE_GROUP_MATCHED,
+                feature_group_class=None,
+                feature_group_version=None,
+                compute_framework_name=None,
+            ).activate():
+                extender(lambda: None)
+            assert sink.records[0]["run_id"] is None
+        else:
+            _calculate_in_run(extender, _RUN_UUID)
 
         assert sink.records[0]["structure_hash"] is None
 
@@ -1345,22 +1349,6 @@ class TestAuditExtenderStructureHash:
         _calculate_in_run(copy, _RUN_UUID)
 
         assert copy.sink.records[0]["structure_hash"] == _STRUCTURE_HASH
-
-    def test_a_plan_time_matched_record_has_none(self) -> None:
-        sink = InMemoryAuditSink()
-        extender = AuditExtender(sink=sink)
-        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
-
-        with make_hook_context(
-            hook=ExtenderHook.FEATURE_GROUP_MATCHED,
-            feature_group_class=None,
-            feature_group_version=None,
-            compute_framework_name=None,
-        ).activate():
-            extender(lambda: None)
-
-        assert sink.records[0]["run_id"] is None
-        assert sink.records[0]["structure_hash"] is None
 
     def test_the_fail_closed_run_start_refusal_record_carries_the_plan_hash(self) -> None:
         sink = InMemoryAuditSink()
