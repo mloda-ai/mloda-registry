@@ -43,6 +43,7 @@ AGGREGATION_TYPES = {
 
 
 class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
+    KEY_COLUMN_OPTIONS = ("mask",)
     PREFIX_PATTERN = r".*__([\w]+)_scalar$"
 
     MIN_IN_FEATURES = 1

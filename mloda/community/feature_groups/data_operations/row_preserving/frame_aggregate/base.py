@@ -205,6 +205,8 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
     - ``order_by``: Column to order by (required for all frame types)
     """
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")
+
     # PREFIX_PATTERN is the rolling member; FRAME_PATTERNS is the full matching set the mixin uses.
     FRAME_PATTERNS: tuple[str, ...] = (
         _ROLLING_PATTERN.pattern,

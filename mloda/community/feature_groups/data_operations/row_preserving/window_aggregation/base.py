@@ -106,6 +106,8 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
     - ``order_by``: Column to order by (required for first/last)
     """
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")
+
     PREFIX_PATTERN = r".*__([\w]+)_window$"
 
     MIN_IN_FEATURES = 1

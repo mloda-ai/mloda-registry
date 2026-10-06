@@ -35,8 +35,8 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import (
     PandasEma,
 )
-from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator, column_selective
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator, column_selective
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,
 # nulls skipped (ignore_na=True), output null where the input is null.

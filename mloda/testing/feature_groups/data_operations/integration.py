@@ -34,7 +34,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 
-from mloda.testing.data_creator.pyarrow import column_selective
+from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls
 
 
@@ -157,7 +157,7 @@ class DataOpsIntegrationTestBase(ABC):
         results = mloda.run_all(
             [feature],
             compute_frameworks=[self.compute_framework_class()],
-            plugin_collector=self._plugin_collector(creator),
+            plugin_collector=self._plugin_collector(creator) if creator is not None else self._plugin_collector(),
         )
         assert len(results) >= 1
 

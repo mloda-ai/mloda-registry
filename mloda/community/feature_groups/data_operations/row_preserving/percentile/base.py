@@ -85,6 +85,8 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         )
     """
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "mask")
+
     PREFIX_PATTERN = r".*__(p\d+)_percentile$"
 
     MIN_IN_FEATURES = 1

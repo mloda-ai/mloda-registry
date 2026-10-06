@@ -229,17 +229,42 @@ class ScalarArityTestBase:
             columns.update(condition[0] for condition in conditions)
         return columns
 
+    #: Stray column per key option, distinct from each other and from any source.
+    _STRAY_KEY_CONTEXT: dict[str, Any] = {
+        "partition_by": ["stray_partition_col"],
+        "order_by": "stray_order_col",
+        "time_column": "stray_time_col",
+        "mask": ("stray_mask_col", "equal", 1),
+    }
+    _STRAY_KEY_COLUMNS: dict[str, str] = {
+        "partition_by": "stray_partition_col",
+        "order_by": "stray_order_col",
+        "time_column": "stray_time_col",
+        "mask": "stray_mask_col",
+    }
+
+    def _declared_names(self, context: dict[str, Any]) -> set[str]:
+        """Input feature names declared for ``context``; input_features is called directly, so match is not run."""
+        group = self.feature_group_class()
+        declared = group().input_features(Options(context=dict(context)), FeatureName(self.match_feature_name()))
+        return {str(feature.name) for feature in declared or set()}
+
     def test_input_features_declare_key_columns(self) -> None:
-        """Every key column named in the options is a declared input, next to the source."""
+        """Every key column named in the options is a declared input, next to the source, and only those the op reads."""
         context = self.base_context()
         expected = self._key_columns(context)
-        if not expected:
-            return
+        if expected:
+            names = self._declared_names(context)
+            assert expected <= names, f"missing key columns {sorted(expected - names)} in {sorted(names)}"
+
         group = self.feature_group_class()
-        options = Options(context=dict(context))
-        declared = group().input_features(options, FeatureName(self.match_feature_name()))
-        names = {str(feature.name) for feature in declared or set()}
-        assert expected <= names, f"missing key columns {sorted(expected - names)} in {sorted(names)}"
+        reads = set(getattr(group, "KEY_COLUMN_OPTIONS", ()))
+        assert reads <= set(self._STRAY_KEY_COLUMNS), f"unknown key options {sorted(reads)}"
+        bare = {key: value for key, value in context.items() if key not in self._STRAY_KEY_CONTEXT}
+        sources = self._declared_names(bare)
+        stray = self._declared_names({**bare, **self._STRAY_KEY_CONTEXT})
+        expected_stray = sources | {self._STRAY_KEY_COLUMNS[key] for key in reads}
+        assert stray == expected_stray, f"declared {sorted(stray)}, expected {sorted(expected_stray)}"
 
     # -- Single-element containers -------------------------------------------
 

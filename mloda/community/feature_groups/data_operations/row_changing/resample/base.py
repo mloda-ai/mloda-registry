@@ -130,6 +130,8 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Featur
     floor + group-by + aggregate); presence guards are shared.
     """
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "time_column")
+
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 

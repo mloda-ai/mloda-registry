@@ -15,7 +15,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, mloda
 
-from mloda.testing.data_creator.pyarrow import column_selective
+from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import is_null
 
 
@@ -112,7 +112,9 @@ class MaskIntegrationTestMixin:
         results = mloda.run_all(
             [feature],
             compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
-            plugin_collector=self._plugin_collector(creator),  # type: ignore[attr-defined]
+            plugin_collector=(
+                self._plugin_collector(creator) if creator is not None else self._plugin_collector()  # type: ignore[attr-defined]
+            ),
         )
         assert len(results) >= 1
 

@@ -85,6 +85,8 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
     - ``partition_by``: List of columns to partition by; ``[]`` aggregates the whole table into one row
     """
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "mask")
+
     PREFIX_PATTERN = r".*__([\w]+)_agg$"
 
     MIN_IN_FEATURES = 1

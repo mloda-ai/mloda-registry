@@ -30,7 +30,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
     PandasSessionization,
 )
-from mloda.testing.data_creator.pyarrow import column_selective
+from mloda.testing.data_creator.base import column_selective
 
 _U = timezone.utc
 

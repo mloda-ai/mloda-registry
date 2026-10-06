@@ -132,6 +132,8 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
     - ``order_by``: Column to order by within each partition
     """
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
+
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 

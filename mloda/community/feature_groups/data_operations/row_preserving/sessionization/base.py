@@ -118,6 +118,8 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
 class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
+
     PREFIX_PATTERN = r".*__(sessionize_\d+_(?:minute|hour|day|week))$"
 
     MIN_IN_FEATURES = 1
@@ -157,7 +159,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         source_feature = self._extract_source_features(Feature(str(feature_name), options=options))[0]
         sources = {Feature(source_feature)}
-        return sources | key_column_features(options, sources)
+        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS)
 
     # Kept: the source comes only from the name; a config-only feature must raise, not fall back to in_features.
     @classmethod

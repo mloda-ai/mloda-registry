@@ -395,3 +395,8 @@ class TestKeyColumnFeatures:
         source = Feature("region", Options(group={"k": "v"}))
         keys = key_column_features(Options(context={"partition_by": ["region", "team"]}), [source])
         assert keys == {Feature("team")}
+
+    @pytest.mark.parametrize("key", ["order_by", "time_column"])
+    @pytest.mark.parametrize("value", [["ts", "other"], ("ts", "other"), ""])
+    def test_non_column_ref_is_not_declared(self, key: str, value: Any) -> None:
+        assert key_column_features(Options(context={key: value}), [_GROUPED_SOURCE]) == set()

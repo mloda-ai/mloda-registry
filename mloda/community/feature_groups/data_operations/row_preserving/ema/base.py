@@ -66,6 +66,8 @@ from mloda.community.feature_groups.data_operations.base import (
 class EmaFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
 
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
+
     PREFIX_PATTERN = r".*__ema_(\d+)$"
 
     MIN_IN_FEATURES = 1
