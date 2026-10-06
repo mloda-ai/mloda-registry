@@ -52,7 +52,7 @@ _TRACER_NAME = "mloda_community_otel"
 _CONTENT_PREVIEW_MAX_LEN = 200
 _TRUTHY_ENV_VALUES = {"true", "1"}
 
-# Plan span contexts kept for parenting run roots (LRU eviction, a run refreshes its plan); read at call time.
+# Plan span contexts kept for parenting run roots (LRU eviction); read at call time.
 _MAX_PLAN_SPANS = 1024
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -200,9 +200,9 @@ class OtelExtender(Extender):
     lifetime).
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
-    run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed plan. Calculate spans
-    are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known root, spans fall back to
-    the carrier or run_id trace."""
+    run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
+    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known
+    root, spans fall back to the carrier or run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
