@@ -322,6 +322,22 @@ class BinaryModelConformanceBase:
 
     missing_plugins_claim_text: ClassVar[str] = license_vectors.missing_plugins_claim_token()
 
+    @property
+    def timestamp_without_seconds_license_text(self) -> str:
+        return license_vectors.timestamp_without_seconds_license_token([self.plugin_id])
+
+    @property
+    def compact_timestamp_license_text(self) -> str:
+        return license_vectors.compact_timestamp_license_token([self.plugin_id])
+
+    @property
+    def unpadded_max_release_date_license_text(self) -> str:
+        return license_vectors.unpadded_max_release_date_license_token([self.plugin_id])
+
+    @property
+    def float_schema_version_license_text(self) -> str:
+        return license_vectors.float_schema_version_license_token([self.plugin_id])
+
     # ``in_grace_license_text`` is time-relative: an override must return a token currently inside its grace window.
     @property
     def in_grace_license_text(self) -> str:
@@ -667,12 +683,16 @@ class BinaryModelConformanceBase:
             pytest.param("tampered_unparseable_text", id="unparseable_text"),
             pytest.param("tampered_signature_text", id="tampered_signature"),
             pytest.param("missing_plugins_claim_text", id="missing_plugins_claim"),
+            pytest.param("timestamp_without_seconds_license_text", id="timestamp_without_seconds"),
+            pytest.param("compact_timestamp_license_text", id="compact_timestamp"),
+            pytest.param("unpadded_max_release_date_license_text", id="unpadded_max_release_date"),
+            pytest.param("float_schema_version_license_text", id="float_schema_version"),
         ],
     )
     def test_license_tampered_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A rejected token body (text that is not a token at all, a broken signature, or a
-        well-signed payload missing the required ``plugins`` claim): exit 3 (spec: Verification
-        steps 2, 4, 5; contract: License). Parametrized by attribute name, looked up via
+        """A rejected token body (text that is not a token at all, a broken signature, a
+        well-signed payload missing the required ``plugins`` claim, or a well-signed token with a
+        malformed claim format): exit 3 (spec: Verification steps 2, 4, 5; contract: License). Parametrized by attribute name, looked up via
         ``getattr`` at test-run time, since the fixtures are instance attributes, not module
         constants."""
         tampered_text = getattr(self, attr_name)

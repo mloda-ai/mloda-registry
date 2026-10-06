@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import os
 import re
 import subprocess  # nosec
 import sys
@@ -184,16 +185,32 @@ class TestBinaryPluginIdInvariants:
 _PROBE_SCRIPT_TEMPLATE = """
 import importlib
 import json
+import logging
 import sys
+
+class _Capture(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self.records = []
+
+    def emit(self, record):
+        self.records.append((record.name, record.levelname, record.getMessage()))
+
+_capture = _Capture()
+logging.getLogger().addHandler(_capture)
+logging.getLogger().setLevel(logging.DEBUG)
 
 # Makes `import pyarrow` raise ModuleNotFoundError(name="pyarrow"), simulating an environment
 # where the optional pyarrow dependency is not installed.
 sys.modules["pyarrow"] = None
+for _blocked in {blocked_json}:
+    sys.modules[_blocked] = None
 
 dotted_paths = {dotted_paths_json}
 results = {{}}
 for dotted in dotted_paths:
     entry = {{"root_import_ok": False, "manifest_import_ok": False, "feature_groups_len": None, "error": None}}
+    _capture.records.clear()
     try:
         importlib.import_module(dotted)
         entry["root_import_ok"] = True
@@ -207,16 +224,25 @@ for dotted in dotted_paths:
         entry["feature_groups_len"] = len(getattr(manifest, "FEATURE_GROUPS", []))
     except Exception as exc:
         entry["error"] = "manifest: " + type(exc).__name__ + ": " + str(exc)
+    entry["manifest_logs"] = [list(r) for r in _capture.records if r[0] == dotted + ".manifest"]
     results[dotted] = entry
 
 print(json.dumps(results))
 """
 
 
-def _run_pyarrow_unavailable_probe(dotted_paths: list[str]) -> dict[str, Any]:
-    script = _PROBE_SCRIPT_TEMPLATE.format(dotted_paths_json=json.dumps(dotted_paths))
+def _run_pyarrow_unavailable_probe(
+    dotted_paths: list[str], extra_pythonpath: Path | None = None, blocked_modules: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """Run the probe; ``blocked_modules`` are made unimportable (and invisible to ``find_spec``) in the child."""
+    script = _PROBE_SCRIPT_TEMPLATE.format(
+        dotted_paths_json=json.dumps(dotted_paths), blocked_json=json.dumps(list(blocked_modules))
+    )
+    env = dict(os.environ)
+    if extra_pythonpath is not None:
+        env["PYTHONPATH"] = os.pathsep.join([str(extra_pythonpath), env.get("PYTHONPATH", "")])
     completed = subprocess.run(  # nosec B603
-        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env=env
     )
     assert completed.returncode == 0, f"probe subprocess failed: {completed.stderr}"
     result: dict[str, Any] = json.loads(completed.stdout)
@@ -253,6 +279,25 @@ class TestEveryEnterpriseManifestImportsWithoutPyarrow:
         summary = _run_pyarrow_unavailable_probe(dotted_paths)
         for dotted in dotted_paths:
             assert summary[dotted]["feature_groups_len"] == 0, dotted
+
+    def test_anonymizer_manifest_logs_debug_not_warning_without_pyarrow_or_wheel(self) -> None:
+        dotted = "mloda.enterprise.feature_groups.anonymizer"
+        logs = _run_pyarrow_unavailable_probe([dotted], blocked_modules=("anonymizer_binary",))[dotted]["manifest_logs"]
+        levels = {level for _name, level, _msg in logs}
+        assert "DEBUG" in levels, logs
+        assert "WARNING" not in levels, logs
+        assert any("pyarrow" in msg and "mloda-enterprise[anonymizer]" in msg for _n, _l, msg in logs), logs
+
+    def test_anonymizer_manifest_warns_without_pyarrow_when_the_wheel_is_installed(self, tmp_path: Path) -> None:
+        dotted = "mloda.enterprise.feature_groups.anonymizer"
+        wheel_dir = tmp_path / "anonymizer_binary"
+        wheel_dir.mkdir()
+        (wheel_dir / "__init__.py").write_text("")
+        entry = _run_pyarrow_unavailable_probe([dotted], extra_pythonpath=tmp_path)[dotted]
+        assert entry["feature_groups_len"] == 0
+        warnings = [msg for _name, level, msg in entry["manifest_logs"] if level == "WARNING"]
+        assert warnings, entry["manifest_logs"]
+        assert "pyarrow" in warnings[0] and "mloda-enterprise[anonymizer]" in warnings[0]
 
     def test_pyarrow_backed_feature_groups_is_non_empty_in_the_normal_environment(self) -> None:
         for dotted in _pyarrow_backed_dotted_paths():

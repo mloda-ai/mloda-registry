@@ -94,6 +94,34 @@ def missing_plugins_claim_token() -> str:
     return _signed(claims)
 
 
+def timestamp_without_seconds_license_token(plugins: list[str]) -> str:
+    """A token whose ``nbf`` omits the seconds field, not RFC 3339 (spec: Claims)."""
+    claims = _base_claims(plugins)
+    claims["nbf"] = "2020-01-01T00:00+00:00"
+    return _signed(claims)
+
+
+def compact_timestamp_license_token(plugins: list[str]) -> str:
+    """A token whose ``nbf`` is in ISO 8601 basic format, not RFC 3339 (spec: Claims)."""
+    claims = _base_claims(plugins)
+    claims["nbf"] = "20200101T000000Z"
+    return _signed(claims)
+
+
+def unpadded_max_release_date_license_token(plugins: list[str]) -> str:
+    """A token whose ``max_release_date`` is not zero-padded ``YYYY-MM-DD`` (spec: Claims)."""
+    claims = _base_claims(plugins)
+    claims["max_release_date"] = "2026-3-1"
+    return _signed(claims)
+
+
+def float_schema_version_license_token(plugins: list[str]) -> str:
+    """A token whose ``v`` is the float ``1.0`` rather than the integer ``1`` (spec: Claims)."""
+    claims = _base_claims(plugins)
+    claims["v"] = 1.0
+    return _signed(claims)
+
+
 def tampered_signature_token(plugins: list[str]) -> str:
     """A valid token with one payload base64url character swapped: the container still decodes but
     the Ed25519 signature no longer matches (spec: Verification step 4)."""
@@ -156,6 +184,34 @@ MISSING_PLUGINS_TOKEN = (  # nosec B105
     "VfZGF5cyI6MTQsImlhdCI6IjIwMjAtMDEtMDFUMDA6MDA6MDArMDA6MDAiLCJsaWNlbnNlX2lkIjoibGljLXRlc3QtMDAxIiwibmJmIj"
     "oiMjAyMC0wMS0wMVQwMDowMDowMCswMDowMCIsInYiOjF9l92xpaLwrk2NvcQ_bMJ2i7h_KXTt2DcBu409JPmDEtczJ6BRms0Z4sS_Pf"
     "zghqH9ET4xl92NGrgOvRaNko9LCA.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
+)
+
+TIMESTAMP_WITHOUT_SECONDS_TOKEN = (  # nosec B105
+    "v4.public.eyJjdXN0b21lcl9pZCI6ImN1c3QtdGVzdC0wMDEiLCJleHAiOiIyMDM2LTAxLTAxVDAwOjAwOjAwKzAwOjAwIiwiZ3JhY2VfZG"
+    "F5cyI6MTQsImlhdCI6IjIwMjAtMDEtMDFUMDA6MDA6MDArMDA6MDAiLCJsaWNlbnNlX2lkIjoibGljLXRlc3QtMDAxIiwibmJmIjoiMjAyMC"
+    "0wMS0wMVQwMDowMCswMDowMCIsInBsdWdpbnMiOlsiZXhhbXBsZV9iaW5hcnkiXSwidiI6MX0Mm-9DvVCuymyf4B8kliX5LPn3QAIqfCkZ5o"
+    "zxA9xoMHo8o4PANwsJyuQtTMGmPPEYNf92zu8ibM8-JB0myzsA.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
+)
+
+COMPACT_TIMESTAMP_TOKEN = (  # nosec B105
+    "v4.public.eyJjdXN0b21lcl9pZCI6ImN1c3QtdGVzdC0wMDEiLCJleHAiOiIyMDM2LTAxLTAxVDAwOjAwOjAwKzAwOjAwIiwiZ3JhY2VfZG"
+    "F5cyI6MTQsImlhdCI6IjIwMjAtMDEtMDFUMDA6MDA6MDArMDA6MDAiLCJsaWNlbnNlX2lkIjoibGljLXRlc3QtMDAxIiwibmJmIjoiMjAyMD"
+    "AxMDFUMDAwMDAwWiIsInBsdWdpbnMiOlsiZXhhbXBsZV9iaW5hcnkiXSwidiI6MX1yBx0ImC1usyTm3Snx5wZtvkb0KYaSRgkDX_hpEOmhTd"
+    "lzWbB69UmKLEn0VYRB1oOHYuRrXeEEcl6bdj_DI5YF.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
+)
+
+UNPADDED_MAX_RELEASE_DATE_TOKEN = (  # nosec B105
+    "v4.public.eyJjdXN0b21lcl9pZCI6ImN1c3QtdGVzdC0wMDEiLCJleHAiOiIyMDM2LTAxLTAxVDAwOjAwOjAwKzAwOjAwIiwiZ3JhY2VfZG"
+    "F5cyI6MTQsImlhdCI6IjIwMjAtMDEtMDFUMDA6MDA6MDArMDA6MDAiLCJsaWNlbnNlX2lkIjoibGljLXRlc3QtMDAxIiwibWF4X3JlbGVhc2"
+    "VfZGF0ZSI6IjIwMjYtMy0xIiwibmJmIjoiMjAyMC0wMS0wMVQwMDowMDowMCswMDowMCIsInBsdWdpbnMiOlsiZXhhbXBsZV9iaW5hcnkiXS"
+    "widiI6MX1_f0Xv79TFvWyki6kWupaH97HmhBOYixAZcqqsPi_Kl2uUxuUUbk6NOrjIm4Tnic31_kB8h5Q5kAtVPFnpXmYO.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
+)
+
+FLOAT_SCHEMA_VERSION_TOKEN = (  # nosec B105
+    "v4.public.eyJjdXN0b21lcl9pZCI6ImN1c3QtdGVzdC0wMDEiLCJleHAiOiIyMDM2LTAxLTAxVDAwOjAwOjAwKzAwOjAwIiwiZ3JhY2VfZG"
+    "F5cyI6MTQsImlhdCI6IjIwMjAtMDEtMDFUMDA6MDA6MDArMDA6MDAiLCJsaWNlbnNlX2lkIjoibGljLXRlc3QtMDAxIiwibmJmIjoiMjAyMC"
+    "0wMS0wMVQwMDowMDowMCswMDowMCIsInBsdWdpbnMiOlsiZXhhbXBsZV9iaW5hcnkiXSwidiI6MS4wfekZ-9BWDc9OyJLcZq1IdbwFSFimzs"
+    "H4P-1q5ML60xainT1IKwbDt5NTX7okrH5VUYRPGRm2MHuC7V89PIoKYwI.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
 )
 
 # Text that is not a token at all, not even the PASETO v4.public container (spec: Test vectors).

@@ -148,14 +148,29 @@ def _parse_payload(payload: bytes) -> dict[str, Any]:
     return parsed
 
 
+_TIMESTAMP_PATTERN = re.compile(
+    r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?P<time>[0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]+))?(?P<offset>[Zz]|[+-][0-9]{2}:[0-9]{2})"
+)
+_DATE_PATTERN = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
 def _parse_timestamp(claims: dict[str, Any], name: str) -> datetime:
-    """A required RFC 3339 timestamp claim; a ``Z`` suffix is normalized to ``+00:00`` and a naive
-    timestamp is a rejection (spec: Claims)."""
+    """A required RFC 3339 timestamp claim, matching the Rust gate except that leap seconds and other
+    separators are rejected; ``Z`` is normalized to ``+00:00`` and a naive timestamp is a rejection
+    (spec: Claims)."""
     value = claims.get(name)
     if not isinstance(value, str):
         raise LicenseVerificationError(f"claim '{name}' is missing or not an RFC 3339 timestamp string")
+    match = _TIMESTAMP_PATTERN.fullmatch(value)
+    if match is None:
+        raise LicenseVerificationError(f"claim '{name}' is not an RFC 3339 timestamp: {value!r}")
+    fraction = match.group("fraction")
+    micros = f".{fraction[:6].ljust(6, '0')}" if fraction else ""
+    offset = "+00:00" if match.group("offset") in ("Z", "z") else match.group("offset")
+    normalized = f"{match.group('date')}T{match.group('time')}{micros}{offset}"
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalized)
     except ValueError as error:
         raise LicenseVerificationError(f"claim '{name}' is not an RFC 3339 timestamp: {error}") from error
     if parsed.tzinfo is None:
@@ -171,6 +186,8 @@ def _parse_max_release_date(claims: dict[str, Any]) -> date | None:
         return None
     if not isinstance(value, str):
         raise LicenseVerificationError("claim 'max_release_date' must be a YYYY-MM-DD date string")
+    if not _DATE_PATTERN.fullmatch(value):
+        raise LicenseVerificationError(f"claim 'max_release_date' is not a YYYY-MM-DD date: {value!r}")
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError as error:
@@ -181,7 +198,7 @@ def _validate_claims(claims: dict[str, Any]) -> tuple[datetime, datetime, int, l
     """Check ``v == 1`` and the required claims' presence and types; unknown claims are ignored
     (spec: Claims; spec: Verification step 5)."""
     version = claims.get("v")
-    if isinstance(version, bool) or version != TOKEN_SCHEMA_VERSION:
+    if type(version) is not int or version != TOKEN_SCHEMA_VERSION:
         raise LicenseVerificationError(f"unsupported token schema version {version!r}; this verifier expects v == 1")
     for name in ("license_id", "customer_id"):
         if not isinstance(claims.get(name), str):

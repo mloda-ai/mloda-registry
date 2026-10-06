@@ -12,7 +12,9 @@ import pytest
 
 from mloda.testing.binary_model.license_token import LicenseVerificationError, verify_license_token
 from mloda.testing.binary_model.license_vectors import (
+    COMPACT_TIMESTAMP_TOKEN,
     EXPIRED_TOKEN,
+    FLOAT_SCHEMA_VERSION_TOKEN,
     MISSING_PLUGINS_TOKEN,
     NOT_YET_VALID_TOKEN,
     TAMPERED_SIGNATURE_TOKEN,
@@ -21,15 +23,21 @@ from mloda.testing.binary_model.license_vectors import (
     TEST_PUBLIC_KEY,
     TEST_PUBLIC_KEYS,
     TEST_SECRET_SEED,
+    TIMESTAMP_WITHOUT_SECONDS_TOKEN,
     UNKNOWN_KID_TOKEN,
+    UNPADDED_MAX_RELEASE_DATE_TOKEN,
     VALID_TOKEN,
     WRONG_PLUGIN_TOKEN,
+    compact_timestamp_license_token,
     expired_license_token,
+    float_schema_version_license_token,
     in_grace_license_token,
     missing_plugins_claim_token,
     not_yet_valid_license_token,
     tampered_signature_token,
+    timestamp_without_seconds_license_token,
     unknown_kid_license_token,
+    unpadded_max_release_date_license_token,
     valid_license_token,
 )
 
@@ -47,6 +55,10 @@ ALL_TOKEN_CONSTANTS = [
     pytest.param(UNKNOWN_KID_TOKEN, id="unknown_kid"),
     pytest.param(TAMPERED_SIGNATURE_TOKEN, id="tampered_signature"),
     pytest.param(MISSING_PLUGINS_TOKEN, id="missing_plugins"),
+    pytest.param(TIMESTAMP_WITHOUT_SECONDS_TOKEN, id="timestamp_without_seconds"),
+    pytest.param(COMPACT_TIMESTAMP_TOKEN, id="compact_timestamp"),
+    pytest.param(UNPADDED_MAX_RELEASE_DATE_TOKEN, id="unpadded_max_release_date"),
+    pytest.param(FLOAT_SCHEMA_VERSION_TOKEN, id="float_schema_version"),
 ]
 
 
@@ -86,6 +98,24 @@ class TestConstantsMatchBuilders:
                 TAMPERED_SIGNATURE_TOKEN, lambda: tampered_signature_token([PLUGIN_ID]), id="tampered_signature"
             ),
             pytest.param(MISSING_PLUGINS_TOKEN, lambda: missing_plugins_claim_token(), id="missing_plugins"),
+            pytest.param(
+                TIMESTAMP_WITHOUT_SECONDS_TOKEN,
+                lambda: timestamp_without_seconds_license_token([PLUGIN_ID]),
+                id="timestamp_without_seconds",
+            ),
+            pytest.param(
+                COMPACT_TIMESTAMP_TOKEN, lambda: compact_timestamp_license_token([PLUGIN_ID]), id="compact_timestamp"
+            ),
+            pytest.param(
+                UNPADDED_MAX_RELEASE_DATE_TOKEN,
+                lambda: unpadded_max_release_date_license_token([PLUGIN_ID]),
+                id="unpadded_max_release_date",
+            ),
+            pytest.param(
+                FLOAT_SCHEMA_VERSION_TOKEN,
+                lambda: float_schema_version_license_token([PLUGIN_ID]),
+                id="float_schema_version",
+            ),
         ],
     )
     def test_constant_equals_builder_output(self, constant: str, build: Callable[[], str]) -> None:
@@ -129,6 +159,10 @@ class TestVerification:
             pytest.param(TAMPERED_SIGNATURE_TOKEN, id="tampered_signature"),
             pytest.param(MISSING_PLUGINS_TOKEN, id="missing_plugins"),
             pytest.param(TAMPERED_UNPARSEABLE_TEXT, id="unparseable_text"),
+            pytest.param(TIMESTAMP_WITHOUT_SECONDS_TOKEN, id="timestamp_without_seconds"),
+            pytest.param(COMPACT_TIMESTAMP_TOKEN, id="compact_timestamp"),
+            pytest.param(UNPADDED_MAX_RELEASE_DATE_TOKEN, id="unpadded_max_release_date"),
+            pytest.param(FLOAT_SCHEMA_VERSION_TOKEN, id="float_schema_version"),
         ],
     )
     def test_rejection_states_raise(self, text: str) -> None:

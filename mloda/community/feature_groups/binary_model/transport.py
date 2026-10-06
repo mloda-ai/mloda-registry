@@ -5,6 +5,7 @@ per-invocation directory, and running the binary itself over stdin/stdout or fil
 
 from __future__ import annotations
 
+import getpass
 import io
 import json
 import logging
@@ -24,6 +25,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO
 
+from mloda.community.feature_groups.binary_model.contract import stderr_excerpt
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryTerminatedError,
     BinaryUnavailableError,
@@ -76,6 +78,98 @@ def _windows_pid_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
+def _is_reparse_point(path: Path) -> bool:
+    """Whether ``path`` is a Windows reparse point (symlink or junction)."""
+    return bool(getattr(os.lstat(path), "st_file_attributes", 0) & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+def _windows_owned_by_current_user(path: Path) -> bool:
+    """Whether ``path`` is owned by the current user (token user or owner SID), Administrators or
+    LocalSystem on Windows; raises ``OSError`` when an API call fails."""
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    pvoid = ctypes.c_void_p
+    advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+    advapi32.GetNamedSecurityInfoW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+    ]
+    kernel32.LocalFree.restype = pvoid
+    kernel32.LocalFree.argtypes = [pvoid]
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.GetCurrentProcess.argtypes = []
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        pvoid,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.CreateWellKnownSid.restype = wintypes.BOOL
+    advapi32.CreateWellKnownSid.argtypes = [wintypes.DWORD, pvoid, pvoid, ctypes.POINTER(wintypes.DWORD)]
+    advapi32.EqualSid.restype = wintypes.BOOL
+    advapi32.EqualSid.argtypes = [pvoid, pvoid]
+
+    def token_sid(token: Any, info_class: int) -> tuple[Any, Any]:
+        """The SID pointer of a token information class, plus its backing buffer."""
+        size = wintypes.DWORD(0)
+        advapi32.GetTokenInformation(token, info_class, None, 0, ctypes.byref(size))  # sizing call, fails by design
+        if size.value == 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+        buf = ctypes.create_string_buffer(size.value)
+        if not advapi32.GetTokenInformation(token, info_class, buf, size, ctypes.byref(size)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return ctypes.cast(buf, ctypes.POINTER(pvoid))[0], buf
+
+    def well_known_sid(sid_type: int) -> Any:
+        buf = ctypes.create_string_buffer(68)  # SECURITY_MAX_SID_SIZE
+        size = wintypes.DWORD(68)
+        if not advapi32.CreateWellKnownSid(sid_type, None, buf, ctypes.byref(size)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return buf
+
+    owner = pvoid()
+    descriptor = pvoid()
+    error = advapi32.GetNamedSecurityInfoW(
+        str(path), 1, 1, ctypes.byref(owner), None, None, None, ctypes.byref(descriptor)
+    )  # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION
+    if error:
+        raise OSError(None, ctypes.FormatError(error), str(path), error)
+    try:
+        if owner.value is None:
+            raise OSError(None, "no owner", str(path))
+        token = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            user_sid, user_buf = token_sid(token, 1)  # TokenUser
+            owner_sid, owner_buf = token_sid(token, 4)  # TokenOwner
+        finally:
+            kernel32.CloseHandle(token)
+        admins = well_known_sid(26)  # WinBuiltinAdministratorsSid
+        system = well_known_sid(22)  # WinLocalSystemSid
+        trusted = (user_sid, owner_sid, ctypes.addressof(admins), ctypes.addressof(system))
+        return any(bool(advapi32.EqualSid(owner.value, sid)) for sid in trusted)
+    finally:
+        kernel32.LocalFree(descriptor)
+
+
 def minimal_environment(
     *,
     license_file: str | None = None,
@@ -87,12 +181,15 @@ def minimal_environment(
     fixed UTF-8 locale on POSIX, ``SYSTEMROOT`` on Windows when present, and the license
     variables (an explicit argument wins over the value inherited from ``source_env``, which
     itself defaults to ``os.environ``). ``source_env`` also supplies ``PATH`` and ``SYSTEMROOT``,
-    so ``source_env={}`` drops them too; ``inherit_license=False`` (the canonical spelling; an
-    explicit empty ``license_file`` / ``license_key`` does the same) suppresses only the license
-    variables. ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
+    so ``source_env={}`` drops them too; ``inherit_license=False`` (the canonical spelling)
+    suppresses only the license variables; an explicit empty ``license_file`` / ``license_key``
+    suppresses only its own variable. A non-empty explicit ``license_file`` or ``license_key`` means neither variable is
+    inherited (the binary reads the file first, so an inherited file would mask an explicit key).
+    ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
     binary itself runs with its private invocation directory as its cwd."""
     source = os.environ if source_env is None else source_env
-    inherited: Mapping[str, str] = source if inherit_license else {}
+    explicit = bool(license_file) or bool(license_key)
+    inherited: Mapping[str, str] = source if inherit_license and not explicit else {}
     env: dict[str, str] = {"PATH": source.get("PATH") or os.defpath}
 
     if os.name == "nt":
@@ -115,10 +212,14 @@ def minimal_environment(
 
 
 def default_parent() -> Path:
-    """The default parent directory: per-user on POSIX so users never share one."""
+    """The default parent directory, per user so users sharing a temp directory never share one."""
     base = Path(tempfile.gettempdir())
     if os.name == "nt":
-        return base / TEMP_PARENT_NAME
+        try:
+            user = re.sub(r"[^A-Za-z0-9_.-]", "_", getpass.getuser())
+        except Exception:
+            user = ""
+        return base / f"{TEMP_PARENT_NAME}-{user or 'user'}"
     return base / f"{TEMP_PARENT_NAME}-{os.getuid()}"
 
 
@@ -137,8 +238,7 @@ class InvocationDirectory:
             self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         except OSError as exc:
             raise BinaryUnavailableError(f"cannot create {self.parent}: {exc}") from exc
-        if os.name != "nt":
-            self._validate_parent()
+        self._validate_parent()
 
         self._reap_dead_siblings()
 
@@ -190,10 +290,23 @@ class InvocationDirectory:
         return self
 
     def _validate_parent(self) -> None:
-        """Refuse a parent that is a symlink, not owned by the current user, world-writable, or
+        """On Windows refuse a parent that is a symlink or junction or not owned by the current user
+        (owner and symlink/junction only, no ACL check). On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
         writable by a group other than the current process's own (contract: Data handling): a
         directory shared with the process's own group, the common user-private-group scheme, is
         not a foreign-write risk, but world-writable or a foreign group is."""
+        if os.name == "nt":
+            if _is_reparse_point(self.parent):
+                raise BinaryUnavailableError(f"refusing to use {self.parent}: a symlink or junction")
+            try:
+                owned = _windows_owned_by_current_user(self.parent)
+            except OSError as exc:
+                raise BinaryUnavailableError(f"refusing to use {self.parent}: cannot read its owner: {exc}") from exc
+            if not owned:
+                raise BinaryUnavailableError(
+                    f"refusing to use {self.parent}: not owned by the current user; delete it so it is recreated"
+                )
+            return
         stat_result = os.lstat(self.parent)
         if stat.S_ISLNK(stat_result.st_mode):
             raise BinaryUnavailableError(f"refusing to use {self.parent}: a symlink")
@@ -314,6 +427,7 @@ def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
 
 _GRACE_WAIT_SECONDS = 1.0
 _REAP_WAIT_SECONDS = 5.0
+_STDERR_WARNING_LINES = 5
 
 
 def _close_posix_pipes(proc: subprocess.Popen[bytes]) -> None:
@@ -452,6 +566,10 @@ def run_binary(
 
     if proc.returncode != 0:
         raise error_from_exit(proc.returncode, stderr)
+
+    excerpt = stderr_excerpt(stderr, _STDERR_WARNING_LINES)
+    if excerpt is not None:
+        logger.warning("binary %s wrote to stderr on a successful run: %r", os.path.basename(argv[0]), excerpt)
 
     if output_path is not None:
         try:

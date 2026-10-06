@@ -60,6 +60,10 @@ _MISSING_PLUGINS_CLAIM_MARKER = "marker-missing-plugins-claim-text"
 _IN_GRACE_MARKER = "marker-in-grace-license-text"
 _NOT_YET_VALID_MARKER = "marker-not-yet-valid-license-text"
 _UNKNOWN_KID_MARKER = "marker-unknown-kid-license-text"
+_TIMESTAMP_WITHOUT_SECONDS_MARKER = "marker-timestamp-without-seconds-license-text"
+_COMPACT_TIMESTAMP_MARKER = "marker-compact-timestamp-license-text"
+_UNPADDED_MAX_RELEASE_DATE_MARKER = "marker-unpadded-max-release-date-license-text"
+_FLOAT_SCHEMA_VERSION_MARKER = "marker-float-schema-version-license-text"
 
 
 class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConformanceBase):
@@ -143,6 +147,22 @@ class _OverriddenLicenseVectors(BinaryModelConformanceBase):
     def unknown_kid_license_text(self) -> str:
         return _UNKNOWN_KID_MARKER
 
+    @property
+    def timestamp_without_seconds_license_text(self) -> str:
+        return _TIMESTAMP_WITHOUT_SECONDS_MARKER
+
+    @property
+    def compact_timestamp_license_text(self) -> str:
+        return _COMPACT_TIMESTAMP_MARKER
+
+    @property
+    def unpadded_max_release_date_license_text(self) -> str:
+        return _UNPADDED_MAX_RELEASE_DATE_MARKER
+
+    @property
+    def float_schema_version_license_text(self) -> str:
+        return _FLOAT_SCHEMA_VERSION_MARKER
+
 
 def _license_text_that_reached_the_binary(env: dict[str, str], channel: str) -> str:
     """The license text a check handed to the binary via ``channel``: ``MLODA_LICENSE_KEY`` carries it
@@ -179,6 +199,34 @@ def _license_text_that_reached_the_binary(env: dict[str, str], channel: str) -> 
             _LICENSE_FILE,
             _MISSING_PLUGINS_CLAIM_MARKER,
             id="missing_plugins_claim",
+        ),
+        pytest.param(
+            "test_license_tampered_is_invalid",
+            ("timestamp_without_seconds_license_text",),
+            _LICENSE_FILE,
+            _TIMESTAMP_WITHOUT_SECONDS_MARKER,
+            id="timestamp_without_seconds",
+        ),
+        pytest.param(
+            "test_license_tampered_is_invalid",
+            ("compact_timestamp_license_text",),
+            _LICENSE_FILE,
+            _COMPACT_TIMESTAMP_MARKER,
+            id="compact_timestamp",
+        ),
+        pytest.param(
+            "test_license_tampered_is_invalid",
+            ("unpadded_max_release_date_license_text",),
+            _LICENSE_FILE,
+            _UNPADDED_MAX_RELEASE_DATE_MARKER,
+            id="unpadded_max_release_date",
+        ),
+        pytest.param(
+            "test_license_tampered_is_invalid",
+            ("float_schema_version_license_text",),
+            _LICENSE_FILE,
+            _FLOAT_SCHEMA_VERSION_MARKER,
+            id="float_schema_version",
         ),
         pytest.param("test_license_in_grace_is_accepted", (), _LICENSE_KEY, _IN_GRACE_MARKER, id="in_grace"),
         pytest.param(

@@ -253,6 +253,49 @@ def test_last_non_empty_stderr_line_only_scans_the_trailing_64_kib_tail() -> Non
     assert len(result) == 64 * 1024
 
 
+def test_stderr_excerpt_is_none_for_empty_or_blank_only_stderr() -> None:
+    assert contract.stderr_excerpt(b"", 5) is None
+    assert contract.stderr_excerpt(b"\n  \n\t\n", 5) is None
+
+
+def test_stderr_excerpt_keeps_only_the_last_max_lines_in_original_order() -> None:
+    stderr = b"one\ntwo\nthree\nfour\n"
+    assert contract.stderr_excerpt(stderr, 2) == "three\nfour"
+
+
+def test_stderr_excerpt_skips_blank_lines() -> None:
+    assert contract.stderr_excerpt(b"one\n\n  \ntwo\n\n", 5) == "one\ntwo"
+
+
+def test_stderr_excerpt_splits_on_newline_only() -> None:
+    assert contract.stderr_excerpt("a\u2028b\nc".encode(), 5) == "a\u2028b\nc"
+
+
+def test_stderr_excerpt_is_capped_on_a_utf8_character_boundary() -> None:
+    result = contract.stderr_excerpt(("\u2603" * 500).encode(), 5)
+    assert result is not None
+    assert 0 < len(result.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
+
+
+def test_stderr_excerpt_keeps_the_tail_when_capped() -> None:
+    stderr = ("head-" + "x" * (contract.MESSAGE_MAX_BYTES * 2) + "-tail").encode()
+    result = contract.stderr_excerpt(stderr, 5)
+    assert result is not None
+    assert len(result.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
+    assert result.endswith("-tail")
+    assert "head-" not in result
+
+
+def test_truncate_message_caps_bytes_on_a_character_boundary() -> None:
+    result = contract.truncate_message("\u2603" * 500)
+    assert 0 < len(result.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
+    assert result == "\u2603" * len(result)
+
+
+def test_truncate_message_leaves_a_short_message_unchanged() -> None:
+    assert contract.truncate_message("short") == "short"
+
+
 # -- `errors.reported_error`: a pure, non-raising mapping used by the testing kit's own assertions --
 
 

@@ -39,7 +39,11 @@ from mloda.testing.binary_model.conformance import (
     write_json,
 )
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
-from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
+from mloda.testing.binary_model.license_vectors import (
+    expired_license_token,
+    in_grace_license_token,
+    valid_license_token,
+)
 from mloda.testing.tests._module_probe import run_module_probe
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
@@ -149,6 +153,37 @@ class TestBinaryUnavailable:
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(BinaryUnavailableError):
             _MissingPathModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
+
+    @pytest.mark.parametrize(
+        ("extra", "hint"),
+        [
+            pytest.param(
+                "some-bundle[extra]",
+                'pip install "some-bundle[extra]", which brings some-wheel',
+                id="with_extra",
+            ),
+            pytest.param(None, "pip install some-wheel", id="wheel_only"),
+        ],
+    )
+    def test_missing_wheel_message_hint(self, extra: str | None, hint: str) -> None:
+        class _HintModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
+            BINARY_WHEEL_DISTRIBUTION = "some-wheel"
+            BINARY_INSTALL_EXTRA = extra
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            _HintModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert str(excinfo.value).endswith(f"; install it with: {hint}")
+
+    def test_missing_wheel_message_without_wheel_attribute_has_no_hint(self) -> None:
+        class _NoWheelAttrModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            _NoWheelAttrModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert "install it with" not in str(excinfo.value)
 
 
 # -------------------------------------------------------------------------------------------
@@ -332,7 +367,18 @@ class _TinyBatchStubModel(StubModel):
     MAX_BATCH_BYTES = 64
 
 
+class _RowCappedStubModel(StubModel):
+    MAX_BATCH_ROWS = 2
+
+
 class TestBatching:
+    def test_row_capped_model_returns_same_result_as_uncapped(self) -> None:
+        rows = {"col_a": [f"value-{i}" for i in range(7)]}
+        table = pa.table(rows)
+        result = _RowCappedStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        expected = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.column("col_a_hash").to_pylist() == expected.column("col_a_hash").to_pylist()
+
     def test_tiny_max_batch_bytes_still_returns_every_row_correctly(self) -> None:
         rows = {"col_a": [f"value-{i}" for i in range(50)]}
         table = pa.table(rows)
@@ -620,6 +666,23 @@ class TestLicenseOverrides:
         result = _OverrideBeatsEnvModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.num_rows == 1
 
+    def test_license_key_override_beats_an_ambient_expired_license_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        ambient = tmp_path / "ambient_license.txt"
+        ambient.write_text(expired_license_token([PLUGIN_ID]), encoding="utf-8")
+        monkeypatch.setenv("MLODA_LICENSE_FILE", str(ambient))
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+
+        class _KeyBeatsAmbientFileModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = PLUGIN_ID
+            BINARY_COMMAND_OVERRIDE = STUB_CMD
+            LICENSE_KEY_OVERRIDE = valid_license_token([PLUGIN_ID])
+
+        table = pa.table({"col_a": ["alpha"]})
+        result = _KeyBeatsAmbientFileModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.num_rows == 1
+
     def test_empty_license_overrides_suppress_ambient_license_variables(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MLODA_LICENSE_FILE", "/ambient/license.txt")
         monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")
@@ -657,6 +720,23 @@ class TestLogging:
         assert not any(distinctive_parameter_value in message for message in messages), (
             f"secret leaked into logs: {messages!r}"
         )
+
+    def test_successful_run_logs_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
+            StubModel.run_binary_model(pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+    def test_stderr_of_a_successful_run_is_logged_at_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        class _GraceModel(StubModel):
+            LICENSE_KEY_OVERRIDE = in_grace_license_token([PLUGIN_ID])
+
+        with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
+            _GraceModel.run_binary_model(
+                pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"}
+            )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and r.name == transport.__name__]
+        assert len(warnings) == 1
+        assert "grace" in warnings[0].getMessage()
 
 
 # -------------------------------------------------------------------------------------------
@@ -776,6 +856,21 @@ def _stream_bytes(table: pa.Table, max_batch_bytes: int) -> bytes:
 
 
 class TestWriteIpcStreamBatching:
+    def test_max_batch_rows_caps_every_batch(self) -> None:
+        values = [f"v{i}" for i in range(7)]
+        table = pa.table({"col_a": values})
+        sink = io.BytesIO()
+        mixin._write_ipc_stream(table, 1_000_000, sink, max_batch_rows=2)
+        batches = list(pa.ipc.open_stream(sink.getvalue()))
+        assert all(batch.num_rows <= 2 for batch in batches)
+        assert [v for b in batches for v in b.column("col_a").to_pylist()] == values
+
+    def test_rows_per_batch_takes_the_smaller_of_row_cap_and_byte_count(self) -> None:
+        table = pa.table({"col_a": ["x" * 100] * 10})
+        byte_count = mixin._rows_per_batch(table, 1_000_000)
+        assert mixin._rows_per_batch(table, 1_000_000, max_batch_rows=2) == 2
+        assert mixin._rows_per_batch(table, 1_000_000, max_batch_rows=byte_count + 5) == byte_count
+
     def test_skewed_table_never_writes_a_multi_row_batch_over_the_limit(self) -> None:
         """1000 one-character strings plus two 1000-byte strings: the mean-bytes-per-row estimate
         badly underestimates the cost of a batch that happens to include an outlier row, so a

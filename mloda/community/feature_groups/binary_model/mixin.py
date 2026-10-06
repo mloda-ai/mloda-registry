@@ -122,11 +122,15 @@ def _build_outgoing_table(table: pa.Table, input_columns: Sequence[str]) -> pa.T
     return projected.cast(pa.schema(fields))
 
 
-def _rows_per_batch(table: pa.Table, max_batch_bytes: int) -> int:
+# A binary may write far more bytes per row than it reads, which batch sizing by input bytes cannot see.
+_DEFAULT_MAX_BATCH_ROWS = 1 << 20
+
+
+def _rows_per_batch(table: pa.Table, max_batch_bytes: int, *, max_batch_rows: int = _DEFAULT_MAX_BATCH_ROWS) -> int:
     num_rows: int = table.num_rows
     num_bytes: int = table.nbytes
     bytes_per_row = max(1, num_bytes // max(1, num_rows))
-    return max(1, max_batch_bytes // bytes_per_row)
+    return max(1, min(max_batch_bytes // bytes_per_row, max_batch_rows))
 
 
 def _split_oversized_batch(batch: pa.RecordBatch, max_batch_bytes: int) -> list[pa.RecordBatch]:
@@ -152,24 +156,31 @@ def _wire_field(field: pa.Field) -> pa.Field:
     return pa.field(field.name, field_type, nullable=field.nullable)
 
 
-def _write_ipc_stream(table: pa.Table, max_batch_bytes: int, sink: pa.NativeFile | BinaryIO) -> None:
+def _write_ipc_stream(
+    table: pa.Table,
+    max_batch_bytes: int,
+    sink: pa.NativeFile | BinaryIO,
+    *,
+    max_batch_rows: int = _DEFAULT_MAX_BATCH_ROWS,
+) -> None:
     """Write ``table`` as an Arrow IPC stream into ``sink``, batched small enough that no single array
-    exceeds ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes a schema-only stream. The
+    exceeds ``max_batch_bytes`` and no batch exceeds ``max_batch_rows`` rows (contract: Capabilities);
+    a zero-row table writes a schema-only stream. The
     ``large_string``/``string_view`` -> ``utf8`` cast happens here, per batch, after splitting on
     ``table``'s own, still-large-typed batches, since casting the whole table up front could
     overflow ``utf8``'s 32-bit offsets even though no individual cell is oversized."""
     wire_schema = pa.schema([_wire_field(field) for field in table.schema])
-    rows_per_batch = _rows_per_batch(table, max_batch_bytes)
+    rows_per_batch = _rows_per_batch(table, max_batch_bytes, max_batch_rows=max_batch_rows)
     with pa.ipc.new_stream(sink, wire_schema) as writer:
         for batch in table.to_batches(max_chunksize=rows_per_batch):
             for piece in _split_oversized_batch(batch, max_batch_bytes):
                 writer.write_batch(piece.cast(wire_schema))
 
 
-def _ipc_stream_size(table: pa.Table, max_batch_bytes: int) -> int:
+def _ipc_stream_size(table: pa.Table, max_batch_bytes: int, *, max_batch_rows: int = _DEFAULT_MAX_BATCH_ROWS) -> int:
     """Exact byte size of the stream ``_write_ipc_stream`` would write, counted without storing it."""
     sink = pa.MockOutputStream()
-    _write_ipc_stream(table, max_batch_bytes, sink)
+    _write_ipc_stream(table, max_batch_bytes, sink, max_batch_rows=max_batch_rows)
     return int(sink.size())
 
 
@@ -238,6 +249,7 @@ class BinaryModelMixin:
 
     BINARY_PLUGIN_ID: ClassVar[str]
     BINARY_WHEEL_DISTRIBUTION: ClassVar[str]
+    BINARY_INSTALL_EXTRA: ClassVar[str | None] = None
     BINARY_COMMAND_OVERRIDE: ClassVar[Sequence[str] | str | None] = None
     LICENSE_FILE_OVERRIDE: ClassVar[str | None] = None
     LICENSE_KEY_OVERRIDE: ClassVar[str | None] = None
@@ -245,6 +257,7 @@ class BinaryModelMixin:
     BINARY_PROBE_TIMEOUT_SECONDS: ClassVar[float | None] = 60.0
     FILE_TRANSPORT_THRESHOLD_BYTES: ClassVar[int] = 64 * 1024 * 1024
     MAX_BATCH_BYTES: ClassVar[int] = 1 << 30
+    MAX_BATCH_ROWS: ClassVar[int] = _DEFAULT_MAX_BATCH_ROWS
 
     @classmethod
     def binary_environment(cls) -> dict[str, str]:
@@ -254,11 +267,16 @@ class BinaryModelMixin:
     @classmethod
     def resolved_binary(cls) -> ResolvedBinary:
         """Resolve and probe this model's binary (contract: Invocation, Capabilities)."""
+        wheel = getattr(cls, "BINARY_WHEEL_DISTRIBUTION", None)
+        install_hint = None
+        if wheel is not None:
+            install_hint = f'"{cls.BINARY_INSTALL_EXTRA}", which brings {wheel}' if cls.BINARY_INSTALL_EXTRA else wheel
         return resolve_binary(
             cls.BINARY_PLUGIN_ID,
             cls.BINARY_COMMAND_OVERRIDE,
             env=cls.binary_environment(),
             timeout=cls.BINARY_PROBE_TIMEOUT_SECONDS,
+            install_hint=install_hint,
         )
 
     @classmethod
@@ -285,7 +303,7 @@ class BinaryModelMixin:
         _check_input_column_types(table, input_columns, resolved)
 
         outgoing = _build_outgoing_table(table, input_columns)
-        input_size = _ipc_stream_size(outgoing, cls.MAX_BATCH_BYTES)
+        input_size = _ipc_stream_size(outgoing, cls.MAX_BATCH_BYTES, max_batch_rows=cls.MAX_BATCH_ROWS)
         config = {
             "input_columns": list(input_columns),
             "operation": operation,
@@ -299,7 +317,9 @@ class BinaryModelMixin:
                     resolved.argv,
                     cls.binary_environment(),
                     config,
-                    lambda sink: _write_ipc_stream(outgoing, cls.MAX_BATCH_BYTES, sink),
+                    lambda sink: _write_ipc_stream(
+                        outgoing, cls.MAX_BATCH_BYTES, sink, max_batch_rows=cls.MAX_BATCH_ROWS
+                    ),
                     input_size,
                     timeout=cls.BINARY_TIMEOUT_SECONDS,
                     file_transport_threshold=cls.FILE_TRANSPORT_THRESHOLD_BYTES,

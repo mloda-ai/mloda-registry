@@ -46,6 +46,10 @@ def _version(mode: str) -> int:
         return _emit_error(1, "probe stdin was not empty (simulated by faulty_binary probe_reads_stdin)")
     if mode == "reject_license_at_probe" and _license_env_present():
         return _emit_error(1, "probing must not receive a license (simulated by faulty_binary reject_license_at_probe)")
+    if mode == "version_fails":
+        return _emit_error(6, "probe broke")
+    if mode == "version_fails_silent":
+        return 6
     if mode == "version_hang_with_child":
         _spawn_sleeping_child(Path(os.environ["FAULTY_PID_FILE"]))
         time.sleep(60)

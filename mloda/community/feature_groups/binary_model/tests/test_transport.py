@@ -8,6 +8,7 @@ handling, Errors).
 from __future__ import annotations
 
 import errno
+import getpass
 import json
 import logging
 import os
@@ -108,9 +109,17 @@ def _hold_lock(lock_file: Path) -> int:
     return fd
 
 
-def _as_windows(monkeypatch: pytest.MonkeyPatch, alive: Callable[[int], bool]) -> None:
-    """Patch ``os.name`` to ``nt``; call after every ``Path`` is built, as ``Path`` may refuse to instantiate under ``nt``."""
+def _as_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    alive: Callable[[int], bool],
+    owned: Callable[[Path], bool] = lambda path: True,
+    reparse: bool = False,
+) -> None:
+    """Patch ``os.name`` to ``nt``; call after every ``Path`` is built, as ``Path`` may refuse to instantiate under ``nt``.
+    The owner and reparse-point checks are stubbed to pass unless ``owned`` or ``reparse`` say otherwise."""
     monkeypatch.setattr(transport, "_windows_pid_alive", alive)
+    monkeypatch.setattr(transport, "_windows_owned_by_current_user", owned)
+    monkeypatch.setattr(transport, "_is_reparse_point", lambda path: reparse)
     monkeypatch.setattr(os, "name", "nt")
 
 
@@ -186,9 +195,13 @@ class TestMinimalEnvironment:
     def test_explicit_license_file_overrides_source_env(self) -> None:
         result = minimal_environment(
             license_file="/explicit/license.txt",
-            source_env={"PATH": "/usr/bin", "MLODA_LICENSE_FILE": "/from/env/license.txt"},
+            source_env={
+                "PATH": "/usr/bin",
+                "MLODA_LICENSE_FILE": "/from/env/license.txt",
+                "MLODA_LICENSE_KEY": "env-key",
+            },
         )
-        assert result["MLODA_LICENSE_FILE"] == "/explicit/license.txt"
+        assert result["MLODA_LICENSE_FILE"] == str(Path("/explicit/license.txt").resolve())
         assert "MLODA_LICENSE_KEY" not in result
 
     def test_explicit_license_key_overrides_source_env(self) -> None:
@@ -213,6 +226,26 @@ class TestMinimalEnvironment:
         )
         assert result["MLODA_LICENSE_FILE"] == "/f/license.txt"
         assert result["MLODA_LICENSE_KEY"] == "inline-key"
+
+    def test_explicit_license_key_stops_inheriting_ambient_license_file(self) -> None:
+        result = minimal_environment(
+            license_key="explicit-key",
+            source_env={"PATH": "/usr/bin", "MLODA_LICENSE_FILE": "/from/env/license.txt"},
+        )
+        assert result["MLODA_LICENSE_KEY"] == "explicit-key"
+        assert "MLODA_LICENSE_FILE" not in result
+
+    def test_empty_explicit_license_file_alone_still_inherits_ambient_license_key(self) -> None:
+        result = minimal_environment(
+            license_file="",
+            source_env={
+                "PATH": "/usr/bin",
+                "MLODA_LICENSE_FILE": "/from/env/license.txt",
+                "MLODA_LICENSE_KEY": "env-key",
+            },
+        )
+        assert "MLODA_LICENSE_FILE" not in result
+        assert result["MLODA_LICENSE_KEY"] == "env-key"
 
     def test_source_env_defaults_to_os_environ(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PATH", "/from/os/environ")
@@ -395,6 +428,31 @@ class TestInvocationDirectory:
     @pytest.mark.skipif(os.name != "posix", reason="asserts the per-user POSIX parent name")
     def test_default_parent_is_per_user_under_the_temp_dir(self) -> None:
         assert transport.default_parent() == Path(tempfile.gettempdir()) / f"{TEMP_PARENT_NAME}-{os.getuid()}"
+
+    @pytest.mark.parametrize(
+        ("user", "suffix"),
+        [
+            pytest.param("alice", "alice", id="plain"),
+            pytest.param("DOMAIN\\bob smith", "DOMAIN_bob_smith", id="sanitized"),
+            pytest.param("", "user", id="empty_falls_back"),
+        ],
+    )
+    def test_windows_default_parent_is_per_user(self, monkeypatch: pytest.MonkeyPatch, user: str, suffix: str) -> None:
+        base = Path(tempfile.gettempdir())
+        monkeypatch.setattr(getpass, "getuser", lambda: user)
+        monkeypatch.setattr(transport, "Path", lambda text: base)
+        monkeypatch.setattr(os, "name", "nt")
+        assert transport.default_parent() == base / f"{TEMP_PARENT_NAME}-{suffix}"
+
+    def test_windows_default_parent_falls_back_when_getuser_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def broken() -> str:
+            raise KeyError("no user")
+
+        base = Path(tempfile.gettempdir())
+        monkeypatch.setattr(getpass, "getuser", broken)
+        monkeypatch.setattr(transport, "Path", lambda text: base)
+        monkeypatch.setattr(os, "name", "nt")
+        assert transport.default_parent() == base / f"{TEMP_PARENT_NAME}-user"
 
     @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX ownership")
     def test_other_users_default_parent_does_not_block_the_default(
@@ -763,6 +821,54 @@ class TestInvocationDirectory:
             with InvocationDirectory(parent=parent):
                 pass
         assert transport._OWNED_PATHS == owned_before
+
+    def test_windows_owned_parent_is_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        _as_windows(monkeypatch, lambda queried: True)
+        with InvocationDirectory(parent=parent) as inv:
+            assert inv.path.is_dir()
+
+    @pytest.mark.parametrize(
+        ("kind", "fragments"),
+        [
+            ("foreign", ["not owned by the current user", "delete it"]),
+            ("unreadable", ["cannot read its owner", "boom"]),
+            ("reparse", ["symlink or junction"]),
+        ],
+    )
+    def test_windows_refuses_untrusted_parent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, fragments: list[str]
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+
+        def owned(path: Path) -> bool:
+            if kind == "unreadable":
+                raise OSError("boom")
+            return kind != "foreign"
+
+        _as_windows(monkeypatch, lambda queried: True, owned=owned, reparse=kind == "reparse")
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            with InvocationDirectory(parent=parent):
+                pass
+        for fragment in fragments:
+            assert fragment in str(excinfo.value)
+        assert list(parent.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")
+class TestWindowsOwnedByCurrentUser:
+    def test_fresh_directory_is_owned(self, tmp_path: Path) -> None:
+        fresh = tmp_path / "fresh"
+        fresh.mkdir()
+        assert transport._windows_owned_by_current_user(fresh) is True
+
+    def test_system_root_is_not_owned(self) -> None:
+        assert transport._windows_owned_by_current_user(Path(os.environ["SYSTEMROOT"])) is False
+
+    def test_plain_directory_is_not_a_reparse_point(self, tmp_path: Path) -> None:
+        assert transport._is_reparse_point(tmp_path) is False
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")

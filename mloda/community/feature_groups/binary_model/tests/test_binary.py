@@ -85,6 +85,29 @@ class TestResolveBinary:
         assert PLUGIN_ID in str(excinfo.value)
         assert "is not installed" in str(excinfo.value)
 
+    def test_install_hint_is_appended_to_the_not_installed_message(self) -> None:
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(
+                PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0, install_hint='"bundle[extra]" (wheel: w)'
+            )
+        assert str(excinfo.value).endswith('; install it with: pip install "bundle[extra]" (wheel: w)')
+
+    def test_no_install_hint_leaves_the_not_installed_message_unchanged(self) -> None:
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0, install_hint=None)
+        assert "install it with" not in str(excinfo.value)
+
+    def test_install_hint_is_not_appended_to_the_failed_to_import_message(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _raise() -> Path:
+            raise RuntimeError("boom")
+
+        _install_fake_module(monkeypatch, PLUGIN_ID, _raise)
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0, install_hint="w")
+        assert "install it with" not in str(excinfo.value)
+
     def test_override_none_module_without_binary_path_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_module(monkeypatch, PLUGIN_ID, None)
         with pytest.raises(BinaryUnavailableError, match="binary_path\\(\\)") as excinfo:
@@ -435,6 +458,25 @@ class TestProbeTimeoutKillsDescendants:
             assert not pid_running(pid)
         finally:
             kill_descendant_if_running(pid_file, pid)
+
+
+class TestProbeFailureIncludesStderr:
+    """A non-zero probe exit reports the binary's last stderr line when there is one."""
+
+    def test_nonzero_version_probe_includes_stderr_line(self) -> None:
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(
+                "faulty_binary", [*FAULTY_CMD, "--mode", "version_fails"], env={"PATH": os.defpath}, timeout=10.0
+            )
+        assert "exited 6 probing --version" in str(excinfo.value)
+        assert "probing --version: " + repr('{"code": 6, "message": "probe broke"}') in str(excinfo.value)
+
+    def test_nonzero_version_probe_with_empty_stderr_keeps_the_plain_message(self) -> None:
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(
+                "faulty_binary", [*FAULTY_CMD, "--mode", "version_fails_silent"], env={"PATH": os.defpath}, timeout=10.0
+            )
+        assert str(excinfo.value).endswith("exited 6 probing --version")
 
 
 class TestPublicParseFunctions:

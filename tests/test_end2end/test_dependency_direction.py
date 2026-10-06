@@ -276,6 +276,70 @@ class TestWheelOptionalDependencyIsSafe:
         _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
 
 
+_INSTALL_EXTRA_RE = re.compile(r"^(?P<package>[^\[\]]+)\[(?P<extra>[^\[\]]+)\]$")
+
+
+def _assert_install_extra_brings_the_wheel(
+    name: str, cls: type[BinaryModelMixin], packages: dict[str, dict[str, Any]]
+) -> None:
+    """`BINARY_INSTALL_EXTRA` (when set) must be `<package>[<extra>]`, naming a configured package whose
+    extra requires the class's `BINARY_WHEEL_DISTRIBUTION`."""
+    install_extra = cls.BINARY_INSTALL_EXTRA
+    if install_extra is None:
+        return
+    match = _INSTALL_EXTRA_RE.match(install_extra)
+    assert match, f"{name}: {cls.__name__}.BINARY_INSTALL_EXTRA {install_extra!r} must look like '<package>[<extra>]'"
+    package, extra = match.group("package"), match.group("extra")
+    assert package in packages, f"{name}: BINARY_INSTALL_EXTRA names unknown package {package!r}"
+    deps = packages[package].get("optional_dependencies", {}).get(extra)
+    assert deps is not None, f"{name}: package {package!r} has no extra {extra!r}"
+    wheel = _dep_name(_assert_binary_wheel_distribution(name, cls))
+    assert any(_dep_name(dep) == wheel for dep in deps), (
+        f"{name}: extra {install_extra!r} does not require {cls.BINARY_WHEEL_DISTRIBUTION!r}, got {deps!r}"
+    )
+
+
+def test_binary_install_extra_names_an_extra_that_brings_the_wheel() -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    entries = _licensed_plugin_classes_by_package(packages)
+    assert any(cls.BINARY_INSTALL_EXTRA is not None for _n, _c, cls in entries), "no class sets BINARY_INSTALL_EXTRA"
+    for name, _cfg, cls in entries:
+        _assert_install_extra_brings_the_wheel(name, cls, packages)
+
+
+class _InstallExtraModel(BinaryModelMixin):
+    BINARY_WHEEL_DISTRIBUTION = "mloda-example-binary"
+    BINARY_INSTALL_EXTRA = "pkg[wheel]"
+
+
+class TestInstallExtraGuard:
+    """Exercises `_assert_install_extra_brings_the_wheel` against synthetic config."""
+
+    def test_accepts_an_extra_requiring_the_wheel(self) -> None:
+        packages = {"pkg": {"optional_dependencies": {"wheel": ["mloda_example_binary>=0.1,<0.2"]}}}
+        _assert_install_extra_brings_the_wheel("pkg", _InstallExtraModel, packages)
+
+    def test_rejects_an_extra_requiring_a_different_wheel(self) -> None:
+        packages = {"pkg": {"optional_dependencies": {"wheel": ["other-binary>=0.1,<0.2"]}}}
+        with pytest.raises(AssertionError, match="does not require"):
+            _assert_install_extra_brings_the_wheel("pkg", _InstallExtraModel, packages)
+
+    def test_rejects_an_unknown_package(self) -> None:
+        with pytest.raises(AssertionError, match="unknown package"):
+            _assert_install_extra_brings_the_wheel("pkg", _InstallExtraModel, {})
+
+    def test_rejects_an_unknown_extra(self) -> None:
+        with pytest.raises(AssertionError, match="no extra"):
+            _assert_install_extra_brings_the_wheel("pkg", _InstallExtraModel, {"pkg": {"optional_dependencies": {}}})
+
+    def test_rejects_a_malformed_value(self) -> None:
+        class _Bad(_InstallExtraModel):
+            BINARY_INSTALL_EXTRA = "pkg-without-extra"
+
+        with pytest.raises(AssertionError, match="must look like"):
+            _assert_install_extra_brings_the_wheel("pkg", _Bad, {})
+
+
 def test_new_binary_packages_are_registered_with_dev_extra() -> None:
     packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     expected_paths = {

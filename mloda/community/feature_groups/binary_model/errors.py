@@ -89,12 +89,6 @@ ERROR_CLASS_BY_CODE: dict[int, type[BinaryModelError]] = {
 _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable message"
 
 
-def _truncate_message(message: str) -> str:
-    """Sanitize and cap ``message`` at ``contract.MESSAGE_MAX_BYTES`` UTF-8 bytes, cutting only on a
-    character boundary (contract: Data handling)."""
-    return message.encode("utf-8", errors="replace")[: contract.MESSAGE_MAX_BYTES].decode("utf-8", errors="ignore")
-
-
 def reported_error(returncode: int, stderr: bytes) -> BinaryModelError | None:
     """Parse stderr's last non-empty line as the contract's error object and map it to a
     ``BinaryModelError`` (contract: Errors), or ``None`` if it is not a valid, matching one.
@@ -116,7 +110,7 @@ def reported_error(returncode: int, stderr: bytes) -> BinaryModelError | None:
                 message = payload.get("message")
                 if not isinstance(message, str) or not message:
                     message = _GENERIC_MESSAGE_FALLBACK.format(code=code)
-                return ERROR_CLASS_BY_CODE[code](_truncate_message(message))
+                return ERROR_CLASS_BY_CODE[code](contract.truncate_message(message))
     return None
 
 
