@@ -12,6 +12,7 @@ import pyarrow as pa
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.testing.data_creator.base import column_selective
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
 
@@ -62,6 +63,18 @@ class TestIntegrationBasic:
 
         assert result_table is not None
         assert result_table.num_rows == 12
+
+    def test_lag_with_column_selective_source(self) -> None:
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {column_selective(PyArrowDataOpsTestDataCreator), ReferenceOffset}
+        )
+        name = "value_int__lag_1_offset"
+        feature = Feature(name, options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}))
+
+        results = mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
+
+        result_table = next(t for t in results if isinstance(t, pa.Table) and name in t.column_names)
+        assert result_table.column(name).to_pylist() == [None, 10, -5, 0, None, None, 50, 30, None, 15, 15, None]
 
 
 class TestIntegrationPluginDiscovery:

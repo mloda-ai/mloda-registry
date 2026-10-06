@@ -9,6 +9,7 @@ data source in mloda's pipeline.
 
 from __future__ import annotations
 
+import functools
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -103,3 +104,23 @@ class DataOperationsTestDataCreator(FeatureGroup):
     def create(cls) -> Any:
         """Return the test dataset in framework-native format. Subclasses must override."""
         raise NotImplementedError
+
+
+class ColumnSelectiveMixin:
+    """Mixin for a data creator: serve only the requested columns, like a column-pruning reader."""
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: Any) -> Any:
+        full = super().calculate_feature(data, features)  # type: ignore[misc]
+        names = list(features.get_all_names())
+        if isinstance(full, dict):
+            return {name: full[name] for name in names}
+        if hasattr(full, "select"):
+            return full.select(names)
+        return full[names]
+
+
+@functools.cache
+def column_selective(creator: type) -> type:
+    """Return ``creator`` narrowed to the requested columns (any dict, pyarrow or pandas creator)."""
+    return type(f"ColumnSelective{creator.__name__}", (ColumnSelectiveMixin, creator), {})

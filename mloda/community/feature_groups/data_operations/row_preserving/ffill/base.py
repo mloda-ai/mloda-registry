@@ -45,6 +45,7 @@ from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
+    KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
     assert_source_columns_present,
@@ -53,12 +54,14 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 
-class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class FfillFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it
     natively; there are no rejections of supported inputs.
     """
+
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     PREFIX_PATTERN = r".*__ffill$"
     RECOGNITION_ONLY_PATTERN = True

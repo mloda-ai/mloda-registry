@@ -34,6 +34,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 
+from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls
 
 
@@ -144,17 +145,19 @@ class DataOpsIntegrationTestBase(ABC):
         """Create a Feature with the given name and options context."""
         return Feature(name, options=Options(context=options_context))
 
-    def _plugin_collector(self) -> PluginCollector:
-        """Create a PluginCollector with the feature group and data creator enabled."""
-        return PluginCollector.enabled_feature_groups({self.data_creator_class(), self.feature_group_class()})
+    def _plugin_collector(self, creator: type | None = None) -> PluginCollector:
+        """Create a PluginCollector with the feature group and data creator (or ``creator``) enabled."""
+        return PluginCollector.enabled_feature_groups(
+            {creator or self.data_creator_class(), self.feature_group_class()}
+        )
 
-    def _run_single_feature(self, name: str, options_context: dict[str, Any]) -> pa.Table:
+    def _run_single_feature(self, name: str, options_context: dict[str, Any], creator: type | None = None) -> pa.Table:
         """Run a single feature through the pipeline and return the result table."""
         feature = self._make_feature(name, options_context)
         results = mloda.run_all(
             [feature],
             compute_frameworks=[self.compute_framework_class()],
-            plugin_collector=self._plugin_collector(),
+            plugin_collector=self._plugin_collector(creator) if creator is not None else self._plugin_collector(),
         )
         assert len(results) >= 1
 
@@ -182,6 +185,19 @@ class DataOpsIntegrationTestBase(ABC):
         result_table = self._run_single_feature(
             self.primary_feature_name(),
             self.primary_feature_options(),
+        )
+        assert result_table.num_rows == self.expected_row_count()
+
+        result_col = result_table.column(self.primary_feature_name()).to_pylist()
+        self._assert_values_equal(result_col, self.primary_expected_values())
+
+    def test_primary_feature_with_column_selective_source(self) -> None:
+        """Key columns named in the options must be requested from a source that serves only requested columns."""
+        selective = column_selective(self.data_creator_class())
+        result_table = self._run_single_feature(
+            self.primary_feature_name(),
+            self.primary_feature_options(),
+            creator=selective,
         )
         assert result_table.num_rows == self.expected_row_count()
 

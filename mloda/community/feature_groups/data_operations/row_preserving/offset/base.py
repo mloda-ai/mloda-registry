@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     IN_FEATURES_EXPECTED,
     OP_TOKEN_EXPECTED,
+    KeyColumnInputsMixin,
     assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
@@ -52,7 +53,7 @@ def _is_supported_offset_type(value: object) -> bool:
     return False
 
 
-class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for offset operations that preserve row count.
 
     Offset operations access values at a fixed offset from the current row
@@ -116,6 +117,8 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     - ``partition_by``: List of columns to partition by
     - ``order_by``: Column to order by within each partition
     """
+
+    KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1

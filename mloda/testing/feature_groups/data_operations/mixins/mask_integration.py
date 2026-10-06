@@ -15,6 +15,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, mloda
 
+from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import is_null
 
 
@@ -102,6 +103,7 @@ class MaskIntegrationTestMixin:
         name: str,
         options_ctx: dict[str, Any],
         mask_spec: Any,
+        creator: type | None = None,
     ) -> pa.Table:
         """Run a single masked feature through the pipeline."""
         ctx = dict(options_ctx)
@@ -110,7 +112,9 @@ class MaskIntegrationTestMixin:
         results = mloda.run_all(
             [feature],
             compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
-            plugin_collector=self._plugin_collector(),  # type: ignore[attr-defined]
+            plugin_collector=(
+                self._plugin_collector(creator) if creator is not None else self._plugin_collector()  # type: ignore[attr-defined]
+            ),
         )
         assert len(results) >= 1
 
@@ -136,6 +140,19 @@ class MaskIntegrationTestMixin:
 
         result_col = result_table.column(self.mask_integration_feature_name()).to_pylist()
         self._assert_mask_integration_values(result_col, self.mask_integration_expected())
+
+    def test_mask_feature_with_column_selective_source(self) -> None:
+        """Mask columns must be requested from a source that serves only requested columns."""
+        result_table = self._run_masked_feature(
+            self.mask_integration_feature_name(),
+            self.mask_integration_options(),
+            self.mask_integration_complex_spec(),
+            creator=column_selective(self.data_creator_class()),  # type: ignore[attr-defined]
+        )
+        assert result_table.num_rows == self.mask_integration_expected_row_count()
+
+        result_col = result_table.column(self.mask_integration_feature_name()).to_pylist()
+        self._assert_mask_integration_values(result_col, self.mask_integration_complex_expected())
 
     def test_mask_complex_conditions_through_pipeline(self) -> None:
         """Run a multi-condition masked feature through run_all and verify values."""

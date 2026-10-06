@@ -8,7 +8,9 @@ from enum import Enum
 from typing import Any, TypeVar
 
 from mloda.provider import FeatureChainParserMixin
-from mloda.user import Options
+from mloda.user import Feature, FeatureName, Options
+
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 T = TypeVar("T")
 
@@ -277,6 +279,39 @@ def assert_key_columns_present(
         assert_source_columns_present(data, [order_by], label=order_label)
     if mask_spec:
         assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column")
+
+
+def key_column_features(
+    options: Options,
+    sources: Iterable[Feature],
+    keys: Iterable[str] = (PARTITION_BY, "order_by", "time_column", MASK_KEY),
+) -> set[Feature]:
+    """Plain features for the ``keys`` columns named in ``options`` (single column refs only), minus the sources."""
+    keys = tuple(keys)
+    names: list[str] = []
+    partition_by = options.get(PARTITION_BY) if PARTITION_BY in keys else None
+    if partition_by:
+        names.extend([partition_by] if isinstance(partition_by, str) else partition_by)
+    for key in ("order_by", "time_column"):
+        value = options.get(key) if key in keys else None
+        if value is not None and is_column_ref(value):
+            names.append(column_ref_value(value))
+    if MASK_KEY in keys:
+        mask_spec = parse_mask_spec(options.get(MASK_KEY))
+        names.extend(spec[0] for spec in mask_spec or [])
+
+    taken = {str(source.name) for source in sources}
+    return {Feature(name) for name in dict.fromkeys(names) if name not in taken}
+
+
+class KeyColumnInputsMixin:
+    """Declares the key columns named in the options as inputs next to the source features."""
+
+    KEY_COLUMN_OPTIONS: tuple[str, ...] = ()
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        sources = super().input_features(options, feature_name) or set()  # type: ignore[misc]
+        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS)
 
 
 # Deprecated alias: released leaves still import this name.

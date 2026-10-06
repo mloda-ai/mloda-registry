@@ -70,6 +70,8 @@ def test_lag_feature():
     assert list(result[1:]) == [10.0, 20.0, 30.0, 40.0]
 ```
 
+The community data operations declare their `partition_by`, `order_by`, `time_column` and mask columns as input features, so a column-selective reader serves them.
+
 ## Index Types
 
 **Single column**

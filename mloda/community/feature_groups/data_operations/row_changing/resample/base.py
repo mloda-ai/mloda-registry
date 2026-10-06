@@ -51,6 +51,7 @@ from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
+    KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
     assert_source_columns_present,
@@ -122,12 +123,14 @@ def _is_valid_resample_op(value: object) -> bool:
     return True
 
 
-class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for resample operations that CHANGE the row count.
 
     Subclasses must implement ``_compute_resample`` (the backend-specific
     floor + group-by + aggregate); presence guards are shared.
     """
+
+    KEY_COLUMN_OPTIONS = ("partition_by", "time_column")
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1

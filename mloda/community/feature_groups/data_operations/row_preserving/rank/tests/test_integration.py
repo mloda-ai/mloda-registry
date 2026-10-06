@@ -13,6 +13,7 @@ import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.testing.data_creator.base import column_selective
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import (
     ReferenceRank,
@@ -107,6 +108,18 @@ class TestIntegrationBasic:
         result_col = result_table.column("value_int__top_3_ranked").to_pylist()
         expected = [True, False, True, True, False, True, True, True, True, True, True, True]
         assert result_col == expected
+
+    def test_row_number_with_column_selective_source(self) -> None:
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {column_selective(PyArrowDataOpsTestDataCreator), ReferenceRank}
+        )
+        name = "value_int__row_number_ranked"
+        feature = Feature(name, options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}))
+
+        results = mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
+
+        result_table = next(t for t in results if isinstance(t, pa.Table) and name in t.column_names)
+        assert result_table.column(name).to_pylist() == [1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 1]
 
 
 class TestIntegrationPluginDiscovery:
