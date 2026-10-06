@@ -248,6 +248,7 @@ class BinaryModelMixin:
 
     BINARY_PLUGIN_ID: ClassVar[str]
     BINARY_WHEEL_DISTRIBUTION: ClassVar[str]
+    BINARY_INSTALL_EXTRA: ClassVar[str | None] = None
     BINARY_COMMAND_OVERRIDE: ClassVar[Sequence[str] | str | None] = None
     LICENSE_FILE_OVERRIDE: ClassVar[str | None] = None
     LICENSE_KEY_OVERRIDE: ClassVar[str | None] = None
@@ -265,11 +266,16 @@ class BinaryModelMixin:
     @classmethod
     def resolved_binary(cls) -> ResolvedBinary:
         """Resolve and probe this model's binary (contract: Invocation, Capabilities)."""
+        wheel = getattr(cls, "BINARY_WHEEL_DISTRIBUTION", None)
+        install_hint = None
+        if wheel is not None:
+            install_hint = f'"{cls.BINARY_INSTALL_EXTRA}" (wheel: {wheel})' if cls.BINARY_INSTALL_EXTRA else wheel
         return resolve_binary(
             cls.BINARY_PLUGIN_ID,
             cls.BINARY_COMMAND_OVERRIDE,
             env=cls.binary_environment(),
             timeout=cls.BINARY_PROBE_TIMEOUT_SECONDS,
+            install_hint=install_hint,
         )
 
     @classmethod

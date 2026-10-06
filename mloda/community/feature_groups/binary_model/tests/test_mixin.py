@@ -154,6 +154,36 @@ class TestBinaryUnavailable:
         with pytest.raises(BinaryUnavailableError):
             _MissingPathModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
 
+    def test_missing_wheel_message_names_wheel_and_bundle_extra(self) -> None:
+        class _ExtraModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
+            BINARY_WHEEL_DISTRIBUTION = "some-wheel"
+            BINARY_INSTALL_EXTRA = "some-bundle[extra]"
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            _ExtraModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert 'pip install "some-bundle[extra]" (wheel: some-wheel)' in str(excinfo.value)
+
+    def test_missing_wheel_message_without_extra_names_the_wheel(self) -> None:
+        class _WheelOnlyModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
+            BINARY_WHEEL_DISTRIBUTION = "some-wheel"
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            _WheelOnlyModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert str(excinfo.value).endswith("; install it with: pip install some-wheel")
+
+    def test_missing_wheel_message_without_wheel_attribute_has_no_hint(self) -> None:
+        class _NoWheelAttrModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            _NoWheelAttrModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert "install it with" not in str(excinfo.value)
+
 
 # -------------------------------------------------------------------------------------------
 # 1b. Probe timeout: separate from the run timeout, bounds --version/--capabilities themselves

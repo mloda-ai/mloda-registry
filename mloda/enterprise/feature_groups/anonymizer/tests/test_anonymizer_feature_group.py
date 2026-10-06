@@ -148,6 +148,9 @@ class TestPropertyMapping:
     def test_binary_wheel_distribution_is_mloda_anonymizer_binary(self) -> None:
         assert AnonymizerFeatureGroup.BINARY_WHEEL_DISTRIBUTION == "mloda-anonymizer-binary"
 
+    def test_binary_install_extra_is_the_enterprise_anonymizer_extra(self) -> None:
+        assert AnonymizerFeatureGroup.BINARY_INSTALL_EXTRA == "mloda-enterprise[anonymizer]"
+
 
 class TestMatchFeatureGroupCriteria:
     def test_config_path_matches(self) -> None:

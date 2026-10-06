@@ -22,6 +22,7 @@ from mloda.community.feature_groups.binary_model.contract import (
     CONTRACT_VERSION,
     VERSION_PATTERN,
     split_output_lines,
+    stderr_excerpt,
 )
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
 from mloda.community.feature_groups.binary_model.transport import communicate_or_terminate
@@ -74,14 +75,17 @@ def _resolve_executable_path(candidate: str, path: str) -> Path:
     return resolved
 
 
-def _build_argv(plugin_id: str, override: Sequence[str] | str | os.PathLike[str] | None) -> list[str]:
+def _build_argv(
+    plugin_id: str, override: Sequence[str] | str | os.PathLike[str] | None, install_hint: str | None = None
+) -> list[str]:
     if override is None:
         try:
             module = importlib.import_module(plugin_id)
         except ModuleNotFoundError as exc:
             if exc.name is not None and (plugin_id == exc.name or plugin_id.startswith(f"{exc.name}.")):
+                hint = f"; install it with: pip install {install_hint}" if install_hint else ""
                 raise BinaryUnavailableError(
-                    f"binary package for plugin_id {plugin_id!r} is not installed: {exc}"
+                    f"binary package for plugin_id {plugin_id!r} is not installed: {exc}{hint}"
                 ) from exc
             raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
         except Exception as exc:
@@ -111,13 +115,15 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
             env=dict(env),
             start_new_session=os.name != "nt",
         )
-        stdout, _stderr = communicate_or_terminate(proc, None, timeout)
+        stdout, stderr = communicate_or_terminate(proc, None, timeout)
     except subprocess.TimeoutExpired as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} timed out probing {flag}") from exc
     except OSError as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
     if proc.returncode != 0:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} exited {proc.returncode} probing {flag}")
+        excerpt = stderr_excerpt(stderr, 1)
+        detail = f": {excerpt}" if excerpt is not None else ""
+        raise BinaryUnavailableError(f"binary {argv[0]!r} exited {proc.returncode} probing {flag}{detail}")
     return bytes(stdout)
 
 
@@ -198,13 +204,14 @@ def resolve_binary(
     *,
     env: Mapping[str, str],
     timeout: float | None,
+    install_hint: str | None = None,
 ) -> ResolvedBinary:
     """Resolve ``plugin_id`` to an executable argv, probe its ``--version`` and
     ``--capabilities`` unless already cached, and return a ``ResolvedBinary`` (contract:
     Invocation, Capabilities, Platform naming). Only argv[0] is stat-ed for the cache key, so a program named later
     in an override (e.g. ``[sys.executable, "-m", "pkg"]``) is cached per process; call
     ``clear_capability_cache()`` after it changes."""
-    argv = _build_argv(plugin_id, override)
+    argv = _build_argv(plugin_id, override, install_hint)
     resolved_path = _resolve_executable_path(argv[0], env.get("PATH", os.defpath))
     argv = [str(resolved_path), *argv[1:]]
 

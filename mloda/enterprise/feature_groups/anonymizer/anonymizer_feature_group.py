@@ -31,6 +31,7 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
 
     BINARY_PLUGIN_ID = "anonymizer_binary"
     BINARY_WHEEL_DISTRIBUTION = "mloda-anonymizer-binary"
+    BINARY_INSTALL_EXTRA = "mloda-enterprise[anonymizer]"
     OUTPUT_KEY = "result"
     ALGORITHM = "pseudonymization_algorithm"
     KEY_ENV = "pii_key_env"
