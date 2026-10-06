@@ -92,6 +92,14 @@ def test_a_multi_rule_policy_declares_the_combined_stamp(
     assert Closing2025.declared_attributes(features) == {"policy.verdict": stamp}
 
 
+@pytest.mark.parametrize("features", [None, FeatureSet()], ids=["no-features", "features"])
+def test_a_policy_repeating_a_rule_name_declares_nothing(
+    monkeypatch: pytest.MonkeyPatch, features: FeatureSet | None
+) -> None:
+    monkeypatch.setattr(Closing2025, "RULES", (CUTOFF, CUTOFF))
+    assert Closing2025.declared_attributes(features) == {}
+
+
 # --- several rules: one combined stamp -----------------------------------------------------
 
 

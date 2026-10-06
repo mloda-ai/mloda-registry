@@ -118,13 +118,15 @@ This package declares:
 
 | Group | Keys | Says |
 |---|---|---|
-| `AdmissibilityPolicyGroup` (policy step) | `policy.verdict` | the stamp a fully admitted row carries, rule parameters included |
+| `AdmissibilityPolicyGroup` (policy step) | `policy.verdict` | the policy's affirmative stamp (the verdict a cited total's rows carry, rule parameters included), not this run's outcome |
 | `SkrAccountFeatureGroup` (concept step) | `chart`, `catalogue`, `catalogue.fingerprint` | the chart (SKR03/SKR04), the catalogue's name, and a fingerprint over the whole catalogue in force |
 
 The selected profile (which columns were read as account and amount) and the sign convention
 depend on the data, so they live in `~basis`, a JSON string on the concept's rows. The total
 carries it as `<concept>~basis` beside `~value` and `~origins`, or null when its rows carry
 none. Rows computed under two bases are refused: one total has one basis.
+
+Pinning one reader by option key also resolves a single folder that holds both formats.
 
 - **Community route:** `OtelExtender` emits each declared key as a `mloda.declared.<key>` span
   attribute.

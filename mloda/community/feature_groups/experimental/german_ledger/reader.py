@@ -452,16 +452,33 @@ def _fingerprint(descriptor_bytes: bytes, raw: bytes) -> str:
     return hashlib.sha256(descriptor_bytes + b"\x00" + raw).hexdigest()[:12]
 
 
-def decline_unconfirmed(cls: type[ReadFile], feature_names: list[str], options: Options, sibling: str) -> bool:
+def _family(reader: type[ReadFile]) -> list[type[ReadFile]]:
+    """`reader` and every subclass of it, as core enumerates readers when it resolves a pin."""
+    found = [reader]
+    for sub in reader.__subclasses__():
+        found.extend(_family(sub))
+    return found
+
+
+def _pinned(reader: type[ReadFile], options: Options) -> bool:
+    """True when `reader` or a subclass of it is pinned by its data access name in `options`."""
+    return any(r.data_access_name() in options for r in _family(reader))
+
+
+def decline_unconfirmed(
+    cls: type[ReadFile], feature_names: list[str], options: Options, sibling: type[ReadFile]
+) -> bool:
     """True, with a recorded rejection, when `cls` must not answer: it only confirms JOURNAL,
-    and stands down when the sibling reader's option key pins the other format."""
+    and stands down when the sibling reader (or a subclass) is pinned and `cls` (or a subclass)
+    is not, so pinning both leaves core to report the ambiguity."""
     name = cls.get_class_name()
-    if sibling in options:
-        reason = f"{name} declines: {sibling} is pinned by option key"
-    elif any(n != JOURNAL for n in feature_names):
-        reason = f"{name} confirms only {JOURNAL!r}, not the requested feature name"
+    if _pinned(sibling, options) and not _pinned(cls, options):
+        reason = f"{name} declines: {sibling.get_class_name()} is pinned by option key"
     else:
-        return False
+        offending = [n for n in feature_names if n != JOURNAL]
+        if not offending:
+            return False
+        reason = f"{name} confirms only {JOURNAL!r}, not the requested feature name {offending[0]!r}"
     record_match_rejection(name, reason, stage=INPUT_DATA_STAGE)
     return True
 
@@ -488,8 +505,9 @@ class GdpduReader(ReadFile):
         override it as unable to confirm a chain- or column-separated feature name, and
         declines such a name while matching. This reader CAN confirm one -- index.xml names
         every column before a byte of data is read -- so it answers rather than bypassing the
-        guard by omission. `__admissibility` is deliberately absent: a policy adds it, not the
-        reader, and claiming a column this class does not produce would be the same silent
+        guard by omission. (Matching itself still confirms only `gdpdu_journal`; this method
+        answers for the columns a loaded dossier carries.) `__admissibility` is deliberately
+        absent: a policy adds it, not the reader, and claiming a column this class does not produce would be the same silent
         overstatement the rest of this package exists to prevent.
         """
         index_path = os.path.join(file_name, INDEX_NAME) if os.path.isdir(file_name) else file_name
@@ -522,7 +540,10 @@ class GdpduReader(ReadFile):
     @classmethod
     def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
         """Stock ReadFile takes the first suffix match in listdir and then demands the requested
-        feature name be a source column. A dossier has neither property, so claim the directory."""
+        feature name be a source column. A dossier has neither property, so claim the directory.
+
+        Only JOURNAL is confirmed; any other feature name is declined, and so is a request that
+        pins the DATEV reader without pinning this one."""
         candidates: list[str] = []
         if isinstance(data_access, DataAccessCollection):
             candidates = list(data_access.folders.values()) + list(data_access.files.values())
@@ -536,7 +557,9 @@ class GdpduReader(ReadFile):
                 found = os.path.dirname(candidate)
             else:
                 continue
-            return None if decline_unconfirmed(cls, feature_names, options, "DatevExtfReader") else found
+            from .datev import DatevExtfReader  # lazy: datev imports this module
+
+            return None if decline_unconfirmed(cls, feature_names, options, DatevExtfReader) else found
         return None
 
     @classmethod

@@ -383,6 +383,12 @@ def _stamp(rules: Sequence[AdmissibilityRule], outcomes: tuple[str, ...]) -> str
     return (outside_scope_verdict if outside else admissibility_verdict)(ALL_OF, **params)
 
 
+def _repeated_names(rules: Sequence[AdmissibilityRule]) -> bool:
+    """True when two rules share a name: the one condition apply_rules refuses."""
+    names = [r.name for r in rules]
+    return len(set(names)) != len(names)
+
+
 def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table:
     """Run every rule over the journal in one step, then stamp each row with one verdict.
 
@@ -393,11 +399,10 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
     """
     if not rules:
         raise AdmissibilityRefused("no admissibility rule is configured; nothing can be admitted")
-    names = [r.name for r in rules]
-    if len(set(names)) != len(names):
+    if _repeated_names(rules):
         # Their parameters would share keys in the stamp, and which configuration was meant
         # is the host's to say, not ours to guess.
-        raise ValueError(f"each rule may appear once per policy; got {names}")
+        raise ValueError(f"each rule may appear once per policy; got {[r.name for r in rules]}")
     # append_column permits duplicates, so a table stamped twice would carry two same-named
     # fields and a KeyError far downstream. Refuse here, where the cause is visible. (Two live
     # policy groups never get this far: resolution refuses them.)
@@ -539,9 +544,15 @@ class AdmissibilityPolicyGroup(FeatureGroup):
 
     @classmethod
     def declared_attributes(cls, features: FeatureSet | None) -> dict[str, str | int | float | bool]:
-        """The stamp a fully admitted row carries, for the extender hooks."""
+        """The policy's affirmative stamp: the verdict a cited total's rows carry.
+
+        It is not this run's outcome. A policy repeating a rule name is refused by apply_rules,
+        so it declares nothing.
+        """
         rules = cls.rules()
-        return {"policy.verdict": _stamp(rules, tuple(ADMIT for _ in rules))} if rules else {}
+        if not rules or _repeated_names(rules):
+            return {}
+        return {"policy.verdict": _stamp(rules, tuple(ADMIT for _ in rules))}
 
     @classmethod
     def clear(cls, table: pa.Table) -> pa.Table:

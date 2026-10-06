@@ -111,6 +111,67 @@ def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(reader: str,
     assert origins and all(o.startswith(scheme) for o in origins), origins
 
 
+def _run_twin(options: dict[str, str]) -> Any:
+    from mloda.user import DataAccessCollection, Feature, mloda
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+    from ._host import PLUGINS
+
+    return mloda.run_all(
+        features=[Feature("revenue__sources", Options(options))],
+        compute_frameworks=[PyArrowTable],
+        data_access_collection=DataAccessCollection(folders={str(f) for f in _twin_pair()}),
+        plugin_collector=PLUGINS,
+    )
+
+
+def test_a_pinned_gdpdu_reader_resolves_the_total_over_the_twin_pair() -> None:
+    results = _run_twin({"GdpduReader": str(_twin_pair()[0])})
+    origins = [o for t in results for o in t.column("revenue__sources~origins").to_pylist()[0]]
+    assert origins and all(o.startswith("GL.txt@") for o in origins), origins
+
+
+def test_a_pinned_datev_reader_resolves_to_the_datev_journal_and_meets_the_cutoff() -> None:
+    """Resolution reaches the DATEV journal; the GDPdU cutoff then fails closed (no Erfassungsdatum)."""
+    from mloda.community.feature_groups.experimental.german_ledger.policy import LateEntryRefused
+
+    from ._host import _cause
+
+    with pytest.raises(Exception) as info:
+        _run_twin({"DatevExtfReader": str(_twin_pair()[1])})
+    assert _cause(info.value, LateEntryRefused) is not None, info.value
+
+
+def test_pinning_both_readers_is_refused_as_ambiguous_not_as_unmatched() -> None:
+    """Each reader must not decline for the other: resolution then reports both journal groups as ambiguous."""
+    pin = {"GdpduReader": str(_twin_pair()[0]), "DatevExtfReader": str(_twin_pair()[1])}
+    with pytest.raises(Exception) as info:
+        _run_twin(pin)
+    message = str(info.value)
+    assert "Multiple feature groups found" in message, message
+    assert "GdpduReader" in message, message
+    assert "DatevExtfReader" in message, message
+    assert "matched nothing" not in message, message
+
+
+def test_a_host_subclass_of_the_gdpdu_reader_pinned_by_name_stands_the_datev_reader_down() -> None:
+    """The subclass lives only inside this test, so no other resolution sees it."""
+    import gc
+
+    from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+
+    class _HostGdpdu(GdpduReader):
+        pass
+
+    try:
+        folder = str(_twin_pair()[1])
+        options = Options({"_HostGdpdu": folder})
+        assert DatevExtfReader.match_subclass_data_access(folder, ["gdpdu_journal"], options) is None
+    finally:
+        del _HostGdpdu
+        gc.collect()
+
+
 # --- structured citations -----------------------------------------------------------------------
 
 
