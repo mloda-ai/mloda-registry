@@ -8,7 +8,7 @@ import re
 import reprlib
 import threading
 from collections import OrderedDict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -97,6 +97,18 @@ def _sorted_if_possible(keys: list[Any]) -> list[Any]:
         return keys
 
 
+def _repr_shows_secret_value(x: Mapping[Any, Any], s: str) -> bool:
+    if type(x).__repr__ is object.__repr__:
+        return False
+    # Values are rendered unbounded, as is repr(x) on this path.
+    for key in x:
+        if _is_secret_key(key) and (repr(key) in s or str(key) in s):
+            v = x[key]
+            if any(form and form in s for form in (repr(v), str(v))):
+                return True
+    return False
+
+
 _CONTAINER_BASES = (dict, tuple, list, set, frozenset, deque)
 
 
@@ -111,7 +123,7 @@ class _ScrubbingRepr(reprlib.Repr):
     def repr_str(self, x: str, level: int) -> str:
         return super().repr_str(_scrub_ends(x), level)
 
-    def repr_dict(self, x: dict[Any, Any], level: int) -> str:
+    def repr_dict(self, x: Mapping[Any, Any], level: int) -> str:
         if not x:
             return "{}"
         if level <= 0:
@@ -148,7 +160,10 @@ class _ScrubbingRepr(reprlib.Repr):
             routed = self._repr_stdlib_container(x, level)
             if routed is not None:
                 return routed
-            s = _scrub_ends(repr(x))
+            raw = repr(x)
+            if isinstance(x, Mapping) and _repr_shows_secret_value(x, raw):
+                return self.repr_dict(x, level)
+            s = _scrub_ends(raw)
         except Exception:
             return "<%s instance at %#x>" % (x.__class__.__name__, id(x))
         if len(s) > self.maxother:

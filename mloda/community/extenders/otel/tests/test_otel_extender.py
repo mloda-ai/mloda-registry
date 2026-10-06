@@ -18,7 +18,7 @@ import pickle  # nosec
 import threading
 import time
 import uuid
-from collections import OrderedDict, defaultdict, deque, namedtuple
+from collections import ChainMap, OrderedDict, UserDict, defaultdict, deque, namedtuple
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -850,6 +850,42 @@ class _RedactedTuple(tuple[Any, ...]):
         return "_RedactedTuple(***)"
 
 
+class _CaseInsensitiveMapping(Mapping[str, Any]):
+    """Mirrors requests.structures.CaseInsensitiveDict."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._store: dict[str, tuple[str, Any]] = {key.lower(): (key, value) for key, value in data.items()}
+
+    def __getitem__(self, key: str) -> Any:
+        return self._store[key.lower()][1]
+
+    def __iter__(self) -> Iterator[str]:
+        return (original for original, _ in self._store.values())
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __repr__(self) -> str:
+        return str(dict(self.items()))
+
+
+class _RedactedMapping(Mapping[str, Any]):
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data = dict(data)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return "_RedactedMapping(***)"
+
+
 class _RaisingRepr:
     def __repr__(self) -> str:
         raise RuntimeError("repr boom")
@@ -1189,6 +1225,31 @@ class TestOtelExtenderContentCapture:
                 ["sk_live_abcdef123456"],
                 id="self-redacting-tuple-subclass",
             ),
+            pytest.param(
+                ChainMap({"X-Authorization": ("Bearer", "dXNlcjpwYXNz")}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz"],
+                id="chainmap-x-authorization",
+            ),
+            pytest.param(
+                UserDict({"X-Authorization": ("Bearer", "dXNlcjpwYXNz")}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz"],
+                id="userdict-x-authorization",
+            ),
+            pytest.param(
+                _CaseInsensitiveMapping({"Authorization": ("Basic", "dXNlcjpwYXNz")}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz"],
+                id="case-insensitive-mapping-authorization",
+            ),
+            pytest.param(
+                _RedactedMapping({"password": "hunter2", "note": "sk_live_abcdef123456"}),  # nosec
+                ["hunter2", "sk_live_abcdef123456"],
+                id="self-redacting-mapping",
+            ),
+            pytest.param(
+                _RedactedMapping({"password": "", "note": "sk_live_abcdef123456"}),  # nosec
+                ["sk_live_abcdef123456"],
+                id="self-redacting-mapping-empty-secret",
+            ),
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1218,6 +1279,8 @@ class TestOtelExtenderContentCapture:
             pytest.param(lambda key: {"col": [key, "visible"]}, id="list-column"),
             pytest.param(lambda key: [_HeaderPair(key, "visible")], id="namedtuple-pair"),
             pytest.param(lambda key: OrderedDict({key: "visible"}), id="ordered-dict"),
+            pytest.param(lambda key: ChainMap({key: "visible"}), id="chainmap"),
+            pytest.param(lambda key: _CaseInsensitiveMapping({key: "visible"}), id="case-insensitive-mapping"),
         ],
     )
     @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer", "author", "Authorization-Info"])
