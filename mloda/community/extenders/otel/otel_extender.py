@@ -9,7 +9,7 @@ import reprlib
 import threading
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from mloda.steward import (
@@ -52,8 +52,10 @@ _TRACER_NAME = "mloda_community_otel"
 _CONTENT_PREVIEW_MAX_LEN = 200
 _TRUTHY_ENV_VALUES = {"true", "1"}
 
-# Plan span contexts kept for parenting run roots (FIFO eviction); read at call time.
+# Plan span contexts kept for parenting run roots (LRU eviction); read at call time.
 _MAX_PLAN_SPANS = 1024
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _SpanInts = tuple[int, int, int]  # (trace_id, span_id, trace_flags)
 
@@ -224,9 +226,9 @@ class OtelExtender(Extender):
     lifetime).
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
-    run roots under it, linking the caller or carrier span; "run" (default) emits no plan span. Calculate spans
-    are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known root, spans fall back to
-    the carrier or run_id trace."""
+    run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
+    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known
+    root, spans fall back to the carrier or run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -279,8 +281,16 @@ class OtelExtender(Extender):
                 self._plan_ints.popitem(last=False)
 
     def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
+        failed = outcome.status == "failed"
         with self._lock:
             span = self._plan_spans.pop(plan.plan_id, None)
+            if failed:
+                self._plan_ints.pop(plan.plan_id, None)
+        if span is None and failed and self.trace_scope == "run":
+            start_ns = (plan.created_at - _EPOCH) // timedelta(microseconds=1) * 1000
+            span = self._tracer().start_span(
+                "mloda.plan", attributes={"mloda.plan.id": plan.plan_id}, start_time=start_ns
+            )
         if span is not None:
             if plan.structure_hash is not None:
                 span.set_attribute("mloda.plan.structure_hash", plan.structure_hash)
