@@ -59,7 +59,7 @@ from mloda.testing.extenders.openlineage import (
     assert_openlineage_extender_seams,
     make_recording_client,
 )
-from mloda.testing.extenders.runners import _value_int_plus_one_feature_group, expected_value_int, run_value_int
+from mloda.testing.extenders.runners import MlodaTestingValueIntPlusOne, expected_value_int, run_value_int
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, RunState
 from openlineage.client.facet_v2 import documentation_dataset, nominal_time_run, parent_run, schema_dataset
@@ -2795,7 +2795,7 @@ class TestOpenLineageExtenderEmitBreaker:
         feature group gives each run two calculate steps, so a stale or missing breaker shows as extra attempts."""
         transport = _FailingEmitTransport(_connection_error)
         extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
-        feature_group = _value_int_plus_one_feature_group()
+        feature_group = MlodaTestingValueIntPlusOne
         session = mloda.prepare(
             [feature_group.get_class_name()],
             compute_frameworks=[PyArrowTable],

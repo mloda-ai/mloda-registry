@@ -111,6 +111,13 @@ class _ValidateOnlyProbeExtender(Extender):
         return result
 
 
+class _ValidateInputCountingExtender(CountingExtender):
+    """CountingExtender that counts VALIDATE_INPUT_FEATURE instead of calculate."""
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.VALIDATE_INPUT_FEATURE}
+
+
 class TestMakeHookContextDefaults:
     def test_defaults(self) -> None:
         context = make_hook_context()
@@ -231,13 +238,45 @@ class TestRunTwoFeatures:
         assert len(recorder.run_ids) == 2
         assert len(set(recorder.run_ids)) == 1
 
-    def test_does_not_leave_a_module_level_feature_group_registered(self) -> None:
-        assert not hasattr(runners, "ValueIntPlusOne")
-
+    def test_consecutive_runs_do_not_interfere(self) -> None:
         first = run_two_features()
         second = run_two_features()
 
         assert first == second
+
+    @pytest.mark.parametrize(
+        ("keyword", "value"),
+        [
+            ("parallelization_modes", {ParallelizationMode.THREADING}),
+            ("flight_server", object()),
+        ],
+        ids=["parallelization_modes", "flight_server"],
+    )
+    def test_forwards_the_run_keywords_to_run_all(self, keyword: str, value: Any) -> None:
+        table = pa.table({"MlodaTestingValueIntPlusOne": [2, 3]})
+
+        with patch.object(mloda, "run_all", return_value=[table]) as run_all:
+            assert run_two_features(**{keyword: value}) == [2, 3]
+
+        assert run_all.call_args.kwargs[keyword] == value
+
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
+    def test_validate_input_feature_fires_once_per_run(
+        self, tmp_path: Path, mode: ParallelizationMode, request: pytest.FixtureRequest
+    ) -> None:
+        marker_path = tmp_path / "calls"
+        extender = _ValidateInputCountingExtender(marker_path=marker_path)
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
+
+        result = run_two_features(extender, parallelization_modes={mode}, flight_server=flight_server)
+
+        assert result == [None if v is None else v + 1 for v in expected_value_int()]
+        # Core fires the hook only for the consumer; it skips it when there is no input data.
+        assert len(marker_path.read_text(encoding="utf-8").splitlines()) == 1
+        # Under MULTIPROCESSING the worker's own copy counts; only the marker file is visible to the parent.
+        assert extender.calls == (1 if mode == ParallelizationMode.SYNC else 0)
 
 
 class TestRunCsvFeature:

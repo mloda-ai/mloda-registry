@@ -70,32 +70,33 @@ def prepare_value_int(*extenders: Extender, parallelization_modes: set[Paralleli
     )
 
 
-def _value_int_plus_one_feature_group() -> type[FeatureGroup]:
-    """Build a fresh `ValueIntPlusOne` subclass per call so parallel tests never share state."""
+# Module-level so MULTIPROCESSING can pickle it by path.
+# The prefix keeps it from colliding with a host's features once registered.
+class MlodaTestingValueIntPlusOne(FeatureGroup):
+    """Adds one to `value_int`, null-safe; used to exercise two chained calculate invocations."""
 
-    class ValueIntPlusOne(FeatureGroup):
-        """Adds one to `value_int`, null-safe; used to exercise two chained calculate invocations."""
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature("value_int")}
 
-        def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-            return {Feature("value_int")}
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
 
-        @classmethod
-        def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
-            return {PyArrowTable}
-
-        @classmethod
-        def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-            values = data["value_int"].to_pylist()
-            return {cls.get_class_name(): [None if v is None else v + 1 for v in values]}
-
-    return ValueIntPlusOne
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        values = data["value_int"].to_pylist()
+        return {cls.get_class_name(): [None if v is None else v + 1 for v in values]}
 
 
-def run_two_features(*extenders: Extender) -> list[Any]:
+def run_two_features(
+    *extenders: Extender,
+    parallelization_modes: set[ParallelizationMode] | None = None,
+    flight_server: Any | None = None,
+) -> list[Any]:
     """Run a `value_int`-plus-one feature group through the pipeline, chaining two
     FEATURE_GROUP_CALCULATE_FEATURE invocations (the data creator, then this feature group); return the plus-one
-    column."""
-    feature_group = _value_int_plus_one_feature_group()
+    column. Optional parallelization_modes and flight_server forward straight to mloda.run_all."""
+    feature_group = MlodaTestingValueIntPlusOne
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, feature_group})
     column_name = feature_group.get_class_name()
     results = mloda.run_all(
@@ -103,6 +104,8 @@ def run_two_features(*extenders: Extender) -> list[Any]:
         compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+        flight_server=flight_server,
     )
     for table in results:
         if isinstance(table, pa.Table) and column_name in table.column_names:
