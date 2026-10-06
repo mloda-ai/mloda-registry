@@ -342,9 +342,9 @@ class AuditExtender(Extender):
             flush()
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...]) -> None:
-        """With fail_closed, refuses a run whose RunContext lacks a required identity: one deny record, then
-        IdentityRequiredError. Overriding this also lets core run a session whose identity changed since prepare.
-        A no-op otherwise."""
+        """Caches the plan's structure_hash for the run's records. With fail_closed, refuses a run whose
+        RunContext lacks a required identity: one deny record, then IdentityRequiredError. Overriding this also
+        lets core run a session whose identity changed since prepare."""
         if run.run_id is not None and plan.structure_hash is not None:
             self._structure_hashes[run.run_id] = plan.structure_hash
         if not self.fail_closed:

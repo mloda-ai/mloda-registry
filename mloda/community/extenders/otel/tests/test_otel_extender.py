@@ -1119,6 +1119,10 @@ class TestOtelExtenderContentCapture:
                 ["abcdef123456"],
                 id="dict-under-proxy-authorization-key",
             ),  # nosec
+            pytest.param(
+                {"HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="http-authorization-meta-key"
+            ),  # nosec
+            pytest.param({"X-Authorization": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="x-authorization-header-key"),  # nosec
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
