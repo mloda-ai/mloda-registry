@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from mloda.steward import ExtenderHook, HookContext, OutputSchema
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from mloda.provider import BaseInputData
     from mloda.steward import AsOfJoinConfig
 
@@ -29,6 +31,7 @@ def make_hook_context(
     status: str | None = None,
     run_id: str | None = None,
     plan_id: str | None = None,
+    step_uuid: UUID | None = None,
     data_access_identity: str | None = None,
     data_access_identity_is_fallback: bool | None = None,
     tenant_id: str | None = None,
@@ -41,6 +44,8 @@ def make_hook_context(
     join_type: str | None = None,
     join_keys: tuple[str, ...] | None = None,
     asof_config: AsOfJoinConfig | None = None,
+    join_left_feature_group: str | None = None,
+    join_right_feature_group: str | None = None,
     plan_feature_count: int | None = None,
     plan_node_count: int | None = None,
     plan_depth: int | None = None,
@@ -65,6 +70,7 @@ def make_hook_context(
         status=status,
         run_id=run_id,
         plan_id=plan_id,
+        step_uuid=step_uuid,
         data_access_identity=data_access_identity,
         data_access_identity_is_fallback=data_access_identity_is_fallback,
         tenant_id=tenant_id,
@@ -77,6 +83,8 @@ def make_hook_context(
         join_type=join_type,
         join_keys=join_keys,
         asof_config=asof_config,
+        join_left_feature_group=join_left_feature_group,
+        join_right_feature_group=join_right_feature_group,
         plan_feature_count=plan_feature_count,
         plan_node_count=plan_node_count,
         plan_depth=plan_depth,

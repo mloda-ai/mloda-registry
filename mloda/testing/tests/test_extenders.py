@@ -7,6 +7,7 @@ import inspect
 import pickle  # nosec
 import threading
 import time
+import uuid
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
@@ -146,6 +147,11 @@ class TestMakeHookContextOverrides:
         context = make_hook_context(run_id="run-123")
         assert context.run_id == "run-123"
 
+    def test_step_uuid_override(self) -> None:
+        step_uuid = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        context = make_hook_context(step_uuid=step_uuid)
+        assert context.step_uuid == step_uuid
+
     def test_data_access_identity_override(self) -> None:
         context = make_hook_context(data_access_identity="s3://bucket/key")
         assert context.data_access_identity == "s3://bucket/key"
@@ -177,6 +183,14 @@ class TestMakeHookContextOverrides:
     def test_join_keys_override(self) -> None:
         context = make_hook_context(join_keys=("id",))
         assert context.join_keys == ("id",)
+
+    def test_join_left_feature_group_override(self) -> None:
+        context = make_hook_context(join_left_feature_group="pkg.mod.Left")
+        assert context.join_left_feature_group == "pkg.mod.Left"
+
+    def test_join_right_feature_group_override(self) -> None:
+        context = make_hook_context(join_right_feature_group="pkg.mod.Right")
+        assert context.join_right_feature_group == "pkg.mod.Right"
 
     def test_plan_depth_override(self) -> None:
         context = make_hook_context(plan_depth=2)
