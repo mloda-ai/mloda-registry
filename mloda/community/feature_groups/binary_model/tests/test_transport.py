@@ -932,6 +932,12 @@ class TestWindowsParentSecurity:
         transport._windows_create_private_dir(fresh, exist_ok=False)
         assert _open_reason(fresh) is None
 
+    def test_plain_mkdir_directory_is_accepted(self, tmp_path: Path) -> None:
+        """A plain Path.mkdir() directory (inherited TEMP ACL) is owned and not a reparse point."""
+        plain = tmp_path / "plain"
+        plain.mkdir()
+        assert _open_reason(plain) is None
+
     def test_create_private_dir_exist_ok(self, tmp_path: Path) -> None:
         fresh = tmp_path / "fresh"
         transport._windows_create_private_dir(fresh, exist_ok=False)

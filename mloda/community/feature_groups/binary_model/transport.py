@@ -299,19 +299,20 @@ def _windows_parent_refusal(handle: Any) -> str | None:
     try:
         if owner.value is None:
             raise OSError(None, "no owner")
-        owner_sids, _owner_keepalive = _windows_trusted_sids(for_ace=False)
-        if not any(bool(api.advapi32.EqualSid(owner.value, sid)) for sid in owner_sids):
+        ace_sids, _keepalive = _windows_trusted_sids(for_ace=True)
+        # the first four are the token user, token owner, Administrators and LocalSystem
+        if not any(bool(api.advapi32.EqualSid(owner.value, sid)) for sid in ace_sids[:4]):
             return "not owned by the current user; delete it so it is recreated"
         writable = "writable by another user; delete it so it is recreated"
         if dacl.value is None:
             return writable
-        ace_sids, _ace_keepalive = _windows_trusted_sids(for_ace=True)
         write_bits = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000
         for index in range(ctypes.cast(dacl, ctypes.POINTER(api.ACL))[0].AceCount):
             ace = ctypes.c_void_p()
             if not api.advapi32.GetAce(dacl, index, ctypes.byref(ace)):
                 raise ctypes.WinError(ctypes.get_last_error())
-            assert ace.value is not None
+            if ace.value is None:
+                raise OSError(None, "null ACE")
             header = api.ACE_HEADER.from_address(ace.value)
             if header.AceFlags & 0x08:  # INHERIT_ONLY_ACE
                 continue
@@ -337,9 +338,12 @@ def _windows_open_parent(path: Path) -> tuple[Any, str | None]:
     import ctypes
 
     api = _windows_api()
-    # READ_CONTROL | FILE_READ_ATTRIBUTES; FILE_SHARE_READ | FILE_SHARE_WRITE; OPEN_EXISTING;
+    # READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_TRAVERSE (share modes bind only a handle with read, write, execute
+    # or delete access); FILE_SHARE_READ | FILE_SHARE_WRITE; OPEN_EXISTING;
     # FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
-    handle = api.kernel32.CreateFileW(str(path), 0x20000 | 0x80, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+    handle = api.kernel32.CreateFileW(
+        str(path), 0x20000 | 0x80 | 0x20, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None
+    )
     if handle is None or handle == ctypes.c_void_p(-1).value:  # INVALID_HANDLE_VALUE
         raise ctypes.WinError(ctypes.get_last_error())
     try:
