@@ -32,6 +32,28 @@ INTERNAL_ERROR = 6
 _STDERR_TAIL_WINDOW_BYTES = 64 * 1024
 
 
+def truncate_message(message: str) -> str:
+    """Sanitize and cap ``message`` at ``MESSAGE_MAX_BYTES`` UTF-8 bytes, cutting only on a
+    character boundary (contract: Data handling)."""
+    return message.encode("utf-8", errors="replace")[:MESSAGE_MAX_BYTES].decode("utf-8", errors="ignore")
+
+
+def stderr_excerpt(stderr: bytes, max_lines: int) -> str | None:
+    """The last ``max_lines`` non-blank lines of stderr's tail window, in original order, joined by
+    ``"\\n"`` and truncated; ``None`` when there is no non-blank line."""
+    tail = stderr[-_STDERR_TAIL_WINDOW_BYTES:]
+    kept: list[str] = []
+    for line in reversed(tail.split(b"\n")):
+        text = line.decode("utf-8", errors="replace")
+        if text.strip():
+            kept.append(text)
+            if len(kept) >= max_lines:
+                break
+    if not kept:
+        return None
+    return truncate_message("\n".join(reversed(kept)))
+
+
 def last_non_empty_stderr_line(stderr: bytes) -> str | None:
     """The last non-blank line of stderr's trailing tail window, split on ``b"\\n"`` only, never
     ``str.splitlines()``, which also splits on U+2028/U+2029/U+0085 and would corrupt a message

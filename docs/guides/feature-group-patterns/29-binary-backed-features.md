@@ -132,7 +132,7 @@ Then it projects the frame to the input columns, strips Arrow metadata, casts `l
 | `BinaryTerminatedError` | 6 | The mixin terminated it (timeout) |
 | `OutputContractError` | 6 | Exit 0 but the output broke the contract |
 
-All are `ValueError` subclasses carrying `code` and `message`. The binary's `--version` and exit code are logged at debug level; the config (which may carry secrets) never is.
+All are `ValueError` subclasses carrying `code` and `message`. The binary's `--version` and exit code are logged at debug level; the config (which may carry secrets) never is. Stderr from a successful run (for example a license accepted inside its grace window) is logged at WARNING, bounded, so a binary must never write cell values or parameter values there.
 
 ## Test
 

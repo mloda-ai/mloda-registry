@@ -24,6 +24,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO
 
+from mloda.community.feature_groups.binary_model.contract import stderr_excerpt
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryTerminatedError,
     BinaryUnavailableError,
@@ -317,6 +318,7 @@ def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
 
 _GRACE_WAIT_SECONDS = 1.0
 _REAP_WAIT_SECONDS = 5.0
+_STDERR_WARNING_LINES = 5
 
 
 def _close_posix_pipes(proc: subprocess.Popen[bytes]) -> None:
@@ -455,6 +457,10 @@ def run_binary(
 
     if proc.returncode != 0:
         raise error_from_exit(proc.returncode, stderr)
+
+    excerpt = stderr_excerpt(stderr, _STDERR_WARNING_LINES)
+    if excerpt is not None:
+        logger.warning("binary %s wrote to stderr on a successful run: %r", os.path.basename(argv[0]), excerpt)
 
     if output_path is not None:
         try:

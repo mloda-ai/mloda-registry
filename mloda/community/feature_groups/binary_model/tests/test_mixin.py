@@ -39,7 +39,11 @@ from mloda.testing.binary_model.conformance import (
     write_json,
 )
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
-from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
+from mloda.testing.binary_model.license_vectors import (
+    expired_license_token,
+    in_grace_license_token,
+    valid_license_token,
+)
 from mloda.testing.tests._module_probe import run_module_probe
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
@@ -689,6 +693,23 @@ class TestLogging:
         assert not any(distinctive_parameter_value in message for message in messages), (
             f"secret leaked into logs: {messages!r}"
         )
+
+    def test_successful_run_logs_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
+            StubModel.run_binary_model(pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+    def test_stderr_of_a_successful_run_is_logged_at_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        class _GraceModel(StubModel):
+            LICENSE_KEY_OVERRIDE = in_grace_license_token([PLUGIN_ID])
+
+        with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
+            _GraceModel.run_binary_model(
+                pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"}
+            )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and r.name == transport.__name__]
+        assert len(warnings) == 1
+        assert "grace" in warnings[0].getMessage()
 
 
 # -------------------------------------------------------------------------------------------
