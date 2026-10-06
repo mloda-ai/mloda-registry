@@ -306,7 +306,7 @@ extender = AuditExtender(
 
 `trace_scope` picks the trace shape; anything else raises `ValueError`:
 
-- `"run"` (default): no plan span, one trace per run.
+- `"run"` (default): no plan span, one trace per run, except that a failed plan gets a `mloda.plan` span (status `ERROR`, `error.type`, starting at the plan's start) under the caller's active span, else in its own trace; no run follows a failed plan, so no trace splits. This includes a failing `diagnose` or `explain`, which returns or raises normally to the caller but still records the ERROR plan span.
 - `"plan"`: `on_plan_start` opens a `mloda.plan` span that parents every run of the plan and gets `mloda.plan.structure_hash` when it ends; the caller's active span or the carrier becomes a span link instead of the parent. If the plan span is unknown, the run is parented as in `"run"` mode.
 
 Caveats of `"plan"` mode: a span has one parent, hence the link; head sampling keeps or drops all runs of a plan together; a long-lived plan (prepared once, run often) makes one long trace. `explain` and `diagnose` also emit plan spans that no run follows.
