@@ -1,6 +1,6 @@
 # Export Telemetry to Any Backend
 
-Run the community extenders (`OtelExtender` for spans, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure, and the exporter, Collector and backend are yours to choose. For how the extenders work inside, see [Create an Extender Plugin](11-create-extender.md).
+Run the community extenders (`OtelExtender` for spans, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. Extender internals are in [Create an Extender Plugin](11-create-extender.md).
 
 ## Install
 
@@ -9,7 +9,7 @@ pip install mloda-community-otel opentelemetry-sdk opentelemetry-exporter-otlp
 pip install mloda-community-openlineage  # lineage events, optional
 ```
 
-`mloda-community[otel]` and `mloda-community[openlineage]` install the same extenders. Core has no `otel` extra. `mloda-community-otel` depends on `opentelemetry-api` only, so nothing is exported until an SDK provider is set.
+`mloda-community[otel]` and `mloda-community[openlineage]` install the same extenders; core mloda has no `otel` extra. `mloda-community-otel` depends on `opentelemetry-api` only, so nothing is exported until an SDK provider is set.
 
 ## Wire a tracer provider
 
@@ -33,7 +33,7 @@ install_tracer_provider()
 results = mloda.run_all(["my_feature"], function_extender={OtelExtender(use_sdk_defaults=True)})
 ```
 
-`use_sdk_defaults=True` uses the globally set provider. Injecting `OtelExtender(tracer_provider=provider)` works too, but an SDK provider cannot be pickled, so it does not reach `MULTIPROCESSING` workers (see [Multiprocessing, threads and asyncio](#multiprocessing-threads-and-asyncio)). Without either the extender is inert and warns once; details in [Sink Resolution](11-create-extender.md#sink-resolution).
+`use_sdk_defaults=True` uses the globally set provider. Injecting `OtelExtender(tracer_provider=provider)` works too, but an SDK provider cannot be pickled, so it does not reach `MULTIPROCESSING` workers (see [Multiprocessing, threads and asyncio](#multiprocessing-threads-and-asyncio)). Without either, the extender is inert and warns once; see [Sink Resolution](11-create-extender.md#sink-resolution).
 
 ## Export through a Collector
 
@@ -55,7 +55,7 @@ Send OTLP to an OpenTelemetry Collector (gRPC 4317, HTTP 4318) and let the Colle
 | Self-hosted | Grafana Tempo, Jaeger, SigNoz over OTLP | Retention is yours; the only path with no external egress |
 | SaaS | OTLP with a header token | Check each vendor's retention window and default sampling |
 
-No mloda code changes between backends; only the exporter or Collector configuration does.
+Switching backends changes only exporter or Collector configuration.
 
 ## Sampling and retention
 
