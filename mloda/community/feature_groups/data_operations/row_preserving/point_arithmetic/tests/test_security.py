@@ -358,6 +358,13 @@ class TestInFeaturesTypeValidation:
         with pytest.raises(ValueError, match=r"fake_col"):
             PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
 
+    def test_empty_operand_error(self) -> None:
+        """An empty in_feature operand is rejected up-front, not reported as a missing column."""
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs("bad", op="add", in_features=["value_int", ""])
+        with pytest.raises(ValueError, match="empty in_feature operand"):
+            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+
 
 class TestReservedColumnAcceptedAllBackends:
     """A ``__mloda_``-prefixed USER column is accepted on every backend.
