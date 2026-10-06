@@ -7,7 +7,7 @@ description: mloda plugin development guides. Use when creating FeatureGroups, C
 
 Location: `docs/guides/`
 
-## Top-Level Guides (01-11)
+## Top-Level Guides (01-12)
 
 | # | Guide | Description |
 |---|-------|-------------|
@@ -22,6 +22,7 @@ Location: `docs/guides/`
 | 09 | `09-create-feature-group.md` | Decision tree for choosing the right feature group pattern |
 | 10 | `10-create-compute-framework.md` | Decision tree for creating a compute framework plugin |
 | 11 | `11-create-extender.md` | Guide for creating extender plugins (logging, tracing, metrics) |
+| 12 | `12-export-telemetry.md` | Export OTel and OpenLineage telemetry to any backend: Collector, sampling, privacy defaults, multiprocessing |
 | -- | `index.md` | Your Plugin Journey: step-by-step progression overview |
 
 ---
@@ -280,4 +281,4 @@ Q3: Need state with ParallelizationMode.MULTIPROCESSING?
     YES → Use class-level storage (pickle-safe)
 ```
 
-Full guide: `docs/guides/11-create-extender.md`
+Full guide: `docs/guides/11-create-extender.md`. Running the shipped OTel and OpenLineage extenders against a backend: `docs/guides/12-export-telemetry.md`
