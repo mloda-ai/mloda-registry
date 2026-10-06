@@ -138,22 +138,23 @@ class _JoinSource:
 
 
 # Module-level so MULTIPROCESSING can pickle the link by path.
-# The column prefix keeps them from colliding with a host's features once registered.
-class JoinLeft(_JoinSource, FeatureGroup):
+# The MlodaTesting class prefix and the column prefix keep them from colliding with a host's features once registered
+# (the default matcher also matches by class name).
+class MlodaTestingJoinLeft(_JoinSource, FeatureGroup):
     """Left PyArrow source of the join."""
 
     _columns = {"mloda_testing_left_id": [1, 2, 3], "mloda_testing_left_value": [10, 20, 30]}
     _index_column = "mloda_testing_left_id"
 
 
-class JoinRight(_JoinSource, FeatureGroup):
+class MlodaTestingJoinRight(_JoinSource, FeatureGroup):
     """Right PyArrow source of the join."""
 
     _columns = {"mloda_testing_right_id": [1, 2, 4], "mloda_testing_right_value": [100, 200, 400]}
     _index_column = "mloda_testing_right_id"
 
 
-class JoinedSum(FeatureGroup):
+class MlodaTestingJoinedSum(FeatureGroup):
     """Adds `mloda_testing_left_value` and `mloda_testing_right_value`, null-safe; forces the join of both sources."""
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
@@ -178,10 +179,13 @@ def run_joined_features(
     consumer that sums `mloda_testing_left_value` and `mloda_testing_right_value`; return the summed
     column. Optional parallelization_modes and flight_server forward straight to mloda.run_all."""
     link = Link.inner(
-        JoinSpec(JoinLeft, Index(("mloda_testing_left_id",))), JoinSpec(JoinRight, Index(("mloda_testing_right_id",)))
+        JoinSpec(MlodaTestingJoinLeft, Index(("mloda_testing_left_id",))),
+        JoinSpec(MlodaTestingJoinRight, Index(("mloda_testing_right_id",))),
     )
-    plugin_collector = PluginCollector.enabled_feature_groups({JoinLeft, JoinRight, JoinedSum})
-    column_name = JoinedSum.get_class_name()
+    plugin_collector = PluginCollector.enabled_feature_groups(
+        {MlodaTestingJoinLeft, MlodaTestingJoinRight, MlodaTestingJoinedSum}
+    )
+    column_name = MlodaTestingJoinedSum.get_class_name()
     results = mloda.run_all(
         [column_name],
         compute_frameworks=[PyArrowTable],

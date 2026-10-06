@@ -1026,6 +1026,24 @@ class TestOtelExtenderContentCapture:
             ),
             pytest.param({"password": ("a", "hunter2")}, ["hunter2"], id="tuple-under-secret-key"),  # nosec
             pytest.param("password=hunter2", ["hunter2"], id="top-level-str"),  # nosec
+            pytest.param({"Authorization": ("Basic", "dXNlcjpwYXNz")}, ["dXNlcjpwYXNz"], id="authorization-tuple"),  # nosec
+            pytest.param({"Authorization": ["Bearer", "dXNlcjpwYXNz"]}, ["dXNlcjpwYXNz"], id="authorization-list"),  # nosec
+            pytest.param({"Authorization": b"Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="authorization-bytes"),  # nosec
+            pytest.param(
+                {"Proxy-Authorization": ("Basic", "dXNlcjpwYXNz")},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="proxy-authorization-tuple",
+            ),
+            pytest.param(
+                {"Proxy-Authorization": ["Bearer", "dXNlcjpwYXNz"]},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="proxy-authorization-list",
+            ),
+            pytest.param(
+                {"Proxy-Authorization": b"Basic dXNlcjpwYXNz"},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="proxy-authorization-bytes",
+            ),
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1046,6 +1064,20 @@ class TestOtelExtenderContentCapture:
         preview = str(attrs[_CONTENT_ATTRIBUTE])
         for fragment in fragments:
             assert fragment not in preview, preview
+
+    @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer"])
+    def test_content_attribute_keeps_non_secret_key_values_visible(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], key: str
+    ) -> None:
+        provider, exporter = otel_capture
+        context = make_hook_context()
+        otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
+
+        with context.activate():
+            otel(instrument(context, lambda: {key: "visible"}))
+
+        preview = str(single_span_attributes(exporter)[_CONTENT_ATTRIBUTE])
+        assert "visible" in preview, preview
 
     def test_raising_result_repr_still_emits_span_and_returns_result(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]

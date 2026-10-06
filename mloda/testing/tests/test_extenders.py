@@ -385,14 +385,14 @@ class TestRunJoinedFeatures:
         ids=["parallelization_modes", "flight_server"],
     )
     def test_forwards_the_run_keywords_to_run_all(self, keyword: str, value: Any) -> None:
-        table = pa.table({"JoinedSum": [110, 220]})
+        table = pa.table({"MlodaTestingJoinedSum": [110, 220]})
 
         with patch.object(mloda, "run_all", return_value=[table]) as run_all:
             assert runners.run_joined_features(**{keyword: value}) == [110, 220]
 
         assert run_all.call_args.kwargs[keyword] == value
 
-    def test_source_feature_groups_have_distinct_class_names(self) -> None:
+    def test_source_feature_groups_have_distinct_mloda_testing_class_names(self) -> None:
         class _CalculateRecorder(Extender):
             def __init__(self) -> None:
                 self.raise_on_error = True
@@ -414,6 +414,7 @@ class TestRunJoinedFeatures:
 
         assert len(recorder.class_names) == 3
         assert len(set(recorder.class_names)) == 3
+        assert all(name.startswith("MlodaTesting") for name in recorder.class_names)
 
 
 class TestFailingFeatureGroup:

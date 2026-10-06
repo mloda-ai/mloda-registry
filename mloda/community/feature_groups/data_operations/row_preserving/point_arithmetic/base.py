@@ -96,8 +96,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            cls.validate_in_feature_count(feature_name, len(source_features))
+            source_features = cls._extract_validated_source_features(feature)
             col_a, col_b = source_features[0], source_features[1]
 
             assert_source_columns_present(data, [col_a, col_b])
