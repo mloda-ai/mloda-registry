@@ -7,7 +7,7 @@ import os
 import re
 import reprlib
 import threading
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, Literal
@@ -95,6 +95,9 @@ def _sorted_if_possible(keys: list[Any]) -> list[Any]:
         return keys
 
 
+_CONTAINER_BASES = (dict, tuple, list, set, frozenset, deque)
+
+
 # Scrubs before reprlib's cut and redacts values under secret-named dict keys and secret-keyed pairs.
 class _ScrubbingRepr(reprlib.Repr):
     def repr_str(self, x: str, level: int) -> str:
@@ -119,6 +122,14 @@ class _ScrubbingRepr(reprlib.Repr):
         return super().repr_tuple(x, level)
 
     def repr_instance(self, x: object, level: int) -> str:
+        # reprlib dispatches on the type name, so builtin container subclasses land here.
+        fields = getattr(x, "_fields", None)
+        if isinstance(x, tuple) and fields and not (len(x) == 2 and _is_secret_key(x[0])):
+            return self.repr_dict(dict(zip(fields, x)), level)
+        for base in _CONTAINER_BASES:
+            if isinstance(x, base):
+                renderer: Callable[[Any, int], str] = getattr(self, "repr_" + base.__name__)
+                return renderer(x, level)
         try:
             s = _scrub_ends(repr(x))
         except Exception:
