@@ -206,6 +206,41 @@ class ScalarArityTestBase:
         except ValueError:
             return None
 
+    # -- Declared key columns -------------------------------------------------
+
+    @staticmethod
+    def _key_columns(context: dict[str, Any]) -> set[str]:
+        """Columns the options name as partition, order, time or mask keys."""
+        columns: set[str] = set()
+        partition = context.get("partition_by")
+        if isinstance(partition, str):
+            columns.add(partition)
+        elif partition:
+            columns.update(partition)
+        for key in ("order_by", "time_column"):
+            value: Any = context.get(key)
+            while _is_container(value) and len(value) == 1:
+                value = next(iter(value))
+            if isinstance(value, str):
+                columns.add(value)
+        mask: Any = context.get("mask")
+        if mask:
+            conditions = [mask] if isinstance(mask[0], str) else list(mask)
+            columns.update(condition[0] for condition in conditions)
+        return columns
+
+    def test_input_features_declare_key_columns(self) -> None:
+        """Every key column named in the options is a declared input, next to the source."""
+        context = self.base_context()
+        expected = self._key_columns(context)
+        if not expected:
+            return
+        group = self.feature_group_class()
+        options = Options(context=dict(context))
+        declared = group().input_features(options, FeatureName(self.match_feature_name()))
+        names = {str(feature.name) for feature in declared or set()}
+        assert expected <= names, f"missing key columns {sorted(expected - names)} in {sorted(names)}"
+
     # -- Single-element containers -------------------------------------------
 
     def test_single_element_container_matches(self) -> None:

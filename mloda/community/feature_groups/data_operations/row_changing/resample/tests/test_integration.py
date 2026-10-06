@@ -34,7 +34,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
 from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
     PyArrowResample,
 )
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator, column_selective
 
 # Daily resample of ``value_float`` grouped by ``(region, bucket_start)`` on the
 # canonical dataset (dropna=False, so the null-timestamp row and the null-region
@@ -89,6 +89,18 @@ class TestResampleIntegration:
 
         col = table.column(name).to_pylist()
         assert sorted(col) == _COUNT_SORTED
+
+    def test_daily_mean_with_column_selective_source(self) -> None:
+        name = "value_float__resample_1_day_mean"
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {column_selective(PyArrowDataOpsTestDataCreator), PyArrowResample}
+        )
+        feature = Feature(name, options=Options(context={"time_column": "timestamp", "partition_by": ["region"]}))
+
+        results = mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
+
+        table = next(t for t in results if isinstance(t, pa.Table) and name in t.column_names)
+        assert _sort_none_last(table.column(name).to_pylist()) == _MEAN_SORTED
 
 
 class TestChainedNameDropsContext:

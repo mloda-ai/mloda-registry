@@ -36,7 +36,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_em
     PandasEma,
 )
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator, column_selective
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,
 # nulls skipped (ignore_na=True), output null where the input is null.
@@ -134,6 +134,18 @@ class TestEmaIntegration:
         )
         assert len(values) == 12
         _assert_ema_equal(values, _EMA_3_BY_REGION)
+
+    def test_ema_2_with_column_selective_source(self) -> None:
+        name = "value_float__ema_2"
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {column_selective(PandasDataOpsTestDataCreator), PandasEma}
+        )
+        feature = Feature(name, options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}))
+
+        results = mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+
+        frame = next(t for t in results if isinstance(t, pd.DataFrame) and name in t.columns)
+        _assert_ema_equal(list(frame[name]), _EMA_2_BY_REGION)
 
 
 class TestEmaMatchFeatureGroupCriteria:

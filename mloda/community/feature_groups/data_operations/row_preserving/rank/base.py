@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     IN_FEATURES_EXPECTED,
     OP_TOKEN_EXPECTED,
+    KeyColumnInputsMixin,
     assert_key_columns_present,
     column_ref_value,
     is_column_ref,
@@ -54,7 +55,7 @@ def _is_supported_rank_type(value: object) -> bool:
     return False
 
 
-class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a

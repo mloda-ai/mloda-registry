@@ -64,6 +64,7 @@ from mloda.community.feature_groups.data_operations.base import (
     assert_key_columns_present,
     column_ref_value,
     is_column_ref,
+    key_column_features,
 )
 
 # Supported sessionization units mapped to their length in seconds. The four
@@ -155,7 +156,8 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     # Kept: a config-only feature must raise here, not fall back to in_features as core does.
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         source_feature = self._extract_source_features(Feature(str(feature_name), options=options))[0]
-        return {Feature(source_feature)}
+        sources = {Feature(source_feature)}
+        return sources | key_column_features(options, sources)
 
     # Kept: the source comes only from the name; a config-only feature must raise, not fall back to in_features.
     @classmethod

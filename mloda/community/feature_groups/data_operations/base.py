@@ -8,7 +8,9 @@ from enum import Enum
 from typing import Any, TypeVar
 
 from mloda.provider import FeatureChainParserMixin
-from mloda.user import Options
+from mloda.user import Feature, FeatureName, Options
+
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 T = TypeVar("T")
 
@@ -277,6 +279,38 @@ def assert_key_columns_present(
         assert_source_columns_present(data, [order_by], label=order_label)
     if mask_spec:
         assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column")
+
+
+def key_column_features(options: Options, sources: Iterable[Feature]) -> set[Feature]:
+    """Features for the partition, order, time and mask columns named in ``options``, minus the sources."""
+    names: list[str] = []
+    partition_by = options.get(PARTITION_BY)
+    if partition_by:
+        names.extend([partition_by] if isinstance(partition_by, str) else partition_by)
+    for key in ("order_by", "time_column"):
+        column = option_value(options, key, column_ref_value)
+        if column is not None:
+            names.append(column)
+    mask_spec = parse_mask_spec(options.get(MASK_KEY))
+    names.extend(spec[0] for spec in mask_spec or [])
+
+    source_list = list(sources)
+    taken = {str(source.name) for source in source_list}
+    group = dict(source_list[0].options.group) if source_list else {}
+    keys: set[Feature] = set()
+    for name in names:
+        if name not in taken:
+            taken.add(name)
+            keys.add(Feature(name, options=Options(group=dict(group))))
+    return keys
+
+
+class KeyColumnInputsMixin:
+    """Declares the key columns named in the options as inputs next to the source features."""
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        sources = super().input_features(options, feature_name) or set()  # type: ignore[misc]
+        return sources | key_column_features(options, sources)
 
 
 # Deprecated alias: released leaves still import this name.

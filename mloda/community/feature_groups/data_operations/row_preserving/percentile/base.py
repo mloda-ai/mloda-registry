@@ -19,6 +19,7 @@ from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     SCALAR_NUMBER_EXPECTED,
+    KeyColumnInputsMixin,
     assert_key_columns_present,
     assert_source_columns_present,
     is_scalar_number,
@@ -49,7 +50,7 @@ def _is_unit_interval_element(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
 
 
-class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for percentile operations that preserve row count.
 
     Computes a percentile over a partitioned group using PERCENTILE_CONT

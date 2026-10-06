@@ -24,6 +24,7 @@ from mloda.community.feature_groups.data_operations.base import (
     IN_FEATURES_EXPECTED,
     OP_TOKEN_EXPECTED,
     POSITIVE_INT_EXPECTED,
+    KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
     assert_source_columns_present,
@@ -138,7 +139,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     return None
 
 
-class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window

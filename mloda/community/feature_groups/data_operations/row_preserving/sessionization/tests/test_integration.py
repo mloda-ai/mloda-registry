@@ -30,6 +30,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
     PandasSessionization,
 )
+from mloda.testing.data_creator.pyarrow import column_selective
 
 _U = timezone.utc
 
@@ -99,6 +100,18 @@ class TestSessionizationIntegration:
         )
         assert len(values) == 5
         assert [int(v) for v in values] == _SESSION_30_MINUTE_EXPECTED
+
+    def test_sessionize_with_column_selective_source(self) -> None:
+        name = "ts__sessionize_30_minute"
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {column_selective(SessionIntegrationDataCreator), PandasSessionization}
+        )
+        feature = Feature(name, options=Options(context={"order_by": "ts", "partition_by": ["user"]}))
+
+        results = mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+
+        frame = next(t for t in results if isinstance(t, pd.DataFrame) and name in t.columns)
+        assert [int(v) for v in frame[name]] == _SESSION_30_MINUTE_EXPECTED
 
 
 class TestSessionizationMatchFeatureGroupCriteria:
