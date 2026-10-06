@@ -16,6 +16,7 @@ import stat
 import sys
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, suppress
 from datetime import datetime, timedelta
@@ -32,6 +33,7 @@ from mloda.steward import (
     ExtenderHook,
     HookContext,
     LifecycleOutcome,
+    PlanContext,
     RunContext,
     verified_context,
 )
@@ -158,6 +160,7 @@ _EXPECTED_RECORD_KEYS = {
     "worker_index",
     "start_time",
     "step_run_id",
+    "structure_hash",
     "trace_id",
     "span_id",
 }
@@ -1217,6 +1220,25 @@ class TestAuditExtenderRecord:
 
 
 _RUN_UUID = "3f2b8c1e-9d4a-4e6f-8a21-5b7c0d9e1f23"
+_STRUCTURE_HASH = "s" * 64
+
+
+def _plan_ctx(structure_hash: str | None = _STRUCTURE_HASH) -> PlanContext:
+    return PlanContext(
+        plan_id="plan-1",
+        tenant_id=None,
+        project_id=None,
+        principal=None,
+        created_at=datetime.now(),
+        structure_hash=structure_hash,
+    )
+
+
+def _calculate_in_run(extender: AuditExtender, run_id: str) -> None:
+    with make_hook_context(run_id=run_id, plan_id="plan-1").activate():
+        extender(lambda: None)
+
+
 _CARRIER_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 _CARRIER_SPAN_ID = "00f067aa0ba902b7"
 _TRACEPARENT = f"00-{_CARRIER_TRACE_ID}-{_CARRIER_SPAN_ID}-01"
@@ -1231,7 +1253,9 @@ def _write_gate_record(kind: str, fail_closed: bool, identity_present: bool) -> 
     with suppress(IdentityRequiredError):
         if kind == "RUN_START":
             extender.on_run_start(
-                RunContext(run_id=_RUN_UUID, plan_id="plan-1", **identity), Mock(plan_id="plan-1"), ()
+                RunContext(run_id=_RUN_UUID, plan_id="plan-1", **identity),
+                Mock(plan_id="plan-1", structure_hash=None),
+                (),
             )
         else:
             hook = (
@@ -1269,6 +1293,73 @@ def _calculate_record(**context: Any) -> dict[str, Any]:
     with make_hook_context(**{"tenant_id": "t", "principal": "svc", **context}).activate():
         AuditExtender(sink=sink)(lambda: None)
     return sink.records[0]
+
+
+class TestAuditExtenderStructureHash:
+    def test_a_run_record_carries_the_structure_hash_of_its_run_until_on_run_complete(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+
+        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
+        _calculate_in_run(extender, _RUN_UUID)
+        extender.on_run_complete(RunContext(run_id=_RUN_UUID), _SUCCEEDED)
+        _calculate_in_run(extender, _RUN_UUID)
+
+        assert [record["structure_hash"] for record in sink.records] == [_STRUCTURE_HASH, None]
+
+    @pytest.mark.parametrize("setup", ["never_started", "started_without_hash", "plan_time_matched"])
+    def test_a_record_without_a_run_structure_hash_has_none(self, setup: str) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+        if setup == "started_without_hash":
+            extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(None), ())
+        if setup == "plan_time_matched":
+            extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
+            with make_hook_context(
+                hook=ExtenderHook.FEATURE_GROUP_MATCHED,
+                feature_group_class=None,
+                feature_group_version=None,
+                compute_framework_name=None,
+            ).activate():
+                extender(lambda: None)
+            assert sink.records[0]["run_id"] is None
+        else:
+            _calculate_in_run(extender, _RUN_UUID)
+
+        assert sink.records[0]["structure_hash"] is None
+
+    def test_concurrent_runs_keep_their_own_hash(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+        other = str(uuid.uuid4())
+
+        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx("a" * 64), ())
+        extender.on_run_start(RunContext(run_id=other, plan_id="plan-1"), _plan_ctx("b" * 64), ())
+        _calculate_in_run(extender, _RUN_UUID)
+        _calculate_in_run(extender, other)
+
+        assert [record["structure_hash"] for record in sink.records] == ["a" * 64, "b" * 64]
+
+    def test_a_pickled_copy_still_stamps_the_hash(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+        _calculate_in_run(copy, _RUN_UUID)
+
+        assert copy.sink.records[0]["structure_hash"] == _STRUCTURE_HASH
+
+    def test_the_fail_closed_run_start_refusal_record_carries_the_plan_hash(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=True)
+        run = RunContext(run_id="run-1", plan_id="plan-1", project_id="p", principal="svc")
+
+        with pytest.raises(IdentityRequiredError):
+            extender.on_run_start(run, _plan_ctx(), ())
+
+        assert sink.records[0]["hook"] == "RUN_START"
+        assert sink.records[0]["structure_hash"] == _STRUCTURE_HASH
 
 
 class TestAuditExtenderRecordV2:
@@ -1379,18 +1470,20 @@ class TestAuditExtenderRecordV2:
         assert (end - start).total_seconds() >= 0.04
 
     def test_step_run_id_is_the_shared_helper_over_the_owner_name(self) -> None:
+        step_uuid = uuid.uuid4()
         context = make_hook_context(
             run_id=_RUN_UUID,
             feature_group_class="my.module.MyFeatureGroup",
             feature_names=("b", "a"),
             compute_framework_name="PyArrowTable",
+            step_uuid=step_uuid,
         )
         sink = InMemoryAuditSink()
 
         with context.activate():
             AuditExtender(sink=sink)(lambda: None)
 
-        expected = step_run_id(_RUN_UUID, owner_name(context, lambda: None), ("b", "a"), "PyArrowTable")
+        expected = step_run_id(_RUN_UUID, owner_name(context, lambda: None), ("b", "a"), "PyArrowTable", step_uuid)
         assert expected is not None
         assert sink.records[0]["step_run_id"] == expected
 
@@ -1500,7 +1593,7 @@ class TestAuditExtenderFailClosed:
         run = RunContext(run_id="run-1", plan_id="plan-1", project_id="p", principal="svc")
 
         with pytest.raises(IdentityRequiredError):
-            extender.on_run_start(run, Mock(plan_id="plan-1"), ())
+            extender.on_run_start(run, Mock(plan_id="plan-1", structure_hash=None), ())
 
         assert len(sink.records) == 1
         record = sink.records[0]
@@ -1516,7 +1609,7 @@ class TestAuditExtenderFailClosed:
         extender = AuditExtender(sink=sink, fail_closed=True)
         run = RunContext(run_id="run-1", plan_id="plan-1", tenant_id="t", project_id="p", principal="svc")
 
-        extender.on_run_start(run, Mock(plan_id="plan-1"), ())
+        extender.on_run_start(run, Mock(plan_id="plan-1", structure_hash=None), ())
 
         assert sink.records == []
 
@@ -1524,7 +1617,9 @@ class TestAuditExtenderFailClosed:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink, fail_closed=False)
 
-        extender.on_run_start(RunContext(run_id="run-1", plan_id="plan-1"), Mock(plan_id="plan-1"), ())
+        extender.on_run_start(
+            RunContext(run_id="run-1", plan_id="plan-1"), Mock(plan_id="plan-1", structure_hash=None), ()
+        )
 
         assert sink.records == []
 
@@ -3467,6 +3562,9 @@ class TestAuditExtenderRunAll:
         sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
         records = [record for record in sink_records if record["feature_group_class"] == read_class]
         assert len(records) == 1
+        run_hashes = {record["structure_hash"] for record in sink_records if record["run_id"] is not None}
+        assert len(run_hashes) == 1
+        assert all(run_hashes)
         assert records[0]["data_access_identity"] == [str(tmp_path / "data.csv")]
         assert records[0]["data_access_format"] == ["CsvReader"]
         assert records[0]["data_access_identity_is_fallback"] == [False]

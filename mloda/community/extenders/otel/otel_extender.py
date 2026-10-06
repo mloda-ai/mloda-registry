@@ -256,6 +256,8 @@ class OtelExtender(Extender):
         with self._lock:
             span = self._plan_spans.pop(plan.plan_id, None)
         if span is not None:
+            if plan.structure_hash is not None:
+                span.set_attribute("mloda.plan.structure_hash", plan.structure_hash)
             _end_with_outcome(span, outcome, status_attribute=None)
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
@@ -265,6 +267,8 @@ class OtelExtender(Extender):
         attributes: dict[str, str] = {"mloda.run.id": run_id}
         if plan.plan_id is not None:
             attributes["mloda.plan.id"] = plan.plan_id
+        if plan.structure_hash is not None:
+            attributes["mloda.plan.structure_hash"] = plan.structure_hash
         caller = _carrier_or_active_span_context(run.carrier)
         with self._lock:
             plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None
@@ -555,6 +559,10 @@ def _set_join_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.join.type", context.join_type)
     if context.join_keys is not None:
         span.set_attribute("mloda.join.keys", context.join_keys)
+    if context.join_left_feature_group is not None:
+        span.set_attribute("mloda.join.left_feature_group", context.join_left_feature_group)
+    if context.join_right_feature_group is not None:
+        span.set_attribute("mloda.join.right_feature_group", context.join_right_feature_group)
     asof = context.asof_config
     if asof is None:
         return
@@ -591,7 +599,11 @@ def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
     if context.hook != ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
         return
     step_id = step_run_id(
-        context.run_id, owner_name(context, func), context.feature_names, context.compute_framework_name
+        context.run_id,
+        owner_name(context, func),
+        context.feature_names,
+        context.compute_framework_name,
+        context.step_uuid,
     )
     if step_id is not None:
         span.set_attribute("mloda.step.run_id", step_id)
@@ -614,6 +626,8 @@ def _set_context_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.plugin.version", context.plugin_version)
     if context.run_id is not None:
         span.set_attribute("mloda.run.id", context.run_id)
+    if context.step_uuid is not None:
+        span.set_attribute("mloda.step.uuid", str(context.step_uuid))
     if context.plan_id is not None:
         span.set_attribute("mloda.plan.id", context.plan_id)
     if context.worker_index is not None:

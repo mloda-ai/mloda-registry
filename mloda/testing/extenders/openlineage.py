@@ -245,9 +245,9 @@ def _root_events(events: list[RunEvent]) -> list[RunEvent]:
     return [event for event in events if event.job.name == ROOT_JOB_NAME]
 
 
-def _plan_id_of(event: RunEvent) -> Any:
+def _mloda_plan_field(event: RunEvent, name: str) -> Any:
     payload = json.loads(Serde.to_json(event))
-    return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get("planId")
+    return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get(name)
 
 
 class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
@@ -788,9 +788,9 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             assert parent.job.name == ROOT_JOB_NAME
             parent_run_ids.add(parent.run.runId)
         assert parent_run_ids == {root_events[0].run.runId}
-        assert _plan_id_of(root_events[0]) is not None
-        assert _plan_id_of(root_events[1]) == _plan_id_of(root_events[0])
-        assert not any(_plan_id_of(event) for event in step_events)
+        assert _mloda_plan_field(root_events[0], "planId") is not None
+        assert _mloda_plan_field(root_events[1], "planId") == _mloda_plan_field(root_events[0], "planId")
+        assert not any(_mloda_plan_field(event, "planId") for event in step_events)
 
     def test_openlineage_failing_run_all_emits_a_parent_run_fail(self) -> None:
         client, transport = make_recording_client()
@@ -801,7 +801,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
         root_events = _root_events(transport.events)
         assert [event.eventType for event in root_events] == [RunState.START, RunState.FAIL]
-        assert _plan_id_of(root_events[1]) == _plan_id_of(root_events[0])
+        assert _mloda_plan_field(root_events[1], "planId") == _mloda_plan_field(root_events[0], "planId")
 
     def test_openlineage_prepared_plan_run_twice_emits_two_parent_runs_with_one_plan_id(self) -> None:
         client, transport = make_recording_client()
@@ -820,9 +820,12 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert root_events[0].run.runId == root_events[1].run.runId
         assert root_events[2].run.runId == root_events[3].run.runId
         assert root_events[0].run.runId != root_events[2].run.runId
-        plan_ids = {_plan_id_of(event) for event in root_events}
+        plan_ids = {_mloda_plan_field(event, "planId") for event in root_events}
         assert len(plan_ids) == 1
         assert None not in plan_ids
+        structure_hashes = {_mloda_plan_field(event, "structureHash") for event in root_events}
+        assert len(structure_hashes) == 1
+        assert all(structure_hashes)
 
     def test_openlineage_run_all_step_run_ids_are_derived_from_the_parent_run_id(self) -> None:
         client, transport = make_recording_client()
@@ -834,8 +837,14 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         expected = set()
         for context in probe.contexts:
             assert context.feature_group_class is not None
+            assert context.step_uuid is not None
             key = json.dumps(
-                [context.feature_group_class, sorted(context.feature_names), context.compute_framework_name]
+                [
+                    context.feature_group_class,
+                    sorted(context.feature_names),
+                    context.compute_framework_name,
+                    str(context.step_uuid),
+                ]
             )
             expected.add(str(uuid.uuid5(uuid.UUID(root_run_id), key)))
         step_start_ids = {

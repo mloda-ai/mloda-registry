@@ -60,6 +60,8 @@ from mloda.testing.extenders.otel import (
 from mloda.testing.extenders.runners import (
     CountingExtender,
     MlodaTestingFailingFeatureGroup,
+    MlodaTestingJoinLeft,
+    MlodaTestingJoinRight,
     expected_value_int,
     failing_feature_group,
     prepare_value_int,
@@ -678,6 +680,38 @@ class TestOtelExtenderSpanAttributes:
         for name in ("mloda.feature_group.name", "mloda.feature_group.version", "mloda.compute_framework.name"):
             assert name not in attributes
 
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            ExtenderHook.VALIDATE_INPUT_FEATURE,
+            ExtenderHook.VALIDATE_OUTPUT_FEATURE,
+            ExtenderHook.INPUT_DATA_LOAD,
+        ],
+    )
+    def test_step_uuid_attribute_present_when_set(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook
+    ) -> None:
+        provider, exporter = otel_capture
+        step_uuid = uuid.uuid4()
+        context = make_hook_context(hook=hook, step_uuid=step_uuid)
+
+        with context.activate():
+            OtelExtender(tracer_provider=provider)(lambda: None)
+
+        assert single_span_attributes(exporter)["mloda.step.uuid"] == str(step_uuid)
+
+    def test_step_uuid_attribute_absent_when_none(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = make_hook_context(step_uuid=None)
+
+        with context.activate():
+            OtelExtender(tracer_provider=provider)(lambda: None)
+
+        assert "mloda.step.uuid" not in single_span_attributes(exporter)
+
     def test_run_id_attribute_absent_when_none(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         """Covers the explicit run_id=None case: core (mloda 0.11.3+) always mints a real run_id now, but
         a hand-built HookContext (as used throughout this file) can still pass None explicitly, and the
@@ -1075,6 +1109,20 @@ class TestOtelExtenderContentCapture:
             ),
             pytest.param([("password", "hunter2")], ["hunter2"], id="secret-keyed-pair"),  # nosec
             pytest.param({b"password": "hunter2"}, ["hunter2"], id="bytes-secret-key"),  # nosec
+            pytest.param({"Authorization": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="authorization-basic"),  # nosec
+            pytest.param(
+                {"Proxy-Authorization": "Token abc123def456"}, ["abc123def456"], id="proxy-authorization-token"
+            ),  # nosec
+            pytest.param("Authorization: Bearer abcdef123456", ["abcdef123456"], id="top-level-bearer-str"),  # nosec
+            pytest.param(
+                {"Proxy-Authorization": {"v": "Token abcdef123456"}},
+                ["abcdef123456"],
+                id="dict-under-proxy-authorization-key",
+            ),  # nosec
+            pytest.param(
+                {"HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="http-authorization-meta-key"
+            ),  # nosec
+            pytest.param({"X-Authorization": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="x-authorization-header-key"),  # nosec
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1649,6 +1697,24 @@ class TestOtelExtenderJoinSpanAttributes:
             assert attrs[expected_key] == expected_value
             assert type(attrs[expected_key]) is type(expected_value)
 
+    def test_join_feature_group_attributes_present_when_set(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        attrs = self._join_attributes(
+            otel_capture, join_type="inner", join_left_feature_group="pkg.Left", join_right_feature_group="pkg.Right"
+        )
+
+        assert attrs["mloda.join.left_feature_group"] == "pkg.Left"
+        assert attrs["mloda.join.right_feature_group"] == "pkg.Right"
+
+    def test_join_feature_group_attributes_absent_when_none(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        attrs = self._join_attributes(otel_capture, join_type="inner")
+
+        assert "mloda.join.left_feature_group" not in attrs
+        assert "mloda.join.right_feature_group" not in attrs
+
     def test_join_keys_absent_for_a_keyless_join(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
@@ -1988,6 +2054,7 @@ class TestOtelExtenderRunAll:
         assert calculate_record["trace_id"] == root_record["trace_id"], records
         assert calculate_record["parent_span_id"] == root_record["span_id"], records
         assert root_record["attributes"]["mloda.run.id"] == calculate_record["attributes"]["mloda.run.id"]
+        assert calculate_record["attributes"].get("mloda.step.uuid"), calculate_record
         if parenting == "run_id":
             run_id = calculate_record["attributes"]["mloda.run.id"]
             assert root_record["trace_id"] != uuid.UUID(run_id).int, records
@@ -2036,8 +2103,9 @@ class TestOtelExtenderRunAll:
         }, records
 
 
-def _plan(plan_id: str) -> PlanContext:
+def _plan(plan_id: str, structure_hash: str | None = None) -> PlanContext:
     return PlanContext(
+        structure_hash=structure_hash,
         plan_id=plan_id,
         tenant_id=None,
         project_id=None,
@@ -2050,8 +2118,14 @@ def _run(run_id: str, plan_id: str = "plan-1", carrier: dict[str, str] | None = 
     return RunContext(run_id=run_id, plan_id=plan_id, carrier=carrier)
 
 
-def _start_run(otel: OtelExtender, run_id: str, plan_id: str = "plan-1", carrier: dict[str, str] | None = None) -> None:
-    otel.on_run_start(_run(run_id, plan_id, carrier), Mock(plan_id=plan_id), ())
+def _start_run(
+    otel: OtelExtender,
+    run_id: str,
+    plan_id: str = "plan-1",
+    carrier: dict[str, str] | None = None,
+    structure_hash: str | None = None,
+) -> None:
+    otel.on_run_start(_run(run_id, plan_id, carrier), Mock(plan_id=plan_id, structure_hash=structure_hash), ())
 
 
 def _complete_run(otel: OtelExtender, run_id: str, status: Any = "succeeded", error_type: str | None = None) -> None:
@@ -2152,6 +2226,14 @@ class TestOtelExtenderRunScopeFullRuns:
         attributes = join["attributes"]
         assert attributes["mloda.join.type"] == "inner"
         assert attributes["mloda.join.keys"] == ["mloda_testing_left_id=mloda_testing_right_id"]
+        assert (
+            attributes["mloda.join.left_feature_group"]
+            == f"{MlodaTestingJoinLeft.__module__}.{MlodaTestingJoinLeft.__qualname__}"
+        )
+        assert (
+            attributes["mloda.join.right_feature_group"]
+            == f"{MlodaTestingJoinRight.__module__}.{MlodaTestingJoinRight.__qualname__}"
+        )
         assert attributes["mloda.run.id"] == root["attributes"]["mloda.run.id"]
         if mode == ParallelizationMode.MULTIPROCESSING:
             assert "mloda.subprocess.worker_index" in attributes, join
@@ -2176,6 +2258,9 @@ class TestOtelExtenderRunScopeFullRuns:
         plan_ids = {(root.attributes or {})["mloda.plan.id"] for root in roots}
         assert len(run_ids) == 2
         assert len(plan_ids) == 1
+        hashes = {(root.attributes or {}).get("mloda.plan.structure_hash") for root in roots}
+        assert len(hashes) == 1
+        assert all(hashes)
 
     def test_failed_run_marks_the_root_error(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
@@ -2355,14 +2440,15 @@ class TestOtelExtenderPlanScopeFullRuns:
 class TestOtelExtenderRootSpanHooks:
     """Lifecycle hooks driven directly (all fire in the parent process)."""
 
+    @pytest.mark.parametrize("structure_hash", ["abc123", None])
     def test_on_run_start_and_complete_emit_the_root_with_attributes(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], structure_hash: str | None
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         run_id = str(uuid.uuid4())
 
-        _start_run(otel, run_id, plan_id="plan-x")
+        _start_run(otel, run_id, plan_id="plan-x", structure_hash=structure_hash)
         assert exporter.get_finished_spans() == ()
         _complete_run(otel, run_id)
 
@@ -2372,6 +2458,10 @@ class TestOtelExtenderRootSpanHooks:
         assert span.attributes is not None
         assert span.attributes["mloda.run.id"] == run_id
         assert span.attributes["mloda.plan.id"] == "plan-x"
+        if structure_hash is None:
+            assert "mloda.plan.structure_hash" not in span.attributes
+        else:
+            assert span.attributes["mloda.plan.structure_hash"] == structure_hash
         assert span.attributes["mloda.run.status"] == "succeeded"
         assert span.status.status_code != StatusCode.ERROR
 
@@ -2558,19 +2648,28 @@ class TestOtelExtenderPlanSpanHooks:
             pytest.param(LifecycleOutcome(status="failed", error_type="KeyError"), True, id="failed"),
         ],
     )
+    @pytest.mark.parametrize("structure_hash", ["abc123", None])
     def test_plan_scope_plan_span_has_attributes_and_status(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], outcome: LifecycleOutcome, is_error: bool
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        outcome: LifecycleOutcome,
+        is_error: bool,
+        structure_hash: str | None,
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, trace_scope="plan")
 
         otel.on_plan_start(_plan("plan-1"))
         assert exporter.get_finished_spans() == ()
-        otel.on_plan_complete(_plan("plan-1"), outcome)
+        otel.on_plan_complete(_plan("plan-1", structure_hash), outcome)
 
         span = single_span(exporter)
         assert span.name == "mloda.plan"
         assert (span.attributes or {})["mloda.plan.id"] == "plan-1"
+        if structure_hash is None:
+            assert "mloda.plan.structure_hash" not in (span.attributes or {})
+        else:
+            assert (span.attributes or {})["mloda.plan.structure_hash"] == structure_hash
         if is_error:
             assert span.status.status_code == StatusCode.ERROR
             assert (span.attributes or {})["error.type"] == "KeyError"
@@ -2703,12 +2802,13 @@ class TestOtelExtenderStepSpanNaming:
     ) -> None:
         provider, exporter = otel_capture
         run_id = str(uuid.uuid4())
-        context = make_hook_context(run_id=run_id, feature_names=("b", "a"))
+        step_uuid = uuid.uuid4()
+        context = make_hook_context(run_id=run_id, feature_names=("b", "a"), step_uuid=step_uuid)
 
         with context.activate():
             OtelExtender(tracer_provider=provider)(lambda: None)
 
-        expected = step_run_id(run_id, owner_name(context, lambda: None), ("a", "b"), "PyArrowTable")
+        expected = step_run_id(run_id, owner_name(context, lambda: None), ("a", "b"), "PyArrowTable", step_uuid)
         assert expected is not None
         assert single_span_attributes(exporter)["mloda.step.run_id"] == expected
 

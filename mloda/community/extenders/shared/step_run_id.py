@@ -15,14 +15,21 @@ def owner_name(context: HookContext, func: Any) -> str:
 
 
 def step_run_id(
-    run_id: str | None, job_name: str, feature_names: Iterable[str], compute_framework_name: str | None
+    run_id: str | None,
+    job_name: str,
+    feature_names: Iterable[str],
+    compute_framework_name: str | None,
+    step_uuid: uuid.UUID | None = None,
 ) -> str | None:
-    """Deterministic step id derived from the run id; None without a UUID run id. Known limit: two steps of one
-    run with the same job, feature names and framework share an id."""
+    """Deterministic step id derived from the run id; None without a UUID run id. The step uuid keeps steps of
+    one run apart; without it the legacy key is used."""
     if run_id is None:
         return None
     try:
         namespace = uuid.UUID(run_id)
     except ValueError:
         return None
-    return str(uuid.uuid5(namespace, json.dumps([job_name, sorted(feature_names), compute_framework_name])))
+    key: list[Any] = [job_name, sorted(feature_names), compute_framework_name]
+    if step_uuid is not None:
+        key.append(str(step_uuid))
+    return str(uuid.uuid5(namespace, json.dumps(key)))

@@ -86,7 +86,11 @@ _STR_ATTRIBUTES = {
 
 _BLANK_OMITTED_ATTRIBUTES = {**_STR_ATTRIBUTES, "principal": "user.hash"}
 
-_V2_STR_ATTRIBUTES = {"phase": "mloda.audit.phase", "step_run_id": "mloda.step.run_id"}
+_V2_STR_ATTRIBUTES = {
+    "phase": "mloda.audit.phase",
+    "step_run_id": "mloda.step.run_id",
+    "structure_hash": "mloda.plan.structure_hash",
+}
 _ENFORCED_ATTRIBUTE = "mloda.audit.enforced"
 
 _ALLOWED_ATTRIBUTES = {
@@ -654,12 +658,19 @@ class TestOtelLogAuditSinkMapping:
         self, log_exporter: InMemoryLogRecordExporter
     ) -> None:
         step_run_id = "7d1f6a3e-5c1b-5e0a-9d55-0f6f4a2a9c11"
-        record = {**_audit_record(tenant_id="tenant-1"), "phase": "plan", "step_run_id": step_run_id, "enforced": True}
+        record = {
+            **_audit_record(tenant_id="tenant-1"),
+            "phase": "plan",
+            "step_run_id": step_run_id,
+            "structure_hash": "abc123def4567890",
+            "enforced": True,
+        }
 
         attributes = _attributes(_write_one(log_exporter, record))
 
         assert attributes["mloda.audit.phase"] == "plan"
         assert attributes["mloda.step.run_id"] == step_run_id
+        assert attributes["mloda.plan.structure_hash"] == "abc123def4567890"
         assert attributes["mloda.audit.enforced"] is True
 
     @pytest.mark.parametrize("enforced", [True, False])
@@ -670,10 +681,13 @@ class TestOtelLogAuditSinkMapping:
 
         assert _attributes(_write_one(log_exporter, record))["mloda.audit.enforced"] is enforced
 
-    def test_a_none_step_run_id_is_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
-        record = {**_audit_record(tenant_id="tenant-1"), "step_run_id": None}
+    def test_a_none_step_run_id_and_structure_hash_are_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "step_run_id": None, "structure_hash": None}
 
-        assert "mloda.step.run_id" not in _attributes(_write_one(log_exporter, record))
+        attributes = _attributes(_write_one(log_exporter, record))
+
+        assert "mloda.step.run_id" not in attributes
+        assert "mloda.plan.structure_hash" not in attributes
 
     def test_trace_and_span_ids_of_the_record_correlate_the_log(self, log_exporter: InMemoryLogRecordExporter) -> None:
         record = {**_audit_record(tenant_id="tenant-1"), "trace_id": _TRACE_ID, "span_id": _SPAN_ID}

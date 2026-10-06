@@ -1759,9 +1759,14 @@ class TestOpenLineageExtenderParentRunFacet:
 _PLAN_ID = "plan-0001"
 
 
-def _plan() -> PlanContext:
+def _plan(structure_hash: str | None = None) -> PlanContext:
     return PlanContext(
-        plan_id=_PLAN_ID, tenant_id=None, project_id=None, principal=None, created_at=datetime.now(timezone.utc)
+        plan_id=_PLAN_ID,
+        tenant_id=None,
+        project_id=None,
+        principal=None,
+        created_at=datetime.now(timezone.utc),
+        structure_hash=structure_hash,
     )
 
 
@@ -1792,6 +1797,7 @@ class TestOpenLineageExtenderParentRun:
         assert _plan_facet(event)["planId"] == _PLAN_ID
         assert _plan_facet(event)["_producer"] == extender.producer
         assert event.producer == extender.producer
+        assert "structureHash" not in _plan_facet(event)
 
     def test_run_start_uses_the_custom_namespace_and_root_job_name_and_now_without_started_at(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -1829,6 +1835,21 @@ class TestOpenLineageExtenderParentRun:
         assert terminal.run.runId == _RUN_A
         assert terminal.job.name == "mloda.run_all"
         assert _plan_facet(terminal)["planId"] == _PLAN_ID
+        assert "structureHash" not in _plan_facet(terminal)
+
+    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
+    def test_start_and_terminal_facets_carry_the_structure_hash(
+        self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+
+        extender.on_run_start(run, _plan("h" * 64), ())
+        extender.on_run_complete(run, LifecycleOutcome(status=status))
+
+        assert len(transport.events) == 2
+        assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
 
     def test_run_complete_without_an_emitted_start_emits_nothing(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -1947,17 +1968,19 @@ class TestOpenLineageExtenderParentRun:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         run_id = str(uuid.uuid4())
+        step_uuid = uuid.uuid4()
         context = make_hook_context(
             run_id=run_id,
             feature_group_class="pkg.Group",
             feature_names=("b", "a"),
             compute_framework_name="PyArrowTable",
+            step_uuid=step_uuid,
         )
 
         with context.activate():
             extender(lambda: None)
 
-        assert transport.events[0].run.runId == step_run_id(run_id, "pkg.Group", ("a", "b"), "PyArrowTable")
+        assert transport.events[0].run.runId == step_run_id(run_id, "pkg.Group", ("a", "b"), "PyArrowTable", step_uuid)
 
     def test_step_run_id_falls_back_to_a_random_uuid_without_a_derivable_run_id(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

@@ -13,12 +13,21 @@ from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.testing.extenders.hook_context import make_hook_context
 
 _RUN_ID = "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"
+_STEP_UUID = uuid.UUID("6f1c2d3e-4a5b-4c6d-8e7f-0123456789ab")
 
 
 def test_step_run_id_is_the_uuid5_of_the_run_id_and_the_step_key() -> None:
     expected = str(uuid.uuid5(uuid.UUID(_RUN_ID), json.dumps(["job", ["a", "b"], "PyArrowTable"])))
 
     assert step_run_id(_RUN_ID, "job", ("b", "a"), "PyArrowTable") == expected
+    assert step_run_id(_RUN_ID, "job", ("b", "a"), "PyArrowTable", None) == expected
+
+
+def test_step_run_id_with_a_step_uuid_appends_it_to_the_key() -> None:
+    key = json.dumps(["job", ["a", "b"], "PyArrowTable", str(_STEP_UUID)])
+    expected = str(uuid.uuid5(uuid.UUID(_RUN_ID), key))
+
+    assert step_run_id(_RUN_ID, "job", ("b", "a"), "PyArrowTable", _STEP_UUID) == expected
 
 
 def test_step_run_id_ignores_feature_name_order_and_accepts_any_iterable() -> None:
@@ -35,6 +44,7 @@ def test_step_run_id_ignores_feature_name_order_and_accepts_any_iterable() -> No
         pytest.param({"feature_names": ("a",)}, id="features"),
         pytest.param({"compute_framework_name": "Other"}, id="framework"),
         pytest.param({"run_id": "018f1e4a-7c3b-7c3b-8c3b-1234567890ac"}, id="run"),
+        pytest.param({"step_uuid": _STEP_UUID}, id="step_uuid"),
     ],
 )
 def test_step_run_id_differs_when_any_part_of_the_key_differs(other: dict[str, object]) -> None:

@@ -22,6 +22,7 @@ class MlodaDataAccessFacet(DatasetFacet):
 @attr.define
 class MlodaPlanRunFacet(RunFacet):
     planId: str = attr.field()
+    structureHash: str | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:

@@ -32,6 +32,7 @@ _STR_ATTRIBUTES = {
     "hook": "mloda.audit.hook",
     "run_id": "mloda.run.id",
     "plan_id": "mloda.plan.id",
+    "structure_hash": "mloda.plan.structure_hash",
     "tenant_id": "mloda.tenant.id",
     "project_id": "mloda.project.id",
     "feature_group_class": "mloda.feature_group.name",

@@ -321,6 +321,7 @@ class AuditExtender(Extender):
         self._segment_max_age = segment_max_age
         self.seal_failures = 0
         self._plan_refusals: set[str] = set()
+        self._structure_hashes: dict[str, str] = {}
         self._pickle_drop_warning = WarnOncePerInstance()
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
@@ -341,9 +342,11 @@ class AuditExtender(Extender):
             flush()
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...]) -> None:
-        """With fail_closed, refuses a run whose RunContext lacks a required identity: one deny record, then
-        IdentityRequiredError. Overriding this also lets core run a session whose identity changed since prepare.
-        A no-op otherwise."""
+        """Caches the plan's structure_hash for the run's records. With fail_closed, refuses a run whose
+        RunContext lacks a required identity: one deny record, then IdentityRequiredError. Overriding this also
+        lets core run a session whose identity changed since prepare."""
+        if run.run_id is not None and plan.structure_hash is not None:
+            self._structure_hashes[run.run_id] = plan.structure_hash
         if not self.fail_closed:
             return
         missing = self._missing_identity(run)
@@ -398,7 +401,10 @@ class AuditExtender(Extender):
         at WARNING) and retries the seal once."""
         if run.run_id is None:
             return
-        self._auto_seal(run.run_id)
+        try:
+            self._auto_seal(run.run_id)
+        finally:
+            self._structure_hashes.pop(run.run_id, None)
 
     def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
         """Auto-seal `plan.plan_id` when a plan-time refusal record was written under it (the refusal never
@@ -573,6 +579,7 @@ class AuditExtender(Extender):
         state["_previous_signers"] = ()
         state["_head_anchor"] = None
         state["_seal_failure_policy"] = "log"
+        state["_structure_hashes"] = dict(self._structure_hashes)
         return state
 
     def wraps(self) -> set[ExtenderHook]:
@@ -716,6 +723,7 @@ class AuditExtender(Extender):
                 owner_name(context, func),
                 context.feature_names,
                 context.compute_framework_name,
+                context.step_uuid,
             ),
             worker_index=context.worker_index,
         )
@@ -757,6 +765,7 @@ class AuditExtender(Extender):
             "host": _hostname(),
             "worker_index": worker_index,
             "step_run_id": step_run,
+            "structure_hash": self._structure_hashes.get(run_id) if run_id is not None else None,
             "trace_id": trace[0],
             "span_id": trace[1],
             "deny_reason": ("missing_" + "_and_".join(missing)) if missing else None,
