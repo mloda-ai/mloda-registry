@@ -21,6 +21,7 @@ import uuid
 from collections import ChainMap, OrderedDict, UserDict, defaultdict, deque, namedtuple
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from unittest.mock import Mock
 
@@ -1249,6 +1250,26 @@ class TestOtelExtenderContentCapture:
                 _RedactedMapping({"password": "", "note": "sk_live_abcdef123456"}),  # nosec
                 ["sk_live_abcdef123456"],
                 id="self-redacting-mapping-empty-secret",
+            ),
+            pytest.param(
+                UserDict({"headers": {"X-Authorization": ("Bearer", "dXNlcjpwYXNz")}}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz", "cjpwYXNz"],
+                id="userdict-nested-x-authorization",
+            ),
+            pytest.param(
+                MappingProxyType({"headers": {"X-Authorization": ("Bearer", "dXNlcjpwYXNz")}}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz", "cjpwYXNz"],
+                id="mappingproxy-nested-x-authorization",
+            ),
+            pytest.param(
+                _CaseInsensitiveMapping({"headers": {"X-Authorization": ("Bearer", "dXNlcjpwYXNz")}}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz", "cjpwYXNz"],
+                id="case-insensitive-mapping-nested-authorization",
+            ),
+            pytest.param(
+                _RedactedMapping({"password": "***", "note": "sk_live_abcdef123456"}),  # nosec
+                ["sk_live_abcdef123456"],
+                id="self-redacting-mapping-short-value",
             ),
         ],
     )
