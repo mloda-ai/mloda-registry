@@ -77,6 +77,96 @@ def _windows_pid_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
+def _is_reparse_point(path: Path) -> bool:
+    """Whether ``path`` is a Windows reparse point (symlink or junction)."""
+    return bool(getattr(os.lstat(path), "st_file_attributes", 0) & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+def _windows_owned_by_current_user(path: Path) -> bool:
+    """Whether ``path`` is owned by the current user (token user or owner SID), Administrators or
+    LocalSystem on Windows; raises ``OSError`` when an API call fails."""
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    pvoid = ctypes.c_void_p
+    advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+    advapi32.GetNamedSecurityInfoW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+        ctypes.POINTER(pvoid),
+    ]
+    kernel32.LocalFree.restype = pvoid
+    kernel32.LocalFree.argtypes = [pvoid]
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.GetCurrentProcess.argtypes = []
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        pvoid,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.CreateWellKnownSid.restype = wintypes.BOOL
+    advapi32.CreateWellKnownSid.argtypes = [wintypes.DWORD, pvoid, pvoid, ctypes.POINTER(wintypes.DWORD)]
+    advapi32.EqualSid.restype = wintypes.BOOL
+    advapi32.EqualSid.argtypes = [pvoid, pvoid]
+
+    def token_sid(token: Any, info_class: int) -> tuple[Any, Any]:
+        """The SID pointer of a token information class, plus the buffer that keeps it alive."""
+        size = wintypes.DWORD(0)
+        advapi32.GetTokenInformation(token, info_class, None, 0, ctypes.byref(size))  # sizing call, fails by design
+        if size.value == 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+        buf = ctypes.create_string_buffer(size.value)
+        if not advapi32.GetTokenInformation(token, info_class, buf, size, ctypes.byref(size)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return ctypes.cast(buf, ctypes.POINTER(pvoid))[0], buf
+
+    def well_known_sid(sid_type: int) -> Any:
+        buf = ctypes.create_string_buffer(68)  # SECURITY_MAX_SID_SIZE
+        size = wintypes.DWORD(68)
+        if not advapi32.CreateWellKnownSid(sid_type, None, buf, ctypes.byref(size)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return buf
+
+    owner = pvoid()
+    descriptor = pvoid()
+    error = advapi32.GetNamedSecurityInfoW(
+        str(path), 1, 1, ctypes.byref(owner), None, None, None, ctypes.byref(descriptor)
+    )  # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION
+    if error:
+        raise OSError(None, ctypes.FormatError(error), str(path), error)
+    try:
+        token = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            user_sid, user_buf = token_sid(token, 1)  # TokenUser
+            owner_sid, owner_buf = token_sid(token, 4)  # TokenOwner
+        finally:
+            kernel32.CloseHandle(token)
+        admins = well_known_sid(26)  # WinBuiltinAdministratorsSid
+        system = well_known_sid(22)  # WinLocalSystemSid
+        trusted = (user_sid, owner_sid, ctypes.addressof(admins), ctypes.addressof(system))
+        return any(bool(advapi32.EqualSid(owner.value, sid)) for sid in trusted)
+    finally:
+        kernel32.LocalFree(descriptor)
+
+
 def minimal_environment(
     *,
     license_file: str | None = None,
@@ -129,7 +219,7 @@ def default_parent() -> Path:
 class InvocationDirectory:
     """A private, owner-only directory for one binary invocation, created under a per-user parent
     (or the given one) and reaping dead siblings on entry (contract: Data handling). Liveness is an exclusive
-    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows)."""
+    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows), whose parent must be owned by the user and not a reparse point."""
 
     def __init__(self, parent: Path | None = None) -> None:
         self.parent = parent if parent is not None else default_parent()
@@ -141,8 +231,7 @@ class InvocationDirectory:
             self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         except OSError as exc:
             raise BinaryUnavailableError(f"cannot create {self.parent}: {exc}") from exc
-        if os.name != "nt":
-            self._validate_parent()
+        self._validate_parent()
 
         self._reap_dead_siblings()
 
@@ -194,10 +283,23 @@ class InvocationDirectory:
         return self
 
     def _validate_parent(self) -> None:
-        """Refuse a parent that is a symlink, not owned by the current user, world-writable, or
+        """On Windows refuse a parent that is a symlink or junction or not owned by the current user.
+        On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
         writable by a group other than the current process's own (contract: Data handling): a
         directory shared with the process's own group, the common user-private-group scheme, is
         not a foreign-write risk, but world-writable or a foreign group is."""
+        if os.name == "nt":
+            if _is_reparse_point(self.parent):
+                raise BinaryUnavailableError(f"refusing to use {self.parent}: a symlink or junction")
+            try:
+                owned = _windows_owned_by_current_user(self.parent)
+            except OSError as exc:
+                raise BinaryUnavailableError(f"refusing to use {self.parent}: cannot read its owner: {exc}") from exc
+            if not owned:
+                raise BinaryUnavailableError(
+                    f"refusing to use {self.parent}: not owned by the current user; delete it so it is recreated"
+                )
+            return
         stat_result = os.lstat(self.parent)
         if stat.S_ISLNK(stat_result.st_mode):
             raise BinaryUnavailableError(f"refusing to use {self.parent}: a symlink")

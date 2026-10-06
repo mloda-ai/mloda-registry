@@ -108,9 +108,17 @@ def _hold_lock(lock_file: Path) -> int:
     return fd
 
 
-def _as_windows(monkeypatch: pytest.MonkeyPatch, alive: Callable[[int], bool]) -> None:
-    """Patch ``os.name`` to ``nt``; call after every ``Path`` is built, as ``Path`` may refuse to instantiate under ``nt``."""
+def _as_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    alive: Callable[[int], bool],
+    owned: Callable[[Path], bool] = lambda path: True,
+    reparse: bool = False,
+) -> None:
+    """Patch ``os.name`` to ``nt``; call after every ``Path`` is built, as ``Path`` may refuse to instantiate under ``nt``.
+    The owner and reparse-point checks are stubbed to pass unless ``owned`` or ``reparse`` say otherwise."""
     monkeypatch.setattr(transport, "_windows_pid_alive", alive)
+    monkeypatch.setattr(transport, "_windows_owned_by_current_user", owned)
+    monkeypatch.setattr(transport, "_is_reparse_point", lambda path: reparse)
     monkeypatch.setattr(os, "name", "nt")
 
 
@@ -791,6 +799,54 @@ class TestInvocationDirectory:
             with InvocationDirectory(parent=parent):
                 pass
         assert transport._OWNED_PATHS == owned_before
+
+    def test_windows_owned_parent_is_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        _as_windows(monkeypatch, lambda queried: True)
+        with InvocationDirectory(parent=parent) as inv:
+            assert inv.path.is_dir()
+
+    @pytest.mark.parametrize(
+        ("kind", "fragments"),
+        [
+            ("foreign", ["not owned by the current user", "delete it"]),
+            ("unreadable", ["cannot read its owner", "boom"]),
+            ("reparse", ["symlink or junction"]),
+        ],
+    )
+    def test_windows_refuses_untrusted_parent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, fragments: list[str]
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+
+        def owned(path: Path) -> bool:
+            if kind == "unreadable":
+                raise OSError("boom")
+            return kind != "foreign"
+
+        _as_windows(monkeypatch, lambda queried: True, owned=owned, reparse=kind == "reparse")
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            with InvocationDirectory(parent=parent):
+                pass
+        for fragment in fragments:
+            assert fragment in str(excinfo.value)
+        assert list(parent.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")
+class TestWindowsOwnedByCurrentUser:
+    def test_fresh_directory_is_owned(self, tmp_path: Path) -> None:
+        fresh = tmp_path / "fresh"
+        fresh.mkdir()
+        assert transport._windows_owned_by_current_user(fresh) is True
+
+    def test_system_root_is_not_owned(self) -> None:
+        assert transport._windows_owned_by_current_user(Path(os.environ["SYSTEMROOT"])) is False
+
+    def test_plain_directory_is_not_a_reparse_point(self, tmp_path: Path) -> None:
+        assert transport._is_reparse_point(tmp_path) is False
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")
