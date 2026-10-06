@@ -496,7 +496,9 @@ class OpenLineageExtender(Extender):
         runs on success only."""
         context = HookContext.current()
         derived = (
-            step_run_id(context.run_id, job.name, context.feature_names, context.compute_framework_name)
+            step_run_id(
+                context.run_id, job.name, context.feature_names, context.compute_framework_name, context.step_uuid
+            )
             if context is not None
             else None
         )

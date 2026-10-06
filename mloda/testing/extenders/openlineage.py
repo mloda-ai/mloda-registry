@@ -834,8 +834,14 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         expected = set()
         for context in probe.contexts:
             assert context.feature_group_class is not None
+            assert context.step_uuid is not None
             key = json.dumps(
-                [context.feature_group_class, sorted(context.feature_names), context.compute_framework_name]
+                [
+                    context.feature_group_class,
+                    sorted(context.feature_names),
+                    context.compute_framework_name,
+                    str(context.step_uuid),
+                ]
             )
             expected.add(str(uuid.uuid5(uuid.UUID(root_run_id), key)))
         step_start_ids = {

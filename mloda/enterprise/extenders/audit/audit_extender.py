@@ -716,6 +716,7 @@ class AuditExtender(Extender):
                 owner_name(context, func),
                 context.feature_names,
                 context.compute_framework_name,
+                context.step_uuid,
             ),
             worker_index=context.worker_index,
         )

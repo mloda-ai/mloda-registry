@@ -16,6 +16,7 @@ import stat
 import sys
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, suppress
 from datetime import datetime, timedelta
@@ -1379,18 +1380,20 @@ class TestAuditExtenderRecordV2:
         assert (end - start).total_seconds() >= 0.04
 
     def test_step_run_id_is_the_shared_helper_over_the_owner_name(self) -> None:
+        step_uuid = uuid.uuid4()
         context = make_hook_context(
             run_id=_RUN_UUID,
             feature_group_class="my.module.MyFeatureGroup",
             feature_names=("b", "a"),
             compute_framework_name="PyArrowTable",
+            step_uuid=step_uuid,
         )
         sink = InMemoryAuditSink()
 
         with context.activate():
             AuditExtender(sink=sink)(lambda: None)
 
-        expected = step_run_id(_RUN_UUID, owner_name(context, lambda: None), ("b", "a"), "PyArrowTable")
+        expected = step_run_id(_RUN_UUID, owner_name(context, lambda: None), ("b", "a"), "PyArrowTable", step_uuid)
         assert expected is not None
         assert sink.records[0]["step_run_id"] == expected
 

@@ -2774,12 +2774,13 @@ class TestOtelExtenderStepSpanNaming:
     ) -> None:
         provider, exporter = otel_capture
         run_id = str(uuid.uuid4())
-        context = make_hook_context(run_id=run_id, feature_names=("b", "a"))
+        step_uuid = uuid.uuid4()
+        context = make_hook_context(run_id=run_id, feature_names=("b", "a"), step_uuid=step_uuid)
 
         with context.activate():
             OtelExtender(tracer_provider=provider)(lambda: None)
 
-        expected = step_run_id(run_id, owner_name(context, lambda: None), ("a", "b"), "PyArrowTable")
+        expected = step_run_id(run_id, owner_name(context, lambda: None), ("a", "b"), "PyArrowTable", step_uuid)
         assert expected is not None
         assert single_span_attributes(exporter)["mloda.step.run_id"] == expected
 

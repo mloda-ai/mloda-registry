@@ -1947,17 +1947,19 @@ class TestOpenLineageExtenderParentRun:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         run_id = str(uuid.uuid4())
+        step_uuid = uuid.uuid4()
         context = make_hook_context(
             run_id=run_id,
             feature_group_class="pkg.Group",
             feature_names=("b", "a"),
             compute_framework_name="PyArrowTable",
+            step_uuid=step_uuid,
         )
 
         with context.activate():
             extender(lambda: None)
 
-        assert transport.events[0].run.runId == step_run_id(run_id, "pkg.Group", ("a", "b"), "PyArrowTable")
+        assert transport.events[0].run.runId == step_run_id(run_id, "pkg.Group", ("a", "b"), "PyArrowTable", step_uuid)
 
     def test_step_run_id_falls_back_to_a_random_uuid_without_a_derivable_run_id(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

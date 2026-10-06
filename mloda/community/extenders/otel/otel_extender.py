@@ -595,7 +595,11 @@ def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
     if context.hook != ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
         return
     step_id = step_run_id(
-        context.run_id, owner_name(context, func), context.feature_names, context.compute_framework_name
+        context.run_id,
+        owner_name(context, func),
+        context.feature_names,
+        context.compute_framework_name,
+        context.step_uuid,
     )
     if step_id is not None:
         span.set_attribute("mloda.step.run_id", step_id)
