@@ -397,12 +397,13 @@ def test_a_folder_with_no_booking_batch_is_refused(tmp_path: Path) -> None:
 def test_the_reader_claims_a_batch_folder_and_nothing_else(tmp_path: Path) -> None:
     assert DatevExtfReader.match_subclass_data_access(str(LEDERMANN), [JOURNAL], Options()) == str(LEDERMANN)
     gdpdu = HERE / "fixtures" / "dossier_a"
-    assert DatevExtfReader.match_subclass_data_access(str(gdpdu), ["x"], Options()) is None
+    assert DatevExtfReader.match_subclass_data_access(str(gdpdu), [JOURNAL], Options()) is None
+    assert DatevExtfReader.match_subclass_data_access(str(LEDERMANN), ["x"], Options()) is None
     assert GdpduReader.match_subclass_data_access(str(LEDERMANN), ["x"], Options()) is None
     only_stamm = tmp_path / "stamm"
     only_stamm.mkdir()
     shutil.copy(LEDERMANN / "EXTF_Stammdaten.csv", only_stamm)
-    assert DatevExtfReader.match_subclass_data_access(str(only_stamm), ["x"], Options()) is None
+    assert DatevExtfReader.match_subclass_data_access(str(only_stamm), [JOURNAL], Options()) is None
 
 
 def test_identity_names_the_folder_and_fingerprint_and_no_personal_data(tmp_path: Path) -> None:
@@ -524,3 +525,13 @@ def test_a_folder_holding_both_formats_is_refused_not_shadowed(tmp_path: Path) -
     assert ("GdpduReader" in message and "DatevExtfReader" in message) or (
         "JournalFeatureGroup" in message and "DatevJournalFeatureGroup" in message
     ), message
+
+
+@pytest.mark.parametrize("reader", ["GdpduReader", "DatevExtfReader"])
+def test_a_folder_holding_both_formats_resolves_when_one_reader_is_pinned(tmp_path: Path, reader: str) -> None:
+    both = tmp_path / "both"
+    shutil.copytree(HERE / "fixtures" / "dossier_a", both)
+    shutil.copy(LEDERMANN / "EXTF_Buchungsstapel.csv", both)
+    feature = Feature("gdpdu_journal", Options({reader: str(both)}))
+    results = _run(both, [feature])
+    assert results

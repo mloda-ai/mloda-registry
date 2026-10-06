@@ -2247,3 +2247,10 @@ class TestLineageFacetsGermanLedgerPolicy:
 
         policy = _complete(transport.events, _job(host.TestClosing2025))
         assert _run_facet(policy).declaredAttributes == {"policy.verdict": stamp}
+
+        from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+
+        skr = _complete(transport.events, _job(SkrAccountFeatureGroup))
+        declared = SkrAccountFeatureGroup.declared_attributes(None)
+        assert {"chart", "catalogue", "catalogue.fingerprint"} <= set(declared)
+        assert _run_facet(skr).declaredAttributes == declared

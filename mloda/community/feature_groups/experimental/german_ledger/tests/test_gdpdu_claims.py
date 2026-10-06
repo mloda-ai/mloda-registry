@@ -144,19 +144,15 @@ def test_origins_survive_aggregation() -> None:
     origins = [t.column("revenue__sources~origins").to_pylist()[0] for t in res][0]
     assert str(total) == "45385.06", total
     assert len(origins) == 5 and all(":" in o and "@" in o for o in origins)
+    basis = [t.column("revenue__sources~basis").to_pylist()[0] for t in res][0]
+    assert basis is not None and json.loads(basis)["profile"] is not None
+    assert json.loads(basis)["catalogue"]["name"] == "SKR04_2025"
 
 
 def _stamped_rows(*bases: str | None) -> pa.Table:
     """Admitted, cited revenue rows, one per basis."""
     n = len(bases)
-    return pa.table(
-        {
-            "revenue~value": pa.array([Decimal("1.00")] * n, type=pa.decimal128(38, 2)),
-            "revenue~origins": [f"GL.txt@4564dc0deef2:{i}" for i in range(n)],
-            "revenue~basis": pa.array(list(bases), type=pa.string()),
-            ADMISSIBILITY_COLUMN: [admissibility_verdict("p")] * n,
-        }
-    )
+    return _one_concept_table([Decimal("1.00")] * n, [f"GL.txt@4564dc0deef2:{i}" for i in range(n)], bases=list(bases))
 
 
 def _sources_of(rows: pa.Table) -> pa.Table:
@@ -812,7 +808,6 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
 def test_admissibility_evidence_names_the_policy_that_attested() -> None:
     """Evidence, not a boolean: a citation attests admitted origin, so the verdict says
     which policy admitted it and under which cutoff."""
-    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     table = Closing2025.clear(GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet()))
 
@@ -832,7 +827,6 @@ def test_admissibility_evidence_names_the_policy_that_attested() -> None:
 
 def test_the_evidence_column_name_is_reserved_against_a_descriptor() -> None:
     """A descriptor declaring __admissibility would have its column overwritten by the stamp."""
-    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     injected = (
         f"<VariableColumn>\n          <Name>{ADMISSIBILITY_COLUMN}</Name>\n"
@@ -863,7 +857,6 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
     import pyarrow as pa
 
     from mloda.community.feature_groups.experimental.german_ledger.policy import AdmissibilityPolicyGroup
-    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
     from mloda.community.feature_groups.experimental.german_ledger.sources import InadmissibleTotal
 
     # A stand-in policy in the host's place. It was an INPUT_DATA_LOAD extender, and on
@@ -915,7 +908,6 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
 def test_two_policies_collide_where_the_cause_is_visible() -> None:
     """append_column permits duplicates, so a second stamp would surface as a KeyError
     deep in the transform. Refuse at the second stamp instead."""
-    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     once = Closing2025.clear(GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet()))
     assert ADMISSIBILITY_COLUMN in once.column_names
@@ -938,10 +930,6 @@ def test_an_attested_dossier_with_no_matching_rows_still_returns_null() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.experimental.german_ledger.reader import (
-        ADMISSIBILITY_COLUMN,
-        admissibility_verdict,
-    )
     from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup
 
     empty = pa.table(
@@ -990,7 +978,7 @@ def test_removing_the_policy_leaves_the_independent_source_with_no_number() -> N
 
 def test_a_verdict_must_name_a_syntactically_valid_policy() -> None:
     """The producer fails at the point of stamping if it cannot name itself."""
-    from mloda.community.feature_groups.experimental.german_ledger.reader import admissibility_verdict, is_admitted
+    from mloda.community.feature_groups.experimental.german_ledger.reader import is_admitted
 
     assert is_admitted(admissibility_verdict("late-entry-cutoff", lock="2026-01-15"))
     assert is_admitted("admitted:x")
@@ -1018,25 +1006,28 @@ def test_a_fully_priced_concept_still_totals() -> None:
     assert len(got["revenue__sources~origins"]) == 5
 
 
-def _one_concept_table(values: list[Any], origins: list[Any], scale: int = 2, stamp: str | None = None) -> pa.Table:
+def _one_concept_table(
+    values: list[Any],
+    origins: list[Any],
+    scale: int = 2,
+    stamp: str | None = None,
+    bases: list[str | None] | None = None,
+) -> pa.Table:
     """A ~value/~origins pair at row grain, stamped admissible, fed straight to the primitive.
 
     SourcesFeatureGroup is offered to the registry as a primitive any producer may feed, so
     its contract has to hold for tables the GDPdU chain would never build.
     """
-    from mloda.community.feature_groups.experimental.german_ledger.reader import (
-        ADMISSIBILITY_COLUMN,
-        admissibility_verdict,
-    )
 
     stamp = stamp or admissibility_verdict("test-policy")
-    return pa.table(
-        {
-            "revenue~value": pa.array(values, type=pa.decimal128(38, scale)),
-            "revenue~origins": pa.array(origins, type=pa.string()),
-            ADMISSIBILITY_COLUMN: pa.array([stamp] * len(values), type=pa.string()),
-        }
-    )
+    columns = {
+        "revenue~value": pa.array(values, type=pa.decimal128(38, scale)),
+        "revenue~origins": pa.array(origins, type=pa.string()),
+    }
+    if bases is not None:
+        columns["revenue~basis"] = pa.array(bases, type=pa.string())
+    columns[ADMISSIBILITY_COLUMN] = pa.array([stamp] * len(values), type=pa.string())
+    return pa.table(columns)
 
 
 def _total(values: list[Any], origins: list[Any], scale: int = 2) -> Any:
@@ -1122,7 +1113,7 @@ def test_a_line_outside_the_closed_period_is_stamped_as_outside_it() -> None:
     """
     import datetime
 
-    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN, is_admitted
+    from mloda.community.feature_groups.experimental.german_ledger.reader import is_admitted
 
     table = pa.table(
         {
@@ -1197,10 +1188,6 @@ def test_a_sibling_subcolumn_cannot_become_the_total() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.experimental.german_ledger.reader import (
-        ADMISSIBILITY_COLUMN,
-        admissibility_verdict,
-    )
     from mloda.community.feature_groups.experimental.german_ledger.sources import AmbiguousSourceColumns
 
     table = pa.table(
@@ -1230,11 +1217,6 @@ def test_a_binary_float_amount_is_refused_by_name() -> None:
     """
     from mloda.provider import FeatureSet
     from mloda.user import Feature
-
-    from mloda.community.feature_groups.experimental.german_ledger.reader import (
-        ADMISSIBILITY_COLUMN,
-        admissibility_verdict,
-    )
 
     table = pa.table(
         {
@@ -1375,7 +1357,6 @@ def test_get_column_names_does_not_claim_the_admissibility_column() -> None:
     Listing it here would claim a column this class does not produce -- the same silent
     overstatement the rest of this package exists to prevent, one layer down.
     """
-    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     columns = GdpduReader.get_column_names(str(FIX / "dossier_a"))
     assert ADMISSIBILITY_COLUMN not in columns

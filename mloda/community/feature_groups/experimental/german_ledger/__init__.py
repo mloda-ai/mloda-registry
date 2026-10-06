@@ -4,9 +4,9 @@ Reads GDPdU/GoBD dossiers and DATEV-Format EXTF booking batches, and answers con
 ``revenue__sources`` with a total AND the ledger lines behind it -- or refuses by name.
 
 Importing this package registers its feature groups. Until mloda#1745 is fixed, register them
-by import, not through ``PluginLoader.all()``: that call also loads the stock
-read feature groups (``ReadDocumentFeature`` reads a dossier's ``GL.txt``), which then claim the same feature names and the request fails with
-"Multiple feature groups found". See README.md.
+by import, not through ``PluginLoader.all()``: that call also loads the stock read feature groups
+(``ReadDocumentFeature`` reads a dossier's ``GL.txt``), which then claim the same feature names
+and the request fails with "Multiple feature groups found". See README.md.
 """
 
 from __future__ import annotations
