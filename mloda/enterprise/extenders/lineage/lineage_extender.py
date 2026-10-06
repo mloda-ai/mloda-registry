@@ -69,6 +69,7 @@ _open_described_columns: OpenInvocationStack[_LoadState | None] = OpenInvocation
 class MlodaRunFacet(RunFacet):
     declaredMasking: list[str] = attr.field()
     structureHash: str = attr.field()
+    declaredAttributes: dict[str, str | int | float | bool] = attr.field()
 
     @staticmethod
     def _get_schema() -> str:
@@ -115,6 +116,7 @@ class LineageFacetsExtender(OpenLineageExtender):
         facets["mloda"] = MlodaRunFacet(
             declaredMasking=masked,
             structureHash=_structure_hash(context, masked, _source_columns(context, func, args)),
+            declaredAttributes=dict(context.declared_attributes or {}),
             producer=self.producer,
         )
         return facets

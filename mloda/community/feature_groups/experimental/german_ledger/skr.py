@@ -54,7 +54,7 @@ SKR03_2025: dict[str, range] = {
 # Keyed the way a DATEV header writes field 27.
 CHARTS: dict[str, dict[str, range]] = {"03": SKR03_2025, "04": SKR04_2025}
 
-# The name a receipt cites for each chart's catalogue. The fingerprint beside it is computed
+# The name each chart's catalogue is cited by. The fingerprint beside it is computed
 # from the ranges actually in force, so an edited catalogue cannot pass under its old name.
 CATALOGUE_NAMES: dict[str, str] = {"03": "SKR03_2025", "04": "SKR04_2025"}
 
@@ -221,18 +221,18 @@ def _gross_reason(account: int, bu: str, automatic: frozenset[int]) -> str | Non
     return None
 
 
-def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> str:
-    """What a concept's values were computed on, as one JSON document for the receipt.
-
-    The fingerprint covers the whole catalogue in force (every concept's ranges and the
-    automatic accounts), so it identifies the catalogue version, not just this concept's slice.
-    """
-    catalogue = CHARTS[chart]
+def _fingerprint(chart: str) -> str:
+    """Identifies the catalogue version in force: every concept's ranges and the automatic accounts."""
     whole = {
-        "concepts": {c: [r.start, r.stop - 1] for c, r in sorted(catalogue.items())},
+        "concepts": {c: [r.start, r.stop - 1] for c, r in sorted(CHARTS[chart].items())},
         "automatic_revenue": sorted(AUTOMATIC_REVENUE[chart]),
     }
-    digest = hashlib.sha256(json.dumps(whole, sort_keys=True).encode()).hexdigest()[:12]
+    return hashlib.sha256(json.dumps(whole, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> str:
+    """What a concept's values were computed on, as one JSON document riding with the rows."""
+    catalogue = CHARTS[chart]
     accounts = catalogue[concept]
     return json.dumps(
         {
@@ -241,7 +241,7 @@ def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> st
             "chart": f"SKR{chart}",
             "catalogue": {
                 "name": CATALOGUE_NAMES[chart],
-                "fingerprint": digest,
+                "fingerprint": _fingerprint(chart),
                 "accounts": [[accounts.start, accounts.stop - 1]],
             },
             "sign": SOLL_POSITIVE if signed else AS_DECLARED,
@@ -300,6 +300,15 @@ class SkrAccountFeatureGroup(FeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> Any:
         return {PyArrowTable}
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> dict[str, str | int | float | bool]:
+        """The chart and catalogue in force, for the extender hooks; the profile stays in `~basis`."""
+        return {
+            "chart": f"SKR{cls.CHART}",
+            "catalogue": CATALOGUE_NAMES[cls.CHART],
+            "catalogue.fingerprint": _fingerprint(cls.CHART),
+        }
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

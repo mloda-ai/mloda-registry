@@ -87,8 +87,8 @@ OUTSIDE_SCOPE_PREFIX = "outside-scope:"
 _POLICY_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
-# How many rows got which verdict, in this order. The same shape travels in a receipt's
-# `verdicts` and on a refusal, so a refused run is counted the way an answered one is.
+# How many rows got which verdict, in this order. The same shape travels on a refusal's
+# `verdicts`, so a refused run is counted the way an answered one is.
 VERDICT_KINDS = ("admitted", "outside-scope", "refused", "unevaluated", "malformed", "unstamped")
 
 

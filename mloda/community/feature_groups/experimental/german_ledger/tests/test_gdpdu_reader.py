@@ -13,7 +13,11 @@ from typing import Any
 import pytest
 from mloda.user import Options
 
-from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader, parse_descriptor_bytes
+from mloda.community.feature_groups.experimental.german_ledger.reader import (
+    GdpduReader,
+    parse_citation,
+    parse_descriptor_bytes,
+)
 
 HERE = Path(__file__).parent
 DOSSIER_A = HERE / "fixtures" / "dossier_a"
@@ -105,3 +109,19 @@ def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(reader: str,
     pin = {reader: str(_twin_pair()[0 if reader == "GdpduReader" else 1])}
     origins = _journal_origins(_resolve(_twin_pair(), "gdpdu_journal", pin, journals=True))
     assert origins and all(o.startswith(scheme) for o in origins), origins
+
+
+# --- structured citations -----------------------------------------------------------------------
+
+
+def test_a_citation_is_read_field_by_field() -> None:
+    gdpdu = parse_citation("GL.txt@4564dc0deef2:7")
+    assert (gdpdu.file, gdpdu.fingerprint, gdpdu.record, gdpdu.leg) == ("GL.txt", "4564dc0deef2", 7, None)
+    datev = parse_citation("EXTF_Buchungsstapel.csv@6d85f9f5fa76:4/G")
+    assert (datev.file, datev.record, datev.leg) == ("EXTF_Buchungsstapel.csv", 4, "G")
+
+
+@pytest.mark.parametrize("bad", ["", "GL.txt", "GL.txt@xyz:1", "GL.txt@4564dc0deef2:", "GL.txt@4564dc0deef2:1/X"])
+def test_a_malformed_citation_is_refused(bad: str) -> None:
+    with pytest.raises(ValueError):
+        parse_citation(bad)

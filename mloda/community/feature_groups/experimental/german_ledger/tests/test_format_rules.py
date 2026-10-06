@@ -35,6 +35,8 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
     is_admitted,
 )
 
+from ._host import TestClosing2025 as Closing2025
+
 HERE = Path(__file__).parent
 FIX = HERE / "fixtures"
 CUTOFF = LateEntryCutoff(lock_date=date(2026, 1, 15), period_end=date(2025, 12, 31))
@@ -119,3 +121,14 @@ def test_one_host_reads_both_formats_end_to_end() -> None:
     assert "GDPdU:  revenue 22485.06" in proof.stdout, proof.stdout
     assert "DATEV:  revenue 22485.06" in proof.stdout, proof.stdout
     assert "OPEN DATEV: InadmissibleTotal" in proof.stdout, proof.stdout
+
+
+def test_a_policy_with_scoped_rules_declares_the_stamp_every_admitted_row_carries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RULES swapped on the one live policy for this test; a second subclass would leak."""
+    monkeypatch.setattr(Closing2025, "RULES", MIXED)
+    [stamp] = _stamps(Closing2025.clear(_gdpdu()))
+    assert stamp.startswith("admitted:all-of;rules=gdpdu.late-entry-cutoff,datev.festschreibung;"), stamp
+    assert Closing2025.declared_attributes(None) == {"policy.verdict": stamp}
+    assert _stamps(Closing2025.clear(_datev(tmp_path, locked=True))) == {stamp}

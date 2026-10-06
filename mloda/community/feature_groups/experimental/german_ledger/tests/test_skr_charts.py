@@ -20,14 +20,16 @@ import sys
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature
 
+from mloda.community.feature_groups.experimental.german_ledger import skr
 from mloda.community.feature_groups.experimental.german_ledger.datev import SOLL_POSITIVE, VORZEICHEN, DatevExtfReader
-from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
+from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN, GdpduReader
 from mloda.community.feature_groups.experimental.german_ledger.skr import (
     SKR03_2025,
     SKR04_2025,
@@ -40,6 +42,7 @@ from mloda.community.feature_groups.experimental.german_ledger.skr import (
 
 LEDERMANN = Path(__file__).parent / "fixtures" / "datev_ledermann"
 TWIN = Path(__file__).parent / "fixtures" / "twin_2025"
+DOSSIER_A = Path(__file__).parent / "fixtures" / "dossier_a"
 
 
 @pytest.fixture
@@ -48,6 +51,15 @@ def chart() -> Iterator[None]:
     original = SkrAccountFeatureGroup.CHART
     yield
     SkrAccountFeatureGroup.CHART = original
+
+
+@pytest.fixture
+def catalogue() -> Iterator[None]:
+    """Restore the SKR04 catalogue after a test edits it; it is process-wide."""
+    original = dict(skr.CHARTS)
+    yield
+    skr.CHARTS.clear()
+    skr.CHARTS.update(original)
 
 
 def _features(*names: str) -> FeatureSet:
@@ -86,6 +98,67 @@ def _ledermann(
 def _values(mapped: pa.Table, name: str) -> list[tuple[object, object]]:
     pairs = zip(mapped.column(f"{name}~value").to_pylist(), mapped.column(f"{name}~origins").to_pylist())
     return [(v, o) for v, o in pairs if o is not None]
+
+
+def _basis(concept: str) -> dict[str, Any]:
+    mapped = SkrAccountFeatureGroup._map_accounts(
+        GdpduReader.load_data(str(DOSSIER_A), FeatureSet()), _features(concept)
+    )
+    [basis] = set(mapped.column(f"{concept}~basis").to_pylist())
+    parsed: dict[str, Any] = json.loads(basis)
+    return parsed
+
+
+# --- the concept's basis ---------------------------------------------------------------------
+
+
+def test_a_concept_states_the_basis_it_was_computed_on() -> None:
+    basis = _basis("revenue")
+    assert basis["profile"] == {"account_column": "Konto", "amount_column": "Betrag", "sign": None}
+    assert basis["chart"] == "SKR04"
+    assert basis["catalogue"]["name"] == "SKR04_2025"
+    assert basis["catalogue"]["accounts"] == [[4000, 4499]]
+    assert basis["sign"] == "as-declared"
+    assert len(basis["catalogue"]["fingerprint"]) == 12
+
+
+def test_a_changed_catalogue_changes_the_basis(catalogue: None) -> None:
+    before = _basis("revenue")["catalogue"]
+    skr.CHARTS["04"] = {**skr.SKR04_2025, "revenue": range(4000, 4800)}
+    after = _basis("revenue")["catalogue"]
+    assert after["accounts"] == [[4000, 4799]]
+    assert after["fingerprint"] != before["fingerprint"]
+
+
+# --- the declared attributes: what is fixed before any row is read ---------------------------------
+
+
+@pytest.mark.parametrize("features", [None, _features("revenue")], ids=["no-features", "features"])
+def test_the_declared_attributes_name_the_chart_and_catalogue(features: FeatureSet | None) -> None:
+    declared = SkrAccountFeatureGroup.declared_attributes(features)
+    assert set(declared) == {"chart", "catalogue", "catalogue.fingerprint"}
+    assert declared["chart"] == "SKR04"
+    assert declared["catalogue"] == "SKR04_2025"
+
+
+def test_the_declared_attributes_follow_the_hosts_chart(chart: None) -> None:
+    SkrAccountFeatureGroup.CHART = "03"
+    declared = SkrAccountFeatureGroup.declared_attributes(None)
+    assert (declared["chart"], declared["catalogue"]) == ("SKR03", "SKR03_2025")
+
+
+def test_the_declared_fingerprint_is_the_one_in_the_basis() -> None:
+    declared = SkrAccountFeatureGroup.declared_attributes(None)
+    assert declared["catalogue.fingerprint"] == _basis("revenue")["catalogue"]["fingerprint"]
+    assert declared["chart"] == _basis("revenue")["chart"]
+
+
+def test_a_changed_catalogue_changes_the_declared_fingerprint(catalogue: None) -> None:
+    before = SkrAccountFeatureGroup.declared_attributes(None)["catalogue.fingerprint"]
+    skr.CHARTS["04"] = {**skr.SKR04_2025, "revenue": range(4000, 4800)}
+    after = SkrAccountFeatureGroup.declared_attributes(None)["catalogue.fingerprint"]
+    assert after != before
+    assert after == _basis("revenue")["catalogue"]["fingerprint"]
 
 
 # --- the catalogue ---------------------------------------------------------------------------

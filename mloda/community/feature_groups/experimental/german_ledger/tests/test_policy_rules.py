@@ -67,6 +67,31 @@ def test_one_rule_stamps_exactly_as_the_shorthand_policy_does() -> None:
     assert _stamps(apply_rules((CUTOFF,), _dossier_a())) == _stamps(Closing2025.clear(_dossier_a()))
 
 
+# --- declared attributes: the stamp a fully admitted row carries ---------------------------
+
+
+@pytest.mark.parametrize("features", [None, FeatureSet()], ids=["no-features", "features"])
+def test_an_unconfigured_policy_declares_nothing(features: FeatureSet | None) -> None:
+    assert AdmissibilityPolicyGroup.declared_attributes(features) == {}
+
+
+@pytest.mark.parametrize("features", [None, FeatureSet()], ids=["no-features", "features"])
+def test_a_one_rule_policy_declares_the_stamp_its_admitted_rows_carry(features: FeatureSet | None) -> None:
+    [stamp] = set(_stamps(Closing2025.clear(_dossier_a())))
+    assert Closing2025.declared_attributes(features) == {"policy.verdict": stamp}
+
+
+@pytest.mark.parametrize("features", [None, FeatureSet()], ids=["no-features", "features"])
+def test_a_multi_rule_policy_declares_the_combined_stamp(
+    monkeypatch: pytest.MonkeyPatch, features: FeatureSet | None
+) -> None:
+    """RULES swapped on the one live policy for this test; a second subclass would leak."""
+    monkeypatch.setattr(Closing2025, "RULES", (CUTOFF, FY2025))
+    [stamp] = set(_stamps(Closing2025.clear(_dossier_a())))
+    assert stamp.startswith("admitted:all-of;"), stamp
+    assert Closing2025.declared_attributes(features) == {"policy.verdict": stamp}
+
+
 # --- several rules: one combined stamp -----------------------------------------------------
 
 
