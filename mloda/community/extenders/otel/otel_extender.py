@@ -76,7 +76,8 @@ def _scrub_ends(text: str) -> str:
 def _is_secret_key(key: object) -> bool:
     if not isinstance(key, str):
         return False
-    probe = f"{key[-_SECRET_KEY_TAIL:]}=x"
+    # Token-shaped value so the Authorization pattern (scheme word or token only) fires.
+    probe = f"{key[-_SECRET_KEY_TAIL:]}=x1"
     return scrub_credentials(probe) != probe
 
 
