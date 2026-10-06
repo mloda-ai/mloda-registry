@@ -1044,6 +1044,35 @@ class TestOtelExtenderContentCapture:
                 ["dXNlcjpwYXNz"],
                 id="proxy-authorization-bytes",
             ),
+            pytest.param({"X-Authorization": ("Basic", "dXNlcjpwYXNz")}, ["dXNlcjpwYXNz"], id="x-authorization"),  # nosec
+            pytest.param({"HTTP_AUTHORIZATION": ("Basic", "dXNlcjpwYXNz")}, ["dXNlcjpwYXNz"], id="http-authorization"),  # nosec
+            pytest.param({"proxy_authorization": ("Basic", "dXNlcjpwYXNz")}, ["dXNlcjpwYXNz"], id="proxy-underscore"),  # nosec
+            pytest.param(
+                {"authorization_header": ("Basic", "dXNlcjpwYXNz")},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="authorization-header",
+            ),
+            pytest.param(
+                {"X-Proxy-Authorization": ("Basic", "dXNlcjpwYXNz")},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="x-proxy-authorization",
+            ),
+            pytest.param(
+                {"headers": [("Authorization", "Basic dXNlcjpwYXNz")]},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="authorization-pair-in-container",
+            ),
+            pytest.param(
+                {"headers": [("Proxy-Authorization", "Basic dXNlcjpwYXNz")]},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="proxy-authorization-pair-in-container",
+            ),
+            pytest.param(("Authorization", "Bearer dXNlcjpwYXNz"), ["dXNlcjpwYXNz"], id="top-level-pair"),  # nosec
+            pytest.param(
+                {"headers": [(b"authorization", b"Basic dXNlcjpwYXNz")]},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="asgi-bytes-pair",
+            ),
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1065,16 +1094,24 @@ class TestOtelExtenderContentCapture:
         for fragment in fragments:
             assert fragment not in preview, preview
 
-    @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer"])
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            pytest.param(lambda key: {key: "visible"}, id="dict"),
+            pytest.param(lambda key: [(key, "visible")], id="pair"),
+            pytest.param(lambda key: {"col": [key, "visible"]}, id="list-column"),
+        ],
+    )
+    @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer", "author", "Authorization-Info"])
     def test_content_attribute_keeps_non_secret_key_values_visible(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], key: str
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], key: str, shape: Any
     ) -> None:
         provider, exporter = otel_capture
         context = make_hook_context()
         otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
 
         with context.activate():
-            otel(instrument(context, lambda: {key: "visible"}))
+            otel(instrument(context, lambda: shape(key)))
 
         preview = str(single_span_attributes(exporter)[_CONTENT_ATTRIBUTE])
         assert "visible" in preview, preview
