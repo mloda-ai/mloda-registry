@@ -17,6 +17,7 @@ import pickle  # nosec
 import threading
 import time
 import uuid
+from collections import OrderedDict, defaultdict, deque, namedtuple
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -820,6 +821,41 @@ class _CredentialRepr:
         return "ConnectionHandle(host=h, password=hunter2)"  # nosec
 
 
+_HeaderPair = namedtuple("_HeaderPair", "name value")
+_Creds = namedtuple("_Creds", "user password")
+
+
+class _PairList(list[Any]):
+    pass
+
+
+class _PairSet(set[Any]):
+    pass
+
+
+class _PairFrozenSet(frozenset[Any]):
+    pass
+
+
+class _PairDeque(deque[Any]):
+    pass
+
+
+class _RedactedTuple(tuple[Any, ...]):
+    def __repr__(self) -> str:
+        return "_RedactedTuple(***)"
+
+
+class _RaisingRepr:
+    def __repr__(self) -> str:
+        raise RuntimeError("repr boom")
+
+
+class _RaisingDict(dict[Any, Any]):
+    def __getitem__(self, key: Any) -> Any:
+        raise RuntimeError("getitem boom")
+
+
 class TestOtelExtenderContentCapture:
     """Metadata-only by default; capture_content=True or MLODA_OTEL_TRACE_CONTENT opts in, mask redacts."""
 
@@ -1123,6 +1159,32 @@ class TestOtelExtenderContentCapture:
                 {"HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="http-authorization-meta-key"
             ),  # nosec
             pytest.param({"X-Authorization": "Basic dXNlcjpwYXNz"}, ["dXNlcjpwYXNz"], id="x-authorization-header-key"),  # nosec
+            pytest.param(
+                {"headers": [_HeaderPair("Authorization", "Basic dXNlcjpwYXNz")]},  # nosec
+                ["dXNlcjpwYXNz"],
+                id="namedtuple-authorization-pair",
+            ),
+            pytest.param([_HeaderPair("password", "hunter2")], ["hunter2"], id="namedtuple-secret-keyed-pair"),  # nosec
+            pytest.param([_Creds("u", "hunter2")], ["hunter2"], id="namedtuple-secret-field-name"),  # nosec
+            pytest.param(
+                OrderedDict(Authorization=("Basic", "dXNlcjpwYXNz")),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz"],
+                id="ordered-dict-authorization",
+            ),
+            pytest.param(
+                defaultdict(list, {"X-Authorization": ["Bearer", "dXNlcjpwYXNz"]}),  # nosec
+                ["dXNlcjpwYXNz", "NlcjpwYXNz"],
+                id="defaultdict-x-authorization",
+            ),
+            pytest.param(_PairList([("password", "hunter2")]), ["hunter2"], id="list-subclass-pair"),  # nosec
+            pytest.param(_PairSet([("password", "hunter2")]), ["hunter2"], id="set-subclass-pair"),  # nosec
+            pytest.param(_PairFrozenSet([("password", "hunter2")]), ["hunter2"], id="frozenset-subclass-pair"),  # nosec
+            pytest.param(_PairDeque([("password", "hunter2")]), ["hunter2"], id="deque-subclass-pair"),  # nosec
+            pytest.param(
+                _RedactedTuple(("sk_live_abcdef123456",)),  # nosec
+                ["sk_live_abcdef123456"],
+                id="self-redacting-tuple-subclass",
+            ),
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1150,6 +1212,8 @@ class TestOtelExtenderContentCapture:
             pytest.param(lambda key: {key: "visible"}, id="dict"),
             pytest.param(lambda key: [(key, "visible")], id="pair"),
             pytest.param(lambda key: {"col": [key, "visible"]}, id="list-column"),
+            pytest.param(lambda key: [_HeaderPair(key, "visible")], id="namedtuple-pair"),
+            pytest.param(lambda key: OrderedDict({key: "visible"}), id="ordered-dict"),
         ],
     )
     @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer", "author", "Authorization-Info"])
@@ -1166,23 +1230,26 @@ class TestOtelExtenderContentCapture:
         preview = str(single_span_attributes(exporter)[_CONTENT_ATTRIBUTE])
         assert "visible" in preview, preview
 
+    @pytest.mark.parametrize(
+        "result",
+        [
+            pytest.param(_RaisingRepr(), id="raising-repr"),
+            pytest.param(_RaisingDict({"k": "v"}), id="raising-dict-subclass"),
+        ],
+    )
     def test_raising_result_repr_still_emits_span_and_returns_result(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], result: Any
     ) -> None:
-        class _RaisingRepr:
-            def __repr__(self) -> str:
-                raise RuntimeError("repr boom")
-
         provider, exporter = otel_capture
         context = make_hook_context()
         otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
-        result = _RaisingRepr()
 
         with context.activate():
             returned = otel(instrument(context, lambda: result))
 
         assert returned is result
         assert len(exporter.get_finished_spans()) == 1
+        assert _CONTENT_ATTRIBUTE in single_span_attributes(exporter)
 
 
 class TestOtelExtenderPreCallInstrumentationFailure:
