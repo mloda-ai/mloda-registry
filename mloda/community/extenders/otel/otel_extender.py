@@ -67,7 +67,7 @@ _RUN_ID_PARENT_SPAN_ID = 0x0000000000000001
 _SCRUB_WINDOW = 8192
 _SECRET_KEY_TAIL = 64
 # Authorization keys core's anchored pattern misses (X-Authorization, HTTP_AUTHORIZATION, ...).
-_AUTHORIZATION_KEY = re.compile(r"(?:^|[-_])(?:proxy[-_])?authorization(?:[-_]header)?\Z", re.IGNORECASE)
+_AUTHORIZATION_KEY = re.compile(r"(?:^|[-_])authorization(?:[-_]header)?\Z", re.IGNORECASE)
 
 
 def _scrub_ends(text: str) -> str:

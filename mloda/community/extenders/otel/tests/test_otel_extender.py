@@ -1073,6 +1073,8 @@ class TestOtelExtenderContentCapture:
                 ["dXNlcjpwYXNz"],
                 id="asgi-bytes-pair",
             ),
+            pytest.param([("password", "hunter2")], ["hunter2"], id="secret-keyed-pair"),  # nosec
+            pytest.param({b"password": "hunter2"}, ["hunter2"], id="bytes-secret-key"),  # nosec
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1104,7 +1106,7 @@ class TestOtelExtenderContentCapture:
     )
     @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer", "author", "Authorization-Info"])
     def test_content_attribute_keeps_non_secret_key_values_visible(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], key: str, shape: Any
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], key: str, shape: Callable[[str], Any]
     ) -> None:
         provider, exporter = otel_capture
         context = make_hook_context()

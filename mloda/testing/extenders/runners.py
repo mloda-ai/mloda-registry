@@ -257,6 +257,7 @@ class CountingExtender(Extender):
         return func(*args, **kwargs)
 
 
+# The MlodaTesting prefix keeps it and its minted subclasses from matching a host feature by class name.
 class MlodaTestingFailingFeatureGroup(FeatureGroup):
     """Primary-source feature group that always raises; the sentinel feature_name never matches a real request."""
 
