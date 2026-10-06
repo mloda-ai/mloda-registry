@@ -59,7 +59,7 @@ from mloda.testing.extenders.otel import (
 )
 from mloda.testing.extenders.runners import (
     CountingExtender,
-    FailingFeatureGroup,
+    MlodaTestingFailingFeatureGroup,
     expected_value_int,
     failing_feature_group,
     prepare_value_int,
@@ -1813,10 +1813,12 @@ class TestOtelExtenderDeclaredAttributes:
         assert declared_keys == {f"mloda.declared.k{i}" for i in range(32)}
 
 
-def _declaring_feature_group(declaration: Callable[[Any, FeatureSet | None], Any]) -> type[FailingFeatureGroup]:
+def _declaring_feature_group(
+    declaration: Callable[[Any, FeatureSet | None], Any],
+) -> type[MlodaTestingFailingFeatureGroup]:
     """Build a fresh succeeding feature group whose declared_attributes classmethod is declaration."""
 
-    class _Declaring(FailingFeatureGroup):
+    class _Declaring(MlodaTestingFailingFeatureGroup):
         feature_name = f"declared_{uuid.uuid4().hex}"
 
         @classmethod

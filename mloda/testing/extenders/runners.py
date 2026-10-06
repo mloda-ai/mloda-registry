@@ -257,7 +257,7 @@ class CountingExtender(Extender):
         return func(*args, **kwargs)
 
 
-class FailingFeatureGroup(FeatureGroup):
+class MlodaTestingFailingFeatureGroup(FeatureGroup):
     """Primary-source feature group that always raises; the sentinel feature_name never matches a real request."""
 
     feature_name: str = "mloda_testing_never_requested"
@@ -277,23 +277,23 @@ class FailingFeatureGroup(FeatureGroup):
         raise RuntimeError("inner boom")
 
 
-def failing_feature_group(feature_name: str) -> type[FailingFeatureGroup]:
-    """Build a fresh FailingFeatureGroup subclass per call so parallel tests never share state."""
+def failing_feature_group(feature_name: str) -> type[MlodaTestingFailingFeatureGroup]:
+    """Build a fresh MlodaTestingFailingFeatureGroup subclass per call so parallel tests never share state."""
 
-    class _Failing(FailingFeatureGroup):
+    class MlodaTestingFailing(MlodaTestingFailingFeatureGroup):
         pass
 
-    _Failing.feature_name = feature_name
-    _Failing.calls = 0
-    return _Failing
+    MlodaTestingFailing.feature_name = feature_name
+    MlodaTestingFailing.calls = 0
+    return MlodaTestingFailing
 
 
-def run_failing_feature(feature_group: type[FailingFeatureGroup], *extenders: Extender) -> Any:
+def run_failing_feature(feature_group: type[MlodaTestingFailingFeatureGroup], *extenders: Extender) -> Any:
     """Run feature_group.feature_name through the pipeline; calculate_feature always raises."""
     return run_feature(feature_group, *extenders)
 
 
-def run_feature(feature_group: type[FailingFeatureGroup], *extenders: Extender) -> Any:
+def run_feature(feature_group: type[MlodaTestingFailingFeatureGroup], *extenders: Extender) -> Any:
     """Run feature_group.feature_name through the pipeline with the given extenders."""
     plugin_collector = PluginCollector.enabled_feature_groups({feature_group})
     return mloda.run_all(
