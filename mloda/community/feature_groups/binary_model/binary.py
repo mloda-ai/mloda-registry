@@ -122,7 +122,7 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
         raise BinaryUnavailableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
     if proc.returncode != 0:
         excerpt = stderr_excerpt(stderr, 1)
-        detail = f": {excerpt}" if excerpt is not None else ""
+        detail = f": {excerpt!r}" if excerpt is not None else ""
         raise BinaryUnavailableError(f"binary {argv[0]!r} exited {proc.returncode} probing {flag}{detail}")
     return bytes(stdout)
 

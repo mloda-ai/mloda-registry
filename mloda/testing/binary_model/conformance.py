@@ -683,34 +683,20 @@ class BinaryModelConformanceBase:
             pytest.param("tampered_unparseable_text", id="unparseable_text"),
             pytest.param("tampered_signature_text", id="tampered_signature"),
             pytest.param("missing_plugins_claim_text", id="missing_plugins_claim"),
-        ],
-    )
-    def test_license_tampered_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A rejected token body (text that is not a token at all, a broken signature, or a
-        well-signed payload missing the required ``plugins`` claim): exit 3 (spec: Verification
-        steps 2, 4, 5; contract: License). Parametrized by attribute name, looked up via
-        ``getattr`` at test-run time, since the fixtures are instance attributes, not module
-        constants."""
-        tampered_text = getattr(self, attr_name)
-        license_path = write_text(tmp_path / "license.txt", tampered_text)
-        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = self._kit_run_with_config(valid_config_path, env)
-        assert_error_response(result, LICENSE_INVALID)
-
-    @pytest.mark.parametrize(
-        "attr_name",
-        [
             pytest.param("timestamp_without_seconds_license_text", id="timestamp_without_seconds"),
             pytest.param("compact_timestamp_license_text", id="compact_timestamp"),
             pytest.param("unpadded_max_release_date_license_text", id="unpadded_max_release_date"),
             pytest.param("float_schema_version_license_text", id="float_schema_version"),
         ],
     )
-    def test_license_malformed_claim_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A well-signed token with a lax-parseable but malformed claim: exit 3
-        (spec: Verification step 5; contract: License)."""
-        malformed_text = getattr(self, attr_name)
-        license_path = write_text(tmp_path / "license.txt", malformed_text)
+    def test_license_tampered_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
+        """A rejected token body (text that is not a token at all, a broken signature, a
+        well-signed payload missing the required ``plugins`` claim, or a well-signed token with a
+        malformed claim format): exit 3 (spec: Verification steps 2, 4, 5; contract: License). Parametrized by attribute name, looked up via
+        ``getattr`` at test-run time, since the fixtures are instance attributes, not module
+        constants."""
+        tampered_text = getattr(self, attr_name)
+        license_path = write_text(tmp_path / "license.txt", tampered_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)

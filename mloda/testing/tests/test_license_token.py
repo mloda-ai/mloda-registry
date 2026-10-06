@@ -299,6 +299,9 @@ class TestVerifyLicenseTokenAcceptance:
             pytest.param("2026-01-01T00:00:00.123Z", id="fraction_3_digits"),
             pytest.param("2026-01-01T00:00:00.123456+00:00", id="fraction_6_digits"),
             pytest.param("2026-01-01T00:00:00.123456789Z", id="fraction_9_digits"),
+            pytest.param("2026-01-01t00:00:00Z", id="lowercase_t"),
+            pytest.param("2026-01-01T00:00:00z", id="lowercase_z"),
+            pytest.param("2026-01-01 00:00:00Z", id="space_separator"),
         ],
     )
     def test_rfc3339_timestamp_accepted(self, claim: str, stamp: str) -> None:
@@ -377,10 +380,12 @@ class TestVerifyLicenseTokenRejections:
         [
             pytest.param("2020-01-01T00:00+00:00", id="no_seconds"),
             pytest.param("20200101T000000Z", id="compact"),
-            pytest.param("2020-01-01t00:00:00Z", id="lowercase_t"),
-            pytest.param("2020-01-01T00:00:00z", id="lowercase_z"),
             pytest.param("2020-01-01T00:00:00", id="missing_offset"),
             pytest.param("\u0662020-01-01T00:00:00Z", id="non_ascii_digit_prefix"),
+            pytest.param(
+                "2020-01-01T00:00:00+00:00".translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")),
+                id="non_ascii_digits_throughout",
+            ),
             pytest.param("2020-01-01T00:00:00+00:00\n", id="trailing_newline"),
             pytest.param("2020-01-01T00:00:00.Z", id="empty_fraction"),
         ],
@@ -388,14 +393,10 @@ class TestVerifyLicenseTokenRejections:
     def test_non_rfc3339_timestamp_rejected(self, claim: str, stamp: str) -> None:
         """Timestamps outside the strict RFC 3339 shape the Rust gate parses are rejections."""
         if claim == "exp":
-            stamp = stamp.replace("2020", "2036")  # keep exp in the future so only the format can reject
+            stamp = stamp.replace("2020", "2036").replace(
+                "٢٠٢٠", "٢٠٣٦"
+            )  # keep exp in the future so only the format can reject
         self._reject(_signed(_claims(**{claim: stamp})))
-
-    @pytest.mark.parametrize("claim", ["iat", "nbf", "exp"])
-    def test_non_ascii_digit_timestamp_rejected(self, claim: str) -> None:
-        """Arabic-Indic digits in place of ASCII digits (same shape, same value) are rejected."""
-        stamp = "2026-01-01T00:00:00+00:00" if claim != "exp" else "2036-01-01T00:00:00+00:00"
-        self._reject(_signed(_claims(**{claim: stamp.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))})))
 
     def test_missing_required_claim_rejected(self) -> None:
         claims = _claims()

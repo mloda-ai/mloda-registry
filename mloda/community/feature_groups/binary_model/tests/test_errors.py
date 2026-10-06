@@ -277,6 +277,15 @@ def test_stderr_excerpt_is_capped_on_a_utf8_character_boundary() -> None:
     assert 0 < len(result.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
 
 
+def test_stderr_excerpt_keeps_the_tail_when_capped() -> None:
+    stderr = ("head-" + "x" * (contract.MESSAGE_MAX_BYTES * 2) + "-tail").encode()
+    result = contract.stderr_excerpt(stderr, 5)
+    assert result is not None
+    assert len(result.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
+    assert result.endswith("-tail")
+    assert "head-" not in result
+
+
 def test_truncate_message_caps_bytes_on_a_character_boundary() -> None:
     result = contract.truncate_message("\u2603" * 500)
     assert 0 < len(result.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES

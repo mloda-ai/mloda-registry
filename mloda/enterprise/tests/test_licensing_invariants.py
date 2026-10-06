@@ -203,6 +203,8 @@ logging.getLogger().setLevel(logging.DEBUG)
 # Makes `import pyarrow` raise ModuleNotFoundError(name="pyarrow"), simulating an environment
 # where the optional pyarrow dependency is not installed.
 sys.modules["pyarrow"] = None
+for _blocked in {blocked_json}:
+    sys.modules[_blocked] = None
 
 dotted_paths = {dotted_paths_json}
 results = {{}}
@@ -229,8 +231,13 @@ print(json.dumps(results))
 """
 
 
-def _run_pyarrow_unavailable_probe(dotted_paths: list[str], extra_pythonpath: Path | None = None) -> dict[str, Any]:
-    script = _PROBE_SCRIPT_TEMPLATE.format(dotted_paths_json=json.dumps(dotted_paths))
+def _run_pyarrow_unavailable_probe(
+    dotted_paths: list[str], extra_pythonpath: Path | None = None, blocked_modules: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """Run the probe; ``blocked_modules`` are made unimportable (and invisible to ``find_spec``) in the child."""
+    script = _PROBE_SCRIPT_TEMPLATE.format(
+        dotted_paths_json=json.dumps(dotted_paths), blocked_json=json.dumps(list(blocked_modules))
+    )
     env = dict(os.environ)
     if extra_pythonpath is not None:
         env["PYTHONPATH"] = os.pathsep.join([str(extra_pythonpath), env.get("PYTHONPATH", "")])
@@ -275,7 +282,7 @@ class TestEveryEnterpriseManifestImportsWithoutPyarrow:
 
     def test_anonymizer_manifest_logs_debug_not_warning_without_pyarrow_or_wheel(self) -> None:
         dotted = "mloda.enterprise.feature_groups.anonymizer"
-        logs = _run_pyarrow_unavailable_probe([dotted])[dotted]["manifest_logs"]
+        logs = _run_pyarrow_unavailable_probe([dotted], blocked_modules=("anonymizer_binary",))[dotted]["manifest_logs"]
         levels = {level for _name, level, _msg in logs}
         assert "DEBUG" in levels, logs
         assert "WARNING" not in levels, logs

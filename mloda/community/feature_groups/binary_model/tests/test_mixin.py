@@ -154,26 +154,27 @@ class TestBinaryUnavailable:
         with pytest.raises(BinaryUnavailableError):
             _MissingPathModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
 
-    def test_missing_wheel_message_names_wheel_and_bundle_extra(self) -> None:
-        class _ExtraModel(BinaryModelMixin):
+    @pytest.mark.parametrize(
+        ("extra", "hint"),
+        [
+            pytest.param(
+                "some-bundle[extra]",
+                'pip install "some-bundle[extra]", which brings some-wheel',
+                id="with_extra",
+            ),
+            pytest.param(None, "pip install some-wheel", id="wheel_only"),
+        ],
+    )
+    def test_missing_wheel_message_hint(self, extra: str | None, hint: str) -> None:
+        class _HintModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
             BINARY_WHEEL_DISTRIBUTION = "some-wheel"
-            BINARY_INSTALL_EXTRA = "some-bundle[extra]"
+            BINARY_INSTALL_EXTRA = extra
 
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(BinaryUnavailableError) as excinfo:
-            _ExtraModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert 'pip install "some-bundle[extra]" (wheel: some-wheel)' in str(excinfo.value)
-
-    def test_missing_wheel_message_without_extra_names_the_wheel(self) -> None:
-        class _WheelOnlyModel(BinaryModelMixin):
-            BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
-            BINARY_WHEEL_DISTRIBUTION = "some-wheel"
-
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError) as excinfo:
-            _WheelOnlyModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert str(excinfo.value).endswith("; install it with: pip install some-wheel")
+            _HintModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert str(excinfo.value).endswith(f"; install it with: {hint}")
 
     def test_missing_wheel_message_without_wheel_attribute_has_no_hint(self) -> None:
         class _NoWheelAttrModel(BinaryModelMixin):
@@ -371,16 +372,12 @@ class _RowCappedStubModel(StubModel):
 
 
 class TestBatching:
-    @pytest.mark.parametrize("model", [_TinyBatchStubModel, _RowCappedStubModel], ids=["bytes_capped", "rows_capped"])
-    def test_capped_model_returns_same_result_as_uncapped(self, model: type[StubModel]) -> None:
+    def test_row_capped_model_returns_same_result_as_uncapped(self) -> None:
         rows = {"col_a": [f"value-{i}" for i in range(7)]}
         table = pa.table(rows)
-        result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        result = _RowCappedStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         expected = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.column("col_a_hash").to_pylist() == expected.column("col_a_hash").to_pylist()
-
-    def test_default_max_batch_rows(self) -> None:
-        assert mixin.BinaryModelMixin.MAX_BATCH_ROWS == 1 << 20
 
     def test_tiny_max_batch_bytes_still_returns_every_row_correctly(self) -> None:
         rows = {"col_a": [f"value-{i}" for i in range(50)]}

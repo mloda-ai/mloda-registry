@@ -8,6 +8,7 @@ handling, Errors).
 from __future__ import annotations
 
 import errno
+import getpass
 import json
 import logging
 import os
@@ -194,9 +195,13 @@ class TestMinimalEnvironment:
     def test_explicit_license_file_overrides_source_env(self) -> None:
         result = minimal_environment(
             license_file="/explicit/license.txt",
-            source_env={"PATH": "/usr/bin", "MLODA_LICENSE_FILE": "/from/env/license.txt"},
+            source_env={
+                "PATH": "/usr/bin",
+                "MLODA_LICENSE_FILE": "/from/env/license.txt",
+                "MLODA_LICENSE_KEY": "env-key",
+            },
         )
-        assert result["MLODA_LICENSE_FILE"] == "/explicit/license.txt"
+        assert result["MLODA_LICENSE_FILE"] == str(Path("/explicit/license.txt").resolve())
         assert "MLODA_LICENSE_KEY" not in result
 
     def test_explicit_license_key_overrides_source_env(self) -> None:
@@ -229,14 +234,6 @@ class TestMinimalEnvironment:
         )
         assert result["MLODA_LICENSE_KEY"] == "explicit-key"
         assert "MLODA_LICENSE_FILE" not in result
-
-    def test_explicit_license_file_stops_inheriting_ambient_license_key(self) -> None:
-        result = minimal_environment(
-            license_file="/explicit/license.txt",
-            source_env={"PATH": "/usr/bin", "MLODA_LICENSE_KEY": "env-key"},
-        )
-        assert result["MLODA_LICENSE_FILE"] == str(Path("/explicit/license.txt").resolve())
-        assert "MLODA_LICENSE_KEY" not in result
 
     def test_empty_explicit_license_file_alone_still_inherits_ambient_license_key(self) -> None:
         result = minimal_environment(
@@ -431,6 +428,31 @@ class TestInvocationDirectory:
     @pytest.mark.skipif(os.name != "posix", reason="asserts the per-user POSIX parent name")
     def test_default_parent_is_per_user_under_the_temp_dir(self) -> None:
         assert transport.default_parent() == Path(tempfile.gettempdir()) / f"{TEMP_PARENT_NAME}-{os.getuid()}"
+
+    @pytest.mark.parametrize(
+        ("user", "suffix"),
+        [
+            pytest.param("alice", "alice", id="plain"),
+            pytest.param("DOMAIN\\bob smith", "DOMAIN_bob_smith", id="sanitized"),
+            pytest.param("", "user", id="empty_falls_back"),
+        ],
+    )
+    def test_windows_default_parent_is_per_user(self, monkeypatch: pytest.MonkeyPatch, user: str, suffix: str) -> None:
+        base = Path(tempfile.gettempdir())
+        monkeypatch.setattr(getpass, "getuser", lambda: user)
+        monkeypatch.setattr(transport, "Path", lambda text: base)
+        monkeypatch.setattr(os, "name", "nt")
+        assert transport.default_parent() == base / f"{TEMP_PARENT_NAME}-{suffix}"
+
+    def test_windows_default_parent_falls_back_when_getuser_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def broken() -> str:
+            raise KeyError("no user")
+
+        base = Path(tempfile.gettempdir())
+        monkeypatch.setattr(getpass, "getuser", broken)
+        monkeypatch.setattr(transport, "Path", lambda text: base)
+        monkeypatch.setattr(os, "name", "nt")
+        assert transport.default_parent() == base / f"{TEMP_PARENT_NAME}-user"
 
     @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX ownership")
     def test_other_users_default_parent_does_not_block_the_default(

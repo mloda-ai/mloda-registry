@@ -469,7 +469,7 @@ class TestProbeFailureIncludesStderr:
                 "faulty_binary", [*FAULTY_CMD, "--mode", "version_fails"], env={"PATH": os.defpath}, timeout=10.0
             )
         assert "exited 6 probing --version" in str(excinfo.value)
-        assert "probe broke" in str(excinfo.value)
+        assert "probing --version: " + repr('{"code": 6, "message": "probe broke"}') in str(excinfo.value)
 
     def test_nonzero_version_probe_with_empty_stderr_keeps_the_plain_message(self) -> None:
         with pytest.raises(BinaryUnavailableError) as excinfo:

@@ -270,7 +270,7 @@ class BinaryModelMixin:
         wheel = getattr(cls, "BINARY_WHEEL_DISTRIBUTION", None)
         install_hint = None
         if wheel is not None:
-            install_hint = f'"{cls.BINARY_INSTALL_EXTRA}" (wheel: {wheel})' if cls.BINARY_INSTALL_EXTRA else wheel
+            install_hint = f'"{cls.BINARY_INSTALL_EXTRA}", which brings {wheel}' if cls.BINARY_INSTALL_EXTRA else wheel
         return resolve_binary(
             cls.BINARY_PLUGIN_ID,
             cls.BINARY_COMMAND_OVERRIDE,

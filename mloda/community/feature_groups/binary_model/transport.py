@@ -5,6 +5,7 @@ per-invocation directory, and running the binary itself over stdin/stdout or fil
 
 from __future__ import annotations
 
+import getpass
 import io
 import json
 import logging
@@ -151,6 +152,8 @@ def _windows_owned_by_current_user(path: Path) -> bool:
     if error:
         raise OSError(None, ctypes.FormatError(error), str(path), error)
     try:
+        if owner.value is None:
+            raise OSError(None, "no owner", str(path))
         token = wintypes.HANDLE()
         if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
             raise ctypes.WinError(ctypes.get_last_error())
@@ -178,9 +181,9 @@ def minimal_environment(
     fixed UTF-8 locale on POSIX, ``SYSTEMROOT`` on Windows when present, and the license
     variables (an explicit argument wins over the value inherited from ``source_env``, which
     itself defaults to ``os.environ``). ``source_env`` also supplies ``PATH`` and ``SYSTEMROOT``,
-    so ``source_env={}`` drops them too; ``inherit_license=False`` (the canonical spelling; an
-    explicit empty ``license_file`` / ``license_key`` does the same) suppresses only the license
-    variables. A non-empty explicit ``license_file`` or ``license_key`` means neither variable is
+    so ``source_env={}`` drops them too; ``inherit_license=False`` (the canonical spelling)
+    suppresses only the license variables; an explicit empty ``license_file`` / ``license_key``
+    suppresses only its own variable. A non-empty explicit ``license_file`` or ``license_key`` means neither variable is
     inherited (the binary reads the file first, so an inherited file would mask an explicit key).
     ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
     binary itself runs with its private invocation directory as its cwd."""
@@ -209,10 +212,14 @@ def minimal_environment(
 
 
 def default_parent() -> Path:
-    """The default parent directory: per-user on POSIX so users never share one."""
+    """The default parent directory, per user so users sharing a temp directory never share one."""
     base = Path(tempfile.gettempdir())
     if os.name == "nt":
-        return base / TEMP_PARENT_NAME
+        try:
+            user = re.sub(r"[^A-Za-z0-9_.-]", "_", getpass.getuser())
+        except Exception:
+            user = ""
+        return base / f"{TEMP_PARENT_NAME}-{user or 'user'}"
     return base / f"{TEMP_PARENT_NAME}-{os.getuid()}"
 
 
@@ -283,8 +290,8 @@ class InvocationDirectory:
         return self
 
     def _validate_parent(self) -> None:
-        """On Windows refuse a parent that is a symlink or junction or not owned by the current user.
-        On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
+        """On Windows refuse a parent that is a symlink or junction or not owned by the current user
+        (owner and symlink/junction only, no ACL check). On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
         writable by a group other than the current process's own (contract: Data handling): a
         directory shared with the process's own group, the common user-private-group scheme, is
         not a foreign-write risk, but world-writable or a foreign group is."""
