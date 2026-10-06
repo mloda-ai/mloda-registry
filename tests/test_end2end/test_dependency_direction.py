@@ -2,7 +2,8 @@
 ``mloda-testing`` or on a binary wheel (see ``docs/guides/feature-group-patterns/29-binary-backed-
 features.md``), and no runtime module under ``mloda/community/`` or ``mloda/enterprise/`` may import
 ``mloda.testing`` at any depth. Enterprise code may use ``mloda.community.extenders.shared`` only
-through public names (no private imports, subclassing, or private attributes). Mirrors the resolution
+through public names (no private imports, subclassing, or private attributes). Binary wheel floors must
+also exclude releases that trust no production key. Mirrors the resolution
 and TOML-loading style of ``tests/test_end2end/test_dev_dependencies.py`` and
 ``tests/test_end2end/test_manifest_resilience.py``.
 """
@@ -343,6 +344,7 @@ class TestInstallExtraGuard:
 
 
 # Releases that trust no production license key and reject every license, per normalized distribution.
+# Source: the mloda-binary-wrapper releases that embed no production key.
 _KEYLESS_WHEEL_RELEASES: dict[str, list[str]] = {
     "mloda-anonymizer-binary": ["0.1.0"],
     "mloda-example-binary": ["0.1.0", "0.1.1"],
@@ -371,10 +373,7 @@ def _keyless_wheel_release_violations(packages: dict[str, dict[str, Any]]) -> li
 
 def test_binary_wheel_floors_exclude_releases_that_trust_no_key() -> None:
     packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
-    declared = {
-        _dep_name(_assert_binary_wheel_distribution(n, cls))
-        for n, _c, cls in _licensed_plugin_classes_by_package(packages)
-    }
+    declared = {_dep_name(wheel) for wheel in _licensed_plugin_wheel_distribution_names(packages)}
     assert set(_KEYLESS_WHEEL_RELEASES) == declared, (
         f"_KEYLESS_WHEEL_RELEASES must have one entry per binary wheel {sorted(declared)}"
     )
@@ -395,6 +394,21 @@ class TestKeylessWheelReleaseViolations:
     def test_accepts_a_floor_above_every_keyless_release(self) -> None:
         packages = {"pkg": {"optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.2,<0.2.0"]}}}
         assert _keyless_wheel_release_violations(packages) == []
+
+    @pytest.mark.parametrize(
+        ("requirement", "admitted"),
+        [
+            ("mloda-example-binary>0.1.0,<0.2.0", ["0.1.1"]),
+            ("mloda-example-binary==0.1.1", ["0.1.1"]),
+            ("mloda-example-binary~=0.1.0", ["0.1.0", "0.1.1"]),
+            ("mloda-example-binary", ["0.1.0", "0.1.1"]),
+        ],
+    )
+    def test_reports_operator_edge_cases(self, requirement: str, admitted: list[str]) -> None:
+        packages = {"pkg": {"optional_dependencies": {"wheel": [requirement]}}}
+        assert _keyless_wheel_release_violations(packages) == [
+            f"pkg.wheel: {requirement} admits {version}" for version in admitted
+        ]
 
     def test_parses_a_requirement_with_an_environment_marker(self) -> None:
         packages = {"pkg": {"dependencies": ["mloda_anonymizer_binary>=0.1.0,<0.2.0; python_version >= '3.10'"]}}
