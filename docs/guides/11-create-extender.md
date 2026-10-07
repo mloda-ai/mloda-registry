@@ -315,6 +315,10 @@ Caveats of `"plan"` mode: a span has one parent, hence the link; head sampling k
 
 A sampled-out root drops its children. Once a root exists, the trace id is the SDK's or the caller's; the `run_id`-derived trace id is only the fallback for hook-only use, without a root. A root is stored only when the started span's context is valid; with a no-op or inert provider that is the carrier's or the caller's span, if any, so worker spans then hang directly under it. Plan mode keeps the span contexts of the most recently used 1024 plans; a run refreshes its plan, and runs of an evicted plan fall back to run-mode parenting.
 
+### Selecting OTel spans
+
+Step span names are display names and can change in any release (calculate spans were renamed from `mloda.calculate` to `calculate <FeatureGroup>`). Select step spans by attribute: `mloda.operation.name` (`calculate`, `load`, `validate` or `join`) is set on every hook span; narrow with `mloda.feature_group.name`, `mloda.run.id` or `mloda.step.run_id`. The root spans carry no `mloda.operation.name`, so select them by their names `mloda.run` and `mloda.plan`, which stay fixed, as do `mloda.validate.input` and `mloda.validate.output`, the only way to tell the two validate spans apart. A span-name change is named in the release notes.
+
 ### Run correlation
 
 `OpenLineageExtender` (and `LineageFacetsExtender`) emit a parent run in `on_run_start` and `on_run_complete`: START, then COMPLETE, FAIL (failed) or ABORT (cancelled) for the job `root_job_name`, with `runId` equal to the mloda `run_id` and the run facet `mlodaPlan` (`planId` and `structureHash`, the plan fingerprint; not the per-step `structureHash` of the `mloda` facet below). Step runs reference it through the `parent` facet and carry no `mlodaPlan`. A parent START transport failure with `raise_on_error=False` trips the run's breaker, and with `raise_on_error=True` it refuses the run; no parent events are emitted when the extender is inert, and no terminal event when the START was not emitted.

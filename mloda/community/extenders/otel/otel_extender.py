@@ -246,8 +246,9 @@ class OtelExtender(Extender):
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
-    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known
-    root, spans fall back to the carrier or run_id trace."""
+    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; these are display
+    names, so select spans by `mloda.operation.name`. Without a known root, spans fall back to the carrier or
+    run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -538,7 +539,7 @@ def _parent_context(context: HookContext | None, root: _SpanInts | None = None) 
 
     0. A run root known for context.run_id (see on_run_start): its context is the parent, winning over the
        carrier. For INPUT_DATA_LOAD an ambient span of the root's trace wins (None returned).
-    1. INPUT_DATA_LOAD only: a valid ambient active span (e.g. the enclosing mloda.calculate span)
+    1. INPUT_DATA_LOAD only: a valid ambient active span (e.g. the enclosing calculate span)
        wins and None is returned, making the load span its child. If a carrier or run_id is also set,
        the ambient span wins only when its trace id matches theirs; otherwise falls through to 2/3.
     2. context.carrier, if truthy: extracted into a real parent Context (propagated from another
