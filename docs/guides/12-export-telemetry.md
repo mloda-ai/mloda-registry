@@ -71,7 +71,7 @@ def install_meter_provider() -> None:
 - **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status` or `error.type`. Calls without a hook context are not counted.
 - **`error.type`:** the bare class name on runs, `module.qualname` on steps (as on spans).
 - **Rows:** counted on success only, for calculate (in and out) and load (out). Validate steps record no rows.
-- **Durations:** a step duration includes inner extenders (with default priorities `OtelExtender` wraps outside `OtelMetricsExtender`, which wraps outside `OpenLineageExtender` at priority 110, so OpenLineage emission) and a calculate duration includes a nested load, so do not sum durations across operations. Histogram buckets run from 5 ms to 1 h.
+- **Durations:** a step duration includes inner extenders (with default priorities `OtelExtender` wraps outside `OtelMetricsExtender`, which wraps outside `OpenLineageExtender`, so OpenLineage emission) and a calculate duration includes a nested load, so do not sum durations across operations.
 - **Attributes:** only those in the table; unset ones (for example the feature group on a join) are omitted. Never recorded on metrics: feature names, run, plan and step ids, worker index, data-access identity and format, join keys and type, declared attributes, plugin versions, tenant, project, principal.
 - **Failures:** recording is best effort; a post-call recording error is logged once at WARNING with its type only and never changes the step's result or exception. A failure resolving the meter follows `raise_on_error` like any extender.
 

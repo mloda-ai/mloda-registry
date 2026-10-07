@@ -23,7 +23,6 @@ from opentelemetry import metrics
 from opentelemetry.metrics import Counter, Histogram, MeterProvider, NoOpMeterProvider
 from opentelemetry.metrics._internal import _ProxyMeterProvider  # the API exports no public name for it
 
-# Single source for mloda.operation.name and the instrumentation scope, shared with OtelExtender.
 from mloda.community.extenders.otel.otel_extender import _DECLARABLE_HOOKS, _OPERATION_NAMES, _TRACER_NAME
 from mloda.community.extenders.shared.teardown import (
     CLOSE_TIMEOUT,
@@ -34,7 +33,6 @@ from mloda.community.extenders.shared.teardown import (
 
 logger = logging.getLogger(__name__)
 
-# Duration histogram bucket advisory, in seconds.
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
 
 # ProxyMeterProvider is returned while no global provider is set; NoOpMeterProvider only if installed deliberately.
@@ -115,14 +113,10 @@ def record_run(instruments: Instruments, run: RunContext, outcome: LifecycleOutc
 
 
 class OtelMetricsExtender(Extender):
-    """Records mloda.run.duration, mloda.step.duration and mloda.step.rows.in/out for wrapped hooks.
-    Provider resolution: injected meter_provider wins, else use_sdk_defaults (warns once if only the API default
-    is found), else inert (warns once). An injected meter_provider that can't survive pickling is dropped by a
-    trial-pickle probe when a copy is made (worker processes under ParallelizationMode.MULTIPROCESSING), leaving
-    the copy to the resolution rule above. close() flushes the resolved provider within close_timeout (default
-    1s) capped by the worker's remaining close budget, and never calls shutdown() (core, not the extender, owns
-    provider lifetime). With default priorities it chains inside OtelExtender, so the span is active while it
-    records."""
+    """Records run and step durations and step row counts for wrapped hooks.
+
+    Uses the injected meter_provider, else the global one with use_sdk_defaults, else is inert (warns once).
+    close() flushes the provider and never calls shutdown(). Chains inside OtelExtender by default."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -209,9 +203,7 @@ class OtelMetricsExtender(Extender):
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self) -> None:
-        """Flush the resolved meter_provider within close_timeout and the remaining close budget, best effort;
-        never raises and never calls shutdown(). Inert (nothing injected, use_sdk_defaults False) touches no
-        provider."""
+        """Best-effort flush of the provider within the close budget; never raises."""
         provider = self._configured_provider()
         if provider is None:
             return
