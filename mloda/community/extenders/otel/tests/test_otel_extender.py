@@ -13,6 +13,7 @@ import contextlib
 import copy
 import dataclasses
 import datetime
+import inspect
 import logging
 import pickle  # nosec
 import threading
@@ -42,7 +43,9 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import Histogram, InMemoryMetricReader, Sum
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
@@ -58,6 +61,7 @@ from mloda.testing.extenders.otel import (
     RebuildingSpanCaptureProvider,
     assert_well_formed_trace,
     inject_parent_carrier,
+    make_metric_capture,
     make_span_capture,
     read_span_records,
     single_span,
@@ -83,6 +87,14 @@ _CONTENT_ATTRIBUTE = "mloda.content.preview"
 
 _NO_SDK_PROVIDER_MARKER = "found no OpenTelemetry SDK tracer provider"
 
+_RUN_DURATION = "mloda.run.duration"
+_STEP_DURATION = "mloda.step.duration"
+_ROWS_IN = "mloda.step.rows.in"
+_ROWS_OUT = "mloda.step.rows.out"
+_STEP_ATTRIBUTES = {"mloda.operation.name", "mloda.feature_group.name", "mloda.compute_framework.name"}
+_METRIC_ATTRIBUTE_ALLOWLIST = _STEP_ATTRIBUTES | {"error.type", "mloda.run.status"}
+_DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
+
 
 @pytest.fixture
 def otel_capture() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
@@ -92,18 +104,35 @@ def otel_capture() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
     provider.shutdown()
 
 
+@pytest.fixture
+def metric_capture() -> Iterator[tuple[MeterProvider, InMemoryMetricReader]]:
+    """A fresh, isolated (provider, reader) pair per test; never touches the global meter provider."""
+    provider, reader = make_metric_capture()
+    yield provider, reader
+    provider.shutdown()
+
+
 class _AmbientProvider:
-    """What the patched opentelemetry.trace.get_tracer_provider returns; reassign .provider to switch mid-test."""
+    """What the patched opentelemetry.trace.get_tracer_provider and opentelemetry.metrics.get_meter_provider
+    return; reassign .provider / .meter_provider to switch mid-test."""
 
     def __init__(self) -> None:
         self.provider: trace.TracerProvider = trace.ProxyTracerProvider()
+        self.meter_provider: metrics.MeterProvider = metrics.NoOpMeterProvider()
+        self.meter_provider_calls = 0
+
+    def get_meter_provider(self) -> metrics.MeterProvider:
+        self.meter_provider_calls += 1
+        return self.meter_provider
 
 
 @pytest.fixture
 def ambient_provider(monkeypatch: pytest.MonkeyPatch) -> _AmbientProvider:
-    """Patch get_tracer_provider (span creation resolves through it too) so no test installs a real global provider."""
+    """Patch get_tracer_provider (span creation resolves through it too) and get_meter_provider so no test
+    installs a real global provider."""
     holder = _AmbientProvider()
     monkeypatch.setattr(trace, "get_tracer_provider", lambda: holder.provider)
+    monkeypatch.setattr(metrics, "get_meter_provider", holder.get_meter_provider)
     return holder
 
 
@@ -228,6 +257,20 @@ class TestOtelExtenderConstructorOptions:
         provider, _ = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         assert otel._tracer_provider is provider
+
+    def test_meter_provider_is_stored_on_construction(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, _ = metric_capture
+        otel = OtelExtender(meter_provider=provider)
+        assert otel._meter_provider is provider
+
+    def test_default_meter_provider_is_none(self) -> None:
+        assert OtelExtender()._meter_provider is None
+
+    def test_meter_provider_is_the_last_constructor_parameter(self) -> None:
+        parameters = list(inspect.signature(OtelExtender.__init__).parameters)
+        assert parameters[-2:] == ["trace_scope", "meter_provider"]
 
     def test_default_tracer_provider_is_none_and_call_still_works(self) -> None:
         otel = OtelExtender()
@@ -509,6 +552,47 @@ class TestOtelExtenderPickling:
         # trial-pickle exception's type name must be present too (pickling the real SDK
         # TracerProvider's internal threading.Lock always raises TypeError).
         assert any("TypeError" in message for message in warnings), warnings
+
+    def test_unpicklable_meter_provider_is_dropped_with_a_warning_naming_it(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider, _ = metric_capture
+        otel = OtelExtender(meter_provider=provider)
+
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("meter_provider" in message and "TypeError" in message for message in warnings), warnings
+        assert copy._meter_provider is None
+
+    def test_both_unpicklable_sinks_are_dropped_with_one_warning_naming_both(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        tracer_provider, _ = otel_capture
+        meter_provider, _ = metric_capture
+        otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider)
+
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, warnings
+        assert "tracer_provider" in warnings[0] and "meter_provider" in warnings[0], warnings
+        assert copy._tracer_provider is None
+        assert copy._meter_provider is None
+
+    def test_picklable_meter_provider_is_kept_without_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        otel = OtelExtender(meter_provider=metrics.NoOpMeterProvider())
+
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        assert isinstance(copy._meter_provider, metrics.NoOpMeterProvider)
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
 class TestOtelExtenderSpanAttributes:
@@ -3446,3 +3530,561 @@ class TestOtelExtenderClose:
         otel.close()
 
         provider.force_flush.assert_called_once_with()
+
+    def test_close_flushes_the_injected_meter_provider_with_timeout_millis(self) -> None:
+        tracer_provider = Mock(force_flush=Mock(return_value=True))
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider)
+
+        otel.close()
+
+        tracer_provider.force_flush.assert_called_once()
+        meter_provider.force_flush.assert_called_once()
+        assert 0 < meter_provider.force_flush.call_args.kwargs["timeout_millis"] <= 1000
+
+    def test_metrics_only_close_flushes_the_meter_provider(self) -> None:
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(meter_provider=meter_provider)
+
+        otel.close()
+
+        meter_provider.force_flush.assert_called_once()
+
+    def test_close_flushes_the_global_meter_provider_under_use_sdk_defaults(
+        self, ambient_provider: _AmbientProvider
+    ) -> None:
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        ambient_provider.meter_provider = meter_provider
+        otel = OtelExtender(use_sdk_defaults=True)
+
+        otel.close()
+
+        meter_provider.force_flush.assert_called_once()
+
+    def test_inert_extender_close_touches_no_meter_provider(self, ambient_provider: _AmbientProvider) -> None:
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        ambient_provider.meter_provider = meter_provider
+        otel = OtelExtender()
+
+        otel.close()
+
+        meter_provider.force_flush.assert_not_called()
+        assert ambient_provider.meter_provider_calls == 0
+
+    def test_close_never_calls_shutdown_on_either_provider(self) -> None:
+        tracer_provider = Mock(force_flush=Mock(return_value=True))
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider)
+
+        otel.close()
+
+        tracer_provider.shutdown.assert_not_called()
+        meter_provider.shutdown.assert_not_called()
+
+    @pytest.mark.parametrize("failure", [RuntimeError("flush boom"), False], ids=["raises", "returns_false"])
+    def test_close_logs_a_warning_naming_a_failing_meter_flush_and_never_raises(
+        self, caplog: pytest.LogCaptureFixture, failure: Any
+    ) -> None:
+        tracer_provider = Mock(force_flush=Mock(return_value=True))
+        flush = Mock(side_effect=failure) if isinstance(failure, Exception) else Mock(return_value=failure)
+        otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=Mock(force_flush=flush))
+
+        with caplog.at_level(logging.WARNING):
+            otel.close()  # must not raise
+
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("OtelExtender" in message and "meter_provider" in message for message in warnings), warnings
+        assert not any("tracer_provider" in message for message in warnings), warnings
+        assert "flush boom" not in caplog.text
+
+    def test_a_failing_tracer_flush_does_not_skip_the_meter_flush(self) -> None:
+        tracer_provider = Mock(force_flush=Mock(side_effect=RuntimeError("flush boom")))
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider)
+
+        otel.close()
+
+        meter_provider.force_flush.assert_called_once()
+
+    def test_close_shares_one_budget_between_the_tracer_and_meter_flush(self) -> None:
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        with blocking_flush_provider() as tracer_provider:
+            otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider)
+            otel.close_timeout = 0.3
+
+            start = time.monotonic()
+            still_running, outcome = call_with_join_timeout(otel.close, join_timeout=2.0)
+            elapsed = time.monotonic() - start
+
+        assert not still_running
+        if "error" in outcome:
+            raise outcome["error"]
+        assert elapsed < 0.55, elapsed  # one 0.3s budget, never 2x
+        # The tracer flush used the whole budget; the meter flush is skipped or gets a ~0 budget.
+        if meter_provider.force_flush.call_args is not None:
+            assert meter_provider.force_flush.call_args.kwargs["timeout_millis"] <= 50
+
+    def test_negative_close_timeout_calls_both_force_flushes_with_no_args(self) -> None:
+        tracer_provider = Mock(force_flush=Mock(return_value=True))
+        meter_provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider)
+        otel.close_timeout = -1.0
+
+        otel.close()
+
+        tracer_provider.force_flush.assert_called_once_with()
+        meter_provider.force_flush.assert_called_once_with()
+
+
+def _collected(reader: InMemoryMetricReader) -> dict[str, Any]:
+    data = reader.get_metrics_data()
+    if data is None:
+        return {}
+    return {m.name: m for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics}
+
+
+def _points(reader: InMemoryMetricReader, name: str) -> list[Any]:
+    metric = _collected(reader).get(name)
+    return [] if metric is None else list(metric.data.data_points)
+
+
+def _single_point(reader: InMemoryMetricReader, name: str) -> Any:
+    points = _points(reader, name)
+    assert len(points) == 1, (name, points)
+    return points[0]
+
+
+def _failure_type(exc_type: type[BaseException]) -> str:
+    return f"{exc_type.__module__}.{exc_type.__qualname__}"
+
+
+class _StepBoom(Exception):
+    pass
+
+
+class _Halt(BaseException):
+    pass
+
+
+def _failing_step(otel: OtelExtender, error: BaseException, context: HookContext | None = None) -> None:
+    def func() -> None:
+        raise error
+
+    with (context or make_hook_context()).activate():
+        with pytest.raises(type(error)) as caught:
+            otel(func)
+    assert caught.value is error
+
+
+class TestOtelExtenderMetrics:
+    """Metrics emitted through opentelemetry.metrics (API only): step and run durations plus row counters."""
+
+    @staticmethod
+    def _step(otel: OtelExtender, context: HookContext | None = None) -> Any:
+        with (context or make_hook_context(rows_in=3, rows_out=2)).activate():
+            return otel(lambda: 42)
+
+    def test_exactly_four_instruments_with_kinds_units_and_bucket_advisory(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        self._step(OtelExtender(meter_provider=provider))
+
+        collected = _collected(reader)
+        assert set(collected) == {_STEP_DURATION, _ROWS_IN, _ROWS_OUT}
+        otel = OtelExtender(meter_provider=provider)
+        otel.on_run_complete(
+            RunContext(run_id="r", started_at=datetime.datetime.now(datetime.timezone.utc)),
+            LifecycleOutcome(status="succeeded"),
+        )
+        collected = _collected(reader)
+        assert set(collected) == {_RUN_DURATION, _STEP_DURATION, _ROWS_IN, _ROWS_OUT}
+        for name in (_RUN_DURATION, _STEP_DURATION):
+            assert isinstance(collected[name].data, Histogram), name
+            assert collected[name].unit == "s", name
+            assert tuple(collected[name].data.data_points[0].explicit_bounds) == _DURATION_BUCKETS, name
+        for name in (_ROWS_IN, _ROWS_OUT):
+            assert isinstance(collected[name].data, Sum), name
+            assert collected[name].data.is_monotonic, name
+            assert collected[name].unit == "{row}", name
+
+    @pytest.mark.parametrize(
+        ("context", "operation", "has_feature_group"),
+        [
+            (make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE), "calculate", True),
+            (make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE), "validate", True),
+            (make_hook_context(hook=ExtenderHook.VALIDATE_OUTPUT_FEATURE), "validate", True),
+            (make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD), "load", True),
+            (_join_context(join_type="inner"), "join", False),
+        ],
+        ids=["calculate", "validate_input", "validate_output", "load", "join"],
+    )
+    def test_step_duration_attributes_per_hook(
+        self,
+        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
+        context: HookContext,
+        operation: str,
+        has_feature_group: bool,
+    ) -> None:
+        provider, reader = metric_capture
+
+        self._step(OtelExtender(meter_provider=provider), context)
+
+        point = _single_point(reader, _STEP_DURATION)
+        expected = {"mloda.operation.name": operation, "mloda.compute_framework.name": "PyArrowTable"}
+        if has_feature_group:
+            expected["mloda.feature_group.name"] = "mloda.testing.DummyFeatureGroup"
+        assert dict(point.attributes) == expected
+        assert point.count == 1
+        assert point.sum >= 0
+
+    def test_failure_adds_error_type_records_the_duration_and_propagates(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        error = _StepBoom("boom")
+
+        _failing_step(OtelExtender(meter_provider=provider), error, make_hook_context(rows_in=3, rows_out=2))
+
+        point = _single_point(reader, _STEP_DURATION)
+        assert point.attributes["error.type"] == _failure_type(_StepBoom)
+        assert point.attributes["mloda.operation.name"] == "calculate"
+        assert _points(reader, _ROWS_IN) == []
+        assert _points(reader, _ROWS_OUT) == []
+
+    def test_base_exception_is_counted_and_propagates(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        _failing_step(OtelExtender(meter_provider=provider), _Halt("halt"))
+
+        assert _single_point(reader, _STEP_DURATION).attributes["error.type"] == _failure_type(_Halt)
+
+    def test_success_has_no_error_type(self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]) -> None:
+        provider, reader = metric_capture
+
+        self._step(OtelExtender(meter_provider=provider))
+
+        assert "error.type" not in _single_point(reader, _STEP_DURATION).attributes
+
+    @pytest.mark.parametrize(
+        ("hook", "rows_in", "rows_out", "expected_in", "expected_out"),
+        [
+            (ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, 7, 5, 7, 5),
+            (ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, None, 5, None, 5),
+            (ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, None, None, None, None),
+            (ExtenderHook.INPUT_DATA_LOAD, None, 9, None, 9),
+            (ExtenderHook.VALIDATE_INPUT_FEATURE, 7, 5, None, None),
+            (ExtenderHook.VALIDATE_OUTPUT_FEATURE, 7, 5, None, None),
+            (ExtenderHook.JOIN, 7, 5, None, None),
+        ],
+        ids=["calculate", "calculate_no_in", "calculate_no_rows", "load", "validate_in", "validate_out", "join"],
+    )
+    def test_rows_are_recorded_only_for_calculate_and_load_when_known(
+        self,
+        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
+        hook: ExtenderHook,
+        rows_in: int | None,
+        rows_out: int | None,
+        expected_in: int | None,
+        expected_out: int | None,
+    ) -> None:
+        provider, reader = metric_capture
+
+        self._step(
+            OtelExtender(meter_provider=provider), make_hook_context(hook=hook, rows_in=rows_in, rows_out=rows_out)
+        )
+
+        for name, expected in ((_ROWS_IN, expected_in), (_ROWS_OUT, expected_out)):
+            if expected is None:
+                assert _points(reader, name) == [], name
+            else:
+                point = _single_point(reader, name)
+                assert point.value == expected, name
+                assert set(point.attributes) == _STEP_ATTRIBUTES, name
+
+    def test_attributes_stay_within_the_allowlist_and_leak_no_identifiers(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        otel = OtelExtender(meter_provider=provider)
+        step_uuid = uuid.uuid4()
+        secrets = (
+            "run-id-secret",
+            "plan-id-secret",
+            "identity-secret",
+            "tenant-secret",
+            "feature-secret",
+            str(step_uuid),
+        )
+        for hook in (ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD, ExtenderHook.JOIN):
+            context = make_hook_context(
+                hook=hook,
+                rows_in=1,
+                rows_out=2,
+                run_id="run-id-secret",
+                plan_id="plan-id-secret",
+                step_uuid=step_uuid,
+                worker_index=3,
+                data_access_identity="identity-secret",
+                data_access_format="csv",
+                feature_names=("feature-secret",),
+                plugin_version="9.9.9",
+                feature_group_version="7",
+                tenant_id="tenant-secret",
+                project_id="project-secret",
+                principal="principal-secret",
+                join_type="inner",
+                join_keys=("key-secret",),
+                declared_attributes={"declared": "declared-secret"},
+            )
+            self._step(otel, context)
+        _failing_step(
+            otel, _StepBoom("boom"), make_hook_context(run_id="run-id-secret", feature_names=("feature-secret",))
+        )
+        otel.on_run_complete(
+            RunContext(run_id="run-id-secret", started_at=datetime.datetime.now(datetime.timezone.utc)),
+            LifecycleOutcome(status="failed", error_type="RuntimeError"),
+        )
+
+        collected = _collected(reader)
+        assert collected
+        for name, metric in collected.items():
+            for point in metric.data.data_points:
+                assert set(point.attributes) <= _METRIC_ATTRIBUTE_ALLOWLIST, (name, dict(point.attributes))
+                for value in point.attributes.values():
+                    assert not any(secret in str(value) for secret in secrets), (name, dict(point.attributes))
+                    assert str(value) not in ("9.9.9", "3", "csv", "key-secret"), (name, dict(point.attributes))
+
+    def test_no_hook_context_records_no_metrics(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        assert OtelExtender(meter_provider=provider)(lambda: 42) == 42
+
+        assert _collected(reader) == {}
+
+    def test_pre_call_attribute_failure_records_no_metric(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider, reader = metric_capture
+
+        def broken_set_context_attributes(span: Any, context: Any) -> None:
+            raise RuntimeError("attrs boom")
+
+        monkeypatch.setattr(otel_extender_module, "_set_context_attributes", broken_set_context_attributes)
+        ran = Mock()
+
+        with make_hook_context().activate():
+            with pytest.raises(RuntimeError, match="attrs boom"):
+                OtelExtender(meter_provider=provider)(ran)
+
+        ran.assert_not_called()
+        assert _collected(reader) == {}
+
+    def test_step_duration_times_only_the_wrapped_call(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        with make_hook_context().activate():
+            OtelExtender(meter_provider=provider)(lambda: time.sleep(0.05))
+
+        assert 0.05 <= _single_point(reader, _STEP_DURATION).sum < 5
+
+    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
+    def test_run_duration_is_recorded_with_the_run_status(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], status: Any
+    ) -> None:
+        provider, reader = metric_capture
+        started_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=2)
+        error_type = "ValueError" if status == "failed" else None
+
+        OtelExtender(meter_provider=provider).on_run_complete(
+            RunContext(run_id=str(uuid.uuid4()), started_at=started_at),
+            LifecycleOutcome(status=status, error_type=error_type),
+        )
+
+        point = _single_point(reader, _RUN_DURATION)
+        expected: dict[str, str] = {"mloda.run.status": status}
+        if error_type is not None:
+            expected["error.type"] = error_type
+        assert dict(point.attributes) == expected
+        assert 2 <= point.sum < 60
+
+    def test_failed_run_without_an_error_type_omits_the_attribute(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        OtelExtender(meter_provider=provider).on_run_complete(
+            RunContext(run_id="r", started_at=datetime.datetime.now(datetime.timezone.utc)),
+            LifecycleOutcome(status="failed"),
+        )
+
+        assert dict(_single_point(reader, _RUN_DURATION).attributes) == {"mloda.run.status": "failed"}
+
+    def test_run_without_started_at_records_no_duration(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        OtelExtender(meter_provider=provider).on_run_complete(
+            RunContext(run_id="r"), LifecycleOutcome(status="succeeded")
+        )
+
+        assert _points(reader, _RUN_DURATION) == []
+
+    def test_run_without_run_id_still_records_the_duration(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        OtelExtender(meter_provider=provider).on_run_complete(
+            RunContext(run_id=None, started_at=datetime.datetime.now(datetime.timezone.utc)),
+            LifecycleOutcome(status="succeeded"),
+        )
+
+        assert _single_point(reader, _RUN_DURATION).count == 1
+
+    def test_run_started_in_the_future_is_clamped_to_zero(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        started_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+
+        OtelExtender(meter_provider=provider).on_run_complete(
+            RunContext(run_id="r", started_at=started_at), LifecycleOutcome(status="succeeded")
+        )
+
+        assert _single_point(reader, _RUN_DURATION).sum == 0
+
+    def test_use_sdk_defaults_resolves_the_global_meter_provider(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], ambient_provider: _AmbientProvider
+    ) -> None:
+        provider, reader = metric_capture
+        ambient_provider.meter_provider = provider
+
+        self._step(OtelExtender(use_sdk_defaults=True))
+
+        assert _single_point(reader, _STEP_DURATION).count == 1
+
+    def test_injected_meter_provider_wins_over_the_global_one(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], ambient_provider: _AmbientProvider
+    ) -> None:
+        provider, reader = metric_capture
+        global_provider, global_reader = make_metric_capture()
+        ambient_provider.meter_provider = global_provider
+
+        self._step(OtelExtender(meter_provider=provider, use_sdk_defaults=True))
+
+        assert _single_point(reader, _STEP_DURATION).count == 1
+        assert _collected(global_reader) == {}
+
+    def test_use_sdk_defaults_without_an_sdk_meter_provider_warns_nothing_about_metrics(
+        self, ambient_provider: _AmbientProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            assert self._step(OtelExtender(use_sdk_defaults=True)) == 42
+
+        assert not [
+            r for r in caplog.records if "meter" in r.getMessage().lower() or "metric" in r.getMessage().lower()
+        ]
+
+    def test_unconfigured_extender_never_resolves_the_meter_provider_and_records_nothing(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], ambient_provider: _AmbientProvider
+    ) -> None:
+        provider, reader = metric_capture
+        ambient_provider.meter_provider = provider
+        otel = OtelExtender()
+
+        assert self._step(otel) == 42
+        otel.on_run_complete(
+            RunContext(run_id="r", started_at=datetime.datetime.now(datetime.timezone.utc)),
+            LifecycleOutcome(status="succeeded"),
+        )
+
+        assert ambient_provider.meter_provider_calls == 0
+        assert _collected(reader) == {}
+
+    def test_metrics_only_injection_does_not_log_the_inert_warning(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider, _ = metric_capture
+
+        with caplog.at_level(logging.WARNING):
+            self._step(OtelExtender(meter_provider=provider))
+
+        assert not [r for r in caplog.records if "inert" in r.getMessage().lower()], caplog.records
+
+    def test_one_meter_is_created_per_provider_across_extender_instances(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider, reader = metric_capture
+        spy = Mock(wraps=provider.get_meter)
+        monkeypatch.setattr(provider, "get_meter", spy)
+
+        for _ in range(5):
+            otel = OtelExtender(meter_provider=provider)
+            self._step(otel)
+            otel.on_run_complete(
+                RunContext(run_id="r", started_at=datetime.datetime.now(datetime.timezone.utc)),
+                LifecycleOutcome(status="succeeded"),
+            )
+
+        spy.assert_called_once()
+        assert spy.call_args.args[0] == "mloda_community_otel"
+        assert _single_point(reader, _STEP_DURATION).count == 5
+
+    @pytest.mark.parametrize("raise_on_error", [False, True])
+    def test_a_raising_meter_provider_never_breaks_the_call_and_logs_a_warning(
+        self, caplog: pytest.LogCaptureFixture, raise_on_error: bool
+    ) -> None:
+        meter_provider = Mock(get_meter=Mock(side_effect=RuntimeError("meter boom")))
+        otel = OtelExtender(meter_provider=meter_provider, raise_on_error=raise_on_error)
+        error = _StepBoom("step boom")
+
+        with caplog.at_level(logging.WARNING):
+            assert self._step(otel) == 42
+            _failing_step(otel, error)
+            otel.on_run_complete(
+                RunContext(run_id="r", started_at=datetime.datetime.now(datetime.timezone.utc)),
+                LifecycleOutcome(status="succeeded"),
+            )
+
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OtelExtender metric recording failed: RuntimeError" in m for m in messages), messages
+        assert "meter boom" not in caplog.text
+
+    def test_a_raising_instrument_never_breaks_the_call(self, caplog: pytest.LogCaptureFixture) -> None:
+        instrument_mock = Mock(
+            record=Mock(side_effect=RuntimeError("record boom")), add=Mock(side_effect=RuntimeError("add boom"))
+        )
+        meter = Mock(
+            create_histogram=Mock(return_value=instrument_mock), create_counter=Mock(return_value=instrument_mock)
+        )
+        otel = OtelExtender(meter_provider=Mock(get_meter=Mock(return_value=meter)), raise_on_error=True)
+
+        with caplog.at_level(logging.WARNING):
+            assert self._step(otel) == 42
+
+        assert "OtelExtender metric recording failed: RuntimeError" in caplog.text
+
+    def test_run_all_records_step_and_run_metrics(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
+    ) -> None:
+        tracer_provider, _ = otel_capture
+        meter_provider, reader = metric_capture
+
+        values = run_value_int(OtelExtender(tracer_provider=tracer_provider, meter_provider=meter_provider))
+
+        assert values == expected_value_int()
+        durations = _points(reader, _STEP_DURATION)
+        assert any(point.attributes["mloda.operation.name"] == "calculate" for point in durations), durations
+        run_points = _points(reader, _RUN_DURATION)
+        assert [point.attributes["mloda.run.status"] for point in run_points] == ["succeeded"]

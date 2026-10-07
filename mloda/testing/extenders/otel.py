@@ -1,4 +1,4 @@
-"""In-memory OTel span capture plus a contract mixin for extenders that emit OpenTelemetry spans."""
+"""In-memory OTel span and metric capture plus a contract mixin for extenders that emit OpenTelemetry spans."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from unittest.mock import patch
 import pytest
 from mloda.steward import Extender, ExtenderHook, HookContext
 from opentelemetry import propagate
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, MetricExporter, MetricExportResult, MetricsData
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -36,6 +38,12 @@ def make_span_capture() -> tuple[TracerProvider, InMemorySpanExporter]:
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     return provider, exporter
+
+
+def make_metric_capture() -> tuple[MeterProvider, InMemoryMetricReader]:
+    """SDK MeterProvider wired to an in-memory metric reader; collect with reader.get_metrics_data()."""
+    reader = InMemoryMetricReader()
+    return MeterProvider(metric_readers=[reader], shutdown_on_exit=False), reader
 
 
 def make_non_recording_span() -> NonRecordingSpan:
@@ -144,6 +152,32 @@ class FileSpanExporter(SpanExporter):
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
+        pass
+
+
+class FileMetricExporter(MetricExporter):
+    """Appends one line per exported metric name to marker_path, so a metric can be observed from inside a
+    real spawned worker process."""
+
+    def __init__(self, marker_path: Path) -> None:
+        super().__init__()
+        self._marker_path = marker_path
+
+    def export(self, metrics_data: MetricsData, timeout_millis: float = 10_000, **kwargs: Any) -> MetricExportResult:
+        lines = [
+            f"{metric.name}\n"
+            for resource_metrics in metrics_data.resource_metrics
+            for scope_metrics in resource_metrics.scope_metrics
+            for metric in scope_metrics.metrics
+        ]
+        with open(self._marker_path, "a", encoding="utf-8") as handle:
+            handle.write("".join(lines))
+        return MetricExportResult.SUCCESS
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        return True
+
+    def shutdown(self, timeout_millis: float = 30_000, **kwargs: Any) -> None:
         pass
 
 

@@ -70,7 +70,7 @@ published = true
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-otel]
-description = "OpenTelemetry spans, metadata-only by default, for mloda pipelines"
+description = "OpenTelemetry spans and metrics, metadata-only by default, for mloda pipelines"
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/otel"
 published = true

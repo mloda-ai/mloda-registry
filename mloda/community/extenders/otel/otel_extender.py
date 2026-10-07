@@ -1,4 +1,4 @@
-"""OtelExtender: emits OpenTelemetry spans for mloda pipeline hooks."""
+"""OtelExtender: emits OpenTelemetry spans and metrics for mloda pipeline hooks."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import os
 import re
 import reprlib
 import threading
+import time
+import weakref
 from collections import OrderedDict, deque
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
@@ -24,8 +26,9 @@ from mloda.steward import (
     pickle_failure_reason,
     scrub_credentials,
 )
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 from opentelemetry.context import Context
+from opentelemetry.metrics import Counter, Histogram, MeterProvider
 from opentelemetry.trace import (
     Link,
     NonRecordingSpan,
@@ -237,6 +240,40 @@ _BOUNDED_REPR.maxother = 30
 
 _NOOP_TRACER_PROVIDER = trace.NoOpTracerProvider()
 
+# Duration histogram bucket advisory, in seconds.
+_DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
+
+
+class _Instruments:
+    def __init__(self, provider: MeterProvider) -> None:
+        meter = metrics.get_meter(_TRACER_NAME, meter_provider=provider)
+        self.run_duration: Histogram = meter.create_histogram(
+            "mloda.run.duration", unit="s", explicit_bucket_boundaries_advisory=_DURATION_BUCKETS
+        )
+        self.step_duration: Histogram = meter.create_histogram(
+            "mloda.step.duration", unit="s", explicit_bucket_boundaries_advisory=_DURATION_BUCKETS
+        )
+        self.rows_in: Counter = meter.create_counter("mloda.step.rows.in", unit="{row}")
+        self.rows_out: Counter = meter.create_counter("mloda.step.rows.out", unit="{row}")
+
+
+# One meter and instrument set per provider object for the whole process (the API proxy provider
+# would otherwise append a meter and proxy instruments on every get_meter call).
+_INSTRUMENTS: weakref.WeakKeyDictionary[Any, _Instruments] = weakref.WeakKeyDictionary()
+_INSTRUMENTS_LOCK = threading.Lock()
+
+
+def _instruments_for(provider: MeterProvider) -> _Instruments:
+    try:
+        with _INSTRUMENTS_LOCK:
+            cached = _INSTRUMENTS.get(provider)
+            if cached is None:
+                cached = _INSTRUMENTS[provider] = _Instruments(provider)
+            return cached
+    except TypeError:  # not weak-referenceable or not hashable
+        return _Instruments(provider)
+
+
 # ProxyTracerProvider is returned while no global provider is set; NoOpTracerProvider only if installed deliberately.
 _API_DEFAULT_PROVIDER_TYPES = (trace.ProxyTracerProvider, trace.NoOpTracerProvider)
 
@@ -282,7 +319,8 @@ _MAX_DECLARED_KEYS = 32
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
     Sink resolution: injected tracer_provider wins, else use_sdk_defaults (warns once if no SDK provider is set),
-    else inert (no-op span).
+    else inert (no-op span). Metrics resolve the same way per signal through meter_provider (no warning when
+    only the API default meter provider is found; an injected meter_provider alone is not inert).
     An injected tracer_provider that can't survive pickling (e.g. the real SDK TracerProvider, which
     holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
     ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a picklable
@@ -305,6 +343,7 @@ class OtelExtender(Extender):
         tracer_provider: TracerProvider | None = None,
         use_sdk_defaults: bool = False,
         trace_scope: Literal["run", "plan"] = "run",
+        meter_provider: MeterProvider | None = None,
     ) -> None:
         if trace_scope not in ("run", "plan"):
             raise ValueError(f"OtelExtender trace_scope must be 'run' or 'plan', got {trace_scope!r}")
@@ -315,6 +354,7 @@ class OtelExtender(Extender):
         self.capture_content = capture_content
         self.mask = mask
         self._tracer_provider = tracer_provider
+        self._meter_provider = meter_provider
         self.use_sdk_defaults = use_sdk_defaults
         self._inert_warning = WarnOncePerInstance()  # shared by the inert and no-SDK warnings
         self._pickle_drop_warning = WarnOncePerInstance()
@@ -390,6 +430,7 @@ class OtelExtender(Extender):
             self._root_spans[run_id] = span
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
+        self._record_run_duration(run, outcome)
         if run.run_id is None:
             return
         with self._lock:
@@ -406,10 +447,60 @@ class OtelExtender(Extender):
             return trace.get_tracer_provider()
         return None
 
+    def _configured_meter_provider(self) -> MeterProvider | None:
+        """Injected provider wins, else the global meter provider when use_sdk_defaults, else None."""
+        if self._meter_provider is not None:
+            return self._meter_provider
+        if self.use_sdk_defaults:
+            return metrics.get_meter_provider()
+        return None
+
+    def _record_metrics(self, record: Callable[[_Instruments], None]) -> None:
+        """Best effort: never changes the wrapped call's result or exception."""
+        try:
+            provider = self._configured_meter_provider()
+            if provider is not None:
+                record(_instruments_for(provider))
+        except Exception as exc:
+            logger.warning("%s metric recording failed: %s", type(self).__name__, type(exc).__name__)
+
+    def _record_run_duration(self, run: RunContext, outcome: LifecycleOutcome) -> None:
+        started_at = run.started_at
+        if started_at is None:
+            return
+        attributes: dict[str, str] = {"mloda.run.status": outcome.status}
+        if outcome.status == "failed" and outcome.error_type is not None:
+            attributes["error.type"] = outcome.error_type
+
+        def record(instruments: _Instruments) -> None:
+            seconds = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
+            instruments.run_duration.record(seconds, attributes)
+
+        self._record_metrics(record)
+
+    def _record_step_metrics(self, context: HookContext, seconds: float, error_type: str | None, ok: bool) -> None:
+        attributes: dict[str, str] = {"mloda.operation.name": _OPERATION_NAMES.get(context.hook, "unknown")}
+        if context.feature_group_class is not None:
+            attributes["mloda.feature_group.name"] = context.feature_group_class
+        if context.compute_framework_name is not None:
+            attributes["mloda.compute_framework.name"] = context.compute_framework_name
+
+        def record(instruments: _Instruments) -> None:
+            duration_attributes = attributes if error_type is None else {**attributes, "error.type": error_type}
+            instruments.step_duration.record(seconds, duration_attributes)
+            if ok and context.hook in _DECLARABLE_HOOKS:
+                if context.rows_in is not None:
+                    instruments.rows_in.add(context.rows_in, attributes)
+                if context.rows_out is not None:
+                    instruments.rows_out.add(context.rows_out, attributes)
+
+        self._record_metrics(record)
+
     def _resolve_tracer_provider(self) -> TracerProvider:
         provider = self._configured_tracer_provider()
         if provider is None:
-            self._warn_once(_INERT_MESSAGE)
+            if self._meter_provider is None:
+                self._warn_once(_INERT_MESSAGE)
             return _NOOP_TRACER_PROVIDER
         if self.use_sdk_defaults and isinstance(provider, _API_DEFAULT_PROVIDER_TYPES):
             self._warn_once(_NO_SDK_PROVIDER_MESSAGE)
@@ -420,28 +511,43 @@ class OtelExtender(Extender):
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self) -> None:
-        """Flush the resolved tracer_provider within close_timeout and the remaining close budget, best effort;
-        never raises and never calls shutdown() (core, not the extender, owns provider lifetime). Inert (no
-        injected provider, use_sdk_defaults False) touches no provider."""
-        provider = self._configured_tracer_provider()
-        if provider is None:
-            return
+        """Flush the resolved tracer_provider and meter_provider within one close_timeout and the remaining close
+        budget, best effort; never raises and never calls shutdown() (core, not the extender, owns provider
+        lifetime). Inert (nothing injected, use_sdk_defaults False) touches no provider."""
+        timeout = capped_close_timeout(self.close_timeout)
+        deadline = time.monotonic() + timeout
+        tracer_provider = self._configured_tracer_provider()
+        if tracer_provider is not None:
+            self._flush("tracer_provider", tracer_provider, to_timeout_millis(timeout))
+        meter_provider = self._configured_meter_provider()
+        if meter_provider is not None:
+            millis = to_timeout_millis(timeout)
+            if millis is not None:
+                millis = max(0, int((deadline - time.monotonic()) * 1000))
+            self._flush("meter_provider", meter_provider, millis)
+
+    def _flush(self, sink: str, provider: Any, timeout_millis: int | None) -> None:
         try:
-            result = force_flush(provider, timeout_millis=to_timeout_millis(capped_close_timeout(self.close_timeout)))
+            result = force_flush(provider, timeout_millis=timeout_millis)
         except Exception as exc:
-            logger.warning("%s failed to flush tracer_provider: %s", type(self).__name__, type(exc).__name__)
+            logger.warning("%s failed to flush %s: %s", type(self).__name__, sink, type(exc).__name__)
             return
         if result is False:
-            logger.warning("%s did not flush all spans within its close budget", type(self).__name__)
+            logger.warning("%s did not flush all %s data within its close budget", type(self).__name__, sink)
 
     def __getstate__(self) -> dict[str, Any]:
-        provider = self._tracer_provider
-        failure_reason = pickle_failure_reason(provider) if provider is not None else None
-        if failure_reason is not None:
+        failures: dict[str, str] = {}
+        for key in ("_tracer_provider", "_meter_provider"):
+            sink = getattr(self, key)
+            reason = pickle_failure_reason(sink) if sink is not None else None
+            if reason is not None:
+                failures[key] = reason
+        if failures:
+            names = ", ".join(f"{key.lstrip('_')} ({reason})" for key, reason in failures.items())
             self._pickle_drop_warning.warn_once(
                 lambda: logger.warning(
-                    "OtelExtender drops an injected tracer_provider when pickled or copied because it "
-                    f"isn't picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, "
+                    f"OtelExtender drops an injected {names} when pickled or copied because it "
+                    "isn't picklable; the copy is inert unless use_sdk_defaults=True, "
                     "which lets it resolve a provider installed in its own process, e.g. via "
                     "child_bootstrap under MULTIPROCESSING."
                 )
@@ -451,8 +557,8 @@ class OtelExtender(Extender):
             state["_run_roots"] = dict(self._run_roots)
         for key in ("_lock", "_root_spans", "_plan_ints", "_plan_spans"):
             state.pop(key, None)
-        if failure_reason is not None:
-            state["_tracer_provider"] = None
+        for key in failures:
+            state[key] = None
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -497,13 +603,22 @@ class OtelExtender(Extender):
                 if context.hook in _DECLARABLE_HOOKS:
                     _set_declared_attributes(span, context)
 
+            started = time.perf_counter()
             try:
                 result = func(*args, **kwargs)
             except BaseException as exc:
+                seconds = time.perf_counter() - started
+                error_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
+                if context is not None:
+                    self._record_step_metrics(context, seconds, error_type, ok=False)
                 span.set_status(Status(StatusCode.ERROR))
-                span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                span.set_attribute("error.type", error_type)
                 logger.warning("%s %s failed: %s", type(self).__name__, span_name, type(exc).__name__)
                 raise
+
+            seconds = time.perf_counter() - started
+            if context is not None:
+                self._record_step_metrics(context, seconds, None, ok=True)
 
             try:
                 if context is not None and context.hook in _DECLARABLE_HOOKS:

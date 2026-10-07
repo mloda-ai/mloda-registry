@@ -1,4 +1,4 @@
-"""mloda-community-otel: OpenTelemetry spans for mloda pipelines."""
+"""mloda-community-otel: OpenTelemetry spans and metrics for mloda pipelines."""
 
 from __future__ import annotations
 
