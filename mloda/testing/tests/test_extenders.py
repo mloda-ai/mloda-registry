@@ -19,7 +19,7 @@ import pytest
 from mloda.steward import CloseContext, Extender, ExtenderHook, HookContext
 from mloda.user import ParallelizationMode, mloda
 
-from mloda.community.extenders.shared.teardown import capped_close_timeout, force_flush, to_timeout_millis
+from mloda.community.extenders.shared.teardown import flush_on_close
 from mloda.testing.extenders import runners
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.flush import (
@@ -975,18 +975,19 @@ class _FlushingProbeExtender(Extender):
         return func(*args, **kwargs)
 
     def close(self) -> None:
-        name = type(self).__name__
-        try:
-            provider = self.probe_provider
-            if provider is None and self.use_sdk_defaults:
-                provider = _ambient_probe_provider()
-            if provider is None:
-                return
-            timeout = capped_close_timeout(self.close_timeout)
-            if force_flush(provider, timeout_millis=to_timeout_millis(timeout)) is False:
-                _FLUSH_PROBE_LOG.warning("%s did not flush all probes within its close budget", name)
-        except Exception as exc:
-            _FLUSH_PROBE_LOG.warning("%s failed to flush probe_provider: %s", name, type(exc).__name__)
+        def configured() -> Any:
+            if self.probe_provider is None and self.use_sdk_defaults:
+                return _ambient_probe_provider()
+            return self.probe_provider
+
+        flush_on_close(
+            type(self).__name__,
+            configured,
+            self.close_timeout,
+            log=_FLUSH_PROBE_LOG,
+            noun="probe_provider",
+            signal="probes",
+        )
 
 
 class _RaisingCloseProbeExtender(_FlushingProbeExtender):

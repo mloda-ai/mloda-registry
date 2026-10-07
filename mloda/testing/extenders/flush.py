@@ -149,7 +149,7 @@ class ProviderCloseTestMixin:
         extender = self._injected(provider)
 
         with caplog.at_level(logging.WARNING):
-            extender.close()  # must not raise
+            extender.close()
 
         name = self.extender_class().__name__
         assert self._warnings(caplog) == [f"{name} failed to flush {self._noun()}: RuntimeError"]
@@ -222,7 +222,7 @@ class ProviderCloseTestMixin:
         self._set_close_timeout(extender, None)
 
         with caplog.at_level(logging.WARNING):
-            extender.close()  # must not raise
+            extender.close()
 
         name = self.extender_class().__name__
         assert any(name in message and "Error" in message for message in self._warnings(caplog)), self._warnings(caplog)
@@ -246,7 +246,7 @@ class ProviderCloseTestMixin:
 
         with patch(self.ambient_provider_getter(), side_effect=RuntimeError("resolve boom")):
             with caplog.at_level(logging.WARNING):
-                extender.close()  # must not raise
+                extender.close()
 
         name = self.extender_class().__name__
         assert any(name in message and "RuntimeError" in message for message in self._warnings(caplog)), caplog.text
