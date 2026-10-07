@@ -9,7 +9,6 @@ import re
 import reprlib
 import threading
 import time
-import weakref
 from collections import OrderedDict, deque
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
@@ -28,7 +27,7 @@ from mloda.steward import (
 )
 from opentelemetry import metrics, trace
 from opentelemetry.context import Context
-from opentelemetry.metrics import Counter, Histogram, MeterProvider
+from opentelemetry.metrics import MeterProvider
 from opentelemetry.trace import (
     Link,
     NonRecordingSpan,
@@ -41,6 +40,14 @@ from opentelemetry.trace import (
     set_span_in_context,
 )
 
+from mloda.community.extenders.otel.otel_metrics import (
+    DECLARABLE_HOOKS,
+    OPERATION_NAMES,
+    Instruments,
+    instruments_for,
+    record_run,
+    record_step,
+)
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import (
@@ -240,40 +247,6 @@ _BOUNDED_REPR.maxother = 30
 
 _NOOP_TRACER_PROVIDER = trace.NoOpTracerProvider()
 
-# Duration histogram bucket advisory, in seconds.
-_DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
-
-
-class _Instruments:
-    def __init__(self, provider: MeterProvider) -> None:
-        meter = metrics.get_meter(_TRACER_NAME, meter_provider=provider)
-        self.run_duration: Histogram = meter.create_histogram(
-            "mloda.run.duration", unit="s", explicit_bucket_boundaries_advisory=_DURATION_BUCKETS
-        )
-        self.step_duration: Histogram = meter.create_histogram(
-            "mloda.step.duration", unit="s", explicit_bucket_boundaries_advisory=_DURATION_BUCKETS
-        )
-        self.rows_in: Counter = meter.create_counter("mloda.step.rows.in", unit="{row}")
-        self.rows_out: Counter = meter.create_counter("mloda.step.rows.out", unit="{row}")
-
-
-# One meter and instrument set per provider object for the whole process (the API proxy provider
-# would otherwise append a meter and proxy instruments on every get_meter call).
-_INSTRUMENTS: weakref.WeakKeyDictionary[Any, _Instruments] = weakref.WeakKeyDictionary()
-_INSTRUMENTS_LOCK = threading.Lock()
-
-
-def _instruments_for(provider: MeterProvider) -> _Instruments:
-    with _INSTRUMENTS_LOCK:
-        try:
-            cached = _INSTRUMENTS.get(provider)
-        except TypeError:  # not weak-referenceable or not hashable: build uncached
-            return _Instruments(provider)
-        if cached is None:
-            cached = _INSTRUMENTS[provider] = _Instruments(provider)
-        return cached
-
-
 # ProxyTracerProvider is returned while no global provider is set; NoOpTracerProvider only if installed deliberately.
 _API_DEFAULT_PROVIDER_TYPES = (trace.ProxyTracerProvider, trace.NoOpTracerProvider)
 
@@ -300,17 +273,6 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
     ExtenderHook.JOIN: "join",
 }
-
-_OPERATION_NAMES: dict[ExtenderHook, str] = {
-    ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "calculate",
-    ExtenderHook.VALIDATE_INPUT_FEATURE: "validate",
-    ExtenderHook.VALIDATE_OUTPUT_FEATURE: "validate",
-    ExtenderHook.INPUT_DATA_LOAD: "load",
-    ExtenderHook.JOIN: "join",
-}
-
-# Hooks that record the context's declared attributes and rows.out after the call: calculate and load only.
-_DECLARABLE_HOOKS = {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
 # Declared attribute values kept; other types are dropped silently.
 _SCALAR_TYPES = (str, bool, int, float)
@@ -459,12 +421,12 @@ class OtelExtender(Extender):
             return metrics.get_meter_provider()
         return None
 
-    def _record_metrics(self, record: Callable[[_Instruments], None]) -> None:
+    def _record_metrics(self, record: Callable[[Instruments], None]) -> None:
         """Best effort: never changes the wrapped call's result or exception."""
         try:
             provider = self._configured_meter_provider()
             if provider is not None:
-                record(_instruments_for(provider))
+                record(instruments_for(provider, _TRACER_NAME))
         except Exception as exc:
             error_name = type(exc).__name__
             self._metric_failure_warning.warn_once(
@@ -472,36 +434,10 @@ class OtelExtender(Extender):
             )
 
     def _record_run_duration(self, run: RunContext, outcome: LifecycleOutcome) -> None:
-        started_at = run.started_at
-        if started_at is None:
-            return
-        attributes: dict[str, str] = {"mloda.run.status": outcome.status}
-        if outcome.status == "failed" and outcome.error_type is not None:
-            attributes["error.type"] = outcome.error_type
-
-        def record(instruments: _Instruments) -> None:
-            seconds = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
-            instruments.run_duration.record(seconds, attributes)
-
-        self._record_metrics(record)
+        self._record_metrics(lambda instruments: record_run(instruments, run, outcome))
 
     def _record_step_metrics(self, context: HookContext, seconds: float, error_type: str | None, ok: bool) -> None:
-        attributes: dict[str, str] = {"mloda.operation.name": _OPERATION_NAMES.get(context.hook, "unknown")}
-        if context.feature_group_class is not None:
-            attributes["mloda.feature_group.name"] = context.feature_group_class
-        if context.compute_framework_name is not None:
-            attributes["mloda.compute_framework.name"] = context.compute_framework_name
-
-        def record(instruments: _Instruments) -> None:
-            duration_attributes = attributes if error_type is None else {**attributes, "error.type": error_type}
-            instruments.step_duration.record(seconds, duration_attributes)
-            if ok and context.hook in _DECLARABLE_HOOKS:
-                if context.rows_in is not None:
-                    instruments.rows_in.add(context.rows_in, attributes)
-                if context.rows_out is not None:
-                    instruments.rows_out.add(context.rows_out, attributes)
-
-        self._record_metrics(record)
+        self._record_metrics(lambda instruments: record_step(instruments, context, seconds, error_type, ok))
 
     def _resolve_tracer_provider(self) -> TracerProvider:
         provider = self._configured_tracer_provider()
@@ -626,7 +562,7 @@ class OtelExtender(Extender):
                     span.set_status(Status(StatusCode.ERROR))
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                     raise
-                if context.hook in _DECLARABLE_HOOKS:
+                if context.hook in DECLARABLE_HOOKS:
                     _set_declared_attributes(span, context)
 
             started = time.perf_counter()
@@ -647,7 +583,7 @@ class OtelExtender(Extender):
                 self._record_step_metrics(context, seconds, None, ok=True)
 
             try:
-                if context is not None and context.hook in _DECLARABLE_HOOKS:
+                if context is not None and context.hook in DECLARABLE_HOOKS:
                     if context.rows_out is not None:
                         span.set_attribute("mloda.rows.out", context.rows_out)
                     if (
@@ -852,7 +788,7 @@ def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
 
 
 def _set_context_attributes(span: Span, context: HookContext) -> None:
-    span.set_attribute("mloda.operation.name", _OPERATION_NAMES.get(context.hook, "unknown"))
+    span.set_attribute("mloda.operation.name", OPERATION_NAMES.get(context.hook, "unknown"))
     if context.feature_group_class is not None:
         span.set_attribute("mloda.feature_group.name", context.feature_group_class)
     if context.feature_group_version is not None:
