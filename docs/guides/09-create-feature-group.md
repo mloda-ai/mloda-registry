@@ -117,7 +117,7 @@ Q31: Is the model a compiled binary (shipped as a wheel, possibly license-gated)
 | [07-index-features](feature-group-patterns/07-index-features.md) | Time series, group-by, window functions |
 | [08-links-joins](feature-group-patterns/08-links-joins.md) | Joining data from multiple feature groups |
 | [09-framework-specific](feature-group-patterns/09-framework-specific.md) | Pandas-only, Polars-only features |
-| [10-testing-guide](feature-group-patterns/10-testing-guide.md) | 3-level testing approach |
+| [10-testing-guide](feature-group-patterns/10-testing-guide.md) | 3-level testing approach; plan locks |
 
 ## Concepts
 

@@ -15,7 +15,7 @@ See also: [Create a feature group](../09-create-feature-group.md)
 7. [Index features](07-index-features.md) - Index-based feature handling and lookup behavior
 8. [Links joins](08-links-joins.md) - Linking and joining feature groups together
 9. [Framework specific](09-framework-specific.md) - Framework-dependent feature implementations
-10. [Testing guide](10-testing-guide.md) - Testing strategies and validation practices
+10. [Testing guide](10-testing-guide.md) - Testing strategies and validation practices, including plan locks
 11. [Options](11-options.md) - Configurable feature group options and behaviors
 12. [calculate_feature](12-calculate-feature.md) - Calculation patterns for feature generation
 13. [Feature naming](13-feature-naming.md) - Naming conventions and organization rules
