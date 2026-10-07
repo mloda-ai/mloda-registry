@@ -19,7 +19,7 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
 
-from mloda.community.extenders.otel import OtelExtender
+from mloda.community.extenders.otel import OtelExtender, OtelMetricsExtender
 from mloda.testing.extenders.otel import BATCH_SCHEDULE_DELAY_MILLIS, FileMetricExporter, FileSpanExporter
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
@@ -71,6 +71,7 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
 
     values = run_value_int(
         OtelExtender(use_sdk_defaults=True),
+        OtelMetricsExtender(use_sdk_defaults=True),
         parallelization_modes={ParallelizationMode.MULTIPROCESSING},
         flight_server=flight_server,
         child_bootstrap=bootstrap,
@@ -85,6 +86,6 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
     assert any(name.startswith("calculate ") for name in span_names), span_names
     assert metric_marker_path.exists(), (
         "child_bootstrap's installed MeterProvider never wrote a metric marker file; the worker's close() "
-        "never flushed the meter provider for OtelExtender(use_sdk_defaults=True)"
+        "never flushed the meter provider for OtelMetricsExtender(use_sdk_defaults=True)"
     )
     assert "mloda.step.duration" in metric_marker_path.read_text().splitlines()

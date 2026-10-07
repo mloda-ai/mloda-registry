@@ -11,3 +11,4 @@ class TestOtelManifest(OptionalDependencyPackageTestMixin):
     extender_name = "OtelExtender"
     extender_module = "otel_extender"
     api_module = "opentelemetry.trace"
+    additional_extenders = {"OtelMetricsExtender": "otel_metrics_extender"}

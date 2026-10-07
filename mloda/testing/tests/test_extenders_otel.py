@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("opentelemetry.sdk")
 
 from mloda.steward import Extender, ExtenderHook, HookContext
-from opentelemetry import propagate, trace
+from opentelemetry import metrics, propagate, trace
 from opentelemetry.context import Context
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
@@ -30,6 +30,7 @@ from mloda.testing.extenders.otel import (
     FileMetricExporter,
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
+    _meter_provider_resolution_spy,
     assert_well_formed_trace,
     inject_parent_carrier,
     make_metric_capture,
@@ -103,6 +104,19 @@ class TestFileMetricExporter:
             assert sorted(marker_path.read_text().splitlines()) == ["probe.counter", "probe.histogram"]
         finally:
             provider.shutdown()
+
+
+class TestMeterProviderResolutionSpy:
+    def test_records_each_resolution_and_hands_out_a_capturing_provider(self) -> None:
+        with _meter_provider_resolution_spy() as calls:
+            assert calls == []
+
+            metrics.get_meter_provider().get_meter("test-extenders-otel").create_counter("probe.counter").add(1)
+
+            assert len(calls) == 1
+            data = calls[0].get_metrics_data()
+            names = [m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
+            assert names == ["probe.counter"]
 
 
 class TestSingleSpan:

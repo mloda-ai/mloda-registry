@@ -1,6 +1,6 @@
 # Export Telemetry to Any Backend
 
-Run the community extenders (`OtelExtender` for spans and metrics, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans, metrics and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select step spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
+Run the community extenders (`OtelExtender` for spans, `OtelMetricsExtender` for metrics, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans, metrics and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select step spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
 
 ## Install
 
@@ -45,7 +45,7 @@ if __name__ == "__main__":
 
 ## Metrics
 
-`OtelExtender` also records four metrics through the OTel metrics API. Add a meter provider next to the tracer provider in `telemetry.py`:
+`OtelMetricsExtender` records four metrics through the OTel metrics API, independent of `OtelExtender`. Add a meter provider next to the tracer provider in `telemetry.py`:
 
 ```python
 from opentelemetry import metrics
@@ -59,7 +59,7 @@ def install_meter_provider() -> None:
     metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
 ```
 
-`OtelExtender(use_sdk_defaults=True)` picks up both global providers. `OtelExtender(meter_provider=provider)` injects one (it does not pickle, like `tracer_provider`). With no SDK meter provider nothing is recorded and nothing warns; see [Sink Resolution](11-create-extender.md#sink-resolution).
+`OtelMetricsExtender(use_sdk_defaults=True)` picks up the global meter provider. `OtelMetricsExtender(meter_provider=provider)` injects one (it does not pickle, like `tracer_provider`). With no SDK meter provider nothing is recorded and it warns once; see [Sink Resolution](11-create-extender.md#sink-resolution).
 
 | Instrument | Kind, unit | Attributes |
 |---|---|---|
@@ -68,12 +68,12 @@ def install_meter_provider() -> None:
 | `mloda.step.rows.in` | Counter, `{row}` | `mloda.operation.name`, `mloda.feature_group.name`, `mloda.compute_framework.name` |
 | `mloda.step.rows.out` | Counter, `{row}` | same as `mloda.step.rows.in` |
 
-- **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status` or `error.type`. Calls without a hook context, or whose span attributes fail before the step runs, are not counted.
+- **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status` or `error.type`. Calls without a hook context are not counted.
 - **`error.type`:** the bare class name on runs, `module.qualname` on steps (as on spans).
 - **Rows:** counted on success only, for calculate (in and out) and load (out). Validate steps record no rows.
-- **Durations:** a step duration includes inner extenders (with default priorities, OpenLineage emission) and a calculate duration includes a nested load, so do not sum durations across operations. Histogram buckets run from 5 ms to 1 h.
+- **Durations:** a step duration includes inner extenders (with default priorities `OtelExtender` wraps outside `OtelMetricsExtender`, which wraps outside `OpenLineageExtender` at priority 110, so OpenLineage emission) and a calculate duration includes a nested load, so do not sum durations across operations. Histogram buckets run from 5 ms to 1 h.
 - **Attributes:** only those in the table; unset ones (for example the feature group on a join) are omitted. Never recorded on metrics: feature names, run, plan and step ids, worker index, data-access identity and format, join keys and type, declared attributes, plugin versions, tenant, project, principal.
-- **Failures:** recording is best effort; an error is logged at WARNING with its type only and never changes the step's result or exception, even with `raise_on_error=True`.
+- **Failures:** recording is best effort; a post-call recording error is logged once at WARNING with its type only and never changes the step's result or exception. A failure resolving the meter follows `raise_on_error` like any extender.
 
 Prometheus names after OTLP translation, p95 step duration per feature group and the share of failed steps:
 
@@ -176,9 +176,9 @@ With `OtelExtender` outside `OpenLineageExtender` (what the default priorities g
 
 ## Multiprocessing, threads and asyncio
 
-- **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
+- **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
 - **Flush on worker exit:** core calls each extender's `close()` when a worker exits, within `graceful_shutdown_timeout` (default 2s, shared by the worker's extenders). With a `BatchSpanProcessor`, raise it together with the extender's `close_timeout` attribute (default 1s, e.g. `extender.close_timeout = 5.0`) so the batch drains. Details in [Pickle Compatibility](11-create-extender.md#pickle-compatibility).
-- **Metrics in workers:** `close()` flushes the tracer, then the meter provider with what is left of one `close_timeout` budget, so a slow span flush can leave none for metrics; raise it for both. A worker usually lives for one run and exports once, from `close()`, as its own process (the SDK gives each a random `service.instance.id`), so its cumulative series carry a single sample that `rate()` cannot use. Export with delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`) to a backend that sums deltas across processes.
+- **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. A worker usually lives for one run and exports once, from `close()`, as its own process (the SDK gives each a random `service.instance.id`), so its cumulative series carry a single sample that `rate()` cannot use. Export with delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`) to a backend that sums deltas across processes.
 - **Continue a trace from another process:** pass a W3C trace-context `carrier` to `run_all`, `stream_all`, `run` or `stream_run`. The run's root span becomes its child (with `trace_scope="plan"` the plan span stays the parent and the carrier becomes a span link). `inject_carrier()` from `mloda.community.extenders.otel.otel_multiprocessing` builds one from the current context without baggage.
 - **`THREADING`:** nothing extra; steps find their run's root span by run id.
 - **asyncio:** the active span and `verified_context` are context variables. `asyncio.to_thread(...)` copies them; `loop.run_in_executor(...)` does not, so use `loop.run_in_executor(None, contextvars.copy_context().run, fn)`.

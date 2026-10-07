@@ -123,6 +123,20 @@ def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
         yield calls
 
 
+@contextmanager
+def _meter_provider_resolution_spy() -> Iterator[list[Any]]:
+    """Records each ambient meter provider resolution (the reader behind the provider it hands out)."""
+    calls: list[Any] = []
+    provider, reader = make_metric_capture()
+
+    def spy_get_meter_provider() -> MeterProvider:
+        calls.append(reader)
+        return provider
+
+    with patch("opentelemetry.metrics.get_meter_provider", side_effect=spy_get_meter_provider):
+        yield calls
+
+
 class FileSpanExporter(SpanExporter):
     """Appends one line per finished span to marker_path, so a span can be observed from inside a real
     spawned worker process. records=True writes a JSON record instead of the bare span name."""

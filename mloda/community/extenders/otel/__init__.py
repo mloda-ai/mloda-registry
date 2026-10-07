@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mloda.community.extenders.otel.otel_extender import OtelExtender
+    from mloda.community.extenders.otel.otel_metrics_extender import OtelMetricsExtender
 
 
 def _api_module_missing() -> bool:
+    # opentelemetry.metrics ships in the same opentelemetry-api distribution as opentelemetry.trace.
     # Probes the module the extender imports, not the namespace-package root; ValueError means a stub with no __spec__.
     try:
         return importlib.util.find_spec("opentelemetry.trace") is None
@@ -17,7 +19,7 @@ def _api_module_missing() -> bool:
         return True
 
 
-__all__ = ["OtelExtender"]
+__all__ = ["OtelExtender", "OtelMetricsExtender"]
 # mypy only reads a plain list/tuple literal, so the extra is kept above and cleared here at runtime.
 if not TYPE_CHECKING and _api_module_missing():
     __all__ = []
@@ -31,4 +33,8 @@ def __getattr__(name: str) -> Any:
         from mloda.community.extenders.otel.otel_extender import OtelExtender
 
         return OtelExtender
+    if name == "OtelMetricsExtender":
+        from mloda.community.extenders.otel.otel_metrics_extender import OtelMetricsExtender
+
+        return OtelMetricsExtender
     raise AttributeError(name)
