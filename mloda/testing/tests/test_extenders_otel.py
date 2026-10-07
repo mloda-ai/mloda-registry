@@ -30,12 +30,13 @@ from mloda.testing.extenders.otel import (
     FileMetricExporter,
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
-    _meter_provider_resolution_spy,
     assert_well_formed_trace,
     inject_parent_carrier,
     make_metric_capture,
     make_picklable_span_capture,
     make_span_capture,
+    meter_provider_resolution_spy,
+    metric_names,
     read_span_records,
     single_span,
     single_span_attributes,
@@ -83,10 +84,10 @@ class TestMakeMetricCapture:
         provider, reader = make_metric_capture()
         provider.get_meter("test-extenders-otel").create_counter("probe.counter").add(1)
 
-        data = reader.get_metrics_data()
-        assert data is not None
-        names = [m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
-        assert names == ["probe.counter"]
+        assert metric_names(reader.get_metrics_data()) == ["probe.counter"]
+
+    def test_metric_names_of_no_data_is_empty(self) -> None:
+        assert metric_names(None) == []
 
 
 class TestFileMetricExporter:
@@ -108,15 +109,13 @@ class TestFileMetricExporter:
 
 class TestMeterProviderResolutionSpy:
     def test_records_each_resolution_and_hands_out_a_capturing_provider(self) -> None:
-        with _meter_provider_resolution_spy() as calls:
+        with meter_provider_resolution_spy() as calls:
             assert calls == []
 
             metrics.get_meter_provider().get_meter("test-extenders-otel").create_counter("probe.counter").add(1)
 
             assert len(calls) == 1
-            data = calls[0].get_metrics_data()
-            names = [m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
-            assert names == ["probe.counter"]
+            assert metric_names(calls[0].get_metrics_data()) == ["probe.counter"]
 
 
 class TestSingleSpan:

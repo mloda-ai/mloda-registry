@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import logging
 import pickle  # nosec
 import threading
 import time
@@ -18,9 +19,15 @@ import pytest
 from mloda.steward import CloseContext, Extender, ExtenderHook, HookContext
 from mloda.user import ParallelizationMode, mloda
 
+from mloda.community.extenders.shared.teardown import capped_close_timeout, force_flush, to_timeout_millis
 from mloda.testing.extenders import runners
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
-from mloda.testing.extenders.flush import active_close_context, blocking_flush_provider, call_with_join_timeout
+from mloda.testing.extenders.flush import (
+    ProviderCloseTestMixin,
+    active_close_context,
+    blocking_flush_provider,
+    call_with_join_timeout,
+)
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
     CountingExtender,
@@ -940,3 +947,92 @@ class TestActiveCloseContext:
     def test_negative_budget_has_zero_remaining(self) -> None:
         with active_close_context(-1) as ctx:
             assert ctx.remaining() == 0.0
+
+
+_FLUSH_PROBE_LOG = logging.getLogger("mloda.testing.tests.flush_probe")
+
+
+def _ambient_probe_provider() -> Any:
+    """Stand-in for an SDK's global provider lookup; ProviderCloseTestMixin patches it by name."""
+    raise AssertionError("the ambient provider lookup must be patched")
+
+
+class _FlushingProbeExtender(Extender):
+    """Flushes its probe_provider on close() with the shared teardown primitives; never raises."""
+
+    def __init__(
+        self, probe_provider: Any = None, use_sdk_defaults: bool = False, raise_on_error: bool = False
+    ) -> None:
+        self.raise_on_error = raise_on_error
+        self.probe_provider = probe_provider
+        self.use_sdk_defaults = use_sdk_defaults
+        self.close_timeout = 1.0
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    def close(self) -> None:
+        name = type(self).__name__
+        try:
+            provider = self.probe_provider
+            if provider is None and self.use_sdk_defaults:
+                provider = _ambient_probe_provider()
+            if provider is None:
+                return
+            timeout = capped_close_timeout(self.close_timeout)
+            if force_flush(provider, timeout_millis=to_timeout_millis(timeout)) is False:
+                _FLUSH_PROBE_LOG.warning("%s did not flush all probes within its close budget", name)
+        except Exception as exc:
+            _FLUSH_PROBE_LOG.warning("%s failed to flush probe_provider: %s", name, type(exc).__name__)
+
+
+class _RaisingCloseProbeExtender(_FlushingProbeExtender):
+    def close(self) -> None:
+        raise RuntimeError("close boom")
+
+
+class TestFlushingProbeProviderClose(ProviderCloseTestMixin):
+    """Self-test: _FlushingProbeExtender must satisfy every close test ProviderCloseTestMixin defines."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _FlushingProbeExtender
+
+    @classmethod
+    def sink_noun(cls) -> str | None:
+        return "probe_provider"
+
+    def make_unconfigured_extender(self) -> Extender:
+        return self.extender_class()()
+
+    def make_sdk_defaults_extender(self) -> Extender:
+        return self.extender_class()(use_sdk_defaults=True)  # type: ignore[call-arg]
+
+    @classmethod
+    def ambient_provider_getter(cls) -> str:
+        return f"{__name__}._ambient_probe_provider"
+
+    @classmethod
+    def flushed_signal(cls) -> str:
+        return "probes"
+
+
+class _RaisingCloseProbeHost(TestFlushingProbeProviderClose):
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _RaisingCloseProbeExtender
+
+
+class TestProviderCloseTestMixinFailsABrokenExtender:
+    """An extender whose close() raises must fail the mixin, so the mixin is not vacuous."""
+
+    def test_a_raising_close_fails_the_flush_test(self) -> None:
+        with pytest.raises(RuntimeError, match="close boom"):
+            _RaisingCloseProbeHost().test_close_flushes_the_injected_provider_with_timeout_millis()
+
+    def test_a_raising_close_fails_the_swallow_test(self, caplog: pytest.LogCaptureFixture) -> None:
+        with pytest.raises(RuntimeError, match="close boom"):
+            _RaisingCloseProbeHost().test_close_swallows_a_raising_force_flush_and_logs_a_warning(caplog)

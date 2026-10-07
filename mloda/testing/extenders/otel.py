@@ -46,6 +46,13 @@ def make_metric_capture() -> tuple[MeterProvider, InMemoryMetricReader]:
     return MeterProvider(metric_readers=[reader], shutdown_on_exit=False), reader
 
 
+def metric_names(data: MetricsData | None) -> list[str]:
+    """Every metric name in a collected MetricsData (empty for None, what a reader returns before any recording)."""
+    if data is None:
+        return []
+    return [m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
+
+
 def make_non_recording_span() -> NonRecordingSpan:
     """A valid, sampled, non-recording span with fixed trace and span ids."""
     span_context = SpanContext(
@@ -110,7 +117,7 @@ def assert_well_formed_trace(spans: Sequence[ReadableSpan], caller_span_id: int 
 
 
 @contextmanager
-def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
+def tracer_provider_resolution_spy() -> Iterator[list[Any]]:
     """trace.get_tracer only falls through to get_tracer_provider when tracer_provider is None."""
     calls: list[Any] = []
     provider, exporter = make_span_capture()
@@ -124,7 +131,7 @@ def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
 
 
 @contextmanager
-def _meter_provider_resolution_spy() -> Iterator[list[Any]]:
+def meter_provider_resolution_spy() -> Iterator[list[Any]]:
     """Records each ambient meter provider resolution (the reader behind the provider it hands out)."""
     calls: list[Any] = []
     provider, reader = make_metric_capture()
@@ -178,12 +185,7 @@ class FileMetricExporter(MetricExporter):
         self._marker_path = marker_path
 
     def export(self, metrics_data: MetricsData, timeout_millis: float = 10_000, **kwargs: Any) -> MetricExportResult:
-        lines = [
-            f"{metric.name}\n"
-            for resource_metrics in metrics_data.resource_metrics
-            for scope_metrics in resource_metrics.scope_metrics
-            for metric in scope_metrics.metrics
-        ]
+        lines = [f"{name}\n" for name in metric_names(metrics_data)]
         with open(self._marker_path, "a", encoding="utf-8") as handle:
             handle.write("".join(lines))
         return MetricExportResult.SUCCESS
@@ -321,7 +323,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         return nullcontext()
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
-        return _tracer_provider_resolution_spy()
+        return tracer_provider_resolution_spy()
 
     def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
         return [span for exporter in spy for span in exporter.get_finished_spans()]

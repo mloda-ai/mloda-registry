@@ -357,11 +357,12 @@ The `mloda` facet's schema URL points at its module in this repository; it is no
 
 ## Testing
 
-`mloda-testing` ships three test mixins plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior:
+`mloda-testing` ships four test mixins plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior:
 
 - `ExtenderContractTestMixin` (`mloda.testing.extenders.contract`), for every extender
 - `OtelExtenderTestMixin` (`mloda.testing.extenders.otel`, install `mloda-testing[otel]`), for extenders that emit OTel spans
 - `OpenLineageExtenderTestMixin` (`mloda.testing.extenders.openlineage`, install `mloda-testing[openlineage]`), for extenders that emit OpenLineage RunEvents
+- `ProviderCloseTestMixin` (`mloda.testing.extenders.flush`, no OTel dependency), for extenders whose `close()` flushes one provider: it pins the bounded, never-raising close (timeout, close-budget cap, ambient lookup, warning texts). Compose it with `ExtenderContractTestMixin` and add `ambient_provider_getter` (patch target of the ambient lookup) and `flushed_signal` (`"spans"` or `"metrics"`)
 
 The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and exception type, never the message, and the message never reaches a span or an event.
 

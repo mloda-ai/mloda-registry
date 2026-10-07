@@ -17,18 +17,13 @@ from mloda.steward import (
     LifecycleOutcome,
     RunContext,
     WarnOncePerInstance,
-    pickle_failure_reason,
 )
 from opentelemetry import metrics
 from opentelemetry.metrics import Counter, Histogram, MeterProvider
 
-from mloda.community.extenders.otel.otel_extender import _DECLARABLE_HOOKS, _OPERATION_NAMES, _TRACER_NAME
-from mloda.community.extenders.shared.teardown import (
-    CLOSE_TIMEOUT,
-    capped_close_timeout,
-    force_flush,
-    to_timeout_millis,
-)
+from mloda.community.extenders.otel._constants import DECLARABLE_HOOKS, OPERATION_NAMES, TRACER_NAME
+from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
 
 logger = logging.getLogger(__name__)
 
@@ -88,14 +83,14 @@ def record_step(
     instruments: Instruments, context: HookContext, seconds: float, error_type: str | None, ok: bool
 ) -> None:
     """Step duration always; rows in/out only for calculate and load on success."""
-    attributes: dict[str, str] = {"mloda.operation.name": _OPERATION_NAMES.get(context.hook, "unknown")}
+    attributes: dict[str, str] = {"mloda.operation.name": OPERATION_NAMES.get(context.hook, "unknown")}
     if context.feature_group_class is not None:
         attributes["mloda.feature_group.name"] = context.feature_group_class
     if context.compute_framework_name is not None:
         attributes["mloda.compute_framework.name"] = context.compute_framework_name
     duration_attributes = attributes if error_type is None else {**attributes, "error.type": error_type}
     instruments.step_duration.record(seconds, duration_attributes)
-    if ok and context.hook in _DECLARABLE_HOOKS:
+    if ok and context.hook in DECLARABLE_HOOKS:
         if context.rows_in is not None:
             instruments.rows_in.add(context.rows_in, attributes)
         if context.rows_out is not None:
@@ -136,15 +131,11 @@ class OtelMetricsExtender(Extender):
         self._failure_warning = WarnOncePerInstance()
 
     def wraps(self) -> set[ExtenderHook]:
-        return set(_OPERATION_NAMES)
+        return set(OPERATION_NAMES)
 
     def _configured_provider(self) -> MeterProvider | None:
         """Injected provider wins, else the global meter provider when use_sdk_defaults, else None."""
-        if self._meter_provider is not None:
-            return self._meter_provider
-        if self.use_sdk_defaults:
-            return metrics.get_meter_provider()
-        return None
+        return configured_provider(self._meter_provider, self.use_sdk_defaults, metrics.get_meter_provider)
 
     def _resolve_provider(self) -> MeterProvider | None:
         provider = self._configured_provider()
@@ -173,7 +164,7 @@ class OtelMetricsExtender(Extender):
 
     def _instruments(self) -> Instruments | None:
         provider = self._resolve_provider()
-        return None if provider is None else instruments_for(provider, _TRACER_NAME)
+        return None if provider is None else instruments_for(provider, TRACER_NAME)
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         self._guarded(lambda: self._record(self._instruments(), lambda i: record_run(i, run, outcome)))
@@ -198,31 +189,18 @@ class OtelMetricsExtender(Extender):
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self) -> None:
         """Best-effort flush of the provider within the close budget; never raises."""
-        name = type(self).__name__
-        try:
-            provider = self._configured_provider()
-            if provider is None:
-                return
-            millis = to_timeout_millis(capped_close_timeout(self.close_timeout))
-            result = force_flush(provider, timeout_millis=millis)
-        except Exception as exc:
-            logger.warning("%s failed to flush meter_provider: %s", name, type(exc).__name__)
-            return
-        if result is False:
-            logger.warning("%s did not flush all metrics within its close budget", name)
+        flush_on_close(
+            type(self).__name__,
+            self._configured_provider,
+            self.close_timeout,
+            log=logger,
+            noun="meter_provider",
+            signal="metrics",
+        )
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
-        sink = self._meter_provider
-        reason = pickle_failure_reason(sink) if sink is not None else None
-        if reason is not None:
-            self._pickle_drop_warning.warn_once(
-                lambda: logger.warning(
-                    f"{type(self).__name__} drops an injected meter_provider when pickled or copied because it "
-                    f"isn't picklable ({reason}); the copy is inert unless use_sdk_defaults=True, which lets it "
-                    "resolve a provider installed in its own process, e.g. via child_bootstrap under "
-                    "MULTIPROCESSING."
-                )
-            )
-            state["_meter_provider"] = None
+        drop_unpicklable_provider(
+            state, "meter_provider", owner_name=type(self).__name__, warning=self._pickle_drop_warning, log=logger
+        )
         return state
