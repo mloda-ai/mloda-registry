@@ -890,17 +890,87 @@ class _RedactedMapping(Mapping[str, Any]):
 class _ReformattingMapping(_RedactedMapping):
     """Mapping whose repr reformats values into neither repr(v) nor str(v)."""
 
+    _encoding = "latin-1"
+
+    def _element(self, element: Any) -> str:
+        return str(element)
+
+    def _render(self, value: Any, seen: tuple[int, ...] = ()) -> str:
+        if id(value) in seen:
+            return "..."
+        seen = (*seen, id(value))
+        if isinstance(value, Mapping):
+            return ", ".join(f"{k} -> {self._render(v, seen)}" for k, v in value.items())
+        if isinstance(value, bytes):
+            return value.decode(self._encoding)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (tuple, list, set)):
+            return "|".join(
+                self._render(element, seen) if isinstance(element, (tuple, list, set)) else self._element(element)
+                for element in value
+            )
+        return str(value)
+
     def __repr__(self) -> str:
-        parts = []
-        for key, value in self._data.items():
-            if isinstance(value, (tuple, list)):
-                shown = "|".join(str(element) for element in value)
-            elif isinstance(value, bytes):
-                shown = value.decode("latin-1")
-            else:
-                shown = str(value)
-            parts.append(f"{key} -> {shown}")
-        return "Headers(" + ", ".join(parts) + ")"
+        return "Headers(" + ", ".join(f"{key} -> {self._render(value)}" for key, value in self._data.items()) + ")"
+
+
+class _Utf8ReformattingMapping(_ReformattingMapping):
+    _encoding = "utf-8"
+
+
+class _EscapingReformattingMapping(_ReformattingMapping):
+    """Reformatting mapping that renders elements with repr(element), so escapes appear."""
+
+    def _element(self, element: Any) -> str:
+        return repr(element)
+
+
+class _MultiDictReformattingMapping(_ReformattingMapping):
+    """Multidict: iteration repeats a key, __getitem__ returns the first value, items() yields every pair."""
+
+    def __init__(self, pairs: list[tuple[str, Any]]) -> None:
+        super().__init__({})
+        self._pairs = pairs
+
+    def __getitem__(self, key: str) -> Any:
+        return next(v for k, v in self._pairs if k == key)
+
+    def __iter__(self) -> Iterator[str]:
+        return (k for k, _ in self._pairs)
+
+    def __len__(self) -> int:
+        return len(self._pairs)
+
+    def items(self) -> Any:
+        return list(self._pairs)
+
+    def __repr__(self) -> str:
+        return "Headers(" + ", ".join(f"{k} -> {self._render(v)}" for k, v in self._pairs) + ")"
+
+
+class _StrObj:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def __str__(self) -> str:
+        return self._text
+
+    def __repr__(self) -> str:
+        return "_StrObj(***)"
+
+
+def _self_referential_list() -> list[Any]:
+    items: list[Any] = []
+    items.append(items)
+    items.extend(["Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"])  # nosec
+    return items
+
+
+def _shared_value_plain_then_secret_key() -> Any:
+    shared = ["u", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"]  # nosec
+    return _ReformattingMapping({"a": shared, "password": shared})
 
 
 class _SelfRedactingReformattingMapping(_ReformattingMapping):
@@ -1328,6 +1398,73 @@ class TestOtelExtenderContentCapture:
                 ),
                 ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg", "sk_live_abcdef123456"],
                 id="self-redacting-reformatting-mapping",
+            ),
+            pytest.param(
+                _MultiDictReformattingMapping(
+                    [("password", ("u", "first_secret_aaaa")), ("password", ("u", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"))]
+                ),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg", "first_secret_aaaa"],
+                id="reformatting-multidict-repeated-secret-key",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": ["a", ["Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"]]}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-nested-list",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": {"Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"}}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-set-value",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": ("u", _StrObj("dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"))}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-object-element",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": ("Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", 1234567890)}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg", "1234567890"],
+                id="reformatting-mapping-int-element",
+            ),
+            pytest.param(
+                _ReformattingMapping({"cfg": {"password": "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"}}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-nested-secret-key",
+            ),
+            pytest.param(
+                _ReformattingMapping({"headers": [("password", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg")]}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-secret-pair-under-plain-key",
+            ),
+            pytest.param(
+                _Utf8ReformattingMapping({"password": ("\u00e9" + "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg").encode("utf-8")}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-utf8-bytes",
+            ),
+            pytest.param(
+                _EscapingReformattingMapping({"password": ("u", "'q\\x" + "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg")}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "xvbmd0b2tlbg"],
+                id="reformatting-mapping-repr-escaped-element",
+            ),
+            pytest.param(
+                _ReformattingMapping(
+                    {
+                        **{f"k{i:05}": "a" for i in range(5000)},
+                        "zz-Authorization": ("Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"),
+                    }
+                ),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-over-scan-budget",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": _self_referential_list()}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-self-referential",
+            ),
+            pytest.param(
+                _shared_value_plain_then_secret_key(),
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "xvbmd0b2tlbg"],
+                id="reformatting-mapping-shared-value-plain-then-secret-key",
             ),
         ],
     )
