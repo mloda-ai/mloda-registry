@@ -51,6 +51,7 @@ from opentelemetry.trace import StatusCode
 from mloda.community.extenders.otel import OtelExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import ProviderCloseTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -239,6 +240,7 @@ class TestOtelExtenderConstructorOptions:
             result = otel(lambda: 42)
 
         assert result == 42
+        assert otel.close_timeout == CLOSE_TIMEOUT
 
     def test_wraps_is_independent_of_raise_on_error_and_capture_content(self) -> None:
         assert (

@@ -362,7 +362,7 @@ The `mloda` facet's schema URL points at its module in this repository; it is no
 - `ExtenderContractTestMixin` (`mloda.testing.extenders.contract`), for every extender
 - `OtelExtenderTestMixin` (`mloda.testing.extenders.otel`, install `mloda-testing[otel]`), for extenders that emit OTel spans
 - `OpenLineageExtenderTestMixin` (`mloda.testing.extenders.openlineage`, install `mloda-testing[openlineage]`), for extenders that emit OpenLineage RunEvents
-- `ProviderCloseTestMixin` (`mloda.testing.extenders.flush`, no OTel dependency), for extenders whose `close()` flushes one provider: it pins the bounded, never-raising close. Compose it with `ExtenderContractTestMixin` and add `ambient_provider_getter` (patch target of the ambient lookup) and `flushed_signal` (`"spans"` or `"metrics"`)
+- `ProviderCloseTestMixin` (`mloda.testing.extenders.flush`, no OTel dependency), for extenders whose `close()` flushes one provider: it pins the bounded, never-raising close. `sink_noun()` must be non-None and equal the constructor kwarg name, and the extender needs a `close_timeout` attribute. Compose it with `ExtenderContractTestMixin` and add `ambient_provider_getter` (patch target of the ambient lookup) and `flushed_signal` (`"spans"` or `"metrics"`)
 
 The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and exception type, never the message, and the message never reaches a span or an event.
 

@@ -830,6 +830,18 @@ class TestOtelMetricsExtenderMetrics:
 
         assert _single_point(reader, _RUN_DURATION).sum == 0
 
+    def test_injected_meter_provider_wins_over_the_ambient_one_end_to_end(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], ambient_provider: _AmbientMeterProvider
+    ) -> None:
+        provider, reader = metric_capture
+        ambient, ambient_reader = make_metric_capture()
+        ambient_provider.meter_provider = ambient
+
+        _call_once(OtelMetricsExtender(meter_provider=provider, use_sdk_defaults=True), _rows_context())
+
+        assert _single_point(reader, _STEP_DURATION).count == 1
+        assert _collected(ambient_reader) == {}
+
     def test_one_meter_is_created_per_provider_across_extender_instances(
         self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], monkeypatch: pytest.MonkeyPatch
     ) -> None:

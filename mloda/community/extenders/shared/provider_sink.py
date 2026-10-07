@@ -8,10 +8,10 @@ from typing import Any, TypeVar
 
 from mloda.steward import WarnOncePerInstance, pickle_failure_reason
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 
-def configured_provider(injected: T | None, use_sdk_defaults: bool, ambient: Callable[[], T]) -> T | None:
+def configured_provider(injected: _T | None, use_sdk_defaults: bool, ambient: Callable[[], _T]) -> _T | None:
     """Injected provider wins, else the ambient one when use_sdk_defaults, else None."""
     if injected is not None:
         return injected
