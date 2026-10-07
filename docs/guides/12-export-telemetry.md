@@ -1,6 +1,6 @@
 # Export Telemetry to Any Backend
 
-Run the community extenders (`OtelExtender` for spans, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
+Run the community extenders (`OtelExtender` for spans, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select step spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
 
 ## Install
 
