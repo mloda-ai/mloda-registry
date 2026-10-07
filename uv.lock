@@ -1315,6 +1315,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "mloda-testing", extra = ["openlineage"] },
+    { name = "opentelemetry-sdk" },
     { name = "pyarrow" },
     { name = "pytest" },
 ]
@@ -1324,7 +1325,8 @@ requires-dist = [
     { name = "mloda", specifier = ">=0.15.1,<0.16.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.9.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
-    { name = "openlineage-python", specifier = ">=1.20,<2" },
+    { name = "openlineage-python", specifier = ">=1.36,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
     { name = "pyarrow", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1985,6 +1987,7 @@ dependencies = [
 dev = [
     { name = "mloda-community-openlineage" },
     { name = "mloda-testing", extra = ["openlineage"] },
+    { name = "opentelemetry-sdk" },
     { name = "pytest" },
 ]
 
@@ -1994,6 +1997,7 @@ requires-dist = [
     { name = "mloda-community-extenders-shared", specifier = ">=0.9.0" },
     { name = "mloda-community-openlineage", marker = "extra == 'dev'", specifier = "~=0.9.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
+    { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -2112,7 +2116,7 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'binary-model'", specifier = ">=44" },
     { name = "mloda", specifier = ">=0.15.1,<0.16.0" },
     { name = "mloda-community-binary-model", marker = "extra == 'binary-model'", editable = "mloda/community/feature_groups/binary_model" },
-    { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
+    { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
     { name = "pyarrow" },
     { name = "pyarrow", marker = "extra == 'binary-model'", specifier = ">=25" },

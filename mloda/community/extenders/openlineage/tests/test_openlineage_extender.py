@@ -444,6 +444,33 @@ class TestOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
         return extender, marker_path
 
 
+class TestOpenLineageExtenderPriority:
+    """Default priority 110 (outside-in after OtelExtender at 100) without overriding a subclass's own priority."""
+
+    def test_a_plain_instance_reports_110(self) -> None:
+        assert OpenLineageExtender().priority == 110
+
+    def test_a_subclass_class_attribute_priority_wins(self) -> None:
+        class _Fifty(OpenLineageExtender):
+            priority = 50
+
+        assert _Fifty().priority == 50
+
+    def test_a_subclass_property_priority_wins(self) -> None:
+        class _Sixty(OpenLineageExtender):
+            @property  # type: ignore[misc]  # read-only override is the regression under test
+            def priority(self) -> int:
+                return 60
+
+        assert _Sixty().priority == 60
+
+    def test_priority_can_be_assigned(self) -> None:
+        extender = OpenLineageExtender()
+        extender.priority = 7
+
+        assert extender.priority == 7
+
+
 class TestOpenLineageExtenderConstructorOptions:
     """client injection: the seam that keeps tests off any real OpenLineage backend."""
 
@@ -2001,7 +2028,7 @@ class TestOpenLineageExtenderParentRun:
 class TestOpenLineageExtenderInputDataLoadCorrelation:
     """INPUT_DATA_LOAD fires nested inside an already-open CALCULATE_FEATURE invocation."""
 
-    def test_recorded_input_uses_dataset_namespace_and_data_source_facet(
+    def test_recorded_s3_input_is_mapped_to_bucket_namespace_and_key_with_the_identity_in_the_data_source_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
@@ -2025,7 +2052,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         complete_event = transport.events[1]
         assert complete_event.inputs is not None
         input_dataset = complete_event.inputs[0]
-        assert input_dataset.namespace == "custom-ds"
+        assert (input_dataset.namespace, input_dataset.name) == ("s3://bucket", "key.parquet")
 
         from openlineage.client.facet_v2 import datasource_dataset
 
@@ -2034,44 +2061,51 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
         assert data_source_facet.name == "s3://bucket/key.parquet"
 
-    # (raw data_access passed as args[0], expected recorded name, secret markers absent from every event).
-    # Expected is a hardcoded literal, pinned once against core's BaseInputData.data_access_identity.
+    # (raw data_access passed as args[0], expected dataSource name (the core identity), expected input dataset
+    # (namespace, name), secret markers absent from every event). Expected values are hardcoded literals, pinned
+    # once against core's BaseInputData.data_access_identity.
     @pytest.mark.parametrize(
-        ("raw", "expected_name", "secrets"),
+        ("raw", "expected_name", "expected_dataset", "secrets"),
         [
             pytest.param(
                 "https://user:pw@host/p/a?sig=SECRET#frag",
                 "https://host/p/a",
+                ("mloda", "https://host/p/a"),
                 ("user:pw", "SECRET", "frag"),
                 id="userinfo_query_fragment",
             ),
             pytest.param(
                 "s3://bucket/key.parquet?versionId=SECRET",
                 "s3://bucket/key.parquet",
+                ("s3://bucket", "key.parquet"),
                 ("SECRET",),
                 id="query",
             ),
             pytest.param(
                 "https://host/p?email=a@b.com/x&sig=SECRET",
                 "str",
+                ("mloda", "str"),
                 ("SECRET", "a@b.com"),
                 id="at_sign_in_query_value_is_unparseable",
             ),
             pytest.param(
                 "postgresql://user:pa?ss@host:5432/db",
                 "str",
+                ("mloda", "str"),
                 ("user:pa", "pa?ss", "user:"),
                 id="query_marker_inside_userinfo_is_unparseable",
             ),
             pytest.param(
                 "host=db user=u password=hunter2",
                 "str",
+                ("mloda", "str"),
                 ("hunter2",),
                 id="keyword_dsn",
             ),
             pytest.param(
                 "Server=x;Uid=u;Pwd=hunter2;",
                 "str",
+                ("mloda", "str"),
                 ("hunter2",),
                 id="odbc_connection_string",
             ),
@@ -2082,6 +2116,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         raw: str,
         expected_name: str,
+        expected_dataset: tuple[str, str],
         secrets: tuple[str, ...],
     ) -> None:
         client, transport = ol_capture
@@ -2104,7 +2139,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert complete_event.inputs is not None
         assert len(complete_event.inputs) == 1
         input_dataset = complete_event.inputs[0]
-        assert input_dataset.name == expected_name
+        assert (input_dataset.namespace, input_dataset.name) == expected_dataset
         assert input_dataset.facets is not None
 
         from openlineage.client.facet_v2 import datasource_dataset
@@ -2289,7 +2324,7 @@ class TestOpenLineageExtenderPerInstanceAttribution:
             inputs = complete_events[0].inputs
             assert inputs is not None
             assert len(inputs) == 1
-            assert inputs[0].name == "s3://bucket/key.parquet"
+            assert (inputs[0].namespace, inputs[0].name) == ("s3://bucket", "key.parquet")
 
     def test_nested_calculate_attributes_each_load_to_its_own_level(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -2315,8 +2350,12 @@ class TestOpenLineageExtenderPerInstanceAttribution:
             extender(outer_body)
 
         complete_by_job = {e.job.name: e for e in transport.events if e.eventType == RunState.COMPLETE}
-        assert [i.name for i in complete_by_job[inner_class].inputs or []] == ["s3://bucket/inner.parquet"]
-        assert [i.name for i in complete_by_job[outer_class].inputs or []] == ["s3://bucket/outer.parquet"]
+        assert [(i.namespace, i.name) for i in complete_by_job[inner_class].inputs or []] == [
+            ("s3://bucket", "inner.parquet")
+        ]
+        assert [(i.namespace, i.name) for i in complete_by_job[outer_class].inputs or []] == [
+            ("s3://bucket", "outer.parquet")
+        ]
 
 
 class TestOpenLineageExtenderInputDedupe:
@@ -2435,8 +2474,6 @@ class TestOpenLineageExtenderInputDedupe:
         marker = "SECRET"
         raw_container = f"abfss://raw@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
         curated_container = f"abfss://curated@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
-        stripped_raw_container = "abfss://raw@acct.dfs.core.windows.net/p"
-        stripped_curated_container = "abfss://curated@acct.dfs.core.windows.net/p"
 
         def load(raw: str) -> None:
             identity = BaseInputData.data_access_identity(raw)
@@ -2454,8 +2491,11 @@ class TestOpenLineageExtenderInputDedupe:
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
         assert complete_event.inputs is not None
-        assert sorted(i.name for i in complete_event.inputs) == sorted(
-            [stripped_raw_container, stripped_curated_container]
+        assert sorted((i.namespace, i.name) for i in complete_event.inputs) == sorted(
+            [
+                ("abfss://raw@acct.dfs.core.windows.net", "p"),
+                ("abfss://curated@acct.dfs.core.windows.net", "p"),
+            ]
         )
 
         from openlineage.client.serde import Serde
@@ -3015,7 +3055,7 @@ class TestOpenLineageExtenderSubclassSeams:
         hooks = [context.hook for context, *_ in extender.dispatched]
         assert hooks == [ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD]
         assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
-        assert [i.name for i in transport.events[-1].inputs or []] == ["s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in transport.events[-1].inputs or []] == [("s3://bucket", "key.parquet")]
 
     def test_calculate_run_facets_adds_a_facet_next_to_parent_on_start_and_terminal_events(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -3064,7 +3104,10 @@ class TestOpenLineageExtenderSubclassSeams:
 
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
-        assert [i.name for i in complete_event.inputs or []] == ["src", "s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in complete_event.inputs or []] == [
+            ("mloda", "src"),
+            ("s3://bucket", "key.parquet"),
+        ]
         # The seam gets the COMPLETE event's inputs: declared first, loaded second.
         assert extender.output_facet_calls == [
             (context, func, ("positional",), "value_int", complete_event.inputs),

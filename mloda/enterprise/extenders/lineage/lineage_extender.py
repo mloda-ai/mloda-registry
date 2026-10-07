@@ -15,6 +15,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.event_v2 import InputDataset, Job
 from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_quality_assertions_dataset
 
+from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, owner_name
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
@@ -46,18 +47,18 @@ _PendingDescribe = Callable[[], Any] | None
 
 @dataclass
 class _LoadState:
-    """One open calculate call's per-identity pending loads, described lazily and once each, on first use."""
+    """One open calculate call's per-dataset pending loads, described lazily and once each, on first use."""
 
-    _pending: dict[str, list[_PendingDescribe]] = field(default_factory=dict)
-    _described: dict[str, frozenset[str] | None] = field(default_factory=dict)
+    _pending: dict[tuple[str, str], list[_PendingDescribe]] = field(default_factory=dict)
+    _described: dict[tuple[str, str], frozenset[str] | None] = field(default_factory=dict)
 
-    def record(self, identity: str, pending: _PendingDescribe) -> None:
-        self._pending.setdefault(identity, []).append(pending)
+    def record(self, dataset: tuple[str, str], pending: _PendingDescribe) -> None:
+        self._pending.setdefault(dataset, []).append(pending)
 
-    def described_columns(self, identity: str) -> frozenset[str] | None:
-        if identity not in self._described:
-            self._described[identity] = _describe_identity(self._pending.get(identity, []))
-        return self._described[identity]
+    def described_columns(self, dataset: tuple[str, str]) -> frozenset[str] | None:
+        if dataset not in self._described:
+            self._described[dataset] = _describe_identity(self._pending.get(dataset, []))
+        return self._described[dataset]
 
 
 # Per open calculate call: the pending loads and described-columns cache, or None if nothing to verify.
@@ -109,7 +110,7 @@ class LineageFacetsExtender(OpenLineageExtender):
         identity = context.data_access_identity
         if identity is None:
             return
-        state.record(identity, _pending_describe(context, args))
+        state.record(load_dataset(identity, self.dataset_namespace), _pending_describe(context, args))
 
     def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
         facets = super()._calculate_run_facets(context, func, args)
@@ -139,7 +140,9 @@ class LineageFacetsExtender(OpenLineageExtender):
             if column is None or len(inputs) != 1:
                 return facets
             state = _open_described_columns.find(self)
-            identity_columns = state.described_columns(inputs[0].name) if state is not None else None
+            identity_columns = (
+                state.described_columns((inputs[0].namespace, inputs[0].name)) if state is not None else None
+            )
             if identity_columns is not None and column not in identity_columns:
                 # No dataset identity: it may carry credentials, e.g. a reader's data_access_identity override.
                 logger.warning(

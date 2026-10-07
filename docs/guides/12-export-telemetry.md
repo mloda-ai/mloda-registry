@@ -106,7 +106,7 @@ Spans are metadata only by default.
 - **Recorded, review before export:** feature, feature group (also in span names) and compute framework names and versions; plugin versions; row counts; `mloda.data_access.identity` and `mloda.data_access.format` on load spans; `mloda.join.keys` (column names); `mloda.declared.*` (scalars a feature group author declares); run, plan and step ids; the worker index. By default the data-access identity is a URI's scheme, host and path, a local path, or mapping keys (never mapping values), but a reader can override `data_access_identity`, and a path can still name a customer, so review custom readers.
 - **Content previews are opt-in:** `OtelExtender(capture_content=True, mask=...)` records a bounded, scrubbed preview of the masked result as `mloda.content.preview`; `capture_content=True` without a `mask` raises. `MLODA_OTEL_TRACE_CONTENT=true` (or `1`) turns capture on for extenders left at the default `capture_content=None`, still only with a `mask`; without one it warns once and records nothing. An explicit `capture_content=False` wins over the env var.
 - **Identity:** `OtelExtender` records no tenant, project or principal. The enterprise `OtelLogAuditSink` pseudonymises only the principal (`user.hash`, only with a `user_hash_key`) and exports `mloda.tenant.id` and `mloda.project.id` as given; see [Verified run context](11-create-extender.md#verified-run-context).
-- **OpenLineage:** events carry job names, input feature names, output schema fields (names and types) and load dataset names (core's data-access identity, as on load spans).
+- **OpenLineage:** events carry job names, input feature names, output schema fields (names and types) and load dataset names (derived from core's data-access identity; the `dataSource` facet carries the identity itself, as on load spans).
 - **Your application's own logs** are outside these guarantees: a logging bridge to OTel ships whatever your code and libraries log.
 
 The Collector `redaction` processor is a second line of defence. Keep `allow_all_keys: true`, otherwise every `mloda.*` key not listed is dropped:
@@ -124,6 +124,10 @@ It sees what passes through the Collector only; OpenLineage events go straight t
 ## OpenLineage
 
 `OpenLineageExtender(use_sdk_defaults=True)` uses openlineage-python's own configuration, with no vendor code in mloda: `OPENLINEAGE_URL` (plus `OPENLINEAGE_API_KEY`), or `OPENLINEAGE_CONFIG` / `openlineage.yml` / `OPENLINEAGE__TRANSPORT__*` for any openlineage-python transport (`http`, `async_http`, `kafka` with `openlineage-python[kafka]`, cloud transports, `composite`). With nothing configured it falls back to the console transport, which logs every full event at INFO; set `OPENLINEAGE_DISABLED=true` to turn it off. Emission runs on the calculation thread, so prefer `async_http` or a short timeout. See [Sink Resolution](11-create-extender.md#sink-resolution) and [Emitting on the calculation thread](11-create-extender.md#emitting-on-the-calculation-thread).
+
+## Traces and lineage
+
+With `OtelExtender` outside `OpenLineageExtender` (what the default priorities give, 100 and 110), each step's calculate span is current while OpenLineage emits, so the step's RunEvents carry a run facet `mlodaTrace` (`traceId`, `spanId`) pointing at that step's own calculate span (matched by `mloda.step.run_id`). Join them through the span attribute `mloda.step.run_id`, which equals the step RunEvent's runId. Only calculate steps get it, not validation or root runs; a root run's runId equals `mloda.run.id`. No facet is added when the current span is not that step span: no provider, a non-recording span, `opentelemetry` not installed, or OpenLineage wrapping outside `OtelExtender` (lower priority), even if an application span is active.
 
 ## Multiprocessing, threads and asyncio
 

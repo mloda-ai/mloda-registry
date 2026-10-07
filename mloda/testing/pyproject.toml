@@ -17,7 +17,7 @@ requires-python = ">=3.10,<3.15"
 [project.optional-dependencies]
 dev = ["pytest>=9.0.3"]
 otel = ["opentelemetry-sdk>=1.30,<2"]
-openlineage = ["openlineage-python>=1.20,<2"]
+openlineage = ["openlineage-python>=1.36,<2"]
 binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>=0.9.0"]
 
 [project.urls]

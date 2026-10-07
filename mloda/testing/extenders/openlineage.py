@@ -11,11 +11,12 @@ import sys
 import textwrap
 import threading
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
 import pyarrow as pa
 import pytest
@@ -221,6 +222,14 @@ def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
 
 
 ROOT_JOB_NAME = "mloda.run_all"
+
+
+def _expected_step_run_id(
+    run_id: str | None, job_name: str, feature_names: Iterable[str], compute_framework_name: str | None, step_uuid: UUID
+) -> str:
+    """The step RunEvent runId: uuid5 of the root run id over the step key."""
+    key = json.dumps([job_name, sorted(feature_names), compute_framework_name, str(step_uuid)])
+    return str(uuid.uuid5(uuid.UUID(str(run_id)), key))
 
 
 class _CalculateContextProbe(Extender):
@@ -592,7 +601,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert len(complete_event.inputs) == 1
         input_dataset = complete_event.inputs[0]
         assert isinstance(input_dataset, InputDataset)
-        assert input_dataset.name == "s3://bucket/key.parquet"
+        assert (input_dataset.namespace, input_dataset.name) == ("s3://bucket", "key.parquet")
         assert len(transport.events) == 2
 
     def test_openlineage_input_data_load_query_string_never_reaches_events(self) -> None:
@@ -619,8 +628,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         for event in transport.events:
             assert marker not in Serde.to_json(event), "URI query string reached an event"
             assert userinfo_marker not in Serde.to_json(event), "URI user information reached an event"
-        input_names = [dataset.name for event in transport.events for dataset in event.inputs or []]
-        assert context_identity in input_names, (
+        input_names = [
+            (dataset.namespace, dataset.name) for event in transport.events for dataset in event.inputs or []
+        ]
+        assert ("s3://bucket", "key.parquet") in input_names, (
             f"the data load was not attributed as an input named by the context's data_access_identity "
             f"({context_identity!r}); input_names={input_names!r}"
         )
@@ -647,7 +658,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         fail_event = transport.events[-1]
         assert fail_event.eventType == RunState.FAIL
         assert fail_event.inputs is not None
-        assert [i.name for i in fail_event.inputs] == ["s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in fail_event.inputs] == [("s3://bucket", "key.parquet")]
 
     def test_openlineage_fail_event_carries_input_features(self) -> None:
         client, transport = make_recording_client()
@@ -691,7 +702,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         fail_event = transport.events[-1]
         assert fail_event.eventType == RunState.FAIL
         assert fail_event.inputs is not None
-        assert [i.name for i in fail_event.inputs] == ["s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in fail_event.inputs] == [("s3://bucket", "key.parquet")]
 
     def test_openlineage_completion_emit_failure_keeps_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client, _ = make_recording_client()
@@ -838,15 +849,15 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         for context in probe.contexts:
             assert context.feature_group_class is not None
             assert context.step_uuid is not None
-            key = json.dumps(
-                [
+            expected.add(
+                _expected_step_run_id(
+                    root_run_id,
                     context.feature_group_class,
-                    sorted(context.feature_names),
+                    context.feature_names,
                     context.compute_framework_name,
-                    str(context.step_uuid),
-                ]
+                    context.step_uuid,
+                )
             )
-            expected.add(str(uuid.uuid5(uuid.UUID(root_run_id), key)))
         step_start_ids = {
             event.run.runId
             for event in self.calculate_run_events(transport.events)
@@ -872,7 +883,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         complete_event = complete_events[0]
         assert complete_event.inputs is not None
         assert len(complete_event.inputs) == 1
-        assert complete_event.inputs[0].name == str(csv_paths[0])
+        assert (complete_event.inputs[0].namespace, complete_event.inputs[0].name) == ("file", str(csv_paths[0]))
 
     def test_openlineage_run_all_derived_feature_reports_input_feature(self) -> None:
         client, transport = make_recording_client()
@@ -885,6 +896,104 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         derived_events = [event for event in complete_events if event.inputs]
         assert len(derived_events) == 1
         assert sorted(i.name for i in derived_events[0].inputs or []) == ["value_int"]
+
+    @pytest.mark.parametrize("outcome", ["complete", "fail"])
+    def test_openlineage_calculate_events_carry_the_recording_span_ids_as_mloda_trace(self, outcome: str) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from mloda.testing.extenders.otel import make_span_capture
+
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        def func() -> None:
+            if outcome == "fail":
+                raise RuntimeError("trace boom")
+
+        job_name = "mloda.testing.TraceFeatureGroup"
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            run_id=str(uuid.uuid4()),
+            feature_group_class=job_name,
+            step_uuid=uuid.uuid4(),
+        )
+        assert context.step_uuid is not None
+        step_id = _expected_step_run_id(
+            context.run_id, job_name, context.feature_names, context.compute_framework_name, context.step_uuid
+        )
+        provider, _ = make_span_capture()
+        tracer = provider.get_tracer("openlineage-trace-test")
+        with tracer.start_as_current_span("step", attributes={"mloda.step.run_id": step_id}) as span:
+            ctx = span.get_span_context()
+            with context.activate():
+                if outcome == "fail":
+                    with pytest.raises(RuntimeError, match="trace boom"):
+                        extender(func)
+                else:
+                    extender(func)
+
+        expected_type = RunState.FAIL if outcome == "fail" else RunState.COMPLETE
+        assert [e.eventType for e in transport.events] == [RunState.START, expected_type]
+        for event in transport.events:
+            trace_facet = (event.run.facets or {}).get("mlodaTrace")
+            assert trace_facet is not None, event.eventType
+            assert trace_facet.traceId == format(ctx.trace_id, "032x")  # type: ignore[attr-defined]
+            assert trace_facet.spanId == format(ctx.span_id, "016x")  # type: ignore[attr-defined]
+
+    def test_openlineage_calculate_events_have_no_mloda_trace_for_a_span_of_another_step(self) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from mloda.testing.extenders.otel import make_span_capture
+
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        provider, _ = make_span_capture()
+        tracer = provider.get_tracer("openlineage-trace-test")
+
+        with tracer.start_as_current_span("other", attributes={"mloda.step.run_id": "another-step"}):
+            with make_hook_context(
+                hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=str(uuid.uuid4())
+            ).activate():
+                extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
+
+    @pytest.mark.parametrize("current", ["non_recording_span", "no_span"])
+    def test_openlineage_calculate_events_have_no_mloda_trace_without_a_recording_span(self, current: str) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry import trace
+
+        from mloda.testing.extenders.otel import make_non_recording_span
+
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            if current == "non_recording_span":
+                with trace.use_span(make_non_recording_span()):
+                    extender(lambda: None)
+            else:
+                extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
+
+    def test_openlineage_calculate_still_emits_without_trace_facet_when_otel_is_unimportable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for name in [m for m in sys.modules if m == "opentelemetry" or m.startswith("opentelemetry.")]:
+            monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.setitem(sys.modules, "opentelemetry", None)
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
 
     def test_openlineage_facet_producers_match_event_producer(self) -> None:
         client, transport = make_recording_client()

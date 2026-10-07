@@ -411,13 +411,15 @@ def _module_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     ]
 
 
-def _root_edge(dataset: str, field: str, masking: bool | None = None) -> column_lineage_dataset.Fields:
+def _root_edge(
+    dataset: str, field: str, masking: bool | None = None, namespace: str = "lineage-ds"
+) -> column_lineage_dataset.Fields:
     """The one DIRECT edge of a root output; it never has a step-level description."""
     transformation = column_lineage_dataset.Transformation(type="DIRECT", masking=masking)
     return column_lineage_dataset.Fields(
         inputFields=[
             column_lineage_dataset.InputField(
-                namespace="lineage-ds", name=dataset, field=field, transformations=[transformation]
+                namespace=namespace, name=dataset, field=field, transformations=[transformation]
             )
         ]
     )
@@ -1097,7 +1099,7 @@ class TestLineageFacetsRootSourceColumns:
             )
 
         complete = _complete(transport.events, _job(ReadFileFeature))
-        assert _column_lineage(complete, "alpha").fields == {"alpha": _root_edge(str(path), "alpha")}
+        assert _column_lineage(complete, "alpha").fields == {"alpha": _root_edge(str(path), "alpha", namespace="file")}
         assert _module_warnings(caplog) == []
 
     def test_run_all_reader_root_step_with_a_mistyped_source_column_has_no_edge_and_warns(
@@ -1177,6 +1179,18 @@ class TestLineageFacetsRootSourceColumns:
 
         assert "schema" in (_output(event, "out").facets or {})
         assert not _has_column_lineage(event, "out")
+
+    def test_a_mapped_load_identity_keeps_its_root_edge_in_the_mapped_namespace(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            event = _calculate_loading_step(
+                ol_capture, _SourceByDict, {"out": Options()}, loaded=("s3://bucket/data.csv",)
+            )
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge("data.csv", "src", namespace="s3://bucket")}
+        assert [(i.namespace, i.name) for i in event.inputs or []] == [("s3://bucket", "data.csv")]
+        assert _module_warnings(caplog) == []
 
     @pytest.mark.parametrize("consumer_value", ["src", "other"], ids=["consumer holds it equally", "consumer differs"])
     def test_a_source_column_the_step_declares_is_its_own_regardless_of_what_the_consumer_holds(
@@ -1677,6 +1691,29 @@ class TestLineageFacetsValidationRuns:
             _job(_Root),
             _job(_PassingValidators),
         }
+
+    def test_validation_runs_carry_no_mloda_trace_even_under_an_otel_extender(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from mloda.community.extenders.otel.otel_extender import OtelExtender
+        from mloda.testing.extenders.otel import make_span_capture
+
+        client, transport = ol_capture
+        provider, _ = make_span_capture()
+        extender = LineageFacetsExtender(client=client)
+
+        mloda.run_all(
+            list(_PassingValidators.outputs),
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=PluginCollector.enabled_feature_groups({_Root, _PassingValidators}),
+            function_extender={OtelExtender(tracer_provider=provider), extender},
+        )
+
+        validation_events = [e for e in transport.events if e.job.name.endswith(_VALIDATION_JOB_SUFFIXES)]
+        assert validation_events
+        for event in validation_events:
+            assert "mlodaTrace" not in (event.run.facets or {})
 
     def test_default_validators_emit_no_validation_run(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
