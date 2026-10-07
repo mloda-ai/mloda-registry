@@ -110,6 +110,22 @@ def _repr_shows_values(x: Mapping[Any, Any], s: str, limit: int) -> bool:
     return False
 
 
+def _mask_secret_leaves(x: Mapping[Any, Any], s: str) -> str:
+    leaves: set[str] = set()
+    for key in x:
+        if not _is_secret_key(key):
+            continue
+        v = x[key]
+        for item in v if isinstance(v, (tuple, list)) else (v,):
+            if isinstance(item, bytes):
+                item = item.decode("latin-1")
+            if isinstance(item, str) and len(item) >= _MIN_SHOWN_VALUE_LEN:
+                leaves.add(item)
+    for leaf in sorted(leaves, key=len, reverse=True):
+        s = s.replace(leaf, "***")
+    return s
+
+
 _CONTAINER_BASES = (dict, tuple, list, set, frozenset, deque)
 
 
@@ -167,6 +183,8 @@ class _ScrubbingRepr(reprlib.Repr):
             # A custom repr that shows its values is rendered masked; one that hides them is kept.
             if isinstance(x, Mapping) and _repr_shows_values(x, raw, self.maxdict):
                 return self.repr_dict(x, level)
+            if isinstance(x, Mapping):
+                raw = _mask_secret_leaves(x, raw)
             s = _scrub_ends(raw)
         except Exception:
             return "<%s instance at %#x>" % (x.__class__.__name__, id(x))

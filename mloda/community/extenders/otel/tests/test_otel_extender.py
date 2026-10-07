@@ -887,6 +887,41 @@ class _RedactedMapping(Mapping[str, Any]):
         return "_RedactedMapping(***)"
 
 
+class _ReformattingMapping(Mapping[str, Any]):
+    """Mapping whose repr reformats values into neither repr(v) nor str(v)."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data = dict(data)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        parts = []
+        for key, value in self._data.items():
+            if isinstance(value, (tuple, list)):
+                shown = "|".join(str(element) for element in value)
+            elif isinstance(value, bytes):
+                shown = value.decode("latin-1")
+            else:
+                shown = str(value)
+            parts.append(f"{key} -> {shown}")
+        return "Headers(" + ", ".join(parts) + ")"
+
+
+class _SelfRedactingReformattingMapping(_ReformattingMapping):
+    """Reformatting mapping whose repr keeps the scheme word but redacts the secrets."""
+
+    def __repr__(self) -> str:
+        return "Headers(X-Authorization -> Bearer|***, session -> ***)"
+
+
 class _RaisingRepr:
     def __repr__(self) -> str:
         raise RuntimeError("repr boom")
@@ -1271,6 +1306,41 @@ class TestOtelExtenderContentCapture:
                 ["sk_live_abcdef123456"],
                 id="self-redacting-mapping-short-value",
             ),
+            pytest.param(
+                _ReformattingMapping({"X-Authorization": ("Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg")}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-x-authorization",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": ("u", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg")}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-password",
+            ),
+            pytest.param(
+                _ReformattingMapping({"password": "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg".encode()}),  # nosec
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-bytes",
+            ),
+            pytest.param(
+                _ReformattingMapping(
+                    {
+                        **{f"k{i:02}": ("a", "b") for i in range(11)},
+                        "zz-Authorization": ("Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"),  # nosec
+                    }
+                ),
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg"],
+                id="reformatting-mapping-secret-past-maxdict",
+            ),
+            pytest.param(
+                _SelfRedactingReformattingMapping(
+                    {
+                        "X-Authorization": ("Bearer", "dXNlcjpwYXNzd29yZGxvbmd0b2tlbg"),  # nosec
+                        "session": "sk_live_abcdef123456",  # nosec
+                    }
+                ),
+                ["dXNlcjpwYXNzd29yZGxvbmd0b2tlbg", "Gxvbmd0b2tlbg", "sk_live_abcdef123456"],
+                id="self-redacting-reformatting-mapping",
+            ),
         ],
     )
     def test_content_attribute_never_contains_credentials_with_identity_mask(
@@ -1302,6 +1372,7 @@ class TestOtelExtenderContentCapture:
             pytest.param(lambda key: OrderedDict({key: "visible"}), id="ordered-dict"),
             pytest.param(lambda key: ChainMap({key: "visible"}), id="chainmap"),
             pytest.param(lambda key: _CaseInsensitiveMapping({key: "visible"}), id="case-insensitive-mapping"),
+            pytest.param(lambda key: _ReformattingMapping({key: ("visible", "x")}), id="reformatting-mapping"),
         ],
     )
     @pytest.mark.parametrize("key", ["host", "name", "feature", "bearer", "author", "Authorization-Info"])
