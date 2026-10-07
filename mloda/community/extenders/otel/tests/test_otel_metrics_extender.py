@@ -7,6 +7,7 @@ isolated (MeterProvider, InMemoryMetricReader) pair via the metric_capture fixtu
 
 from __future__ import annotations
 
+import ast
 import datetime
 import inspect
 import logging
@@ -207,6 +208,14 @@ class TestOtelMetricsExtenderModule:
     def test_shares_the_operation_names_and_scope_with_otel_extender(self) -> None:
         for name in ("_OPERATION_NAMES", "_DECLARABLE_HOOKS", "_TRACER_NAME"):
             assert getattr(otel_metrics_extender_module, name) is getattr(otel_extender_module, name), name
+
+    def test_no_import_from_the_private_opentelemetry_metrics_internal_module(self) -> None:
+        tree = ast.parse(Path(otel_metrics_extender_module.__file__ or "").read_text())
+        imported = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)] + [
+            alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+        ]
+
+        assert [name for name in imported if name.startswith("opentelemetry.metrics._internal")] == []
 
     def test_otel_extender_has_no_metrics_surface(self) -> None:
         assert "meter_provider" not in inspect.signature(OtelExtender.__init__).parameters
@@ -1096,3 +1105,16 @@ class TestOtelMetricsExtenderClose:
         otel.close()
 
         assert _STEP_DURATION in _metric_names(reader)
+
+    def test_close_never_raises_when_resolving_the_global_meter_provider_fails(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(metrics, "get_meter_provider", Mock(side_effect=RuntimeError("resolve boom")))
+        otel = OtelMetricsExtender(use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            otel.close()  # must not raise
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OtelMetricsExtender" in message and "RuntimeError" in message for message in warnings), warnings
+        assert "resolve boom" not in caplog.text

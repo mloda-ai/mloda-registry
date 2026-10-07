@@ -20,8 +20,7 @@ from mloda.steward import (
     pickle_failure_reason,
 )
 from opentelemetry import metrics
-from opentelemetry.metrics import Counter, Histogram, MeterProvider, NoOpMeterProvider
-from opentelemetry.metrics._internal import _ProxyMeterProvider  # the API exports no public name for it
+from opentelemetry.metrics import Counter, Histogram, MeterProvider
 
 from mloda.community.extenders.otel.otel_extender import _DECLARABLE_HOOKS, _OPERATION_NAMES, _TRACER_NAME
 from mloda.community.extenders.shared.teardown import (
@@ -35,8 +34,11 @@ logger = logging.getLogger(__name__)
 
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
 
-# ProxyMeterProvider is returned while no global provider is set; NoOpMeterProvider only if installed deliberately.
-_API_DEFAULT_PROVIDER_TYPES = (_ProxyMeterProvider, NoOpMeterProvider)
+
+def _is_api_default(provider: object) -> bool:
+    # The API proxy and no-op providers live in opentelemetry.metrics; the SDK provider does not (no private imports).
+    return type(provider).__module__.startswith("opentelemetry.metrics")
+
 
 _INERT_MESSAGE = (
     "OtelMetricsExtender is inert: no injected meter_provider and use_sdk_defaults is False; no metrics will be "
@@ -148,41 +150,33 @@ class OtelMetricsExtender(Extender):
         provider = self._configured_provider()
         if provider is None:
             self._warn_once(_INERT_MESSAGE)
-        elif (
-            self.use_sdk_defaults and self._meter_provider is None and isinstance(provider, _API_DEFAULT_PROVIDER_TYPES)
-        ):
+        elif self.use_sdk_defaults and self._meter_provider is None and _is_api_default(provider):
             self._warn_once(_NO_SDK_PROVIDER_MESSAGE)
         return provider
 
     def _warn_once(self, message: str) -> None:
         self._inert_warning.warn_once(lambda: logger.warning(message))
 
-    def _record(self, instruments: Instruments | None, record: Callable[[Instruments], None]) -> None:
+    def _guarded(self, action: Callable[[], None]) -> None:
         """Best effort: never changes the wrapped call's result or exception."""
-        if instruments is None:
-            return
         try:
-            record(instruments)
+            action()
         except Exception as exc:
             error_name = type(exc).__name__
             self._failure_warning.warn_once(
                 lambda: logger.warning("%s metric recording failed: %s", type(self).__name__, error_name)
             )
+
+    def _record(self, instruments: Instruments | None, record: Callable[[Instruments], None]) -> None:
+        if instruments is not None:
+            self._guarded(lambda: record(instruments))
 
     def _instruments(self) -> Instruments | None:
         provider = self._resolve_provider()
         return None if provider is None else instruments_for(provider, _TRACER_NAME)
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
-        try:
-            instruments = self._instruments()
-        except Exception as exc:
-            error_name = type(exc).__name__
-            self._failure_warning.warn_once(
-                lambda: logger.warning("%s metric recording failed: %s", type(self).__name__, error_name)
-            )
-            return
-        self._record(instruments, lambda i: record_run(i, run, outcome))
+        self._guarded(lambda: self._record(self._instruments(), lambda i: record_run(i, run, outcome)))
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         context = HookContext.current()
@@ -204,11 +198,11 @@ class OtelMetricsExtender(Extender):
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self) -> None:
         """Best-effort flush of the provider within the close budget; never raises."""
-        provider = self._configured_provider()
-        if provider is None:
-            return
         name = type(self).__name__
         try:
+            provider = self._configured_provider()
+            if provider is None:
+                return
             millis = to_timeout_millis(capped_close_timeout(self.close_timeout))
             result = force_flush(provider, timeout_millis=millis)
         except Exception as exc:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib
 import sys
-from typing import Any
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Any, ClassVar
 
 import pytest
 from mloda.user import PluginLoader
@@ -23,7 +25,7 @@ class OptionalDependencyPackageTestMixin:
     extender_name: str
     extender_module: str
     api_module: str
-    additional_extenders: dict[str, str] = {}
+    additional_extenders: ClassVar[Mapping[str, str]] = MappingProxyType({})
 
     def _extenders(self) -> dict[str, str]:
         """Every extender the package exposes, name to module, primary first."""
