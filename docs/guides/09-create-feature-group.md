@@ -117,7 +117,7 @@ Q31: Is the model a compiled binary (shipped as a wheel, possibly license-gated)
 | [07-index-features](feature-group-patterns/07-index-features.md) | Time series, group-by, window functions |
 | [08-links-joins](feature-group-patterns/08-links-joins.md) | Joining data from multiple feature groups |
 | [09-framework-specific](feature-group-patterns/09-framework-specific.md) | Pandas-only, Polars-only features |
-| [10-testing-guide](feature-group-patterns/10-testing-guide.md) | 3-level testing approach |
+| [10-testing-guide](feature-group-patterns/10-testing-guide.md) | 3-level testing approach; plan locks |
 
 ## Concepts
 
@@ -139,6 +139,6 @@ Q31: Is the model a compiled binary (shipped as a wheel, possibly license-gated)
 | [24-realtime](feature-group-patterns/24-realtime.md) | Reuse execution plans with `prepare` + `run` |
 | [25-masking](feature-group-patterns/25-masking.md) | Conditional aggregation via `mask` context option |
 | [26-input-feature-forwarding](feature-group-patterns/26-input-feature-forwarding.md) | Consuming another group's feature; controlling option forwarding |
-| [27-input-data-readers](feature-group-patterns/27-input-data-readers.md) | Sibling reader selection; non-file / HTTP readers |
+| [27-input-data-readers](feature-group-patterns/27-input-data-readers.md) | Sibling reader selection; non-file / HTTP readers; reader options; required declarations |
 | [28-backend-families](feature-group-patterns/28-backend-families.md) | Picking one sibling backend: name, discriminator option, or reader |
 | [29-binary-backed-features](feature-group-patterns/29-binary-backed-features.md) | Running a compiled, license-gated binary as a black-box model |

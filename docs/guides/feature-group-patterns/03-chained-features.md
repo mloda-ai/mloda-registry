@@ -60,7 +60,7 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
 
             # Resolve operation from name or config (handles both paths)
             method = cls._resolve_operation(feature, "imputation_method")
-            source = next(iter(feature.options.get_in_features())).name
+            source = cls._extract_single_source_feature(feature)
 
             col = data[source]
             data[name] = col.fillna(col.mean() if method == "mean" else col.median())
@@ -68,6 +68,8 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
 ```
 
 > **Manual alternative**: Before `_resolve_operation()`, plugins called `FeatureChainParser.parse_feature_name()` directly and handled the options fallback themselves. The helper handles this dual-path lookup automatically, so prefer `_resolve_operation()` in new code.
+
+> **Source features**: a single-input group reads its source with `_extract_single_source_feature(feature)`, which works for string- and configuration-based features and raises a count error naming the feature; unpacking `_extract_source_features` yourself gives a bare `too many values to unpack`. Multi-input groups use `_extract_validated_source_features`.
 
 > **Linting**: `PROPERTY_MAPPING` and other mutable class-level defaults trip ruff `RUF012` unless annotated `ClassVar`. See [Options: Annotate with ClassVar](11-options.md#annotate-with-classvar).
 

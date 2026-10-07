@@ -146,7 +146,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 07 | `07-index-features.md` | Ordering, grouping, joining columns |
 | 08 | `08-links-joins.md` | Join data from multiple feature groups |
 | 09 | `09-framework-specific.md` | Restrict to certain frameworks |
-| 10 | `10-testing-guide.md` | Unit, framework, integration testing |
+| 10 | `10-testing-guide.md` | Unit, framework, integration testing; plan locks |
 | 11 | `11-options.md` | Group vs context configuration |
 | 12 | `12-calculate-feature.md` | Core computation method |
 | 13 | `13-feature-naming.md` | Define feature names |
@@ -163,7 +163,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 24 | `24-realtime.md` | Reuse execution plans with `prepare` + `run` |
 | 25 | `25-masking.md` | Conditional aggregation via FilterMask |
 | 26 | `26-input-feature-forwarding.md` | Consume another group's root feature; option forwarding |
-| 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers |
+| 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers; reader options; required declarations |
 | 28 | `28-backend-families.md` | Pick one sibling backend: name, discriminator option, or reader |
 | 29 | `29-binary-backed-features.md` | Compiled, license-gated binary as a black-box model over Arrow IPC |
 

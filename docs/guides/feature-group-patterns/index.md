@@ -15,7 +15,7 @@ See also: [Create a feature group](../09-create-feature-group.md)
 7. [Index features](07-index-features.md) - Index-based feature handling and lookup behavior
 8. [Links joins](08-links-joins.md) - Linking and joining feature groups together
 9. [Framework specific](09-framework-specific.md) - Framework-dependent feature implementations
-10. [Testing guide](10-testing-guide.md) - Testing strategies and validation practices
+10. [Testing guide](10-testing-guide.md) - Testing strategies and validation practices, including plan locks
 11. [Options](11-options.md) - Configurable feature group options and behaviors
 12. [calculate_feature](12-calculate-feature.md) - Calculation patterns for feature generation
 13. [Feature naming](13-feature-naming.md) - Naming conventions and organization rules
@@ -32,7 +32,7 @@ See also: [Create a feature group](../09-create-feature-group.md)
 24. [Realtime Execution](24-realtime.md) - Realtime feature computation and serving
 25. [Masking](25-masking.md) - Feature masking and sensitive data handling
 26. [Input-feature forwarding](26-input-feature-forwarding.md) - Consuming another group's root feature and controlling which options forward upstream
-27. [Input-data readers](27-input-data-readers.md) - Selecting among sibling readers and building non-file / HTTP readers
+27. [Input-data readers](27-input-data-readers.md) - Selecting among sibling readers, building non-file / HTTP readers, reader options and required declarations
 28. [Backend families](28-backend-families.md) - Three shapes for letting exactly one sibling backend claim a feature
 29. [Binary-backed features](29-binary-backed-features.md) - Running a compiled, license-gated binary as a black-box model over Arrow IPC
 

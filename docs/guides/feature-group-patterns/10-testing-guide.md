@@ -109,6 +109,35 @@ def test_derived_feature_isolated():
 
 Use when upstream features are slow (API calls, ML inference) or you need controlled test data.
 
+## Locking a Shipped Plan
+
+An integration-scope check that resolves a request without running it: for a plugin that ships request definitions (recipes, demos), lock the resolved plan so a planner, compute framework or reader change fails a test. `mloda.explain` takes `run_all`'s planning arguments as keywords; pass the ones the shipped request uses, an ordered `compute_frameworks` list, a pinned `plugin_collector` so other installed plugins cannot change the plan, and `parallelization_modes={ParallelizationMode.SYNC}`, which `run_all` defaults to and `explain` does not:
+
+```python
+import os
+from pathlib import Path
+
+from mloda.steward import check_plan_lock, write_plan_lock
+from mloda.user import Feature, ParallelizationMode, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+LOCK = Path(__file__).with_name("my_recipe.plan.lock.json")
+
+
+def test_recipe_plan_matches_lock() -> None:
+    plan = mloda.explain(
+        [Feature.not_typed("my_feature")],
+        compute_frameworks=[PythonDictFramework],
+        plugin_collector=PluginCollector.enabled_feature_groups({MyFeature, MySource}),
+        parallelization_modes={ParallelizationMode.SYNC},
+    )
+    if os.environ.get("UPDATE_PLAN_LOCKS"):
+        write_plan_lock(plan, LOCK)
+    check_plan_lock(plan, LOCK)
+```
+
+`check_plan_lock` never writes: it raises `PlanLockMismatchError` with a diff when the plan drifts, or with the content to write when the lock is missing. Regenerate with `UPDATE_PLAN_LOCKS=1 pytest ...` (the test's own switch, not an mloda setting), review the diff and commit the lock file. The lock records each feature group, reader and framework by `module:qualname`, so moving a class or upgrading mloda can change it too; they must live in an importable module, since `write_plan_lock` refuses classes defined in `__main__`.
+
 ## Testing What an Import Loads
 
 A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). Probe a fresh interpreter, because the test process has already imported every FeatureGroup:
