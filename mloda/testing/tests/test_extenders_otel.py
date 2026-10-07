@@ -93,13 +93,16 @@ class TestFileMetricExporter:
         marker_path = tmp_path / "metrics.txt"
         reader = PeriodicExportingMetricReader(FileMetricExporter(marker_path), export_interval_millis=600_000)
         provider = MeterProvider(metric_readers=[reader], shutdown_on_exit=False)
-        meter = provider.get_meter("test-extenders-otel")
-        meter.create_counter("probe.counter").add(1)
-        meter.create_histogram("probe.histogram").record(0.5)
+        try:
+            meter = provider.get_meter("test-extenders-otel")
+            meter.create_counter("probe.counter").add(1)
+            meter.create_histogram("probe.histogram").record(0.5)
 
-        assert provider.force_flush() is True
+            assert provider.force_flush() is True
 
-        assert sorted(marker_path.read_text().splitlines()) == ["probe.counter", "probe.histogram"]
+            assert sorted(marker_path.read_text().splitlines()) == ["probe.counter", "probe.histogram"]
+        finally:
+            provider.shutdown()
 
 
 class TestSingleSpan:

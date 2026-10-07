@@ -24,10 +24,10 @@ from mloda.testing.extenders.otel import BATCH_SCHEDULE_DELAY_MILLIS, FileMetric
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 
-class _InstallRealTracerProviderBootstrap:
-    """Picklable child_bootstrap (a plain callable defined at module level, not a closure): installs a
-    real SDK TracerProvider, exporting to marker_path, as the process-global provider inside a spawned
-    MULTIPROCESSING worker, before that worker processes its first command.
+class _InstallRealProvidersBootstrap:
+    """Picklable child_bootstrap (a plain callable defined at module level, not a closure): installs real
+    SDK providers (a TracerProvider exporting to marker_path, optionally a MeterProvider) as the
+    process-global ones inside a spawned MULTIPROCESSING worker, before that worker processes its first command.
 
     OtelExtender(use_sdk_defaults=True) (no injected tracer_provider) then resolves this ambiently via
     opentelemetry.trace.get_tracer_provider(), the process-global provider this bootstrap just set.
@@ -67,7 +67,7 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
 ) -> None:
     marker_path = tmp_path / "otel_multiprocessing_spans.txt"
     metric_marker_path = tmp_path / "otel_multiprocessing_metrics.txt"
-    bootstrap = _InstallRealTracerProviderBootstrap(marker_path, batch=batch, metric_marker_path=metric_marker_path)
+    bootstrap = _InstallRealProvidersBootstrap(marker_path, batch=batch, metric_marker_path=metric_marker_path)
 
     values = run_value_int(
         OtelExtender(use_sdk_defaults=True),

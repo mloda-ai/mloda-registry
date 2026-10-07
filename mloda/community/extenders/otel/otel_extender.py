@@ -264,14 +264,14 @@ _INSTRUMENTS_LOCK = threading.Lock()
 
 
 def _instruments_for(provider: MeterProvider) -> _Instruments:
-    try:
-        with _INSTRUMENTS_LOCK:
+    with _INSTRUMENTS_LOCK:
+        try:
             cached = _INSTRUMENTS.get(provider)
-            if cached is None:
-                cached = _INSTRUMENTS[provider] = _Instruments(provider)
-            return cached
-    except TypeError:  # not weak-referenceable or not hashable
-        return _Instruments(provider)
+        except TypeError:  # not weak-referenceable or not hashable: build uncached
+            return _Instruments(provider)
+        if cached is None:
+            cached = _INSTRUMENTS[provider] = _Instruments(provider)
+        return cached
 
 
 # ProxyTracerProvider is returned while no global provider is set; NoOpTracerProvider only if installed deliberately.
@@ -289,6 +289,9 @@ _NO_SDK_PROVIDER_MESSAGE = (
     "(install opentelemetry-sdk if missing; under MULTIPROCESSING, in each worker via child_bootstrap), "
     "or inject a tracer_provider."
 )
+
+_SINKS = ("_tracer_provider", "_meter_provider")
+_BUDGET_MESSAGE = "%s did not flush all %s within its close budget"
 
 _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "calculate",
@@ -324,9 +327,9 @@ class OtelExtender(Extender):
     An injected tracer_provider that can't survive pickling (e.g. the real SDK TracerProvider, which
     holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
     ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a picklable
-    custom provider is kept as-is. close() flushes the resolved provider, capped at close_timeout (default 1s)
-    and the worker's remaining close budget, and never calls shutdown() (core, not the extender, owns provider
-    lifetime).
+    custom provider is kept as-is. close() flushes the resolved tracer and meter providers within one
+    close_timeout (default 1s) capped by the worker's remaining close budget, and never calls shutdown()
+    (core, not the extender, owns provider lifetime).
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
@@ -359,6 +362,7 @@ class OtelExtender(Extender):
         self._inert_warning = WarnOncePerInstance()  # shared by the inert and no-SDK warnings
         self._pickle_drop_warning = WarnOncePerInstance()
         self._no_mask_warning = WarnOncePerInstance()
+        self._metric_failure_warning = WarnOncePerInstance()
         self._init_span_state()
 
     def _init_span_state(self) -> None:
@@ -462,7 +466,10 @@ class OtelExtender(Extender):
             if provider is not None:
                 record(_instruments_for(provider))
         except Exception as exc:
-            logger.warning("%s metric recording failed: %s", type(self).__name__, type(exc).__name__)
+            error_name = type(exc).__name__
+            self._metric_failure_warning.warn_once(
+                lambda: logger.warning("%s metric recording failed: %s", type(self).__name__, error_name)
+            )
 
     def _record_run_duration(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         started_at = run.started_at
@@ -514,17 +521,27 @@ class OtelExtender(Extender):
         """Flush the resolved tracer_provider and meter_provider within one close_timeout and the remaining close
         budget, best effort; never raises and never calls shutdown() (core, not the extender, owns provider
         lifetime). Inert (nothing injected, use_sdk_defaults False) touches no provider."""
-        timeout = capped_close_timeout(self.close_timeout)
-        deadline = time.monotonic() + timeout
         tracer_provider = self._configured_tracer_provider()
-        if tracer_provider is not None:
-            self._flush("tracer_provider", tracer_provider, to_timeout_millis(timeout))
         meter_provider = self._configured_meter_provider()
+        if tracer_provider is None and meter_provider is None:
+            return
+        try:
+            timeout = capped_close_timeout(self.close_timeout)
+            deadline = time.monotonic() + timeout
+            tracer_millis = to_timeout_millis(timeout)
+        except Exception as exc:
+            logger.warning("%s close budget failed: %s", type(self).__name__, type(exc).__name__)
+            return
+        if tracer_provider is not None:
+            self._flush("tracer_provider", tracer_provider, tracer_millis)
         if meter_provider is not None:
-            millis = to_timeout_millis(timeout)
-            if millis is not None:
-                millis = max(0, int((deadline - time.monotonic()) * 1000))
-            self._flush("meter_provider", meter_provider, millis)
+            meter_millis = tracer_millis
+            if meter_millis is not None:
+                meter_millis = max(0, int((deadline - time.monotonic()) * 1000))
+            if meter_millis == 0 and tracer_millis is not None:
+                logger.warning(_BUDGET_MESSAGE, type(self).__name__, "metrics")
+                return
+            self._flush("meter_provider", meter_provider, meter_millis)
 
     def _flush(self, sink: str, provider: Any, timeout_millis: int | None) -> None:
         try:
@@ -533,21 +550,30 @@ class OtelExtender(Extender):
             logger.warning("%s failed to flush %s: %s", type(self).__name__, sink, type(exc).__name__)
             return
         if result is False:
-            logger.warning("%s did not flush all %s data within its close budget", type(self).__name__, sink)
+            logger.warning(_BUDGET_MESSAGE, type(self).__name__, "spans" if sink == "tracer_provider" else "metrics")
 
     def __getstate__(self) -> dict[str, Any]:
         failures: dict[str, str] = {}
-        for key in ("_tracer_provider", "_meter_provider"):
+        for key in _SINKS:
             sink = getattr(self, key)
             reason = pickle_failure_reason(sink) if sink is not None else None
             if reason is not None:
                 failures[key] = reason
         if failures:
-            names = ", ".join(f"{key.lstrip('_')} ({reason})" for key, reason in failures.items())
+            names = [key.lstrip("_") for key in failures]
+            if len(failures) == 1:
+                what = f"{names[0]} when pickled or copied because it isn't picklable ({next(iter(failures.values()))})"
+            else:
+                what = " and ".join(f"{n} ({r})" for n, r in zip(names, failures.values()))
+                what += " when pickled or copied because they aren't picklable"
+            survives = any(getattr(self, k) is not None and k not in failures for k in _SINKS)
+            if not survives:
+                lost = "is inert"
+            else:
+                lost = "emits no spans" if "_tracer_provider" in failures else "records no metrics"
             self._pickle_drop_warning.warn_once(
                 lambda: logger.warning(
-                    f"OtelExtender drops an injected {names} when pickled or copied because it "
-                    "isn't picklable; the copy is inert unless use_sdk_defaults=True, "
+                    f"OtelExtender drops an injected {what}; the copy {lost} unless use_sdk_defaults=True, "
                     "which lets it resolve a provider installed in its own process, e.g. via "
                     "child_bootstrap under MULTIPROCESSING."
                 )
