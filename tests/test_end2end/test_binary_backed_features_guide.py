@@ -14,8 +14,6 @@ import subprocess  # nosec
 import sys
 from pathlib import Path
 
-import pytest
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDE_PATH = _REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "29-binary-backed-features.md"
 _TOX_INI = _REPO_ROOT / "tox.ini"
@@ -231,12 +229,8 @@ def test_enterprise_readme_names_license_variables_and_has_no_relative_links() -
     assert not relative, f"PyPI does not resolve relative links; found {relative}"
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("anonymizer_binary") is not None,
-    reason="the real wheel is installed; the outcome would depend on a license",
-)
-def test_enterprise_readme_quick_start_reaches_the_binary_step() -> None:
-    """The README python snippet runs up to the missing wheel and fails with the install hint."""
+def test_enterprise_readme_quick_start_runs_up_to_the_license_or_wheel_check(tmp_path: Path) -> None:
+    """The README python snippet runs up to the license check (wheel present) or the install hint (absent)."""
     assert _ENTERPRISE_README.is_file(), f"{_ENTERPRISE_README} must exist (PyPI description of mloda-enterprise)"
     match = re.search(r"```python\n(.*?)```", _ENTERPRISE_README.read_text(encoding="utf-8"), re.DOTALL)
     assert match is not None, "README must contain a ```python quick-start block"
@@ -244,8 +238,11 @@ def test_enterprise_readme_quick_start_reaches_the_binary_step() -> None:
     env.pop("MLODA_LICENSE_FILE", None)
     env.pop("MLODA_LICENSE_KEY", None)
     proc = subprocess.run(  # nosec
-        [sys.executable, "-c", match.group(1)], cwd=_REPO_ROOT, env=env, capture_output=True, text=True, timeout=120
+        [sys.executable, "-c", match.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120
     )
-    assert proc.returncode != 0, f"snippet should fail without the wheel; stdout:\n{proc.stdout}"
-    assert "BinaryUnavailableError" in proc.stderr, f"stderr was:\n{proc.stderr}"
-    assert "mloda-enterprise[anonymizer]" in proc.stderr, f"stderr was:\n{proc.stderr}"
+    assert proc.returncode != 0, f"snippet should fail without a license or wheel; stdout:\n{proc.stdout}"
+    if importlib.util.find_spec("anonymizer_binary") is not None:
+        assert "LicenseMissingError" in proc.stderr, f"stderr was:\n{proc.stderr}"
+    else:
+        assert "BinaryUnavailableError" in proc.stderr, f"stderr was:\n{proc.stderr}"
+        assert "mloda-enterprise[anonymizer]" in proc.stderr, f"stderr was:\n{proc.stderr}"

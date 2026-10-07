@@ -167,7 +167,7 @@ In the checkout, `uv pip install mloda-example-binary` gives the release build f
 
 Keep the rest of the repo's suite out of a run that has the wheel: it assumes the wheel is absent, and two guards fail loudly if the wheel is installed by accident. Running only `tests/test_binary_model_real/` never hits them.
 
-The full expired/in-grace/valid license state machine is covered against the real compiled binary in the wheel's own CI across platforms, so it is not duplicated here. The plain `tox` gate never installs the wheel, so the suite is skipped there; the `real-wheel` CI job installs the release wheel from `uv.lock` and runs the suite; `tox -e real-wheel` reproduces that locally in its own environment, leaving the dev `.venv` untouched. The job covers the platforms the wrapper's CI run-tests natively: Linux x86_64, macOS Intel and Apple silicon, and Windows x86_64. Linux aarch64 is left out because the wrapper only smoke-tests it under emulation. The probe's own logic is covered unconditionally against the simulated binary by `tests/test_binary_model_real/test_probe_classification.py`. The skipped end-to-end test is a decision, not a gap: CI holds no production license and no access to the wheel's sources, so no secret can leak. The wrapper's CI covers a valid license with a test-key build, and a production-license run is a manual check when a production key is issued.
+The full expired/in-grace/valid license state machine is covered against the real compiled binary in the wheel's own CI across platforms, so it is not duplicated here. The plain `tox` gate never installs the wheel, so the suite is skipped there; the `real-wheel` CI job installs the release wheel from `uv.lock` and runs the suite; `tox -e real-wheel` reproduces that locally in its own environment, leaving the dev `.venv` untouched. The job covers the platforms the wheel's CI runs natively: Linux x86_64, macOS Intel and Apple silicon, and Windows x86_64. Linux aarch64 is left out because the wheel's CI only smoke-tests it under emulation. The probe's own logic is covered unconditionally against the simulated binary by `tests/test_binary_model_real/test_probe_classification.py`. The skipped end-to-end test is a decision, not a gap: CI holds no production license and no access to the wheel's sources, so no secret can leak. The wheel's CI covers a valid license with a test-key build, and a production-license run is a manual check when a production key is issued.
 
 ## Packaging Rules
 
@@ -177,7 +177,7 @@ The full expired/in-grace/valid license state machine is covered against the rea
 - A binary that implements the contract is verified with `mloda.testing.binary_model.conformance.BinaryModelConformanceBase`, the same kit the simulated binary passes. The mixin may send zero-row record batches between non-empty ones, and a binary must accept them without changing the result; the kit checks this. An operation limited to one input column must set `max_input_columns = 1` (otherwise the kit's schema checks stop at the config stage), and one with required parameters overrides `required_parameters()`. A binary without `utf8` overrides `default_input_schema()` and `default_input_rows()` with advertised types, and a kit check fails fast when they use an unadvertised type. An `hmac_sha256` binary also mixes in `HmacSha256OperationConformanceMixin`; its expected values come from `mloda.testing.binary_model.hmac_sha256_reference`. The kit also rejects malformed license claims (timestamps without seconds or in compact form, an unpadded `max_release_date`, a non-integer `v`); a binary with production keys only overrides those hooks, like the other license vectors.
 - The wheel's distribution (`BINARY_WHEEL_DISTRIBUTION`) is declared under `optional_dependencies` with a version range whose floor excludes every wheel release that trusts no production license key, never under `dependencies` or `dev`; install it with `pip install mloda-example-binary`.
 - The `wheel` extra lives on each binary leaf (`mloda-enterprise-binary-example`, `mloda-enterprise-anonymizer`), which ship inside the `mloda-enterprise` bundle. The bundle re-exports only the anonymizer's wheel (`mloda-enterprise[anonymizer]`); the example's wheel is installed directly.
-- Contract versions: the mixin accepts exactly the contract version its `--capabilities` check was written for. A contract bump ships as a new wheel minor (each leaf's `wheel` extra and the bundle extra cap the minor) together with a mixin release that accepts the new and the previous contract; the extras' ranges move only after that release, and the previous contract is dropped only once no supported extra range admits a wheel implementing it.
+- Contract versions: the mixin accepts exactly the contract version its `--capabilities` check was written for. A contract bump ships as a new wheel minor (each leaf's `wheel` extra and the bundle extra cap the minor) together with a mixin release that accepts the new and the previous contract; the extras' ranges move only after that release. Dropping the previous contract is a breaking mixin change, since leaves and the bundle depend on the mixin without an upper bound.
 
 ## From the example to a paid FeatureGroup
 
@@ -191,8 +191,6 @@ The full expired/in-grace/valid license state machine is covered against the rea
 
 The key stays in an environment variable and never goes into Options, which mloda hashes and echoes. So `pii_key_env` is neither strict nor guarded, and errors never name the variable or echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
-The key is the raw 32-byte HMAC key (64 hex); the binary does no key derivation. To get the same tokens as the `anonymizer-rs` tool, pass the key it derives from its master key file (HKDF-SHA256, no salt, info `anonymizer-rs-anon`, over the file's raw bytes; recipe in the [wheel's readme](https://pypi.org/project/mloda-anonymizer-binary/)); hex-encoding the master key file itself passes the format check but its tokens never match.
-
 ```python
 feature = Feature(
     "pseudonymized_email",
@@ -201,6 +199,18 @@ feature = Feature(
 ```
 
 The string form `email__hmac_sha256_pseudonymized` works with `pii_key_env` in the context. `pip install "mloda-enterprise[anonymizer]"` brings the wheel and pyarrow.
+
+The key is the raw 32-byte HMAC key (64 hex); the binary does no key derivation. To get the same tokens as the `anonymizer-rs` tool, pass the key it derives from its master key file (HKDF-SHA256, no salt, info `anonymizer-rs-anon`, over the file's raw bytes); hex-encoding a 32-byte master key file itself passes the format check but its tokens never match.
+
+```python
+import hashlib, hmac, pathlib
+
+master = pathlib.Path("master.key").read_bytes()
+prk = hmac.new(bytes(32), master, hashlib.sha256).digest()
+print(hmac.new(prk, b"anonymizer-rs-anon\x01", hashlib.sha256).hexdigest())
+```
+
+A master key of 32 bytes `0x11` gives `14dd3905a43d3e02b42887fea94185e3881af0b62c8d5f6a7ccf470df9446477`.
 
 ## Combines With
 
