@@ -264,9 +264,8 @@ class OtelExtender(Extender):
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
-    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; these are display
-    names, so select spans by `mloda.operation.name`. Without a known root, spans fall back to the carrier or
-    run_id trace."""
+    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>` (select by
+    `mloda.operation.name`, not name). Without a known root, spans fall back to the carrier or run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 

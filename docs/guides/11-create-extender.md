@@ -317,7 +317,7 @@ A sampled-out root drops its children. Once a root exists, the trace id is the S
 
 ### Selecting OTel spans
 
-Step span names are display names and can change in any release (calculate spans were renamed from `mloda.calculate` to `calculate <FeatureGroup>`). Select step spans by attribute: `mloda.operation.name` (`calculate`, `load`, `validate` or `join`) is set on every hook span; narrow with `mloda.feature_group.name`, `mloda.run.id` or `mloda.step.run_id`. The root spans carry no `mloda.operation.name`, so select them by their names `mloda.run` and `mloda.plan`, which stay fixed, as do `mloda.validate.input` and `mloda.validate.output`, the only way to tell the two validate spans apart. A span-name change is named in the release notes.
+Step span names are display names and can change in any release. Select step spans by attribute: `mloda.operation.name` (`calculate`, `load`, `validate` or `join`) is set on every hook span; narrow with `mloda.feature_group.name`, `mloda.run.id` or `mloda.step.run_id`. Root spans carry no `mloda.operation.name`; select them by their fixed names `mloda.run` and `mloda.plan`. The names `mloda.validate.input` and `mloda.validate.output` are also fixed and are the only way to tell the two validate spans apart. A span-name change is named in the release notes.
 
 ### Run correlation
 
