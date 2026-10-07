@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import pickle  # nosec
-import sys
 import threading
 import time
 import uuid
@@ -2035,44 +2034,51 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
         assert data_source_facet.name == "s3://bucket/key.parquet"
 
-    # (raw data_access passed as args[0], expected recorded name, secret markers absent from every event).
-    # Expected is a hardcoded literal, pinned once against core's BaseInputData.data_access_identity.
+    # (raw data_access passed as args[0], expected dataSource name (the core identity), expected input dataset
+    # (namespace, name), secret markers absent from every event). Expected values are hardcoded literals, pinned
+    # once against core's BaseInputData.data_access_identity.
     @pytest.mark.parametrize(
-        ("raw", "expected_name", "secrets"),
+        ("raw", "expected_name", "expected_dataset", "secrets"),
         [
             pytest.param(
                 "https://user:pw@host/p/a?sig=SECRET#frag",
                 "https://host/p/a",
+                ("mloda", "https://host/p/a"),
                 ("user:pw", "SECRET", "frag"),
                 id="userinfo_query_fragment",
             ),
             pytest.param(
                 "s3://bucket/key.parquet?versionId=SECRET",
                 "s3://bucket/key.parquet",
+                ("s3://bucket", "key.parquet"),
                 ("SECRET",),
                 id="query",
             ),
             pytest.param(
                 "https://host/p?email=a@b.com/x&sig=SECRET",
                 "str",
+                ("mloda", "str"),
                 ("SECRET", "a@b.com"),
                 id="at_sign_in_query_value_is_unparseable",
             ),
             pytest.param(
                 "postgresql://user:pa?ss@host:5432/db",
                 "str",
+                ("mloda", "str"),
                 ("user:pa", "pa?ss", "user:"),
                 id="query_marker_inside_userinfo_is_unparseable",
             ),
             pytest.param(
                 "host=db user=u password=hunter2",
                 "str",
+                ("mloda", "str"),
                 ("hunter2",),
                 id="keyword_dsn",
             ),
             pytest.param(
                 "Server=x;Uid=u;Pwd=hunter2;",
                 "str",
+                ("mloda", "str"),
                 ("hunter2",),
                 id="odbc_connection_string",
             ),
@@ -2083,6 +2089,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         raw: str,
         expected_name: str,
+        expected_dataset: tuple[str, str],
         secrets: tuple[str, ...],
     ) -> None:
         client, transport = ol_capture
@@ -2105,11 +2112,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert complete_event.inputs is not None
         assert len(complete_event.inputs) == 1
         input_dataset = complete_event.inputs[0]
-        # Mapped identities (s3 here) split into (namespace, name); unmapped ones keep the default namespace.
-        expected_pair = (
-            ("s3://bucket", "key.parquet") if expected_name.startswith("s3://") else ("mloda", expected_name)
-        )
-        assert (input_dataset.namespace, input_dataset.name) == expected_pair
+        assert (input_dataset.namespace, input_dataset.name) == expected_dataset
         assert input_dataset.facets is not None
 
         from openlineage.client.facet_v2 import datasource_dataset
@@ -2540,24 +2543,6 @@ class TestOpenLineageLoadDatasetNaming:
         want = (expected[0], expected[1].replace("{tmp}", str(tmp_path)))
 
         assert load_dataset(identity, "fb") == want
-
-
-class TestOpenLineageExtenderTraceFacetWithoutOtel:
-    def test_calculate_still_emits_start_and_complete_without_trace_facet_when_otel_is_unimportable(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        for name in [m for m in sys.modules if m == "opentelemetry" or m.startswith("opentelemetry.")]:
-            monkeypatch.setitem(sys.modules, name, None)
-        monkeypatch.setitem(sys.modules, "opentelemetry", None)
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-
-        with make_hook_context().activate():
-            extender(lambda: None)
-
-        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
-        for event in transport.events:
-            assert "mlodaTrace" not in (event.run.facets or {})
 
 
 class TestOpenLineageExtenderRunAll:

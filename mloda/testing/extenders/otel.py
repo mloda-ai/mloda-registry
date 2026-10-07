@@ -17,7 +17,7 @@ from opentelemetry import propagate
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import StatusCode, Tracer
+from opentelemetry.trace import NonRecordingSpan, SpanContext, StatusCode, TraceFlags, Tracer
 from opentelemetry.trace import TracerProvider as ApiTracerProvider
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -36,6 +36,17 @@ def make_span_capture() -> tuple[TracerProvider, InMemorySpanExporter]:
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     return provider, exporter
+
+
+def make_non_recording_span() -> NonRecordingSpan:
+    """A valid, sampled, non-recording span with fixed trace and span ids."""
+    span_context = SpanContext(
+        trace_id=0x1234567890ABCDEF1234567890ABCDEF,
+        span_id=0x1234567890ABCDEF,
+        is_remote=False,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+    )
+    return NonRecordingSpan(span_context)
 
 
 def single_span(exporter: InMemorySpanExporter) -> ReadableSpan:

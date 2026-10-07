@@ -6,26 +6,18 @@ import sys
 
 import pytest
 
-trace_sdk = pytest.importorskip("opentelemetry.sdk.trace")
+pytest.importorskip("opentelemetry.sdk.trace")
 
 from opentelemetry import trace  # noqa: E402
 
 from mloda.community.extenders.shared.trace_context import active_span_ids  # noqa: E402
-
-
-def _non_recording_span() -> trace.NonRecordingSpan:
-    span_context = trace.SpanContext(
-        trace_id=0x1234567890ABCDEF1234567890ABCDEF,
-        span_id=0x1234567890ABCDEF,
-        is_remote=False,
-        trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
-    )
-    return trace.NonRecordingSpan(span_context)
+from mloda.testing.extenders.otel import make_non_recording_span, make_span_capture  # noqa: E402
 
 
 @pytest.mark.parametrize("recording_only", [False, True], ids=["any_valid", "recording_only"])
 def test_a_recording_span_gives_its_lowercase_hex_ids(recording_only: bool) -> None:
-    tracer = trace_sdk.TracerProvider().get_tracer("trace-context-test")
+    provider, _ = make_span_capture()
+    tracer = provider.get_tracer("trace-context-test")
 
     with tracer.start_as_current_span("step") as span:
         ctx = span.get_span_context()
@@ -38,12 +30,12 @@ def test_a_recording_span_gives_its_lowercase_hex_ids(recording_only: bool) -> N
 
 
 def test_a_non_recording_valid_span_gives_ids_by_default() -> None:
-    with trace.use_span(_non_recording_span()):
+    with trace.use_span(make_non_recording_span()):
         assert active_span_ids() == ("1234567890abcdef1234567890abcdef", "1234567890abcdef")
 
 
 def test_a_non_recording_valid_span_gives_none_when_recording_only() -> None:
-    with trace.use_span(_non_recording_span()):
+    with trace.use_span(make_non_recording_span()):
         assert active_span_ids(recording_only=True) is None
 
 

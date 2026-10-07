@@ -891,7 +891,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     @pytest.mark.parametrize("outcome", ["complete", "fail"])
     def test_openlineage_calculate_events_carry_the_recording_span_ids_as_mloda_trace(self, outcome: str) -> None:
         pytest.importorskip("opentelemetry.sdk.trace")
-        from opentelemetry.sdk.trace import TracerProvider
+        from mloda.testing.extenders.otel import make_span_capture
 
         client, transport = make_recording_client()
         extender = self.make_openlineage_extender(client)
@@ -900,7 +900,8 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             if outcome == "fail":
                 raise RuntimeError("trace boom")
 
-        tracer = TracerProvider().get_tracer("openlineage-trace-test")
+        provider, _ = make_span_capture()
+        tracer = provider.get_tracer("openlineage-trace-test")
         with tracer.start_as_current_span("step") as span:
             ctx = span.get_span_context()
             with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
@@ -923,21 +924,33 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         pytest.importorskip("opentelemetry.sdk.trace")
         from opentelemetry import trace
 
+        from mloda.testing.extenders.otel import make_non_recording_span
+
         client, transport = make_recording_client()
         extender = self.make_openlineage_extender(client)
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
             if current == "non_recording_span":
-                span_context = trace.SpanContext(
-                    trace_id=0x1234567890ABCDEF1234567890ABCDEF,
-                    span_id=0x1234567890ABCDEF,
-                    is_remote=False,
-                    trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
-                )
-                with trace.use_span(trace.NonRecordingSpan(span_context)):
+                with trace.use_span(make_non_recording_span()):
                     extender(lambda: None)
             else:
                 extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
+
+    def test_openlineage_calculate_still_emits_without_trace_facet_when_otel_is_unimportable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for name in [m for m in sys.modules if m == "opentelemetry" or m.startswith("opentelemetry.")]:
+            monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.setitem(sys.modules, "opentelemetry", None)
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            extender(lambda: None)
 
         assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
         for event in transport.events:
