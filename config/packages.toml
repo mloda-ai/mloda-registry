@@ -80,10 +80,10 @@ py_typed = true
 
 [packages.mloda-community-openlineage]
 description = "OpenLineage RunEvents with schema, data-source and parent-run facets, for mloda pipelines"
-dependencies = ["{core_dependency}", "openlineage-python>=1.20,<2", "mloda-community-extenders-shared>={version}"]
+dependencies = ["{core_dependency}", "openlineage-python>=1.36,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/openlineage"
 published = true
-optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow"] }
+optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow", "opentelemetry-sdk>=1.30,<2"] }
 entry_point_groups = ["mloda.extenders", "mloda.optional_dependencies"]
 py_typed = true
 
@@ -98,7 +98,7 @@ entry_point_groups = ["mloda.extenders"]
 description = "OpenLineage column lineage, masking, validator outcome and structure hash facets for mloda pipelines"
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
 path = "mloda/enterprise/extenders/lineage"
-optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "mloda-community-openlineage~={version}"] }
+optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "mloda-community-openlineage~={version}", "opentelemetry-sdk>=1.30,<2"] }
 entry_point_groups = ["mloda.extenders"]
 
 # --- Data Operations ---
@@ -307,5 +307,5 @@ description = "Test utilities for mloda plugin development"
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow"]
 path = "mloda/testing"
 published = true
-optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.20,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>={version}"] }
+optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.36,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>={version}"] }
 py_typed = true

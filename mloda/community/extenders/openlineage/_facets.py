@@ -27,3 +27,13 @@ class MlodaPlanRunFacet(RunFacet):
     @staticmethod
     def _get_schema() -> str:
         return _SCHEMA_URL
+
+
+@attr.define
+class MlodaTraceRunFacet(RunFacet):
+    traceId: str = attr.field()
+    spanId: str = attr.field()
+
+    @staticmethod
+    def _get_schema() -> str:
+        return _SCHEMA_URL

@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import pickle  # nosec
+import sys
 import threading
 import time
 import uuid
@@ -2025,7 +2026,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         complete_event = transport.events[1]
         assert complete_event.inputs is not None
         input_dataset = complete_event.inputs[0]
-        assert input_dataset.namespace == "custom-ds"
+        assert (input_dataset.namespace, input_dataset.name) == ("s3://bucket", "key.parquet")
 
         from openlineage.client.facet_v2 import datasource_dataset
 
@@ -2104,7 +2105,11 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert complete_event.inputs is not None
         assert len(complete_event.inputs) == 1
         input_dataset = complete_event.inputs[0]
-        assert input_dataset.name == expected_name
+        # Mapped identities (s3 here) split into (namespace, name); unmapped ones keep the default namespace.
+        expected_pair = (
+            ("s3://bucket", "key.parquet") if expected_name.startswith("s3://") else ("mloda", expected_name)
+        )
+        assert (input_dataset.namespace, input_dataset.name) == expected_pair
         assert input_dataset.facets is not None
 
         from openlineage.client.facet_v2 import datasource_dataset
@@ -2289,7 +2294,7 @@ class TestOpenLineageExtenderPerInstanceAttribution:
             inputs = complete_events[0].inputs
             assert inputs is not None
             assert len(inputs) == 1
-            assert inputs[0].name == "s3://bucket/key.parquet"
+            assert (inputs[0].namespace, inputs[0].name) == ("s3://bucket", "key.parquet")
 
     def test_nested_calculate_attributes_each_load_to_its_own_level(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -2315,8 +2320,12 @@ class TestOpenLineageExtenderPerInstanceAttribution:
             extender(outer_body)
 
         complete_by_job = {e.job.name: e for e in transport.events if e.eventType == RunState.COMPLETE}
-        assert [i.name for i in complete_by_job[inner_class].inputs or []] == ["s3://bucket/inner.parquet"]
-        assert [i.name for i in complete_by_job[outer_class].inputs or []] == ["s3://bucket/outer.parquet"]
+        assert [(i.namespace, i.name) for i in complete_by_job[inner_class].inputs or []] == [
+            ("s3://bucket", "inner.parquet")
+        ]
+        assert [(i.namespace, i.name) for i in complete_by_job[outer_class].inputs or []] == [
+            ("s3://bucket", "outer.parquet")
+        ]
 
 
 class TestOpenLineageExtenderInputDedupe:
@@ -2435,8 +2444,6 @@ class TestOpenLineageExtenderInputDedupe:
         marker = "SECRET"
         raw_container = f"abfss://raw@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
         curated_container = f"abfss://curated@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
-        stripped_raw_container = "abfss://raw@acct.dfs.core.windows.net/p"
-        stripped_curated_container = "abfss://curated@acct.dfs.core.windows.net/p"
 
         def load(raw: str) -> None:
             identity = BaseInputData.data_access_identity(raw)
@@ -2454,14 +2461,103 @@ class TestOpenLineageExtenderInputDedupe:
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
         assert complete_event.inputs is not None
-        assert sorted(i.name for i in complete_event.inputs) == sorted(
-            [stripped_raw_container, stripped_curated_container]
+        assert sorted((i.namespace, i.name) for i in complete_event.inputs) == sorted(
+            [
+                ("abfss://raw@acct.dfs.core.windows.net", "p"),
+                ("abfss://curated@acct.dfs.core.windows.net", "p"),
+            ]
         )
 
         from openlineage.client.serde import Serde
 
         for event in transport.events:
             assert marker not in Serde.to_json(event)
+
+
+class TestOpenLineageLoadDatasetNaming:
+    """load_dataset maps an identity to an OpenLineage (namespace, name), else (fallback_namespace, identity)."""
+
+    # "{tmp}" is replaced by an existing directory under tmp_path.
+    @pytest.mark.parametrize(
+        ("identity", "expected"),
+        [
+            pytest.param("s3://bucket/key.parquet", ("s3://bucket", "key.parquet"), id="s3"),
+            pytest.param("s3://bucket/a/b/key.parquet", ("s3://bucket", "a/b/key.parquet"), id="s3_nested_key"),
+            pytest.param("S3://bucket/key", ("s3://bucket", "key"), id="uppercase_scheme"),
+            pytest.param("gs://bucket/key.csv", ("gs://bucket", "key.csv"), id="gcs"),
+            pytest.param("s3://bucket", ("fb", "s3://bucket"), id="s3_bucket_only"),
+            pytest.param("s3://bucket/", ("fb", "s3://bucket/"), id="s3_empty_key"),
+            pytest.param("s3:///key", ("fb", "s3:///key"), id="s3_empty_bucket"),
+            pytest.param("s3://bucket:9000/k", ("fb", "s3://bucket:9000/k"), id="s3_port"),
+            pytest.param("gs://bucket", ("fb", "gs://bucket"), id="gcs_bucket_only"),
+            pytest.param("s3://bucket//key", ("s3://bucket", "/key"), id="s3_double_slash_drops_one"),
+            pytest.param("s3://bucket/key?versionId=1", ("fb", "s3://bucket/key?versionId=1"), id="query"),
+            pytest.param("s3://bucket/key#frag", ("fb", "s3://bucket/key#frag"), id="fragment"),
+            pytest.param("s3://user@bucket/key", ("fb", "s3://user@bucket/key"), id="non_abfss_at_sign"),
+            pytest.param(
+                "abfss://raw@acct.dfs.core.windows.net/p/f.parquet",
+                ("abfss://raw@acct.dfs.core.windows.net", "p/f.parquet"),
+                id="abfss",
+            ),
+            pytest.param(
+                "abfss://acct.dfs.core.windows.net/p",
+                ("fb", "abfss://acct.dfs.core.windows.net/p"),
+                id="abfss_without_container",
+            ),
+            pytest.param("abfss://raw@example.com/p", ("fb", "abfss://raw@example.com/p"), id="abfss_on_another_host"),
+            pytest.param(
+                "abfss://raw@acct.dfs.core.windows.net:443/p",
+                ("fb", "abfss://raw@acct.dfs.core.windows.net:443/p"),
+                id="abfss_port",
+            ),
+            pytest.param(
+                "abfss://raw@acct.dfs.core.windows.net",
+                ("fb", "abfss://raw@acct.dfs.core.windows.net"),
+                id="abfss_empty_path",
+            ),
+            pytest.param("file:///abs/path.csv", ("file", "/abs/path.csv"), id="file_uri"),
+            pytest.param("file://host/x", ("fb", "file://host/x"), id="file_uri_with_host"),
+            pytest.param("{tmp}/data.csv", ("file", "{tmp}/data.csv"), id="existing_absolute_path"),
+            pytest.param("/definitely/missing/path.csv", ("fb", "/definitely/missing/path.csv"), id="missing_path"),
+            pytest.param("rel/data.csv", ("fb", "rel/data.csv"), id="relative_path"),
+            pytest.param("/x/db.sqlite::t", ("fb", "/x/db.sqlite::t"), id="sqlite_table"),
+            pytest.param("jdbc:postgresql://h:5432", ("fb", "jdbc:postgresql://h:5432"), id="jdbc"),
+            pytest.param("https://h/p", ("fb", "https://h/p"), id="https"),
+            pytest.param("hdfs://nn/p", ("fb", "hdfs://nn/p"), id="hdfs"),
+            pytest.param("s3a://bucket/key", ("fb", "s3a://bucket/key"), id="s3a"),
+            pytest.param("str", ("fb", "str"), id="type_name"),
+            pytest.param("{a, b}", ("fb", "{a, b}"), id="set_form"),
+            pytest.param("C:\\data\\x.csv", ("fb", "C:\\data\\x.csv"), id="windows_path"),
+        ],
+    )
+    def test_load_dataset_maps_or_falls_back_without_raising(
+        self, identity: str, expected: tuple[str, str], tmp_path: Path
+    ) -> None:
+        from mloda.community.extenders.openlineage.dataset_naming import load_dataset
+
+        (tmp_path / "data.csv").write_text("a\n1\n")
+        identity = identity.replace("{tmp}", str(tmp_path))
+        want = (expected[0], expected[1].replace("{tmp}", str(tmp_path)))
+
+        assert load_dataset(identity, "fb") == want
+
+
+class TestOpenLineageExtenderTraceFacetWithoutOtel:
+    def test_calculate_still_emits_start_and_complete_without_trace_facet_when_otel_is_unimportable(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for name in [m for m in sys.modules if m == "opentelemetry" or m.startswith("opentelemetry.")]:
+            monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.setitem(sys.modules, "opentelemetry", None)
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with make_hook_context().activate():
+            extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
 
 
 class TestOpenLineageExtenderRunAll:
@@ -3015,7 +3111,7 @@ class TestOpenLineageExtenderSubclassSeams:
         hooks = [context.hook for context, *_ in extender.dispatched]
         assert hooks == [ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD]
         assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
-        assert [i.name for i in transport.events[-1].inputs or []] == ["s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in transport.events[-1].inputs or []] == [("s3://bucket", "key.parquet")]
 
     def test_calculate_run_facets_adds_a_facet_next_to_parent_on_start_and_terminal_events(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -3064,7 +3160,10 @@ class TestOpenLineageExtenderSubclassSeams:
 
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
-        assert [i.name for i in complete_event.inputs or []] == ["src", "s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in complete_event.inputs or []] == [
+            ("mloda", "src"),
+            ("s3://bucket", "key.parquet"),
+        ]
         # The seam gets the COMPLETE event's inputs: declared first, loaded second.
         assert extender.output_facet_calls == [
             (context, func, ("positional",), "value_int", complete_event.inputs),

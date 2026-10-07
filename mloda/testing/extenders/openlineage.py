@@ -592,7 +592,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert len(complete_event.inputs) == 1
         input_dataset = complete_event.inputs[0]
         assert isinstance(input_dataset, InputDataset)
-        assert input_dataset.name == "s3://bucket/key.parquet"
+        assert (input_dataset.namespace, input_dataset.name) == ("s3://bucket", "key.parquet")
         assert len(transport.events) == 2
 
     def test_openlineage_input_data_load_query_string_never_reaches_events(self) -> None:
@@ -619,8 +619,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         for event in transport.events:
             assert marker not in Serde.to_json(event), "URI query string reached an event"
             assert userinfo_marker not in Serde.to_json(event), "URI user information reached an event"
-        input_names = [dataset.name for event in transport.events for dataset in event.inputs or []]
-        assert context_identity in input_names, (
+        input_names = [
+            (dataset.namespace, dataset.name) for event in transport.events for dataset in event.inputs or []
+        ]
+        assert ("s3://bucket", "key.parquet") in input_names, (
             f"the data load was not attributed as an input named by the context's data_access_identity "
             f"({context_identity!r}); input_names={input_names!r}"
         )
@@ -647,7 +649,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         fail_event = transport.events[-1]
         assert fail_event.eventType == RunState.FAIL
         assert fail_event.inputs is not None
-        assert [i.name for i in fail_event.inputs] == ["s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in fail_event.inputs] == [("s3://bucket", "key.parquet")]
 
     def test_openlineage_fail_event_carries_input_features(self) -> None:
         client, transport = make_recording_client()
@@ -691,7 +693,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         fail_event = transport.events[-1]
         assert fail_event.eventType == RunState.FAIL
         assert fail_event.inputs is not None
-        assert [i.name for i in fail_event.inputs] == ["s3://bucket/key.parquet"]
+        assert [(i.namespace, i.name) for i in fail_event.inputs] == [("s3://bucket", "key.parquet")]
 
     def test_openlineage_completion_emit_failure_keeps_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client, _ = make_recording_client()
@@ -872,7 +874,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         complete_event = complete_events[0]
         assert complete_event.inputs is not None
         assert len(complete_event.inputs) == 1
-        assert complete_event.inputs[0].name == str(csv_paths[0])
+        assert (complete_event.inputs[0].namespace, complete_event.inputs[0].name) == ("file", str(csv_paths[0]))
 
     def test_openlineage_run_all_derived_feature_reports_input_feature(self) -> None:
         client, transport = make_recording_client()
@@ -885,6 +887,61 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         derived_events = [event for event in complete_events if event.inputs]
         assert len(derived_events) == 1
         assert sorted(i.name for i in derived_events[0].inputs or []) == ["value_int"]
+
+    @pytest.mark.parametrize("outcome", ["complete", "fail"])
+    def test_openlineage_calculate_events_carry_the_recording_span_ids_as_mloda_trace(self, outcome: str) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace import TracerProvider
+
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        def func() -> None:
+            if outcome == "fail":
+                raise RuntimeError("trace boom")
+
+        tracer = TracerProvider().get_tracer("openlineage-trace-test")
+        with tracer.start_as_current_span("step") as span:
+            ctx = span.get_span_context()
+            with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+                if outcome == "fail":
+                    with pytest.raises(RuntimeError, match="trace boom"):
+                        extender(func)
+                else:
+                    extender(func)
+
+        expected_type = RunState.FAIL if outcome == "fail" else RunState.COMPLETE
+        assert [e.eventType for e in transport.events] == [RunState.START, expected_type]
+        for event in transport.events:
+            trace_facet = (event.run.facets or {}).get("mlodaTrace")
+            assert trace_facet is not None, event.eventType
+            assert trace_facet.traceId == format(ctx.trace_id, "032x")  # type: ignore[attr-defined]
+            assert trace_facet.spanId == format(ctx.span_id, "016x")  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize("current", ["non_recording_span", "no_span"])
+    def test_openlineage_calculate_events_have_no_mloda_trace_without_a_recording_span(self, current: str) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry import trace
+
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            if current == "non_recording_span":
+                span_context = trace.SpanContext(
+                    trace_id=0x1234567890ABCDEF1234567890ABCDEF,
+                    span_id=0x1234567890ABCDEF,
+                    is_remote=False,
+                    trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
+                )
+                with trace.use_span(trace.NonRecordingSpan(span_context)):
+                    extender(lambda: None)
+            else:
+                extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
 
     def test_openlineage_facet_producers_match_event_producer(self) -> None:
         client, transport = make_recording_client()

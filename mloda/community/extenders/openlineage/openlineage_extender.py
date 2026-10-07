@@ -25,10 +25,12 @@ from mloda.steward import (
     pickle_failure_reason,
 )
 
+from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, capped_close_timeout
+from mloda.community.extenders.shared.trace_context import active_span_ids
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
@@ -127,22 +129,25 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
 
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
-    INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client wins,
-    else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking transport
-    delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s) and the
-    worker's remaining close budget, and is terminal. A self-built client is rebuilt per worker; an injected client
-    that can't survive pickling is dropped by a trial-pickle probe and falls back to the resolution rule above,
-    while a picklable injected client is pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING
-    worker exit; raise close_timeout together with graceful_shutdown_timeout for a buffered transport (e.g.
-    async_http, kafka) to fully drain, otherwise events past the budget are lost. The parent-death path is best
-    effort. Dataset names for loads are core's data_access_identity, recorded as given; any fallback load of a name
-    (core's data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess facet (identityIsFallback
-    true), so consumers can tell a placeholder from a dataset. After a transport failure (connection, timeout, HTTP
-    5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
-    terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such
-    as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass seams: producer,
-    job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
-    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
+    INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client
+    wins, else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking
+    transport delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s) and
+    the worker's remaining close budget, and is terminal. A self-built client is rebuilt per worker; an injected
+    client that can't survive pickling is dropped by a trial-pickle probe and falls back to the resolution rule
+    above, while a picklable injected client is pickled as-is. Core calls close() with no args on graceful
+    MULTIPROCESSING worker exit; raise close_timeout together with graceful_shutdown_timeout for a buffered
+    transport (e.g. async_http, kafka) to fully drain, otherwise events past the budget are lost. The parent-death
+    path is best effort. Load datasets are named from core's data_access_identity: s3, gs, abfss and file identities
+    (and existing absolute paths) map to an OpenLineage namespace and name, any other keeps dataset_namespace with
+    the identity as its name; the dataSource facet always carries the identity. With a recording OpenTelemetry span
+    current, step runs carry an mlodaTrace facet (traceId, spanId); priority is 110 so OtelExtender wraps outside.
+    Any fallback load of a name (core's data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess
+    facet (identityIsFallback true), so consumers can tell a placeholder from a dataset. After a transport failure
+    (connection, timeout, HTTP 5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already
+    started still emit their terminal event, and raise_on_error=True disables the skip. Only OSError-based failures
+    (requests transports such as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable
+    subclass seams: producer, job_namespace, dataset_namespace, _dispatch, _call_input_data_load,
+    _call_calculate_feature, _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
     assert_openlineage_extender_seams in mloda.testing."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
@@ -159,6 +164,8 @@ class OpenLineageExtender(Extender):
         root_job_name: str = "mloda.run_all",
         use_sdk_defaults: bool = False,
     ) -> None:
+        # Above OtelExtender's default 100, so its step span is current while this extender emits.
+        self.priority = 110
         self.raise_on_error = raise_on_error
         self._client = client
         self.job_namespace = job_namespace
@@ -414,9 +421,8 @@ class OpenLineageExtender(Extender):
         invocation = _open_invocations.find(self)
         identity = context.data_access_identity
         if invocation is not None and identity is not None:
-            existing = next(
-                (i for i in invocation.inputs if i.namespace == self.dataset_namespace and i.name == identity), None
-            )
+            namespace, name = load_dataset(identity, self.dataset_namespace)
+            existing = next((i for i in invocation.inputs if i.namespace == namespace and i.name == name), None)
             facets: dict[str, Any] = (
                 {"dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)}
                 if existing is None
@@ -430,7 +436,7 @@ class OpenLineageExtender(Extender):
                 if existing is not None:
                     existing.facets = facets
             if existing is None:
-                invocation.inputs.append(InputDataset(namespace=self.dataset_namespace, name=identity, facets=facets))
+                invocation.inputs.append(InputDataset(namespace=namespace, name=name, facets=facets))
         if invocation is None:
             logger.debug(
                 "%s: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to", type(self).__name__
@@ -504,7 +510,7 @@ class OpenLineageExtender(Extender):
             if context is not None
             else None
         )
-        run = Run(runId=derived or str(uuid.uuid4()), facets=run_facets)
+        run = Run(runId=derived or str(uuid.uuid4()), facets=self._with_trace_facet(run_facets))
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 
         # Unguarded on purpose: this call must propagate naturally so CompositeExtender's
@@ -544,6 +550,23 @@ class OpenLineageExtender(Extender):
             logger.warning("%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__)
 
         return result
+
+    def _with_trace_facet(self, run_facets: dict[str, Any]) -> dict[str, Any]:
+        """A copy of run_facets with an mlodaTrace pointer to the recording current span, if any."""
+        try:
+            ids = active_span_ids(recording_only=True)
+            if ids is None:
+                return run_facets
+            # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+            from mloda.community.extenders.openlineage._facets import MlodaTraceRunFacet
+
+            return {
+                **run_facets,
+                "mlodaTrace": MlodaTraceRunFacet(traceId=ids[0], spanId=ids[1], producer=self.producer),
+            }
+        except Exception as exc:
+            logger.debug("%s trace facet failed: %s", type(self).__name__, type(exc).__name__)
+            return run_facets
 
     def _emit_event(
         self, state: RunState, run: Run, job: Job, inputs: list[InputDataset], outputs: list[OutputDataset]
