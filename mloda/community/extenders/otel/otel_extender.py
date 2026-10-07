@@ -71,6 +71,8 @@ _SCRUB_WINDOW = 8192
 _SECRET_KEY_TAIL = 64
 # Shorter value forms match a redacting repr by coincidence.
 _MIN_SHOWN_VALUE_LEN = 5
+# Shared node budget for the secret-leaf scan; past it the preview fails closed.
+_MAX_SCANNED_NODES = 1024
 # Authorization keys core's anchored pattern misses (X-Authorization, HTTP_AUTHORIZATION, ...).
 _AUTHORIZATION_KEY = re.compile(r"(?:^|[-_])authorization(?:[-_]header)?\Z", re.IGNORECASE)
 
@@ -108,6 +110,44 @@ def _repr_shows_values(x: Mapping[Any, Any], s: str, limit: int) -> bool:
         if any(len(form) >= _MIN_SHOWN_VALUE_LEN and form in s for form in (repr(v), str(v))):
             return True
     return False
+
+
+def _shown_forms(leaf: object) -> list[str]:
+    if isinstance(leaf, str):
+        return [leaf, repr(leaf)[1:-1]]
+    if isinstance(leaf, bytes):
+        return [leaf.decode("latin-1"), leaf.decode("utf-8", errors="replace"), repr(leaf)[2:-1]]
+    return [str(leaf)]
+
+
+def _mask_secret_leaves(x: Mapping[Any, Any], s: str) -> str | None:
+    forms: set[str] = set()
+    seen: set[tuple[int, bool]] = set()
+    budget = _MAX_SCANNED_NODES
+
+    def walk(node: object, secret: bool) -> bool:
+        nonlocal budget
+        budget -= 1
+        if budget < 0:
+            return False
+        if isinstance(node, (Mapping, tuple, list, set, frozenset, deque)):
+            if (id(node), secret) in seen:
+                return True
+            seen.add((id(node), secret))
+            if isinstance(node, Mapping):
+                return all(walk(k, secret) and walk(v, secret or _is_secret_key(k)) for k, v in node.items())
+            if isinstance(node, tuple) and len(node) == 2 and _is_secret_key(node[0]):
+                return walk(node[0], secret) and walk(node[1], True)
+            return all(walk(item, secret) for item in node)
+        if secret:
+            forms.update(form for form in _shown_forms(node) if len(form) >= _MIN_SHOWN_VALUE_LEN)
+        return True
+
+    if not walk(x, False):
+        return None
+    for form in sorted(forms, key=len, reverse=True):
+        s = s.replace(form, "***")
+    return s
 
 
 _CONTAINER_BASES = (dict, tuple, list, set, frozenset, deque)
@@ -164,9 +204,15 @@ class _ScrubbingRepr(reprlib.Repr):
             if routed is not None:
                 return routed
             raw = repr(x)
-            # A custom repr that shows its values is rendered masked; one that hides them is kept.
-            if isinstance(x, Mapping) and _repr_shows_values(x, raw, self.maxdict):
-                return self.repr_dict(x, level)
+            # A custom repr that shows its values is rendered masked; one that hides them keeps its repr
+            # with secret values masked in place (placeholder if the scan overruns its budget).
+            if isinstance(x, Mapping):
+                if _repr_shows_values(x, raw, self.maxdict):
+                    return self.repr_dict(x, level)
+                masked = _mask_secret_leaves(x, raw)
+                if masked is None:
+                    return "<%s instance at %#x>" % (x.__class__.__name__, id(x))
+                raw = masked
             s = _scrub_ends(raw)
         except Exception:
             return "<%s instance at %#x>" % (x.__class__.__name__, id(x))
@@ -246,8 +292,8 @@ class OtelExtender(Extender):
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
-    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`. Without a known
-    root, spans fall back to the carrier or run_id trace."""
+    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
+    by `mloda.operation.name`, not by name. Without a known root, spans fall back to the carrier or run_id trace."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -538,7 +584,7 @@ def _parent_context(context: HookContext | None, root: _SpanInts | None = None) 
 
     0. A run root known for context.run_id (see on_run_start): its context is the parent, winning over the
        carrier. For INPUT_DATA_LOAD an ambient span of the root's trace wins (None returned).
-    1. INPUT_DATA_LOAD only: a valid ambient active span (e.g. the enclosing mloda.calculate span)
+    1. INPUT_DATA_LOAD only: a valid ambient active span (e.g. the enclosing calculate span)
        wins and None is returned, making the load span its child. If a carrier or run_id is also set,
        the ambient span wins only when its trace id matches theirs; otherwise falls through to 2/3.
     2. context.carrier, if truthy: extracted into a real parent Context (propagated from another
