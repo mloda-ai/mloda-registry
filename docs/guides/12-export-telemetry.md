@@ -127,7 +127,7 @@ It sees what passes through the Collector only; OpenLineage events go straight t
 
 ## Traces and lineage
 
-With `OtelExtender` outside `OpenLineageExtender` (what the default priorities give, 100 and 110), each step's calculate span is current while OpenLineage emits, so the step's RunEvents carry a run facet `mlodaTrace` (`traceId`, `spanId`) pointing at that span. Join them through the span attribute `mloda.step.run_id`, which equals the step RunEvent's runId. The root run has no such facet; its runId equals the span attribute `mloda.run.id`. No facet is added when no recording span is current (no provider, a non-recording span, `opentelemetry` not installed, or OpenLineage forced outside with a lower priority).
+With `OtelExtender` outside `OpenLineageExtender` (what the default priorities give, 100 and 110), each step's calculate span is current while OpenLineage emits, so the step's RunEvents carry a run facet `mlodaTrace` (`traceId`, `spanId`) pointing at that span. Join them through the span attribute `mloda.step.run_id`, which equals the step RunEvent's runId. The root run has no such facet; its runId equals `mloda.run.id`. No facet is added when no recording span is current (no provider, a non-recording span, `opentelemetry` not installed, or OpenLineage priority below `OtelExtender`).
 
 ## Multiprocessing, threads and asyncio
 
