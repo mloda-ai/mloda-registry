@@ -294,6 +294,7 @@ description = "All enterprise plugins for mloda (License required: https://mloda
 # they use only its public names, which includes subclassing it (docs/packaging.md#sibling-dependency-floors).
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}", "mloda-community-binary-model>={version}"]
 path = "mloda/enterprise"
+has_readme = true
 published = true
 entry_point_bundle = true
 optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"], anonymizer = ["mloda-anonymizer-binary>=0.1.1,<0.2.0", "pyarrow>=25"] }

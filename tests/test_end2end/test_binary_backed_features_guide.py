@@ -1,13 +1,17 @@
 """Doc-drift guard for ``docs/guides/feature-group-patterns/29-binary-backed-features.md``, for the tox.ini and
 ci.yaml wiring of the real-wheel suite, and for the documented ``uv sync`` setup commands. No mktestdocs/sybil-style
-execution of guide code fences is wired in this repo (confirmed), so these are lightweight grep-based checks
-instead of executed doctests."""
+execution of guide code fences is wired in this repo, so the checks are mostly grep-based; only the
+``mloda-enterprise`` README quick-start snippet is executed."""
 
 from __future__ import annotations
 
 import configparser
+import importlib.util
+import os
 import re
 import shlex
+import subprocess  # nosec
+import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +22,7 @@ _README = _REPO_ROOT / "README.md"
 _CONTRIBUTING = _REPO_ROOT / "CONTRIBUTING.md"
 _CLAUDE_MD = _REPO_ROOT / "CLAUDE.md"
 _PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
+_ENTERPRISE_README = _REPO_ROOT / "mloda" / "enterprise" / "README.md"
 # AGENTS.md is a byte-identical copy of CLAUDE.md, covered by test_agent_guidance.py.
 _SETUP_COMMAND_DOCS = (_README, _CONTRIBUTING, _CLAUDE_MD, _PACKAGING_DOC)
 # The `real-wheel` job body: from its key line to the next job key or end of file.
@@ -194,3 +199,50 @@ def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None
             assert "--all-extras" not in tokens, f"{name}: `{command}` uses `--all-extras`; use `--extra dev`"
             assert "--all-packages" in tokens, f"{name}: `{command}` lacks `--all-packages`"
             assert extras == ["dev"], f"{name}: `{command}` requests extras {extras}; expected exactly ['dev']"
+
+
+def test_guide_does_not_point_at_the_private_wrapper_repo() -> None:
+    """The public guide must not link to or mention the private wrapper repo."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    assert "github.com/mloda-ai/mloda-binary-wrapper" not in content, "guide 29 links to the private wrapper repo"
+    assert "private wrapper repo" not in content.lower(), "guide 29 mentions the 'private wrapper repo'"
+
+
+def test_guide_documents_the_anonymizer_key_derivation() -> None:
+    """The guide names the HKDF derivation and its ``anonymizer-rs-anon`` info label."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    assert "HKDF" in content, "guide 29 must document the HKDF key derivation"
+    assert "anonymizer-rs-anon" in content, "guide 29 must name the `anonymizer-rs-anon` derivation label"
+
+
+def test_enterprise_readme_names_license_variables_and_has_no_relative_links() -> None:
+    """The PyPI description exists, names both license variables and uses only absolute or anchor links."""
+    assert _ENTERPRISE_README.is_file(), f"{_ENTERPRISE_README} must exist (PyPI description of mloda-enterprise)"
+    content = _ENTERPRISE_README.read_text(encoding="utf-8")
+    assert "MLODA_LICENSE_FILE" in content, "README must name MLODA_LICENSE_FILE"
+    assert "MLODA_LICENSE_KEY" in content, "README must name MLODA_LICENSE_KEY"
+    relative = [
+        target
+        for target in re.findall(r"\]\(([^)\s]*)", content)
+        if not target.startswith(("http://", "https://", "#"))
+    ]
+    assert not relative, f"PyPI does not resolve relative links; found {relative}"
+
+
+def test_enterprise_readme_quick_start_runs_up_to_the_license_or_wheel_check(tmp_path: Path) -> None:
+    """The README python snippet runs up to the license check (wheel present) or the install hint (absent)."""
+    assert _ENTERPRISE_README.is_file(), f"{_ENTERPRISE_README} must exist (PyPI description of mloda-enterprise)"
+    match = re.search(r"```python\n(.*?)```", _ENTERPRISE_README.read_text(encoding="utf-8"), re.DOTALL)
+    assert match is not None, "README must contain a ```python quick-start block"
+    env = {**os.environ, "PII_KEY": "11" * 32}
+    env.pop("MLODA_LICENSE_FILE", None)
+    env.pop("MLODA_LICENSE_KEY", None)
+    proc = subprocess.run(  # nosec
+        [sys.executable, "-c", match.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120
+    )
+    assert proc.returncode != 0, f"snippet should fail without a license or wheel; stdout:\n{proc.stdout}"
+    if importlib.util.find_spec("anonymizer_binary") is not None:
+        assert "LicenseMissingError" in proc.stderr, f"stderr was:\n{proc.stderr}"
+    else:
+        assert "BinaryUnavailableError" in proc.stderr, f"stderr was:\n{proc.stderr}"
+        assert "mloda-enterprise[anonymizer]" in proc.stderr, f"stderr was:\n{proc.stderr}"
