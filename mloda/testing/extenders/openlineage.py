@@ -11,11 +11,12 @@ import sys
 import textwrap
 import threading
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
 import pyarrow as pa
 import pytest
@@ -221,6 +222,14 @@ def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
 
 
 ROOT_JOB_NAME = "mloda.run_all"
+
+
+def _expected_step_run_id(
+    run_id: str | None, job_name: str, feature_names: Iterable[str], compute_framework_name: str | None, step_uuid: UUID
+) -> str:
+    """The step RunEvent runId: uuid5 of the root run id over the step key."""
+    key = json.dumps([job_name, sorted(feature_names), compute_framework_name, str(step_uuid)])
+    return str(uuid.uuid5(uuid.UUID(str(run_id)), key))
 
 
 class _CalculateContextProbe(Extender):
@@ -840,15 +849,15 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         for context in probe.contexts:
             assert context.feature_group_class is not None
             assert context.step_uuid is not None
-            key = json.dumps(
-                [
+            expected.add(
+                _expected_step_run_id(
+                    root_run_id,
                     context.feature_group_class,
-                    sorted(context.feature_names),
+                    context.feature_names,
                     context.compute_framework_name,
-                    str(context.step_uuid),
-                ]
+                    context.step_uuid,
+                )
             )
-            expected.add(str(uuid.uuid5(uuid.UUID(root_run_id), key)))
         step_start_ids = {
             event.run.runId
             for event in self.calculate_run_events(transport.events)
@@ -900,11 +909,22 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             if outcome == "fail":
                 raise RuntimeError("trace boom")
 
+        job_name = "mloda.testing.TraceFeatureGroup"
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            run_id=str(uuid.uuid4()),
+            feature_group_class=job_name,
+            step_uuid=uuid.uuid4(),
+        )
+        assert context.step_uuid is not None
+        step_id = _expected_step_run_id(
+            context.run_id, job_name, context.feature_names, context.compute_framework_name, context.step_uuid
+        )
         provider, _ = make_span_capture()
         tracer = provider.get_tracer("openlineage-trace-test")
-        with tracer.start_as_current_span("step") as span:
+        with tracer.start_as_current_span("step", attributes={"mloda.step.run_id": step_id}) as span:
             ctx = span.get_span_context()
-            with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with context.activate():
                 if outcome == "fail":
                     with pytest.raises(RuntimeError, match="trace boom"):
                         extender(func)
@@ -918,6 +938,25 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             assert trace_facet is not None, event.eventType
             assert trace_facet.traceId == format(ctx.trace_id, "032x")  # type: ignore[attr-defined]
             assert trace_facet.spanId == format(ctx.span_id, "016x")  # type: ignore[attr-defined]
+
+    def test_openlineage_calculate_events_have_no_mloda_trace_for_a_span_of_another_step(self) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from mloda.testing.extenders.otel import make_span_capture
+
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        provider, _ = make_span_capture()
+        tracer = provider.get_tracer("openlineage-trace-test")
+
+        with tracer.start_as_current_span("other", attributes={"mloda.step.run_id": "another-step"}):
+            with make_hook_context(
+                hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=str(uuid.uuid4())
+            ).activate():
+                extender(lambda: None)
+
+        assert [e.eventType for e in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            assert "mlodaTrace" not in (event.run.facets or {})
 
     @pytest.mark.parametrize("current", ["non_recording_span", "no_span"])
     def test_openlineage_calculate_events_have_no_mloda_trace_without_a_recording_span(self, current: str) -> None:

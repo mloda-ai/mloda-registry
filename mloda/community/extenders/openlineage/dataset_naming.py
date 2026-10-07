@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import os
-
 from openlineage.client.naming.dataset import ABFSS, GCS, S3, DatasetNaming, LocalFileSystem
 
 _ABFSS_SUFFIX = ".dfs.core.windows.net"
 
 
 def load_dataset(identity: str, fallback_namespace: str) -> tuple[str, str]:
-    """(namespace, name) for s3, gs, abfss, file URIs and existing absolute paths; anything else, or any
+    """(namespace, name) for s3, gs, abfss, file URIs and absolute paths; anything else, or any
     failure, is (fallback_namespace, identity). Never raises."""
     try:
         naming = _naming(identity)
@@ -19,9 +17,10 @@ def load_dataset(identity: str, fallback_namespace: str) -> tuple[str, str]:
     if naming is None:
         return fallback_namespace, identity
     try:
-        return naming.get_namespace(), naming.get_name()
+        namespace, name = naming.get_namespace(), naming.get_name()
     except Exception:
         return fallback_namespace, identity
+    return (namespace, name) if name.strip("/") else (fallback_namespace, identity)
 
 
 def _naming(identity: str) -> DatasetNaming | None:
@@ -29,8 +28,8 @@ def _naming(identity: str) -> DatasetNaming | None:
         return None
     scheme, sep, rest = identity.partition("://")
     if not sep:
-        if identity.startswith("/") and os.path.exists(identity):
-            return LocalFileSystem(path=identity) if "@" not in identity else None
+        if identity.startswith("/") and "@" not in identity and "::" not in identity:
+            return LocalFileSystem(path=identity)
         return None
     scheme = scheme.lower()
     authority, slash, path = rest.partition("/")

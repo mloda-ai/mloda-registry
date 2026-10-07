@@ -47,7 +47,7 @@ _PendingDescribe = Callable[[], Any] | None
 
 @dataclass
 class _LoadState:
-    """One open calculate call's per-identity pending loads, described lazily and once each, on first use."""
+    """One open calculate call's per-dataset pending loads, described lazily and once each, on first use."""
 
     _pending: dict[tuple[str, str], list[_PendingDescribe]] = field(default_factory=dict)
     _described: dict[tuple[str, str], frozenset[str] | None] = field(default_factory=dict)

@@ -1692,6 +1692,29 @@ class TestLineageFacetsValidationRuns:
             _job(_PassingValidators),
         }
 
+    def test_validation_runs_carry_no_mloda_trace_even_under_an_otel_extender(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from mloda.community.extenders.otel.otel_extender import OtelExtender
+        from mloda.testing.extenders.otel import make_span_capture
+
+        client, transport = ol_capture
+        provider, _ = make_span_capture()
+        extender = LineageFacetsExtender(client=client)
+
+        mloda.run_all(
+            list(_PassingValidators.outputs),
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=PluginCollector.enabled_feature_groups({_Root, _PassingValidators}),
+            function_extender={OtelExtender(tracer_provider=provider), extender},
+        )
+
+        validation_events = [e for e in transport.events if e.job.name.endswith(_VALIDATION_JOB_SUFFIXES)]
+        assert validation_events
+        for event in validation_events:
+            assert "mlodaTrace" not in (event.run.facets or {})
+
     def test_default_validators_emit_no_validation_run(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:

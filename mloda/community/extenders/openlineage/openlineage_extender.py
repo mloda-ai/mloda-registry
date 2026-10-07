@@ -30,7 +30,7 @@ from mloda.community.extenders.shared.open_invocations import OpenInvocationStac
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, capped_close_timeout
-from mloda.community.extenders.shared.trace_context import active_span_ids
+from mloda.community.extenders.shared.trace_context import active_step_span_ids
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
@@ -129,27 +129,26 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
 
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
-    INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client wins,
-    else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking transport
-    delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s) and the
-    worker's remaining close budget, and is terminal. A self-built client is rebuilt per worker; an injected client
-    that can't survive pickling is dropped by a trial-pickle probe and falls back to the resolution rule above,
-    while a picklable injected client is pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING
-    worker exit; raise close_timeout together with graceful_shutdown_timeout for a buffered transport (e.g.
-    async_http, kafka) to fully drain, otherwise events past the budget are lost. The parent-death path is best
-    effort. Load datasets are named from core's data_access_identity: s3, gs, abfss and file identities (and
-    existing absolute paths) map to an OpenLineage namespace and name, any other keeps dataset_namespace with the
-    identity as its name; the dataSource facet always carries the identity. With a recording OpenTelemetry span
-    current, step runs carry an mlodaTrace facet (traceId, spanId); priority is 110 so OtelExtender wraps outside.
-    Any fallback load of a name
-    (core's data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess facet (identityIsFallback
-    true), so consumers can tell a placeholder from a dataset. After a transport failure (connection, timeout, HTTP
-    5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
-    terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such
-    as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass seams: producer,
-    job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
-    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
-    assert_openlineage_extender_seams in mloda.testing."""
+    INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client
+    wins, else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking
+    transport delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s) and
+    the worker's remaining close budget, and is terminal. A self-built client is rebuilt per worker; an injected
+    client that can't survive pickling is dropped by a trial-pickle probe and falls back to the resolution rule
+    above, while a picklable injected client is pickled as-is. Core calls close() with no args on graceful
+    MULTIPROCESSING worker exit; raise close_timeout together with graceful_shutdown_timeout for a buffered
+    transport (e.g. async_http, kafka) to fully drain, otherwise events past the budget are lost. The parent-death
+    path is best effort. Load datasets are named from core's data_access_identity: s3, gs, abfss and file identities
+    (and absolute paths) map to an OpenLineage namespace and name, any other keeps dataset_namespace with the
+    identity as its name; the dataSource facet always carries the identity. A calculate step run carries an
+    mlodaTrace facet (traceId, spanId) when its own OtelExtender span is current; priority is 110 so OtelExtender
+    wraps outside. Any fallback load of a name (core's data_access_identity_is_fallback) marks its dataset with an
+    mlodaDataAccess facet (identityIsFallback true), so consumers can tell a placeholder from a dataset. After a
+    transport failure (connection, timeout, HTTP 5xx/408/429) in a run, that run's new steps skip emission for a
+    minute; steps already started still emit their terminal event, and raise_on_error=True disables the skip. Only
+    OSError-based failures (requests transports such as http) trip it; other transports (kafka, composite, cloud
+    SDKs) never do. Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch,
+    _call_input_data_load, _call_calculate_feature, _calculate_run_facets, _calculate_output_facets,
+    _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -165,8 +164,6 @@ class OpenLineageExtender(Extender):
         root_job_name: str = "mloda.run_all",
         use_sdk_defaults: bool = False,
     ) -> None:
-        # Above OtelExtender's default 100, so its step span is current while this extender emits.
-        self.priority = 110
         self.raise_on_error = raise_on_error
         self._client = client
         self.job_namespace = job_namespace
@@ -185,6 +182,15 @@ class OpenLineageExtender(Extender):
         self._owns_client = client is None
         # Registry entry if injected, else a private state created upfront for the lazy build.
         self._close_state = _get_or_create_close_state(client) if client is not None else _CloseState()
+
+    @property
+    def priority(self) -> int:
+        """Default 110, above OtelExtender's 100, so its step span is current while this extender emits."""
+        return getattr(self, "_priority", 110)
+
+    @priority.setter
+    def priority(self, value: int) -> None:
+        self._priority = value
 
     def _get_client(self) -> OpenLineageClient | None:
         if self._closed or self._close_state.closed:
@@ -511,7 +517,8 @@ class OpenLineageExtender(Extender):
             if context is not None
             else None
         )
-        run = Run(runId=derived or str(uuid.uuid4()), facets=self._with_trace_facet(run_facets))
+        run_id = derived or str(uuid.uuid4())
+        run = Run(runId=run_id, facets=self._with_trace_facet(run_id, run_facets))
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 
         # Unguarded on purpose: this call must propagate naturally so CompositeExtender's
@@ -552,10 +559,10 @@ class OpenLineageExtender(Extender):
 
         return result
 
-    def _with_trace_facet(self, run_facets: dict[str, Any]) -> dict[str, Any]:
-        """A copy of run_facets with an mlodaTrace pointer to the recording current span, if any."""
+    def _with_trace_facet(self, run_id: str, run_facets: dict[str, Any]) -> dict[str, Any]:
+        """A copy of run_facets with an mlodaTrace pointer to the current span if it is this step's own span."""
         try:
-            ids = active_span_ids(recording_only=True)
+            ids = active_step_span_ids(run_id)
             if ids is None:
                 return run_facets
             # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.

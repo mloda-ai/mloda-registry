@@ -50,3 +50,52 @@ def test_unimportable_opentelemetry_gives_none(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.setitem(sys.modules, "opentelemetry.trace", None)
 
     assert active_span_ids(recording_only=recording_only) is None
+
+
+_STEP_RUN_ID = "step-run-1"
+
+
+def _step_ids(step_run_id: str) -> tuple[str, str] | None:
+    from mloda.community.extenders.shared.trace_context import active_step_span_ids
+
+    return active_step_span_ids(step_run_id)
+
+
+def test_the_step_lookup_gives_ids_for_a_recording_span_with_the_matching_step_run_id() -> None:
+    provider, _ = make_span_capture()
+
+    with provider.get_tracer("trace-context-test").start_as_current_span(
+        "step", attributes={"mloda.step.run_id": _STEP_RUN_ID}
+    ) as span:
+        ctx = span.get_span_context()
+        ids = _step_ids(_STEP_RUN_ID)
+
+    assert ids == (format(ctx.trace_id, "032x"), format(ctx.span_id, "016x"))
+
+
+@pytest.mark.parametrize(
+    "attributes", [{"mloda.step.run_id": "other"}, {}], ids=["mismatched_step_run_id", "missing_attribute"]
+)
+def test_the_step_lookup_gives_none_for_a_recording_span_without_the_matching_step_run_id(
+    attributes: dict[str, str],
+) -> None:
+    provider, _ = make_span_capture()
+
+    with provider.get_tracer("trace-context-test").start_as_current_span("step", attributes=attributes):
+        assert _step_ids(_STEP_RUN_ID) is None
+
+
+def test_the_step_lookup_gives_none_for_a_non_recording_span() -> None:
+    with trace.use_span(make_non_recording_span()):
+        assert _step_ids(_STEP_RUN_ID) is None
+
+
+def test_the_step_lookup_gives_none_without_a_span() -> None:
+    assert _step_ids(_STEP_RUN_ID) is None
+
+
+def test_the_step_lookup_gives_none_when_opentelemetry_is_unimportable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "opentelemetry", None)
+    monkeypatch.setitem(sys.modules, "opentelemetry.trace", None)
+
+    assert _step_ids(_STEP_RUN_ID) is None

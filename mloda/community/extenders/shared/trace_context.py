@@ -16,3 +16,16 @@ def active_span_ids(*, recording_only: bool = False) -> tuple[str, str] | None:
         return format(span_context.trace_id, "032x"), format(span_context.span_id, "016x")
     except Exception:
         return None
+
+
+def active_step_span_ids(step_run_id: str) -> tuple[str, str] | None:
+    """Ids of the current recording span only if its mloda.step.run_id attribute equals step_run_id."""
+    try:
+        from opentelemetry import trace
+
+        attributes = getattr(trace.get_current_span(), "attributes", None)
+        if attributes is None or attributes.get("mloda.step.run_id") != step_run_id:
+            return None
+        return active_span_ids(recording_only=True)
+    except Exception:
+        return None
