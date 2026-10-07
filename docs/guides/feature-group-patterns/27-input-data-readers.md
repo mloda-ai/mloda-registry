@@ -132,6 +132,64 @@ A reader that overrides `load_data` wholesale is classified as a final reader st
 
 Extenders record the data access through the reader's `data_access_identity(data_access)` classmethod. Core's default keeps a URL's scheme, host and path and drops the query (a URL it cannot parse, such as one with `@` in the query, becomes `str`), so endpoints that differ only in their query share one identity in audit records, lineage datasets and spans. Override it for a finer identity: its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Core flags a fallback identity (`data_access_identity_is_fallback`); audit records and load spans carry the flag and lineage marks the dataset.
 
+## Reader Options
+
+Declare the options a reader reads in `READER_OPTIONS`, one `PropertySpec` per key (declarations merge along the class hierarchy, the subclass winning), and read them with `cls.reader_option(key, options)`. It reads the group or context value as given, falls back to the declared default, and raises `ValueError` for an undeclared key, or for an absent key with no default (such a key is required at match time):
+
+```python
+from typing import Any, ClassVar
+from mloda.provider import FeatureSet, PropertySpec
+
+
+class UbaAirReader(ReadFile):
+    READER_OPTIONS: ClassVar[dict[str, PropertySpec]] = {
+        "uba_station": PropertySpec(
+            "One station id",
+            default=None,
+            strict_validation=True,
+            scalar_only=True,
+            element_validator=lambda value: isinstance(value, str),
+        ),
+    }
+
+    @classmethod
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
+        station = cls.reader_option("uba_station", features.options)  # None when unset
+        ...
+```
+
+`strict_validation=True` (which needs `allowed_values` or an `element_validator`) checks a list, tuple or set value element by element, so `["DEBE010", "DEBE034"]` passes. `scalar_only=True` rejects the collection outright; it exists only on `PropertySpec` (not the `property_spec` builder) and requires `strict_validation=True`. Both checks run at match time, before `match_subclass_data_access` is called: a value they refuse makes the reader a non-match, and the resolution error names the reason, for example `reader option 'uba_station' value is a list of 2 elements, but the declaration of UbaAirReader marks it scalar_only and rejects a collection outright`. See [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the spec fields.
+
+## Required Declarations
+
+A consumer that needs a property of its input's source (a unit, a scale) requires it on the input feature instead of having the reader inspect consumer options and call `record_match_rejection`. Readers and feature groups declare scalars with a `declared_attributes(features)` classmethod (the same declarations extenders record, see [Declared attributes](../11-create-extender.md#declared-attributes)):
+
+```python
+from typing import Any
+from collections.abc import Mapping
+from mloda.provider import FeatureGroup, FeatureSet
+from mloda.user import Feature, FeatureName, Options
+
+
+class Pm10Rebased(FeatureGroup):
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature("pm10_value", required_declarations={"scale": None})}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any: ...
+
+
+class UbaAirReader(ReadFile):
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
+        return {"scale": 0.001}  # unknown scale: omit the key, never declare a placeholder
+```
+
+- `None` requires the key with any value, so a declarer that does not know the value omits the key: a placeholder such as `""` or `"unknown"` satisfies the requirement. A concrete value (`{"scale": 0.001}`) must be equal and of the same type.
+- Core checks the candidate group's declarations merged with the selected reader's (the reader wins on a shared key) at plan time, calling `declared_attributes` with `features=None`, so a declaration must not depend on the `FeatureSet`. A reader that misses is skipped, so a sibling that declares the key can match.
+- A refused run fails at plan time, before loading any data, with a reason such as `Pm10Rebased requires declared 'scale'; UbaAirReader declares none` (or `requires declared 'scale' == 5; UbaAirReader declares 0.001` for a value).
+- Add the requirement only when a consumer option asks for it to keep the check opt-in. A chained group whose `input_features` builds plain features from the parsed name overrides `input_features` to attach it. A top-level request can carry it too (`Feature("pm10_value", required_declarations={"scale": None})`).
+
 ## Decline Names You Cannot Confirm
 
 A wholesale `match_subclass_data_access` override replaces `ReadFile`'s own column check entirely, so nothing stops it from claiming a feature name it has no way to verify. If a consumer's own name is chain-shaped (`value__rebased`) and it forwards this reader's option key to its upstream source feature (Pattern 26), an unconditional accept collides with the root group using the same reader, and resolution fails with `Multiple feature groups found`, pointing at neither reader as the cause.
@@ -159,7 +217,7 @@ def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], 
 
 A stock `ReadFile` subclass that never implements `get_column_names`, and a stock `ReadDB` subclass that never implements `check_feature_in_data_access`, already decline a chain-separated name for free from mloda core, recorded rejection included, unless the name is pinned via `column_to_file`. Only a wholesale `match_subclass_data_access` override needs the decline written out like this: it bypasses the built-in check entirely, so a subclass that declares `get_column_names` but raises `NotImplementedError` gets neither the free decline nor a wholesale one. If your reader can list its columns, prefer that over a wholesale override: implement `get_column_names` (or `check_feature_in_data_access` for `ReadDB`) instead, and let the built-in check do the work for you.
 
-If your wholesale override still matches by file suffix (i.e. you do implement `suffix()`, unlike the HTTP case above), delegate to `cls._file_matches(path, feature_names, document_suffixes)` rather than hand-writing this check: it returns a bool, so use `return path if cls._file_matches(...) else None`, and it keeps the `document_suffixes` exclusion (from `cls.reader_option("document_suffixes", options)`), `validate_columns`, and the recorded decline intact.
+If your wholesale override still matches by file suffix (i.e. you do implement `suffix()`, unlike the HTTP case above), delegate to `cls._file_matches(path, feature_names, document_suffixes)` rather than hand-writing this check: it returns a bool, so use `return path if cls._file_matches(...) else None`, and it keeps the `document_suffixes` exclusion (from `cls.reader_option("document_suffixes", options)`, see [Reader Options](#reader-options)), `validate_columns`, and the recorded decline intact.
 
 ## Column Discovery
 

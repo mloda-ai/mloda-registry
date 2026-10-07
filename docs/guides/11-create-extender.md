@@ -182,7 +182,7 @@ Feature names are published as given wherever they become dataset names: declare
 
 ## Declared attributes
 
-A `FeatureGroup` or reader declares span attributes with a `declared_attributes(features)` classmethod. Core calls it (the feature group's on calculate, the reader's on load) and hands the scalar result to extenders as `HookContext.declared_attributes`; a raise or a non-mapping return degrades to `None` with a core WARNING. `OtelExtender` sets each entry as `mloda.declared.<key>` before the wrapped call runs, on calculate and load spans only. Metadata only: do not echo option values back, since `FeatureSet` options can carry credentials.
+A `FeatureGroup` or reader declares span attributes with a `declared_attributes(features)` classmethod. Core calls it (the feature group's on calculate, the reader's on load) and hands the scalar result to extenders as `HookContext.declared_attributes`; a raise or a non-mapping return degrades to `None` with a core WARNING. `OtelExtender` sets each entry as `mloda.declared.<key>` before the wrapped call runs, on calculate and load spans only. Metadata only: do not echo option values back, since `FeatureSet` options can carry credentials. Consumers can require these declarations at plan time, see [Required Declarations](feature-group-patterns/27-input-data-readers.md#required-declarations).
 
 - Skipped when the span is not recording, or when nothing is declared.
 - Only scalar values (`str`, `bool`, `int`, `float`) are kept; `str` is truncated to the content preview cap.

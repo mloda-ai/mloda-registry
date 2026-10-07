@@ -163,7 +163,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 24 | `24-realtime.md` | Reuse execution plans with `prepare` + `run` |
 | 25 | `25-masking.md` | Conditional aggregation via FilterMask |
 | 26 | `26-input-feature-forwarding.md` | Consume another group's root feature; option forwarding |
-| 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers |
+| 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers; reader options; required declarations |
 | 28 | `28-backend-families.md` | Pick one sibling backend: name, discriminator option, or reader |
 | 29 | `29-binary-backed-features.md` | Compiled, license-gated binary as a black-box model over Arrow IPC |
 
