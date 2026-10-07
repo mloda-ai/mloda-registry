@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import re
 import reprlib
 import threading
 from collections import OrderedDict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -68,6 +69,8 @@ _RUN_ID_PARENT_SPAN_ID = 0x0000000000000001
 # is large enough to hold a presigned URL with a session token.
 _SCRUB_WINDOW = 8192
 _SECRET_KEY_TAIL = 64
+# Shorter value forms match a redacting repr by coincidence.
+_MIN_SHOWN_VALUE_LEN = 5
 # Authorization keys core's anchored pattern misses (X-Authorization, HTTP_AUTHORIZATION, ...).
 _AUTHORIZATION_KEY = re.compile(r"(?:^|[-_])authorization(?:[-_]header)?\Z", re.IGNORECASE)
 
@@ -97,6 +100,16 @@ def _sorted_if_possible(keys: list[Any]) -> list[Any]:
         return keys
 
 
+def _repr_shows_values(x: Mapping[Any, Any], s: str, limit: int) -> bool:
+    if type(x).__repr__ is object.__repr__:
+        return False
+    for key in itertools.islice(x, limit):
+        v = x[key]
+        if any(len(form) >= _MIN_SHOWN_VALUE_LEN and form in s for form in (repr(v), str(v))):
+            return True
+    return False
+
+
 _CONTAINER_BASES = (dict, tuple, list, set, frozenset, deque)
 
 
@@ -106,12 +119,12 @@ def _has_stdlib_repr(x: object) -> bool:
     return module in ("builtins", "collections")
 
 
-# Scrubs before reprlib's cut and redacts values under secret-named dict keys and secret-keyed pairs.
+# Scrubs before reprlib's cut and redacts values under secret-named mapping keys and secret-keyed pairs.
 class _ScrubbingRepr(reprlib.Repr):
     def repr_str(self, x: str, level: int) -> str:
         return super().repr_str(_scrub_ends(x), level)
 
-    def repr_dict(self, x: dict[Any, Any], level: int) -> str:
+    def repr_dict(self, x: Mapping[Any, Any], level: int) -> str:
         if not x:
             return "{}"
         if level <= 0:
@@ -140,6 +153,8 @@ class _ScrubbingRepr(reprlib.Repr):
             if isinstance(x, base):
                 renderer: Callable[[Any, int], str] = getattr(self, "repr_" + base.__name__)
                 return renderer(x, level)
+        if isinstance(x, Mapping):
+            return self.repr_dict(x, level)
         return None
 
     def repr_instance(self, x: object, level: int) -> str:
@@ -148,7 +163,11 @@ class _ScrubbingRepr(reprlib.Repr):
             routed = self._repr_stdlib_container(x, level)
             if routed is not None:
                 return routed
-            s = _scrub_ends(repr(x))
+            raw = repr(x)
+            # A custom repr that shows its values is rendered masked; one that hides them is kept.
+            if isinstance(x, Mapping) and _repr_shows_values(x, raw, self.maxdict):
+                return self.repr_dict(x, level)
+            s = _scrub_ends(raw)
         except Exception:
             return "<%s instance at %#x>" % (x.__class__.__name__, id(x))
         if len(s) > self.maxother:
