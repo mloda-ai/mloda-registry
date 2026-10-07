@@ -887,20 +887,8 @@ class _RedactedMapping(Mapping[str, Any]):
         return "_RedactedMapping(***)"
 
 
-class _ReformattingMapping(Mapping[str, Any]):
+class _ReformattingMapping(_RedactedMapping):
     """Mapping whose repr reformats values into neither repr(v) nor str(v)."""
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        self._data = dict(data)
-
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._data)
-
-    def __len__(self) -> int:
-        return len(self._data)
 
     def __repr__(self) -> str:
         parts = []
