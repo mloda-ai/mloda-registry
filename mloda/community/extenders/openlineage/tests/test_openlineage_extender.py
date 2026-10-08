@@ -15,6 +15,9 @@ import json
 import logging
 import os
 import pickle  # nosec
+import signal
+import subprocess  # nosec
+import sys
 import threading
 import time
 import uuid
@@ -1909,22 +1912,31 @@ class TestOpenLineageExtenderParentRun:
         assert datetime.fromisoformat(event.eventTime) >= before
 
     @pytest.mark.parametrize(
-        ("status", "state"),
+        ("status", "error_type", "state"),
         [
-            pytest.param("succeeded", RunState.COMPLETE, id="succeeded"),
-            pytest.param("failed", RunState.FAIL, id="failed"),
-            pytest.param("cancelled", RunState.ABORT, id="cancelled"),
+            pytest.param("succeeded", None, RunState.COMPLETE, id="succeeded"),
+            pytest.param("failed", None, RunState.FAIL, id="failed"),
+            pytest.param("cancelled", None, RunState.ABORT, id="cancelled"),
+            pytest.param("failed", "SystemExit", RunState.ABORT, id="failed-system-exit"),
+            pytest.param(
+                "failed", "builtins.KeyboardInterrupt", RunState.ABORT, id="failed-qualified-keyboard-interrupt"
+            ),
+            pytest.param("failed", "ValueError", RunState.FAIL, id="failed-value-error"),
         ],
     )
     def test_run_complete_emits_the_terminal_event_for_the_outcome(
-        self, status: Any, state: RunState, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+        self,
+        status: Any,
+        error_type: str | None,
+        state: RunState,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
 
         extender.on_run_start(run, _plan(), ())
-        extender.on_run_complete(run, LifecycleOutcome(status=status))
+        extender.on_run_complete(run, LifecycleOutcome(status=status, error_type=error_type))
 
         assert [event.eventType for event in transport.events] == [RunState.START, state]
         terminal = transport.events[1]
@@ -3532,3 +3544,105 @@ class TestOpenLineageExtenderSubclassSeams:
     ) -> None:
         with pytest.raises(AssertionError):
             assert_openlineage_extender_seams(extender_class, OpenLineageExtender)
+
+
+_SIGTERM_TRANSPORT_MODULE = """
+import json, os
+from pathlib import Path
+from openlineage.client.serde import Serde
+from openlineage.client.transport.transport import Config, Transport
+
+
+class SigtermTransport(Transport):
+    kind = "sigterm-transport"
+    config_class = Config
+
+    def __init__(self, config):
+        self._dir = Path(os.environ["MLODA_TEST_OL_DIR"])
+
+    def emit(self, event):
+        with open(self._dir / "events.ndjson", "a") as handle:
+            handle.write(Serde.to_json(event) + "\\n")
+
+    def close(self, timeout=-1.0):
+        (self._dir / "closed.marker").write_text("closed")
+        return True
+"""
+
+_SIGTERM_CHILD = """
+import sys, time
+import pyarrow as pa
+from mloda.provider import BaseInputData, FeatureGroup
+from mloda.user import PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
+from mloda.community.extenders.shared import termination
+from mloda.core.abstract_plugins.components.parallelization_modes import ParallelizationMode
+
+
+class SigtermSleepingFeature(FeatureGroup):
+    @classmethod
+    def input_data(cls):
+        return None
+
+    @classmethod
+    def match_feature_group_criteria(cls, feature_name, options, data_access_collection=None):
+        return str(getattr(feature_name, "name", feature_name)) == "sigterm_sleeping"
+
+    @classmethod
+    def compute_framework_rule(cls):
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data, features):
+        print("ready", flush=True)
+        time.sleep(120)
+        return {"sigterm_sleeping": [1]}
+
+
+termination.install_sigterm_handler()
+mloda.run_all(
+    ["sigterm_sleeping"],
+    compute_frameworks=[PyArrowTable],
+    plugin_collector=PluginCollector.enabled_feature_groups({SigtermSleepingFeature}),
+    function_extender={OpenLineageExtender(use_sdk_defaults=True)},
+    parallelization_modes={ParallelizationMode.SYNC},
+)
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+class TestOpenLineageExtenderSigterm:
+    """SIGTERM during a real run: exit 143, step and run events end in ABORT, and the atexit close ran."""
+
+    def test_sigterm_mid_run_aborts_the_step_and_the_run_and_closes_the_transport(self, tmp_path: Path) -> None:
+        (tmp_path / "sigterm_transport.py").write_text(_SIGTERM_TRANSPORT_MODULE, encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if not k.startswith(_OPENLINEAGE_ENV_PREFIXES)}
+        env["PYTHONPATH"] = os.pathsep.join([str(tmp_path), env.get("PYTHONPATH", "")])
+        env["MLODA_TEST_OL_DIR"] = str(tmp_path)
+        env["OPENLINEAGE__TRANSPORT__TYPE"] = "sigterm_transport.SigtermTransport"
+        proc = subprocess.Popen(  # nosec
+            [sys.executable, "-c", _SIGTERM_CHILD],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        try:
+            assert proc.stdout is not None
+            line = proc.stdout.readline()
+            assert "ready" in line, proc.stderr.read() if proc.stderr else ""
+            proc.send_signal(signal.SIGTERM)
+            proc.communicate(timeout=120)
+        finally:
+            proc.kill()
+            proc.wait()
+
+        assert proc.returncode == 143
+        events = [json.loads(raw) for raw in (tmp_path / "events.ndjson").read_text(encoding="utf-8").splitlines()]
+        by_job: dict[str, list[str]] = {}
+        for event in events:
+            by_job.setdefault(event["job"]["name"], []).append(event["eventType"])
+        assert by_job.pop("mloda.run_all") == ["START", "ABORT"]
+        assert list(by_job.values()) == [["START", "ABORT"]]
+        assert (tmp_path / "closed.marker").exists()

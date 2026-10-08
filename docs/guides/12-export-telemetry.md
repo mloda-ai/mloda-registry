@@ -205,6 +205,81 @@ env:
 
 Spark steps in the same pipeline read `spark.openlineage.parentJobNamespace`, `parentJobName` and `parentRunId` (and `rootParentJobNamespace`, `rootParentJobName`, `rootParentRunId`) at session start. Set them to the same orchestrator values so Spark's runs and the mloda run are siblings under the orchestrator task. Spark cannot point at an individual mloda step, since core mints the mloda run id inside `run_all`.
 
+## Run on Kubernetes
+
+### End a run on SIGTERM
+
+Eviction, preemption, spot loss and rollouts send SIGTERM. Python's default action exits without running `atexit`, so the run keeps a START event with no terminal event and its open spans are lost. Opt in from the batch entrypoint (never from a library, and not in a server such as uvicorn, whose own graceful drain it would preempt):
+
+```python
+from mloda.community.extenders.shared.termination import install_sigterm_handler
+
+if __name__ == "__main__":
+    install_sigterm_handler(grace=25.0)  # a few seconds under terminationGracePeriodSeconds (default 30)
+    results = mloda.run_all(...)
+```
+
+On SIGTERM the handler calls any Python handler installed before it, then raises `SystemExit(143)` in the main thread. Open step spans end with status `ERROR`, open OpenLineage step runs and the root run end with ABORT, and the exit flushes run as on a normal exit (OpenLineage self-built clients, up to 10s each; the SDK providers' own exit flush). After `grace` seconds a watchdog ends the process with `os._exit(143)` whatever is still running, so anything not yet flushed is lost. Notes:
+
+- Run Python as PID 1 with an exec-form `CMD ["python", "main.py"]`, or under `tini`/`dumb-init`. A shell-form `CMD` makes `sh` PID 1, which does not forward SIGTERM.
+- The grace period also covers `preStop`, and the handler only runs once the main thread is back in Python (a long C call delays it). Keep the flush under `grace`: lower `OTEL_BSP_EXPORT_TIMEOUT` (default 30s) and prefer a short OpenLineage transport timeout.
+- Full ABORT and flush cover `SYNC` runs. A `THREADING` run waits for the step in flight before it unwinds, so a long step reaches the watchdog first. A `MULTIPROCESSING` step in flight is ended by core with a plain SIGTERM to its worker, so that step's terminal event and spans are lost; the root run still ends with ABORT.
+- `AuditExtender` flushes its sink but does not seal a run while terminating: the run stays pending for a `seal_ndjson_runs(..., older_than=...)` sweep, which seals it as `sealed_late` (see [Sealing and anchoring](11-create-extender.md#sealing-and-anchoring)). Schedule that sweep.
+
+### OpenTelemetry Operator
+
+The [OpenTelemetry Operator](https://opentelemetry.io/docs/platforms/kubernetes/operator/automatic/) injects Python auto-instrumentation: it sets the `OTEL_*` variables and puts a `sitecustomize` hook on `PYTHONPATH` that installs global tracer and meter providers. `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)` use them with no setup code, and spawned `MULTIPROCESSING` workers inherit `PYTHONPATH`, so they need no `child_bootstrap`.
+
+```yaml
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: mloda
+spec:
+  exporter:
+    endpoint: http://otel-collector:4318  # Python auto-instrumentation exports OTLP over HTTP
+  propagators: [tracecontext]
+  python:
+    env:
+      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+        value: requests,urllib3  # else OpenLineage http emits become client spans
+---
+# on the pod template
+metadata:
+  annotations:
+    instrumentation.opentelemetry.io/inject-python: "true"
+    # instrumentation.opentelemetry.io/otel-python-platform: "musl"  # Alpine images
+```
+
+The injected SDK shadows the image's own `opentelemetry` install, so pin compatible versions or leave the SDK out of the image.
+
+### Pod attributes in the Collector
+
+The Operator already sets `k8s.pod.name` and `k8s.namespace.name` in `OTEL_RESOURCE_ATTRIBUTES`. For labels and annotations, or for pods without the Operator, add the Collector's `k8sattributes` processor (its service account needs `get`, `watch` and `list` on pods, namespaces and replicasets). It enriches OTel signals only, never OpenLineage events.
+
+```yaml
+processors:
+  k8sattributes:
+    extract:
+      metadata: [k8s.namespace.name, k8s.pod.name, k8s.node.name, k8s.job.name, k8s.cronjob.name]
+      labels:
+        - tag_name: app
+          key: app.kubernetes.io/name
+          from: pod
+service:
+  pipelines:
+    traces:
+      processors: [k8sattributes, batch]
+```
+
+### Jobs and CronJobs
+
+A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`), else the Job never completes.
+
+### Serverless
+
+Lambda and Cloud Run freeze or stop the process after the handler returns, so exit-time flushes may never run, and Lambda delivers no SIGTERM to function code, so the handler does not apply. Before returning, call `force_flush()` on the tracer and meter providers. For OpenLineage use the synchronous `http` transport, which sends each event as it is emitted; do not call `OpenLineageExtender.close()` on a warm instance you reuse, since a closed extender emits nothing more (build one per invocation if you must close it).
+
 ## Multiprocessing, threads and asyncio
 
 - **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
