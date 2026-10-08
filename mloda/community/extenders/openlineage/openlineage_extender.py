@@ -619,14 +619,14 @@ class OpenLineageExtender(Extender):
 
 def _parse_parent_id(value: str) -> tuple[str, str, str] | None:
     """Split {namespace}/{job_name}/{run_id}; the namespace may contain slashes. None unless well formed."""
-    parts = value.rsplit("/", 2)
+    parts = value.strip().rsplit("/", 2)
     if len(parts) != 3 or not all(parts):
         return None
     try:
-        uuid.UUID(parts[2])
+        run_id = str(uuid.UUID(parts[2]))
     except ValueError:
         return None
-    return parts[0], parts[1], parts[2]
+    return parts[0], parts[1], run_id
 
 
 def _resolve_parent(
@@ -649,7 +649,9 @@ def _resolve_parent(
     if not from_env:
         return None, None
     parent_value = os.environ.get("OPENLINEAGE_PARENT_ID")
-    if not parent_value:
+    if not parent_value or not parent_value.strip():
+        if os.environ.get("OPENLINEAGE_ROOT_PARENT_ID"):
+            logger.warning("OPENLINEAGE_ROOT_PARENT_ID is set without OPENLINEAGE_PARENT_ID; no parent is attached")
         return None, None
     parent = _parse_parent_id(parent_value)
     if parent is None:

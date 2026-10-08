@@ -26,11 +26,14 @@ def extract_carrier(carrier: dict[str, str]) -> Context:
 
 def env_carrier() -> dict[str, str]:
     """Carrier from TRACEPARENT/TRACESTATE (never BAGGAGE) for run_all(carrier=...); {} unless TRACEPARENT is valid."""
-    carrier = {"traceparent": os.environ.get("TRACEPARENT", "")}
+    raw = {"traceparent": os.environ.get("TRACEPARENT", "")}
     if tracestate := os.environ.get("TRACESTATE"):
-        carrier["tracestate"] = tracestate
-    if not otel_trace_api.get_current_span(extract_carrier(carrier)).get_span_context().is_valid:
+        raw["tracestate"] = tracestate
+    context = extract_carrier(raw)
+    if not otel_trace_api.get_current_span(context).get_span_context().is_valid:
         return {}
+    carrier: dict[str, str] = {}
+    _PROPAGATOR.inject(carrier, context=context)
     return carrier
 
 

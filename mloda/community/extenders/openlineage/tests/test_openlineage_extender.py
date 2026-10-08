@@ -2144,22 +2144,37 @@ class TestOpenLineageExtenderParentRun:
             assert parent._producer == extender.producer
 
     @pytest.mark.parametrize(
-        ("parent_id", "expected_namespace", "expected_name"),
+        ("parent_id", "expected_namespace", "expected_name", "via_env"),
         [
-            pytest.param(_PARENT_ID, "airflow", "dag.task", id="missing-root-defaults-to-parent"),
-            pytest.param(f"kafka://host:9092/my.job/{_RUN_A}", "kafka://host:9092", "my.job", id="namespace-with-port"),
+            pytest.param(_PARENT_ID, "airflow", "dag.task", False, id="missing-root-defaults-to-parent"),
+            pytest.param(
+                f"kafka://host:9092/my.job/{_RUN_A}", "kafka://host:9092", "my.job", False, id="namespace-with-port"
+            ),
+            pytest.param(f"airflow/dag.task/{_RUN_A.replace('-', '').upper()}", "airflow", "dag.task", False, id="hex"),
+            pytest.param(f"airflow/dag.task/{{{_RUN_A.upper()}}}", "airflow", "dag.task", False, id="braces"),
+            pytest.param(f"airflow/dag.task/urn:uuid:{_RUN_A}", "airflow", "dag.task", False, id="urn"),
+            pytest.param(f"{_PARENT_ID}\n", "airflow", "dag.task", False, id="trailing-newline"),
+            pytest.param(f" {_PARENT_ID}\n", "airflow", "dag.task", True, id="env-surrounding-whitespace"),
         ],
     )
     def test_parent_id_parses_and_the_root_defaults_to_it(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        monkeypatch: pytest.MonkeyPatch,
         parent_id: str,
         expected_namespace: str,
         expected_name: str,
+        via_env: bool,
     ) -> None:
         client, transport = ol_capture
+        if via_env:
+            monkeypatch.setenv("OPENLINEAGE_PARENT_ID", parent_id)
+            monkeypatch.delenv("OPENLINEAGE_ROOT_PARENT_ID", raising=False)
+            extender = OpenLineageExtender(client=client, parent_from_env=True)
+        else:
+            extender = OpenLineageExtender(client=client, parent_id=parent_id)
 
-        parent = _parent_facet(_start_root(OpenLineageExtender(client=client, parent_id=parent_id), transport))
+        parent = _parent_facet(_start_root(extender, transport))
 
         assert (parent.job.namespace, parent.job.name, parent.run.runId) == (expected_namespace, expected_name, _RUN_A)
         assert parent.root is not None
@@ -2241,6 +2256,12 @@ class TestOpenLineageExtenderParentRun:
                 {"OPENLINEAGE_PARENT_ID": _PARENT_ID, "OPENLINEAGE_ROOT_PARENT_ID": "secret-malformed-value"},
                 True,
                 id="root",
+            ),
+            pytest.param(
+                "OPENLINEAGE_ROOT_PARENT_ID",
+                {"OPENLINEAGE_ROOT_PARENT_ID": "secret-malformed-value"},
+                False,
+                id="root-without-parent",
             ),
         ],
     )

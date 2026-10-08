@@ -176,12 +176,12 @@ With `OtelExtender` outside `OpenLineageExtender` (what the default priorities g
 
 ## Run under an orchestrator
 
-When a scheduler launches the process, attach the run to the scheduler's trace and lineage run. Both inputs come from the caller's environment, so treat them as trusted as `OPENLINEAGE_URL`: a spoofed parent id attaches runs under any job.
+When a scheduler launches the process, attach the run to the scheduler's trace and lineage run. Both inputs come from the caller's environment, so trust them as much as `OPENLINEAGE_URL`: a spoofed parent id attaches runs under any job.
 
 - **Trace:** `mloda.run_all(..., carrier=env_carrier())` (from `mloda.community.extenders.otel.otel_multiprocessing`) makes the run's root span a child of the span in `TRACEPARENT` (`TRACESTATE` is carried, `BAGGAGE` is never read). It returns `{}` when `TRACEPARENT` is unset or malformed, so the run starts its own trace. An unsampled `TRACEPARENT` (flags `00`) under the default `parentbased_always_on` sampler drops the whole run. With `trace_scope="plan"` the carrier is a span link, not the parent. Pass it only when no span is active; an active span you created is more specific.
 - **Lineage:** `OpenLineageExtender(parent_id=..., root_parent_id=...)` (also `LineageFacetsExtender`) takes `{namespace}/{job_name}/{run_id}` with a UUID `run_id`, the format of the Airflow macros below; a namespace may contain `/`. The root run's START and terminal events then carry a `parent` facet with `root`, and each step's `parent` facet gains the same `root`. A missing `root_parent_id` defaults to the parent. Malformed explicit ids raise `ValueError`; `root_parent_id` needs `parent_id`. `parent_from_env=True` reads `OPENLINEAGE_PARENT_ID` and `OPENLINEAGE_ROOT_PARENT_ID` once, when the extender is built, unless `parent_id` is given. A malformed env value logs one warning naming the variable (never its value) and is ignored. Without the opt-in the environment is never read.
 
-Airflow `KubernetesPodOperator` (`env_vars` is templated; the root macro needs `apache-airflow-providers-openlineage>=2.4.0`; set `TRACEPARENT` too only if your launcher provides one):
+Airflow `KubernetesPodOperator` (`env_vars` is templated; the root macro needs `apache-airflow-providers-openlineage>=2.4.0`; set `TRACEPARENT` too only if your launcher provides one; on older providers omit the root variable and the root defaults to the parent):
 
 ```python
 KubernetesPodOperator(

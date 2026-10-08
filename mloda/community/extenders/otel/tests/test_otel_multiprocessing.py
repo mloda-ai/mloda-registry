@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from unittest.mock import patch
@@ -153,6 +154,27 @@ class TestEnvCarrier:
         monkeypatch.setenv("TRACESTATE", "vendor=value")
 
         assert env_carrier() == {"traceparent": self._VALID, "tracestate": "vendor=value"}
+
+    def test_traceparent_is_canonicalized(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TRACEPARENT", self._VALID + "\n")
+        monkeypatch.delenv("TRACESTATE", raising=False)
+
+        assert env_carrier() == {"traceparent": self._VALID}
+
+    def test_malformed_tracestate_is_not_forwarded_or_relogged(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("TRACEPARENT", self._VALID)
+        monkeypatch.setenv("TRACESTATE", "secret value")
+
+        carrier = env_carrier()
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG):
+            extract_carrier(carrier)
+
+        assert carrier["traceparent"] == self._VALID
+        assert "secret value" not in carrier.get("tracestate", "")
+        assert "secret value" not in caplog.text
 
     def test_baggage_is_never_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TRACEPARENT", self._VALID)
