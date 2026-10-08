@@ -209,13 +209,13 @@ Spark steps in the same pipeline read `spark.openlineage.parentJobNamespace`, `p
 
 ### End a run on SIGTERM
 
-Eviction, preemption, spot loss and rollouts send SIGTERM. Python's default action exits without running `atexit`, so the run keeps a START event with no terminal event and its open spans are lost. Opt in from the batch entrypoint (never from a library, and not in a server such as uvicorn, whose own graceful drain it would preempt):
+Eviction, preemption and rollouts send SIGTERM. Python's default action exits without running `atexit`, so the run keeps a START event with no terminal event and its open spans are lost. Opt in from the batch entrypoint (never from a library, and not in a server such as uvicorn, whose own graceful drain it would preempt):
 
 ```python
 from mloda.community.extenders.shared.termination import install_sigterm_handler
 
 if __name__ == "__main__":
-    install_sigterm_handler(grace=25.0)  # a few seconds under terminationGracePeriodSeconds (default 30)
+    install_sigterm_handler(grace=25.0)  # below terminationGracePeriodSeconds (default 30)
     results = mloda.run_all(...)
 ```
 
