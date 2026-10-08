@@ -30,7 +30,6 @@ _CASES = {
 calls = []
 def previous(signum, frame):
     calls.append(signum)
-    print("chained", flush=True)
 signal.signal(signal.SIGTERM, previous)
 termination.install_sigterm_handler()
 termination.install_sigterm_handler()
@@ -94,7 +93,6 @@ class TestInstallSigtermHandler:
         code, out = _run("chains_once_and_exits_143")
 
         assert code == 143
-        assert out.count("chained") == 1
         assert "atexit-ran calls=1" in out
 
     def test_a_raising_previous_handler_does_not_block_the_exit(self) -> None:
