@@ -1,7 +1,9 @@
 """Helpers for propagating OTel trace context across process boundaries."""
 
+import os
 import uuid
 
+from opentelemetry import trace as otel_trace_api
 from opentelemetry.context import Context
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -20,6 +22,17 @@ def inject_carrier() -> dict[str, str]:
 def extract_carrier(carrier: dict[str, str]) -> Context:
     """Decode a W3C traceparent carrier dict back into an OTel Context (traceparent only, baggage is ignored)."""
     return _PROPAGATOR.extract(carrier)
+
+
+def env_carrier() -> dict[str, str]:
+    """Read the OTel environment-variable carrier (TRACEPARENT, TRACESTATE; never BAGGAGE) at call time. Returns a
+    carrier for run_all(carrier=...) only when TRACEPARENT is a valid span context, else {}."""
+    carrier = {"traceparent": os.environ.get("TRACEPARENT", "")}
+    if tracestate := os.environ.get("TRACESTATE"):
+        carrier["tracestate"] = tracestate
+    if not otel_trace_api.get_current_span(extract_carrier(carrier)).get_span_context().is_valid:
+        return {}
+    return carrier
 
 
 def trace_id_from_run_id(run_id: str) -> int:

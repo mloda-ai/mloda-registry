@@ -152,6 +152,31 @@ _RUN_B = "00000000-0000-4000-8000-00000000000b"
 _RUN_X = "00000000-0000-4000-8000-0000000000ff"
 _RUN_OTHER = "00000000-0000-4000-8000-000000000001"
 _OPENLINEAGE_ENV_PREFIXES = ("OPENLINEAGE_", "OPENLINEAGE__")
+_PARENT_ID = f"airflow/dag.task/{_RUN_A}"
+_ROOT_PARENT_ID = f"airflow/dag/{_RUN_B}"
+_OTHER_PARENT_ID = f"other-ns/other.job/{_RUN_OTHER}"
+
+
+def _parent_facet(event: Any) -> parent_run.ParentRunFacet:
+    assert event.run.facets is not None
+    parent = event.run.facets.get("parent")
+    assert isinstance(parent, parent_run.ParentRunFacet)
+    return parent
+
+
+def _root_of(parent: parent_run.ParentRunFacet) -> parent_run.Root:
+    assert parent.root is not None
+    return parent.root
+
+
+def _emit_root_start(extender: OpenLineageExtender) -> list[Any]:
+    """Run the root START through an extender built with an injected capture client; return its events."""
+    extender.on_run_start(RunContext(run_id=_RUN_X, plan_id="plan-0001"), _plan(), ())
+    client = extender._get_client()
+    assert client is not None
+    transport = client.transport
+    assert isinstance(transport, RecordingTransport)
+    return list(transport.events)
 
 
 class _FailingEmitTransport(Transport):
@@ -507,6 +532,8 @@ class TestOpenLineageExtenderPickling:
             job_namespace="custom-ns",
             dataset_namespace="custom-ds",
             root_job_name="custom.root",
+            parent_id=_PARENT_ID,
+            root_parent_id=_ROOT_PARENT_ID,
         )
 
         copy = pickle.loads(pickle.dumps(extender))  # nosec
@@ -515,6 +542,12 @@ class TestOpenLineageExtenderPickling:
         assert copy.job_namespace == "custom-ns"
         assert copy.dataset_namespace == "custom-ds"
         assert copy.root_job_name == "custom.root"
+        events = _emit_root_start(copy)
+        parent = _parent_facet(events[0])
+        assert parent.run.runId == _RUN_A
+        assert (parent.job.namespace, parent.job.name) == ("airflow", "dag.task")
+        assert _root_of(parent).run.runId == _RUN_B
+        assert (_root_of(parent).job.namespace, _root_of(parent).job.name) == ("airflow", "dag")
 
     def test_pickled_copy_can_still_build_a_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         extender = OpenLineageExtender(use_sdk_defaults=True)
@@ -1782,6 +1815,35 @@ class TestOpenLineageExtenderParentRunFacet:
         assert parent.job.namespace == "custom-ns"
         assert parent.job.name == "custom.root"
 
+    def test_step_parent_facet_carries_the_orchestrator_root(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        run_id = str(uuid.uuid4())
+        context = make_hook_context(run_id=run_id)
+        extender = OpenLineageExtender(client=client, parent_id=_PARENT_ID, root_parent_id=_ROOT_PARENT_ID)
+
+        with context.activate():
+            extender(lambda: None)
+
+        parent = _parent_facet(transport.events[0])
+        assert parent.run.runId == run_id
+        assert (parent.job.namespace, parent.job.name) == ("mloda", "mloda.run_all")
+        assert _root_of(parent).run.runId == _RUN_B
+        assert (_root_of(parent).job.namespace, _root_of(parent).job.name) == ("airflow", "dag")
+
+    def test_step_parent_facet_has_no_root_when_unconfigured(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        context = make_hook_context(run_id=str(uuid.uuid4()))
+        extender = OpenLineageExtender(client=client)
+
+        with context.activate():
+            extender(lambda: None)
+
+        assert _parent_facet(transport.events[0]).root is None
+
 
 _PLAN_ID = "plan-0001"
 
@@ -2023,6 +2085,192 @@ class TestOpenLineageExtenderParentRun:
         assert len(set(starts)) == 2
         for value in starts:
             uuid.UUID(value)
+
+    def test_no_parent_facet_on_the_root_run_by_default(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", _PARENT_ID)
+        client, _ = ol_capture
+        events = _emit_root_start(OpenLineageExtender(client=client))
+
+        assert events[0].run.facets is not None
+        assert "parent" not in events[0].run.facets
+
+    def test_start_and_terminal_events_carry_the_orchestrator_parent_and_root(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client, parent_id=_PARENT_ID, root_parent_id=_ROOT_PARENT_ID)
+        run = RunContext(run_id=_RUN_X, plan_id=_PLAN_ID)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            parent = _parent_facet(event)
+            assert parent.run.runId == _RUN_A
+            assert (parent.job.namespace, parent.job.name) == ("airflow", "dag.task")
+            assert _root_of(parent).run.runId == _RUN_B
+            assert (_root_of(parent).job.namespace, _root_of(parent).job.name) == ("airflow", "dag")
+            assert parent._producer == extender.producer
+
+    def test_missing_root_defaults_to_the_parent(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        events = _emit_root_start(OpenLineageExtender(client=client, parent_id=_PARENT_ID))
+
+        parent = _parent_facet(events[0])
+        assert _root_of(parent).run.runId == _RUN_A
+        assert (_root_of(parent).job.namespace, _root_of(parent).job.name) == ("airflow", "dag.task")
+
+    def test_namespace_with_slashes_and_port_parses(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client, parent_id=f"kafka://host:9092/my.job/{_RUN_A}")
+
+        parent = _parent_facet(_emit_root_start(extender)[0])
+
+        assert (parent.job.namespace, parent.job.name) == ("kafka://host:9092", "my.job")
+        assert parent.run.runId == _RUN_A
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"parent_id": "no-slashes"}, id="parent-no-slashes"),
+            pytest.param({"parent_id": f"ns/{_RUN_A}"}, id="parent-two-parts"),
+            pytest.param({"parent_id": "ns/job/not-a-uuid"}, id="parent-bad-uuid"),
+            pytest.param({"parent_id": f"/job/{_RUN_A}"}, id="parent-empty-namespace"),
+            pytest.param({"parent_id": f"ns//{_RUN_A}"}, id="parent-empty-job"),
+            pytest.param({"parent_id": "ns/job/"}, id="parent-empty-run"),
+            pytest.param({"parent_id": _PARENT_ID, "root_parent_id": "ns/job/not-a-uuid"}, id="root-bad-uuid"),
+            pytest.param({"parent_id": _PARENT_ID, "root_parent_id": "garbage"}, id="root-garbage"),
+            pytest.param({"root_parent_id": _ROOT_PARENT_ID}, id="root-without-parent"),
+        ],
+    )
+    def test_malformed_explicit_ids_raise_value_error(self, kwargs: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            OpenLineageExtender(**kwargs)
+
+    def test_env_is_read_when_opted_in(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", _PARENT_ID)
+        monkeypatch.setenv("OPENLINEAGE_ROOT_PARENT_ID", _ROOT_PARENT_ID)
+        client, _ = ol_capture
+
+        parent = _parent_facet(_emit_root_start(OpenLineageExtender(client=client, parent_from_env=True))[0])
+
+        assert (parent.job.namespace, parent.job.name, parent.run.runId) == ("airflow", "dag.task", _RUN_A)
+        assert (_root_of(parent).job.namespace, _root_of(parent).job.name, _root_of(parent).run.runId) == (
+            "airflow",
+            "dag",
+            _RUN_B,
+        )
+
+    def test_env_is_resolved_once_in_init(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", _PARENT_ID)
+        monkeypatch.delenv("OPENLINEAGE_ROOT_PARENT_ID", raising=False)
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client, parent_from_env=True)
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", _OTHER_PARENT_ID)
+
+        assert _parent_facet(_emit_root_start(extender)[0]).run.runId == _RUN_A
+
+    def test_explicit_parent_wins_over_env_and_env_is_not_read(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", "malformed")
+        monkeypatch.setenv("OPENLINEAGE_ROOT_PARENT_ID", "malformed")
+        client, _ = ol_capture
+
+        with caplog.at_level(logging.WARNING):
+            extender = OpenLineageExtender(client=client, parent_id=_PARENT_ID, parent_from_env=True)
+        parent = _parent_facet(_emit_root_start(extender)[0])
+
+        assert parent.run.runId == _RUN_A
+        assert _root_of(parent).run.runId == _RUN_A
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+    def test_env_is_ignored_without_opt_in(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", _PARENT_ID)
+        monkeypatch.setenv("OPENLINEAGE_ROOT_PARENT_ID", _ROOT_PARENT_ID)
+        client, _ = ol_capture
+
+        events = _emit_root_start(OpenLineageExtender(client=client))
+
+        assert events[0].run.facets is not None
+        assert "parent" not in events[0].run.facets
+
+    def test_unset_env_gives_no_parent_and_no_warning(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.delenv("OPENLINEAGE_PARENT_ID", raising=False)
+        monkeypatch.delenv("OPENLINEAGE_ROOT_PARENT_ID", raising=False)
+        client, _ = ol_capture
+
+        with caplog.at_level(logging.WARNING):
+            extender = OpenLineageExtender(client=client, parent_from_env=True)
+        events = _emit_root_start(extender)
+
+        assert events[0].run.facets is not None
+        assert "parent" not in events[0].run.facets
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+    def test_malformed_env_parent_warns_once_without_the_value_and_emits_without_a_parent(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", "secret-malformed-value")
+        monkeypatch.delenv("OPENLINEAGE_ROOT_PARENT_ID", raising=False)
+        client, _ = ol_capture
+
+        with caplog.at_level(logging.WARNING):
+            extender = OpenLineageExtender(client=client, parent_from_env=True)
+        events = _emit_root_start(extender)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "OPENLINEAGE_PARENT_ID" in warnings[0].getMessage()
+        assert "secret-malformed-value" not in warnings[0].getMessage()
+        assert len(events) == 1
+        assert events[0].run.facets is not None
+        assert "parent" not in events[0].run.facets
+
+    def test_malformed_env_root_warns_and_root_defaults_to_the_parent(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("OPENLINEAGE_PARENT_ID", _PARENT_ID)
+        monkeypatch.setenv("OPENLINEAGE_ROOT_PARENT_ID", "secret-malformed-root")
+        client, _ = ol_capture
+
+        with caplog.at_level(logging.WARNING):
+            extender = OpenLineageExtender(client=client, parent_from_env=True)
+        parent = _parent_facet(_emit_root_start(extender)[0])
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "OPENLINEAGE_ROOT_PARENT_ID" in warnings[0].getMessage()
+        assert "secret-malformed-root" not in warnings[0].getMessage()
+        assert parent.run.runId == _RUN_A
+        assert _root_of(parent).run.runId == _RUN_A
 
 
 class TestOpenLineageExtenderInputDataLoadCorrelation:

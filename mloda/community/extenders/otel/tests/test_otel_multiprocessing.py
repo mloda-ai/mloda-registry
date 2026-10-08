@@ -133,6 +133,68 @@ class TestExtractCarrier:
         assert extracted_span_context.span_id == parent_span_context.span_id
 
 
+class TestEnvCarrier:
+    """env_carrier() reads the OTel environment-variable carrier (TRACEPARENT/TRACESTATE) at call time."""
+
+    _VALID = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+    def test_valid_traceparent_round_trips_through_extract_carrier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
+
+        monkeypatch.setenv("TRACEPARENT", self._VALID)
+        monkeypatch.delenv("TRACESTATE", raising=False)
+
+        carrier = env_carrier()
+
+        assert carrier == {"traceparent": self._VALID}
+        span_context = otel_trace_api.get_current_span(extract_carrier(carrier)).get_span_context()
+        assert format(span_context.trace_id, "032x") == "0af7651916cd43dd8448eb211c80319c"
+        assert format(span_context.span_id, "016x") == "b7ad6b7169203331"
+
+    def test_tracestate_is_carried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
+
+        monkeypatch.setenv("TRACEPARENT", self._VALID)
+        monkeypatch.setenv("TRACESTATE", "vendor=value")
+
+        assert env_carrier() == {"traceparent": self._VALID, "tracestate": "vendor=value"}
+
+    def test_baggage_is_never_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
+
+        monkeypatch.setenv("TRACEPARENT", self._VALID)
+        monkeypatch.setenv("BAGGAGE", "user.email=jane@example.com")
+
+        carrier = env_carrier()
+
+        assert "baggage" not in carrier
+        assert "jane@example.com" not in str(carrier)
+
+    def test_malformed_traceparent_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
+
+        monkeypatch.setenv("TRACEPARENT", "not-a-traceparent")
+        monkeypatch.setenv("TRACESTATE", "vendor=value")
+
+        assert env_carrier() == {}
+
+    def test_tracestate_alone_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
+
+        monkeypatch.delenv("TRACEPARENT", raising=False)
+        monkeypatch.setenv("TRACESTATE", "vendor=value")
+
+        assert env_carrier() == {}
+
+    def test_unset_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
+
+        monkeypatch.delenv("TRACEPARENT", raising=False)
+        monkeypatch.delenv("TRACESTATE", raising=False)
+
+        assert env_carrier() == {}
+
+
 class TestForceFlushReExport:
     """This module re-exports shared/teardown.py's force_flush, never a local copy."""
 

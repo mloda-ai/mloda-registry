@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import logging
+import os
 import threading
 import time
 import uuid
@@ -148,7 +149,9 @@ class OpenLineageExtender(Extender):
     as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass seams: producer,
     job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
     _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
-    assert_openlineage_extender_seams in mloda.testing."""
+    assert_openlineage_extender_seams in mloda.testing. parent_id (and root_parent_id) as
+    {namespace}/{job_name}/{run_id}, or parent_from_env for OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach
+    the run to an orchestrator run."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -163,6 +166,9 @@ class OpenLineageExtender(Extender):
         dataset_namespace: str = "mloda",
         root_job_name: str = "mloda.run_all",
         use_sdk_defaults: bool = False,
+        parent_id: str | None = None,
+        root_parent_id: str | None = None,
+        parent_from_env: bool = False,
     ) -> None:
         self.raise_on_error = raise_on_error
         self._client = client
@@ -170,6 +176,7 @@ class OpenLineageExtender(Extender):
         self.dataset_namespace = dataset_namespace
         self.root_job_name = root_job_name
         self.use_sdk_defaults = use_sdk_defaults
+        self._parent, self._root_parent = _resolve_parent(parent_id, root_parent_id, parent_from_env)
         self._client_lock = threading.Lock()
         self._closed = False
         self._finalizer: weakref.finalize[..., Any] | None = None
@@ -310,6 +317,14 @@ class OpenLineageExtender(Extender):
 
             facets["mlodaPlan"] = MlodaPlanRunFacet(
                 planId=plan.plan_id, structureHash=plan.structure_hash, producer=self.producer
+            )
+        if self._parent is not None:
+            namespace, name, parent_run_id = self._parent
+            facets["parent"] = parent_run.ParentRunFacet(
+                run=parent_run.Run(runId=parent_run_id),
+                job=parent_run.Job(namespace=namespace, name=name),
+                root=self._root_object(),
+                producer=self.producer,
             )
         return RunEvent(
             eventType=state,
@@ -456,9 +471,19 @@ class OpenLineageExtender(Extender):
             facets["parent"] = parent_run.ParentRunFacet(
                 run=parent_run.Run(runId=context.run_id),
                 job=parent_run.Job(namespace=self.job_namespace, name=self.root_job_name),
+                root=self._root_object(),
                 producer=self.producer,
             )
         return facets
+
+    def _root_object(self) -> parent_run.Root | None:
+        root = self._root_parent or self._parent
+        if root is None:
+            return None
+        namespace, name, run_id = root
+        return parent_run.Root(
+            run=parent_run.RootRun(runId=run_id), job=parent_run.RootJob(namespace=namespace, name=name)
+        )
 
     def _calculate_output_facets(
         self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
@@ -590,6 +615,51 @@ class OpenLineageExtender(Extender):
                 outputs=outputs,
             )
         )
+
+
+def _parse_parent_id(value: str) -> tuple[str, str, str] | None:
+    """Split {namespace}/{job_name}/{run_id}; the namespace may contain slashes. None unless well formed."""
+    parts = value.rsplit("/", 2)
+    if len(parts) != 3 or not all(parts):
+        return None
+    try:
+        uuid.UUID(parts[2])
+    except ValueError:
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+def _resolve_parent(
+    parent_id: str | None, root_parent_id: str | None, from_env: bool
+) -> tuple[tuple[str, str, str] | None, tuple[str, str, str] | None]:
+    """Parse the orchestrator parent and root once. Explicit values raise ValueError when malformed; env values
+    warn (naming the variable, never its value) and are ignored."""
+    if parent_id is not None:
+        parent = _parse_parent_id(parent_id)
+        if parent is None:
+            raise ValueError("parent_id must be '{namespace}/{job_name}/{run_id}' with a UUID run_id")
+        if root_parent_id is None:
+            return parent, None
+        root = _parse_parent_id(root_parent_id)
+        if root is None:
+            raise ValueError("root_parent_id must be '{namespace}/{job_name}/{run_id}' with a UUID run_id")
+        return parent, root
+    if root_parent_id is not None:
+        raise ValueError("root_parent_id requires parent_id")
+    if not from_env:
+        return None, None
+    parent_value = os.environ.get("OPENLINEAGE_PARENT_ID")
+    if not parent_value:
+        return None, None
+    parent = _parse_parent_id(parent_value)
+    if parent is None:
+        logger.warning("OPENLINEAGE_PARENT_ID is malformed; the run is not attached to an orchestrator parent")
+        return None, None
+    root_value = os.environ.get("OPENLINEAGE_ROOT_PARENT_ID")
+    root = _parse_parent_id(root_value) if root_value else None
+    if root_value and root is None:
+        logger.warning("OPENLINEAGE_ROOT_PARENT_ID is malformed; the root defaults to the parent")
+    return parent, root
 
 
 def _now_iso() -> str:

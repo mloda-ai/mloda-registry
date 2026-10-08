@@ -174,11 +174,42 @@ It sees what passes through the Collector only; OpenLineage events go straight t
 
 With `OtelExtender` outside `OpenLineageExtender` (what the default priorities give, 100 and 110), each step's calculate span is current while OpenLineage emits, so the step's RunEvents carry a run facet `mlodaTrace` (`traceId`, `spanId`) pointing at that step's own calculate span (matched by `mloda.step.run_id`). Join them through the span attribute `mloda.step.run_id`, which equals the step RunEvent's runId. Only calculate steps get it, not validation or root runs; a root run's runId equals `mloda.run.id`. No facet is added when the current span is not that step span: no provider, a non-recording span, `opentelemetry` not installed, or OpenLineage wrapping outside `OtelExtender` (lower priority), even if an application span is active.
 
+## Run under an orchestrator
+
+When a scheduler launches the process, attach the run to the scheduler's trace and lineage run. Both inputs come from the caller's environment, so treat them as trusted as `OPENLINEAGE_URL`: a spoofed parent id attaches runs under any job.
+
+- **Trace:** `mloda.run_all(..., carrier=env_carrier())` (from `mloda.community.extenders.otel.otel_multiprocessing`) makes the run's root span a child of the span in `TRACEPARENT` (`TRACESTATE` is carried, `BAGGAGE` is never read). It returns `{}` when `TRACEPARENT` is unset or malformed, so the run starts its own trace. An unsampled `TRACEPARENT` (flags `00`) under the default `parentbased_always_on` sampler drops the whole run. With `trace_scope="plan"` the carrier is a span link, not the parent. Pass it only when no span is active; an active span you created is more specific.
+- **Lineage:** `OpenLineageExtender(parent_id=..., root_parent_id=...)` (also `LineageFacetsExtender`) takes `{namespace}/{job_name}/{run_id}` with a UUID `run_id`, the format of the Airflow macros below; a namespace may contain `/`. The root run's START and terminal events then carry a `parent` facet with `root`, and each step's `parent` facet gains the same `root`. A missing `root_parent_id` defaults to the parent. Malformed explicit ids raise `ValueError`; `root_parent_id` needs `parent_id`. `parent_from_env=True` reads `OPENLINEAGE_PARENT_ID` and `OPENLINEAGE_ROOT_PARENT_ID` once, when the extender is built, unless `parent_id` is given. A malformed env value logs one warning naming the variable (never its value) and is ignored. Without the opt-in the environment is never read.
+
+Airflow `KubernetesPodOperator` (`env_vars` is templated; the root macro needs `apache-airflow-providers-openlineage>=2.4.0`; set `TRACEPARENT` too only if your launcher provides one):
+
+```python
+KubernetesPodOperator(
+    ...,
+    env_vars={
+        "OPENLINEAGE_PARENT_ID": "{{ macros.OpenLineageProviderPlugin.lineage_parent_id(task_instance) }}",
+        "OPENLINEAGE_ROOT_PARENT_ID": "{{ macros.OpenLineageProviderPlugin.lineage_root_parent_id(task_instance) }}",
+    },
+)
+# in the container
+OpenLineageExtender(use_sdk_defaults=True, parent_from_env=True)
+```
+
+Argo Workflows has no such macros and emits no OpenLineage events itself, so the parent shows as a placeholder job. Pick a fixed namespace, a stable job name (such as the WorkflowTemplate name) and use `{{workflow.uid}}`, a UUID, as the run id:
+
+```yaml
+env:
+  - name: OPENLINEAGE_PARENT_ID
+    value: "argo/my-workflow-template/{{workflow.uid}}"
+```
+
+Spark steps in the same pipeline read `spark.openlineage.parentJobNamespace`, `parentJobName` and `parentRunId` (and `rootParentJobNamespace`, `rootParentJobName`, `rootParentRunId`) at session start. Set them to the same orchestrator values so Spark's runs and the mloda run are siblings under the orchestrator task. Spark cannot point at an individual mloda step, since core mints the mloda run id inside `run_all`.
+
 ## Multiprocessing, threads and asyncio
 
 - **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
 - **Flush on worker exit:** core calls each extender's `close()` when a worker exits, within `graceful_shutdown_timeout` (default 2s, shared by the worker's extenders). With a `BatchSpanProcessor`, raise it together with the extender's `close_timeout` attribute (default 1s, e.g. `extender.close_timeout = 5.0`) so the batch drains. Details in [Pickle Compatibility](11-create-extender.md#pickle-compatibility).
 - **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. A worker usually lives for one run and exports once, from `close()`, as its own process (recent SDKs give each a random `service.instance.id`), so its cumulative series carry a single sample that `rate()` cannot use. Export with delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`) to a backend that sums deltas across processes.
-- **Continue a trace from another process:** pass a W3C trace-context `carrier` to `run_all`, `stream_all`, `run` or `stream_run`. The run's root span becomes its child (with `trace_scope="plan"` the plan span stays the parent and the carrier becomes a span link). `inject_carrier()` from `mloda.community.extenders.otel.otel_multiprocessing` builds one from the current context without baggage.
+- **Continue a trace from another process:** pass a W3C trace-context `carrier` to `run_all`, `stream_all`, `run` or `stream_run`. The run's root span becomes its child (with `trace_scope="plan"` the plan span stays the parent and the carrier becomes a span link). `inject_carrier()` from `mloda.community.extenders.otel.otel_multiprocessing` builds one from the current context without baggage. `env_carrier()` builds one from `TRACEPARENT`/`TRACESTATE` (see [Run under an orchestrator](#run-under-an-orchestrator)).
 - **`THREADING`:** nothing extra; steps find their run's root span by run id.
 - **asyncio:** the active span and `verified_context` are context variables. `asyncio.to_thread(...)` copies them; `loop.run_in_executor(...)` does not, so use `loop.run_in_executor(None, contextvars.copy_context().run, fn)`.
