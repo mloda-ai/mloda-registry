@@ -50,6 +50,7 @@ from opentelemetry.trace import StatusCode
 
 from mloda.community.extenders.otel import OtelExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
+from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -2650,11 +2651,20 @@ class TestOtelExtenderRunScopeFullRuns:
         assert root.parent.span_id == caller_span_id
         assert _ids(root)[0] == caller_trace_id
 
+    @pytest.mark.parametrize("source", ["explicit", "env"])
     def test_run_carrier_is_the_parent_of_the_root(
-        self, tmp_path: Path, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self,
+        tmp_path: Path,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        monkeypatch: pytest.MonkeyPatch,
+        source: str,
     ) -> None:
         provider, exporter = otel_capture
         carrier, carrier_trace_id, carrier_span_id = inject_parent_carrier()
+        if source == "env":
+            monkeypatch.setenv("TRACEPARENT", carrier["traceparent"])
+            monkeypatch.delenv("TRACESTATE", raising=False)
+            carrier = env_carrier()
 
         run_csv_feature(tmp_path, OtelExtender(tracer_provider=provider), carrier=carrier)
 

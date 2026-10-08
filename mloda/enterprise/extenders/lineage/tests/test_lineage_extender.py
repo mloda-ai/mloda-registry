@@ -2060,6 +2060,31 @@ class TestLineageFacetsProducer:
     def test_extender_builds_only_on_the_community_subclass_seams(self) -> None:
         assert_openlineage_extender_seams(LineageFacetsExtender, OpenLineageExtender)
 
+    def test_orchestrator_parent_is_on_the_root_run_and_the_step_root(self) -> None:
+        client, transport = make_recording_client()
+        parent_run_id = "00000000-0000-4000-8000-00000000000a"
+        root_run_id = "00000000-0000-4000-8000-00000000000b"
+
+        _run(
+            LineageFacetsExtender(
+                client=client,
+                parent_id=f"airflow/dag.task/{parent_run_id}",
+                root_parent_id=f"airflow/dag/{root_run_id}",
+            ),
+            list(_PassingValidators.outputs),
+            _PassingValidators,
+        )
+
+        events = list(transport.events)
+        (root_start,) = [e for e in events if e.job.name == "mloda.run_all" and e.eventType == RunState.START]
+        root_parent = _parent(root_start)
+        assert root_parent.run.runId == parent_run_id
+        assert (root_parent.job.namespace, root_parent.job.name) == ("airflow", "dag.task")
+        for parent in (root_parent, _parent(_events_for(events, _job(_Root))[0])):
+            assert parent.root is not None
+            assert parent.root.run.runId == root_run_id
+            assert (parent.root.job.namespace, parent.root.job.name) == ("airflow", "dag")
+
 
 class TestLineageFacetsBareCalls:
     """A bare callable under a HookContext without a FeatureSet must never break a facet builder."""
