@@ -16,6 +16,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from mloda.community.extenders.otel.otel_multiprocessing import (
+    env_carrier,
     extract_carrier,
     force_flush,
     inject_carrier,
@@ -137,8 +138,6 @@ class TestEnvCarrier:
     _VALID = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 
     def test_valid_traceparent_round_trips_through_extract_carrier(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
-
         monkeypatch.setenv("TRACEPARENT", self._VALID)
         monkeypatch.delenv("TRACESTATE", raising=False)
 
@@ -150,16 +149,12 @@ class TestEnvCarrier:
         assert format(span_context.span_id, "016x") == "b7ad6b7169203331"
 
     def test_tracestate_is_carried(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
-
         monkeypatch.setenv("TRACEPARENT", self._VALID)
         monkeypatch.setenv("TRACESTATE", "vendor=value")
 
         assert env_carrier() == {"traceparent": self._VALID, "tracestate": "vendor=value"}
 
     def test_baggage_is_never_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
-
         monkeypatch.setenv("TRACEPARENT", self._VALID)
         monkeypatch.setenv("BAGGAGE", "user.email=jane@example.com")
 
@@ -168,27 +163,22 @@ class TestEnvCarrier:
         assert "baggage" not in carrier
         assert "jane@example.com" not in str(carrier)
 
-    def test_malformed_traceparent_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
-
-        monkeypatch.setenv("TRACEPARENT", "not-a-traceparent")
-        monkeypatch.setenv("TRACESTATE", "vendor=value")
-
-        assert env_carrier() == {}
-
-    def test_tracestate_alone_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
-
-        monkeypatch.delenv("TRACEPARENT", raising=False)
-        monkeypatch.setenv("TRACESTATE", "vendor=value")
-
-        assert env_carrier() == {}
-
-    def test_unset_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
-
-        monkeypatch.delenv("TRACEPARENT", raising=False)
-        monkeypatch.delenv("TRACESTATE", raising=False)
+    @pytest.mark.parametrize(
+        ("traceparent", "tracestate"),
+        [
+            pytest.param("not-a-traceparent", "vendor=value", id="malformed-traceparent"),
+            pytest.param(None, "vendor=value", id="tracestate-alone"),
+            pytest.param(None, None, id="unset"),
+        ],
+    )
+    def test_no_valid_traceparent_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch, traceparent: str | None, tracestate: str | None
+    ) -> None:
+        for name, value in (("TRACEPARENT", traceparent), ("TRACESTATE", tracestate)):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
 
         assert env_carrier() == {}
 

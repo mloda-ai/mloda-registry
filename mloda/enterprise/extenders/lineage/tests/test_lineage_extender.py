@@ -368,11 +368,6 @@ def _parent(event: RunEvent) -> parent_run.ParentRunFacet:
     return parent
 
 
-def _root_of(parent: parent_run.ParentRunFacet) -> parent_run.Root:
-    assert parent.root is not None
-    return parent.root
-
-
 def _parent_run_id(event: RunEvent) -> str:
     return _parent(event).run.runId
 
@@ -2067,11 +2062,15 @@ class TestLineageFacetsProducer:
 
     def test_orchestrator_parent_is_on_the_root_run_and_the_step_root(self) -> None:
         client, transport = make_recording_client()
-        parent_id = "airflow/dag.task/00000000-0000-4000-8000-00000000000a"
-        root_parent_id = "airflow/dag/00000000-0000-4000-8000-00000000000b"
+        parent_run_id = "00000000-0000-4000-8000-00000000000a"
+        root_run_id = "00000000-0000-4000-8000-00000000000b"
 
         _run(
-            LineageFacetsExtender(client=client, parent_id=parent_id, root_parent_id=root_parent_id),
+            LineageFacetsExtender(
+                client=client,
+                parent_id=f"airflow/dag.task/{parent_run_id}",
+                root_parent_id=f"airflow/dag/{root_run_id}",
+            ),
             list(_PassingValidators.outputs),
             _PassingValidators,
         )
@@ -2079,13 +2078,12 @@ class TestLineageFacetsProducer:
         events = list(transport.events)
         (root_start,) = [e for e in events if e.job.name == "mloda.run_all" and e.eventType == RunState.START]
         root_parent = _parent(root_start)
-        assert root_parent.run.runId == "00000000-0000-4000-8000-00000000000a"
+        assert root_parent.run.runId == parent_run_id
         assert (root_parent.job.namespace, root_parent.job.name) == ("airflow", "dag.task")
-        assert _root_of(root_parent).run.runId == "00000000-0000-4000-8000-00000000000b"
-        assert (_root_of(root_parent).job.namespace, _root_of(root_parent).job.name) == ("airflow", "dag")
-        step_parent = _parent(_events_for(events, _job(_Root))[0])
-        assert _root_of(step_parent).run.runId == "00000000-0000-4000-8000-00000000000b"
-        assert (_root_of(step_parent).job.namespace, _root_of(step_parent).job.name) == ("airflow", "dag")
+        for parent in (root_parent, _parent(_events_for(events, _job(_Root))[0])):
+            assert parent.root is not None
+            assert parent.root.run.runId == root_run_id
+            assert (parent.root.job.namespace, parent.root.job.name) == ("airflow", "dag")
 
 
 class TestLineageFacetsBareCalls:
