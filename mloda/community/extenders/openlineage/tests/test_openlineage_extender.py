@@ -15,8 +15,6 @@ import json
 import logging
 import os
 import pickle  # nosec
-import signal
-import subprocess  # nosec
 import sys
 import threading
 import time
@@ -62,7 +60,12 @@ from mloda.testing.extenders.openlineage import (
     assert_openlineage_extender_seams,
     make_recording_client,
 )
-from mloda.testing.extenders.runners import MlodaTestingValueIntPlusOne, expected_value_int, run_value_int
+from mloda.testing.extenders.runners import (
+    MlodaTestingValueIntPlusOne,
+    expected_value_int,
+    run_until_ready_then_sigterm,
+    run_value_int,
+)
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, RunState
 from openlineage.client.facet_v2 import documentation_dataset, nominal_time_run, parent_run, schema_dataset
@@ -3621,24 +3624,9 @@ class TestOpenLineageExtenderSigterm:
         env["PYTHONPATH"] = os.pathsep.join([str(tmp_path), env.get("PYTHONPATH", "")])
         env["MLODA_TEST_OL_DIR"] = str(tmp_path)
         env["OPENLINEAGE__TRANSPORT__TYPE"] = "sigterm_transport.SigtermTransport"
-        proc = subprocess.Popen(  # nosec
-            [sys.executable, "-c", _SIGTERM_CHILD],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-        )
-        try:
-            assert proc.stdout is not None
-            line = proc.stdout.readline()
-            assert "ready" in line, proc.stderr.read() if proc.stderr else ""
-            proc.send_signal(signal.SIGTERM)
-            proc.communicate(timeout=120)
-        finally:
-            proc.kill()
-            proc.wait()
+        returncode, _, _ = run_until_ready_then_sigterm([sys.executable, "-c", _SIGTERM_CHILD], env=env, timeout=120)
 
-        assert proc.returncode == 143
+        assert returncode == 143
         events = [json.loads(raw) for raw in (tmp_path / "events.ndjson").read_text(encoding="utf-8").splitlines()]
         by_job: dict[str, list[str]] = {}
         for event in events:

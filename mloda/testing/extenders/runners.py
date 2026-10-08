@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import signal
+import subprocess  # nosec
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
@@ -303,3 +305,25 @@ def run_feature(feature_group: type[MlodaTestingFailingFeatureGroup], *extenders
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
     )
+
+
+def run_until_ready_then_sigterm(
+    args: list[str], *, env: dict[str, str] | None = None, timeout: float = 60.0
+) -> tuple[int, str, str]:
+    """Spawn args, read stdout until a line holds "ready", send SIGTERM; return (returncode, stdout, stderr)."""
+    proc = subprocess.Popen(  # nosec
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
+    )
+    try:
+        assert proc.stdout is not None
+        seen = ""
+        while "ready" not in seen:
+            line = proc.stdout.readline()
+            assert line, f"child exited before ready: {proc.stderr.read() if proc.stderr else ''}"
+            seen += line
+        proc.send_signal(signal.SIGTERM)
+        out, err = proc.communicate(timeout=timeout)
+        return proc.returncode, seen + out, err
+    finally:
+        proc.kill()
+        proc.wait()

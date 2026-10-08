@@ -3,14 +3,14 @@ handler must never be installed inside the pytest/xdist process."""
 
 from __future__ import annotations
 
-import signal
-import subprocess  # nosec
 import sys
 import textwrap
 import time
 from pathlib import Path
 
 import pytest
+
+from mloda.testing.extenders.runners import run_until_ready_then_sigterm
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
 
@@ -67,25 +67,10 @@ _ready()
 
 
 def _run(case: str, marker: Path | None = None) -> tuple[int, str]:
-    proc = subprocess.Popen(  # nosec
-        [sys.executable, "-c", textwrap.dedent(_PRELUDE + _CASES[case]), str(marker)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+    code, out, _ = run_until_ready_then_sigterm(
+        [sys.executable, "-c", textwrap.dedent(_PRELUDE + _CASES[case]), str(marker)], timeout=_TIMEOUT
     )
-    try:
-        assert proc.stdout is not None
-        seen = ""
-        while "ready" not in seen:
-            line = proc.stdout.readline()
-            assert line, f"child exited before ready: {proc.stderr.read() if proc.stderr else ''}"
-            seen += line
-        proc.send_signal(signal.SIGTERM)
-        out, _ = proc.communicate(timeout=_TIMEOUT)
-        return proc.returncode, seen + out
-    finally:
-        proc.kill()
-        proc.wait()
+    return code, out
 
 
 class TestInstallSigtermHandler:
