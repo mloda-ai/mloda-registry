@@ -41,7 +41,7 @@ _LINEAGE_EMITTER_FLOOR = "mloda-community-openlineage~={version}"
 # extra-only plugin dependency.
 _ROWS: list[tuple[str, str, str, str, list[str]]] = [
     ("openlineage", "openlineage-python", "mloda-community-openlineage", "openlineage", ["OpenLineageExtender"]),
-    ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender"]),
+    ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender", "OtelMetricsExtender"]),
 ]
 
 gen = load_script("generate_pyproject", _GEN_PATH)

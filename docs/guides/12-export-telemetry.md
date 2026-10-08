@@ -1,6 +1,6 @@
 # Export Telemetry to Any Backend
 
-Run the community extenders (`OtelExtender` for spans, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select step spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
+Run the community extenders (`OtelExtender` for spans, `OtelMetricsExtender` for metrics, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans, metrics and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select step spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
 
 ## Install
 
@@ -43,6 +43,47 @@ if __name__ == "__main__":
 
 `use_sdk_defaults=True` uses the globally set provider. Injecting `OtelExtender(tracer_provider=provider)` works too, but an SDK provider cannot be pickled, so it does not reach `MULTIPROCESSING` workers. Without either, the extender is inert and warns once; see [Sink Resolution](11-create-extender.md#sink-resolution). For OTLP over HTTP (port 4318, which many SaaS backends require), import `OTLPSpanExporter` from `opentelemetry.exporter.otlp.proto.http.trace_exporter` instead; `OTEL_EXPORTER_OTLP_PROTOCOL` does not switch an exporter you construct yourself. A vendor distro that installs its own global provider (for example `configure_azure_monitor()`) replaces `install_tracer_provider`, in `child_bootstrap` too.
 
+## Metrics
+
+`OtelMetricsExtender` records four metrics through the OTel metrics API, independent of `OtelExtender`. Add a meter provider next to the tracer provider in `telemetry.py`:
+
+```python
+from opentelemetry import metrics
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+
+def install_meter_provider() -> None:
+    reader = PeriodicExportingMetricReader(OTLPMetricExporter())
+    metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
+```
+
+`OtelMetricsExtender(use_sdk_defaults=True)` picks up the global meter provider. `OtelMetricsExtender(meter_provider=provider)` injects one (it does not pickle, like `tracer_provider`). With no SDK meter provider nothing is recorded and it warns once; see [Sink Resolution](11-create-extender.md#sink-resolution).
+
+| Instrument | Kind, unit | Attributes |
+|---|---|---|
+| `mloda.run.duration` | Histogram, `s` | `mloda.run.status`, `error.type` (failed runs) |
+| `mloda.step.duration` | Histogram, `s` | `mloda.operation.name`, `mloda.feature_group.name`, `mloda.compute_framework.name`, `error.type` (failed steps) |
+| `mloda.step.rows.in` | Counter, `{row}` | `mloda.operation.name`, `mloda.feature_group.name`, `mloda.compute_framework.name` |
+| `mloda.step.rows.out` | Counter, `{row}` | same as `mloda.step.rows.in` |
+
+- **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status` or `error.type`. Calls without a hook context are not counted.
+- **`error.type`:** the bare class name on runs, `module.qualname` on steps (as on spans).
+- **Rows:** counted on success only, for calculate (in and out) and load (out). Validate steps record no rows.
+- **Durations:** a step duration includes inner extenders (with default priorities `OtelExtender` wraps outside `OtelMetricsExtender`, which wraps outside `OpenLineageExtender`, so it includes OpenLineage emission) and a calculate duration includes a nested load, so do not sum durations across operations.
+- **Attributes:** only those in the table; unset ones (for example the feature group on a join) are omitted. Never recorded on metrics: feature names, run, plan and step ids, worker index, data-access identity and format, join keys and type, declared attributes, plugin versions, tenant, project, principal.
+- **Failures:** recording is best effort; a post-call recording error is logged once at WARNING with its type only and never changes the step's result or exception. A failure resolving the meter follows `raise_on_error` like any extender.
+
+Prometheus names after OTLP translation, p95 step duration per feature group and the share of failed steps:
+
+```promql
+histogram_quantile(0.95, sum by (le, mloda_feature_group_name) (rate(mloda_step_duration_seconds_bucket[5m])))
+
+sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_type!=""}[5m]))
+  / sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count[5m]))
+```
+
 ## Export through a Collector
 
 Send OTLP to an OpenTelemetry Collector (gRPC 4317, HTTP 4318) and let the Collector fan out to your backends. Endpoint, TLS and auth are standard OTLP exporter settings, not mloda settings:
@@ -53,7 +94,7 @@ Send OTLP to an OpenTelemetry Collector (gRPC 4317, HTTP 4318) and let the Colle
 | `OTEL_EXPORTER_OTLP_INSECURE` | `true` for a plaintext gRPC Collector (or use an `http://` endpoint) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Auth, e.g. `x-api-key=...` for SaaS backends |
 | `OTEL_EXPORTER_OTLP_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_KEY`, `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | TLS and mTLS |
-| `OTEL_SERVICE_NAME` | Service name on every span |
+| `OTEL_SERVICE_NAME` | Service name on every span and metric |
 | `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Head sampling |
 
 | Backend | Path | Watch for |
@@ -96,11 +137,15 @@ service:
       receivers: [otlp]
       processors: [tail_sampling, redaction, batch]
       exporters: [otlp]
+    metrics:
+      receivers: [otlp]
+      processors: [redaction, batch]
+      exporters: [otlp]
 ```
 
 ## Privacy defaults
 
-Spans are metadata only by default.
+Spans and metrics are metadata only by default; metrics carry a small subset (see [Metrics](#metrics)), and the feature group and compute framework class names reach metrics backends.
 
 - **Never recorded:** feature values and row data; exception messages (spans and extender warnings carry only the exception type as `error.type`); baggage (carriers carry `traceparent` and `tracestate`, never baggage, inbound and outbound).
 - **Recorded, review before export:** feature, feature group (also in span names) and compute framework names and versions; plugin versions; row counts; `mloda.data_access.identity` and `mloda.data_access.format` on load spans; `mloda.join.keys` (column names); `mloda.declared.*` (scalars a feature group author declares); run, plan and step ids; the worker index. By default the data-access identity is a URI's scheme, host and path, a local path, or mapping keys (never mapping values), but a reader can override `data_access_identity`, and a path can still name a customer, so review custom readers.
@@ -131,8 +176,9 @@ With `OtelExtender` outside `OpenLineageExtender` (what the default priorities g
 
 ## Multiprocessing, threads and asyncio
 
-- **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
+- **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
 - **Flush on worker exit:** core calls each extender's `close()` when a worker exits, within `graceful_shutdown_timeout` (default 2s, shared by the worker's extenders). With a `BatchSpanProcessor`, raise it together with the extender's `close_timeout` attribute (default 1s, e.g. `extender.close_timeout = 5.0`) so the batch drains. Details in [Pickle Compatibility](11-create-extender.md#pickle-compatibility).
+- **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. A worker usually lives for one run and exports once, from `close()`, as its own process (recent SDKs give each a random `service.instance.id`), so its cumulative series carry a single sample that `rate()` cannot use. Export with delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`) to a backend that sums deltas across processes.
 - **Continue a trace from another process:** pass a W3C trace-context `carrier` to `run_all`, `stream_all`, `run` or `stream_run`. The run's root span becomes its child (with `trace_scope="plan"` the plan span stays the parent and the carrier becomes a span link). `inject_carrier()` from `mloda.community.extenders.otel.otel_multiprocessing` builds one from the current context without baggage.
 - **`THREADING`:** nothing extra; steps find their run's root span by run id.
 - **asyncio:** the active span and `verified_context` are context variables. `asyncio.to_thread(...)` copies them; `loop.run_in_executor(...)` does not, so use `loop.run_in_executor(None, contextvars.copy_context().run, fn)`.

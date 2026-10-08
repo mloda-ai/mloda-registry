@@ -3,8 +3,10 @@ extenders without an OTel dependency can still use it."""
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from mloda.steward import CloseContext
@@ -64,3 +66,25 @@ def force_flush(provider: Any, timeout_millis: int | None = None) -> bool | None
     if "error" in outcome:
         raise outcome["error"]
     return bool(outcome["result"])
+
+
+def flush_on_close(
+    owner_name: str,
+    configured: Callable[[], Any],
+    close_timeout: float,
+    *,
+    log: logging.Logger,
+    noun: str,
+    signal: str,
+) -> None:
+    """Best-effort close() flush of the configured provider within the close budget; never raises."""
+    try:
+        provider = configured()
+        if provider is None:
+            return
+        result = force_flush(provider, timeout_millis=to_timeout_millis(capped_close_timeout(close_timeout)))
+    except Exception as exc:
+        log.warning("%s failed to flush %s: %s", owner_name, noun, type(exc).__name__)
+        return
+    if result is False:
+        log.warning("%s did not flush all %s within its close budget", owner_name, signal)

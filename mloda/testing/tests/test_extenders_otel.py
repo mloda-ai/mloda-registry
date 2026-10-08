@@ -16,8 +16,10 @@ import pytest
 pytest.importorskip("opentelemetry.sdk")
 
 from mloda.steward import Extender, ExtenderHook, HookContext
-from opentelemetry import propagate, trace
+from opentelemetry import metrics, propagate, trace
 from opentelemetry.context import Context
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import NonRecordingSpan, SpanContext, Status, StatusCode, TraceFlags, set_span_in_context
 
@@ -25,12 +27,16 @@ from mloda.community.extenders.otel import OtelExtender
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
+    FileMetricExporter,
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
     assert_well_formed_trace,
     inject_parent_carrier,
+    make_metric_capture,
     make_picklable_span_capture,
     make_span_capture,
+    meter_provider_resolution_spy,
+    metric_names,
     read_span_records,
     single_span,
     single_span_attributes,
@@ -71,6 +77,45 @@ class TestMakeSpanCapture:
         spans = exporter.get_finished_spans()
         assert len(spans) == 1
         assert spans[0].name == "probe-span"
+
+
+class TestMakeMetricCapture:
+    def test_recorded_metric_lands_in_returned_reader(self) -> None:
+        provider, reader = make_metric_capture()
+        provider.get_meter("test-extenders-otel").create_counter("probe.counter").add(1)
+
+        assert metric_names(reader.get_metrics_data()) == ["probe.counter"]
+
+    def test_metric_names_of_no_data_is_empty(self) -> None:
+        assert metric_names(None) == []
+
+
+class TestFileMetricExporter:
+    def test_force_flush_writes_one_line_per_metric_name(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "metrics.txt"
+        reader = PeriodicExportingMetricReader(FileMetricExporter(marker_path), export_interval_millis=600_000)
+        provider = MeterProvider(metric_readers=[reader], shutdown_on_exit=False)
+        try:
+            meter = provider.get_meter("test-extenders-otel")
+            meter.create_counter("probe.counter").add(1)
+            meter.create_histogram("probe.histogram").record(0.5)
+
+            assert provider.force_flush() is True
+
+            assert sorted(marker_path.read_text().splitlines()) == ["probe.counter", "probe.histogram"]
+        finally:
+            provider.shutdown()
+
+
+class TestMeterProviderResolutionSpy:
+    def test_records_each_resolution_and_hands_out_a_capturing_provider(self) -> None:
+        with meter_provider_resolution_spy() as calls:
+            assert calls == []
+
+            metrics.get_meter_provider().get_meter("test-extenders-otel").create_counter("probe.counter").add(1)
+
+            assert len(calls) == 1
+            assert metric_names(calls[0].get_metrics_data()) == ["probe.counter"]
 
 
 class TestSingleSpan:

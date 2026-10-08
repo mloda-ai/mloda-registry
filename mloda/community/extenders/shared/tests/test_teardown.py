@@ -5,7 +5,10 @@ through that module's force_flush re-export."""
 
 from __future__ import annotations
 
+import logging
 import time
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -145,3 +148,61 @@ class TestCappedCloseTimeout:
             result = capped_close_timeout(value)
 
         assert 0 < result <= 3.0
+
+
+class TestFlushOnClose:
+    """flush_on_close() is the shared close() body; the per-extender close contract is ProviderCloseTestMixin."""
+
+    _LOG = logging.getLogger("mloda.test.flush_on_close")
+
+    def _flush(self, configured: Callable[[], Any], close_timeout: float = 1.0) -> None:
+        from mloda.community.extenders.shared.teardown import flush_on_close
+
+        flush_on_close(
+            "Owner",
+            configured,
+            close_timeout,
+            log=self._LOG,
+            noun="thing",
+            signal="things",
+        )
+
+    def test_flushes_the_configured_provider_once_within_the_timeout(self) -> None:
+        provider = Mock(force_flush=Mock(return_value=True))
+
+        self._flush(lambda: provider, close_timeout=5.0)
+
+        provider.force_flush.assert_called_once_with(timeout_millis=5000)
+
+    def test_none_provider_returns_silently(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING):
+            self._flush(lambda: None)
+
+        assert caplog.records == []
+
+    def test_a_raising_configured_lookup_is_swallowed_and_names_the_noun(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        def configured() -> object:
+            raise RuntimeError("lookup boom")
+
+        with caplog.at_level(logging.WARNING):
+            self._flush(configured)
+
+        assert [r.getMessage() for r in caplog.records] == ["Owner failed to flush thing: RuntimeError"]
+        assert "lookup boom" not in caplog.text
+
+    def test_a_false_flush_result_warns_with_the_signal(self, caplog: pytest.LogCaptureFixture) -> None:
+        provider = Mock(force_flush=Mock(return_value=False))
+
+        with caplog.at_level(logging.WARNING):
+            self._flush(lambda: provider)
+
+        assert [r.getMessage() for r in caplog.records] == ["Owner did not flush all things within its close budget"]
+
+    def test_the_lookup_runs_once(self) -> None:
+        configured = Mock(return_value=Mock(force_flush=Mock(return_value=True)))
+
+        self._flush(configured)
+
+        configured.assert_called_once_with()

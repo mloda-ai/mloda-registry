@@ -13,6 +13,7 @@ import contextlib
 import copy
 import dataclasses
 import datetime
+import importlib
 import logging
 import pickle  # nosec
 import threading
@@ -50,15 +51,15 @@ from opentelemetry.trace import StatusCode
 from mloda.community.extenders.otel import OtelExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.extenders.flush import active_close_context, blocking_flush_provider, call_with_join_timeout
+from mloda.testing.extenders.flush import ProviderCloseTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
     assert_well_formed_trace,
     inject_parent_carrier,
-    make_span_capture,
     read_span_records,
     single_span,
     single_span_attributes,
@@ -82,14 +83,6 @@ from mloda.testing.extenders.runners import (
 _CONTENT_ATTRIBUTE = "mloda.content.preview"
 
 _NO_SDK_PROVIDER_MARKER = "found no OpenTelemetry SDK tracer provider"
-
-
-@pytest.fixture
-def otel_capture() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
-    """A fresh, isolated (provider, exporter) pair per test; never touches the global provider."""
-    provider, exporter = make_span_capture()
-    yield provider, exporter
-    provider.shutdown()
 
 
 class _AmbientProvider:
@@ -127,7 +120,7 @@ def _marker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]
     return [r for r in caplog.records if _NO_SDK_PROVIDER_MARKER in r.getMessage()]
 
 
-class TestOtelExtenderContract(OtelExtenderTestMixin):
+class TestOtelExtenderContract(OtelExtenderTestMixin, ProviderCloseTestMixin):
     """OtelExtender must satisfy the shared Extender contract and the OTel span contract."""
 
     @classmethod
@@ -172,6 +165,14 @@ class TestOtelExtenderContract(OtelExtenderTestMixin):
         return super().expected_span_name(context)
 
     @classmethod
+    def ambient_provider_getter(cls) -> str:
+        return "opentelemetry.trace.get_tracer_provider"
+
+    @classmethod
+    def flushed_signal(cls) -> str:
+        return "spans"
+
+    @classmethod
     def supports_real_worker_sink(cls) -> bool:
         return True
 
@@ -196,10 +197,12 @@ class TestOtelExtenderModuleImports:
     """opentelemetry-sdk is a dev-only extra of this package (only opentelemetry-api is a real runtime
     dependency), so the module must not import anything under opentelemetry.sdk at the top level."""
 
-    def test_no_top_level_opentelemetry_sdk_import(self) -> None:
-        from mloda.community.extenders.otel import otel_extender
+    @pytest.mark.parametrize("module_name", ["otel_extender", "otel_metrics_extender"])
+    def test_no_top_level_opentelemetry_sdk_import(self, module_name: str) -> None:
+        module = importlib.import_module(f"mloda.community.extenders.otel.{module_name}")
 
-        source = Path(otel_extender.__file__).read_text()
+        assert module.__file__ is not None
+        source = Path(module.__file__).read_text()
         tree = ast.parse(source)
 
         sdk_imports: list[str] = []
@@ -211,7 +214,7 @@ class TestOtelExtenderModuleImports:
                     sdk_imports.append(node.module)
 
         assert sdk_imports == [], (
-            f"otel_extender.py has a top-level import of {sdk_imports} from opentelemetry.sdk, a dev-only "
+            f"{module_name}.py has a top-level import of {sdk_imports} from opentelemetry.sdk, a dev-only "
             "extra (opentelemetry-sdk is declared only under this package's 'dev' extra, never as a "
             "runtime dependency); the module already has `from __future__ import annotations`, so any "
             "type reference needed purely for annotations must come from opentelemetry.trace (the "
@@ -237,6 +240,7 @@ class TestOtelExtenderConstructorOptions:
             result = otel(lambda: 42)
 
         assert result == 42
+        assert otel.close_timeout == CLOSE_TIMEOUT
 
     def test_wraps_is_independent_of_raise_on_error_and_capture_content(self) -> None:
         assert (
@@ -791,7 +795,7 @@ class TestOtelExtenderFailureHandling:
     def test_warnings_name_the_subclass_not_the_base(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Both the wrapped-failure and the post-call WARNING name type(self).__name__."""
+        """The wrapped-failure, post-call and unpicklable-provider drop WARNINGs name type(self).__name__."""
         provider, _ = otel_capture
 
         class MyTracer(OtelExtender):
@@ -812,12 +816,14 @@ class TestOtelExtenderFailureHandling:
                     MyTracer(tracer_provider=provider, capture_content=True, mask=broken_mask)(
                         instrument(context, lambda: [1])
                     )
+            MyTracer(tracer_provider=provider).__getstate__()
 
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any("MyTracer" in m and "ValueError" in m and "calculate DummyFeatureGroup" in m for m in warnings), (
             warnings
         )
         assert any("MyTracer" in m and "post-call instrumentation failed" in m for m in warnings), warnings
+        assert any("MyTracer" in m and "tracer_provider" in m and "picklable" in m for m in warnings), warnings
         assert not any(m.startswith("OtelExtender ") for m in warnings), warnings
 
 
@@ -3324,125 +3330,3 @@ class TestOtelExtenderRootSpanPickling:
         _complete_run(otel, run_id)
 
         assert run_id in state["_run_roots"]
-
-
-class TestOtelExtenderClose:
-    """close() flushes the resolved tracer_provider within close_timeout; never terminal, never raises,
-    never calls shutdown() (core, not the extender, owns provider lifetime)."""
-
-    def test_close_flushes_the_injected_provider_with_timeout_millis(self) -> None:
-        from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
-
-        provider = Mock(force_flush=Mock(return_value=True))
-        otel = OtelExtender(tracer_provider=provider)
-
-        otel.close()
-
-        provider.force_flush.assert_called_once_with(timeout_millis=int(CLOSE_TIMEOUT * 1000))
-
-    def test_close_caps_flush_timeout_to_the_active_close_context(self) -> None:
-        provider = Mock(force_flush=Mock(return_value=True))
-        otel = OtelExtender(tracer_provider=provider)
-        otel.close_timeout = 5.0
-
-        with active_close_context(3.0):
-            otel.close()
-
-        provider.force_flush.assert_called_once()
-        assert 0 < provider.force_flush.call_args.kwargs["timeout_millis"] <= 3000
-
-    def test_close_flushes_the_global_provider_under_use_sdk_defaults(self, ambient_provider: _AmbientProvider) -> None:
-        provider = Mock(force_flush=Mock(return_value=True))
-        ambient_provider.provider = provider
-        otel = OtelExtender(use_sdk_defaults=True)
-
-        otel.close()
-
-        provider.force_flush.assert_called_once()
-
-    def test_inert_extender_close_touches_no_provider(self, ambient_provider: _AmbientProvider) -> None:
-        provider = Mock(force_flush=Mock(return_value=True))
-        ambient_provider.provider = provider
-        otel = OtelExtender()  # no injected provider, use_sdk_defaults False: inert
-
-        otel.close()
-
-        provider.force_flush.assert_not_called()
-
-    def test_close_never_calls_shutdown(self) -> None:
-        provider = Mock(force_flush=Mock(return_value=True))
-        otel = OtelExtender(tracer_provider=provider)
-
-        otel.close()
-
-        provider.shutdown.assert_not_called()
-
-    def test_close_swallows_a_raising_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        provider = Mock(force_flush=Mock(side_effect=RuntimeError("flush boom")))
-        otel = OtelExtender(tracer_provider=provider)
-
-        with caplog.at_level(logging.WARNING):
-            otel.close()  # must not raise
-
-        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("OtelExtender" in message for message in warnings), warnings
-        assert "flush boom" not in caplog.text
-
-    def test_close_logs_a_warning_when_force_flush_returns_false(self, caplog: pytest.LogCaptureFixture) -> None:
-        provider = Mock(force_flush=Mock(return_value=False))
-        otel = OtelExtender(tracer_provider=provider)
-
-        with caplog.at_level(logging.WARNING):
-            otel.close()
-
-        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("OtelExtender" in message for message in warnings), warnings
-
-    def test_close_logs_nothing_when_provider_has_no_force_flush(self, caplog: pytest.LogCaptureFixture) -> None:
-        class _NoFlushProvider:
-            pass
-
-        otel = OtelExtender(tracer_provider=_NoFlushProvider())  # type: ignore[arg-type]
-
-        with caplog.at_level(logging.WARNING):
-            otel.close()
-
-        assert caplog.records == []
-
-    def test_close_timeout_override_is_honored(self) -> None:
-        provider = Mock(force_flush=Mock(return_value=True))
-        otel = OtelExtender(tracer_provider=provider)
-        otel.close_timeout = 5.0
-
-        otel.close()
-
-        provider.force_flush.assert_called_once_with(timeout_millis=5000)
-
-    def test_close_bounds_a_blocking_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """opentelemetry-sdk's BatchProcessor.force_flush(timeout_millis) currently ignores the timeout
-        and exports synchronously; close() must still return well under a second."""
-        with blocking_flush_provider() as provider:
-            otel = OtelExtender(tracer_provider=provider)
-            otel.close_timeout = 0.1
-
-            start = time.monotonic()
-            with caplog.at_level(logging.WARNING):
-                still_running, outcome = call_with_join_timeout(otel.close, join_timeout=1.0)
-            elapsed = time.monotonic() - start
-
-        assert not still_running, "close() did not return within 1.0s while force_flush blocked past close_timeout"
-        if "error" in outcome:
-            raise outcome["error"]
-        assert elapsed < 1.0, elapsed
-
-        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("OtelExtender" in message for message in warnings), warnings
-
-    def test_negative_close_timeout_calls_force_flush_with_no_args(self) -> None:
-        provider = Mock(force_flush=Mock(return_value=True))
-        otel = OtelExtender(tracer_provider=provider)
-        otel.close_timeout = -1.0
-
-        otel.close()
-
-        provider.force_flush.assert_called_once_with()

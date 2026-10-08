@@ -10,7 +10,7 @@ Start here - learn to use existing plugins before creating your own.
 
 - [Use an existing plugin](01-use-existing-plugin.md)
 - [Discover plugins](02-discover-plugins.md)
-- [Export telemetry to any backend](12-export-telemetry.md) - Send traces and lineage from the community extenders to your backend
+- [Export telemetry to any backend](12-export-telemetry.md) - Send traces, metrics and lineage from the community extenders to your backend
 
 ---
 

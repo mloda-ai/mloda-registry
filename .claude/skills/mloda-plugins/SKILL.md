@@ -22,7 +22,7 @@ Location: `docs/guides/`
 | 09 | `09-create-feature-group.md` | Decision tree for choosing the right feature group pattern |
 | 10 | `10-create-compute-framework.md` | Decision tree for creating a compute framework plugin |
 | 11 | `11-create-extender.md` | Guide for creating extender plugins (logging, tracing, metrics) |
-| 12 | `12-export-telemetry.md` | Export OTel and OpenLineage telemetry to any backend: Collector, sampling, privacy defaults, multiprocessing |
+| 12 | `12-export-telemetry.md` | Export OTel (spans, metrics) and OpenLineage telemetry to any backend: Collector, sampling, privacy defaults, multiprocessing |
 | -- | `index.md` | Your Plugin Journey: step-by-step progression overview |
 
 ---

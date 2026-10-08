@@ -21,7 +21,6 @@ from mloda.steward import (
     PlanContext,
     RunContext,
     WarnOncePerInstance,
-    pickle_failure_reason,
     scrub_credentials,
 )
 from opentelemetry import trace
@@ -38,18 +37,14 @@ from opentelemetry.trace import (
     set_span_in_context,
 )
 
+from mloda.community.extenders.otel._constants import DECLARABLE_HOOKS, OPERATION_NAMES, TRACER_NAME
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
+from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
-from mloda.community.extenders.shared.teardown import (
-    CLOSE_TIMEOUT,
-    capped_close_timeout,
-    force_flush,
-    to_timeout_millis,
-)
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
 
 logger = logging.getLogger(__name__)
 
-_TRACER_NAME = "mloda_community_otel"
 _CONTENT_PREVIEW_MAX_LEN = 200
 _TRUTHY_ENV_VALUES = {"true", "1"}
 
@@ -261,17 +256,6 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.JOIN: "join",
 }
 
-_OPERATION_NAMES: dict[ExtenderHook, str] = {
-    ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "calculate",
-    ExtenderHook.VALIDATE_INPUT_FEATURE: "validate",
-    ExtenderHook.VALIDATE_OUTPUT_FEATURE: "validate",
-    ExtenderHook.INPUT_DATA_LOAD: "load",
-    ExtenderHook.JOIN: "join",
-}
-
-# Hooks that record the context's declared attributes and rows.out after the call: calculate and load only.
-_DECLARABLE_HOOKS = {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
-
 # Declared attribute values kept; other types are dropped silently.
 _SCALAR_TYPES = (str, bool, int, float)
 
@@ -329,7 +313,7 @@ class OtelExtender(Extender):
         self._plan_spans: dict[str, Span] = {}
 
     def _tracer(self) -> trace.Tracer:
-        return trace.get_tracer(_TRACER_NAME, tracer_provider=self._resolve_tracer_provider())
+        return trace.get_tracer(TRACER_NAME, tracer_provider=self._resolve_tracer_provider())
 
     def on_plan_start(self, plan: PlanContext) -> None:
         if self.trace_scope != "plan":
@@ -400,11 +384,7 @@ class OtelExtender(Extender):
 
     def _configured_tracer_provider(self) -> TracerProvider | None:
         """Injected provider wins, else the global SDK provider when use_sdk_defaults, else None."""
-        if self._tracer_provider is not None:
-            return self._tracer_provider
-        if self.use_sdk_defaults:
-            return trace.get_tracer_provider()
-        return None
+        return configured_provider(self._tracer_provider, self.use_sdk_defaults, trace.get_tracer_provider)
 
     def _resolve_tracer_provider(self) -> TracerProvider:
         provider = self._configured_tracer_provider()
@@ -423,36 +403,28 @@ class OtelExtender(Extender):
         """Flush the resolved tracer_provider within close_timeout and the remaining close budget, best effort;
         never raises and never calls shutdown() (core, not the extender, owns provider lifetime). Inert (no
         injected provider, use_sdk_defaults False) touches no provider."""
-        provider = self._configured_tracer_provider()
-        if provider is None:
-            return
-        try:
-            result = force_flush(provider, timeout_millis=to_timeout_millis(capped_close_timeout(self.close_timeout)))
-        except Exception as exc:
-            logger.warning("%s failed to flush tracer_provider: %s", type(self).__name__, type(exc).__name__)
-            return
-        if result is False:
-            logger.warning("%s did not flush all spans within its close budget", type(self).__name__)
+        flush_on_close(
+            type(self).__name__,
+            self._configured_tracer_provider,
+            self.close_timeout,
+            log=logger,
+            noun="tracer_provider",
+            signal="spans",
+        )
 
     def __getstate__(self) -> dict[str, Any]:
-        provider = self._tracer_provider
-        failure_reason = pickle_failure_reason(provider) if provider is not None else None
-        if failure_reason is not None:
-            self._pickle_drop_warning.warn_once(
-                lambda: logger.warning(
-                    "OtelExtender drops an injected tracer_provider when pickled or copied because it "
-                    f"isn't picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, "
-                    "which lets it resolve a provider installed in its own process, e.g. via "
-                    "child_bootstrap under MULTIPROCESSING."
-                )
-            )
         state = dict(self.__dict__)
         with self._lock:
             state["_run_roots"] = dict(self._run_roots)
         for key in ("_lock", "_root_spans", "_plan_ints", "_plan_spans"):
             state.pop(key, None)
-        if failure_reason is not None:
-            state["_tracer_provider"] = None
+        drop_unpicklable_provider(
+            state,
+            "tracer_provider",
+            owner_name=type(self).__name__,
+            warning=self._pickle_drop_warning,
+            log=logger,
+        )
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -462,20 +434,14 @@ class OtelExtender(Extender):
         self._run_roots = run_roots
 
     def wraps(self) -> set[ExtenderHook]:
-        return {
-            ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
-            ExtenderHook.VALIDATE_INPUT_FEATURE,
-            ExtenderHook.VALIDATE_OUTPUT_FEATURE,
-            ExtenderHook.INPUT_DATA_LOAD,
-            ExtenderHook.JOIN,
-        }
+        return set(OPERATION_NAMES)
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         context = HookContext.current()
         span_name = _span_name(context)
 
         tracer_provider = self._resolve_tracer_provider()
-        tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=tracer_provider)
+        tracer = trace.get_tracer(TRACER_NAME, tracer_provider=tracer_provider)
         with self._lock:
             root = self._run_roots.get(context.run_id) if context is not None and context.run_id else None
         parent_context = _parent_context(context, root)
@@ -494,7 +460,7 @@ class OtelExtender(Extender):
                     span.set_status(Status(StatusCode.ERROR))
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                     raise
-                if context.hook in _DECLARABLE_HOOKS:
+                if context.hook in DECLARABLE_HOOKS:
                     _set_declared_attributes(span, context)
 
             try:
@@ -506,7 +472,7 @@ class OtelExtender(Extender):
                 raise
 
             try:
-                if context is not None and context.hook in _DECLARABLE_HOOKS:
+                if context is not None and context.hook in DECLARABLE_HOOKS:
                     if context.rows_out is not None:
                         span.set_attribute("mloda.rows.out", context.rows_out)
                     if (
@@ -711,7 +677,7 @@ def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
 
 
 def _set_context_attributes(span: Span, context: HookContext) -> None:
-    span.set_attribute("mloda.operation.name", _OPERATION_NAMES.get(context.hook, "unknown"))
+    span.set_attribute("mloda.operation.name", OPERATION_NAMES.get(context.hook, "unknown"))
     if context.feature_group_class is not None:
         span.set_attribute("mloda.feature_group.name", context.feature_group_class)
     if context.feature_group_version is not None:

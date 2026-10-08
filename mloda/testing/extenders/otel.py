@@ -1,4 +1,4 @@
-"""In-memory OTel span capture plus a contract mixin for extenders that emit OpenTelemetry spans."""
+"""In-memory OTel span and metric capture plus a contract mixin for extenders that emit OpenTelemetry spans."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from unittest.mock import patch
 import pytest
 from mloda.steward import Extender, ExtenderHook, HookContext
 from opentelemetry import propagate
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, MetricExporter, MetricExportResult, MetricsData
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -36,6 +38,19 @@ def make_span_capture() -> tuple[TracerProvider, InMemorySpanExporter]:
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     return provider, exporter
+
+
+def make_metric_capture() -> tuple[MeterProvider, InMemoryMetricReader]:
+    """SDK MeterProvider wired to an in-memory metric reader; collect with reader.get_metrics_data()."""
+    reader = InMemoryMetricReader()
+    return MeterProvider(metric_readers=[reader], shutdown_on_exit=False), reader
+
+
+def metric_names(data: MetricsData | None) -> list[str]:
+    """Every metric name in a collected MetricsData (empty for None, what a reader returns before any recording)."""
+    if data is None:
+        return []
+    return [m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
 
 
 def make_non_recording_span() -> NonRecordingSpan:
@@ -102,7 +117,7 @@ def assert_well_formed_trace(spans: Sequence[ReadableSpan], caller_span_id: int 
 
 
 @contextmanager
-def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
+def tracer_provider_resolution_spy() -> Iterator[list[Any]]:
     """trace.get_tracer only falls through to get_tracer_provider when tracer_provider is None."""
     calls: list[Any] = []
     provider, exporter = make_span_capture()
@@ -112,6 +127,20 @@ def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
         return provider
 
     with patch("opentelemetry.trace.get_tracer_provider", side_effect=spy_get_tracer_provider):
+        yield calls
+
+
+@contextmanager
+def meter_provider_resolution_spy() -> Iterator[list[Any]]:
+    """Records each ambient meter provider resolution (the reader behind the provider it hands out)."""
+    calls: list[Any] = []
+    provider, reader = make_metric_capture()
+
+    def spy_get_meter_provider() -> MeterProvider:
+        calls.append(reader)
+        return provider
+
+    with patch("opentelemetry.metrics.get_meter_provider", side_effect=spy_get_meter_provider):
         yield calls
 
 
@@ -144,6 +173,27 @@ class FileSpanExporter(SpanExporter):
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
+        pass
+
+
+class FileMetricExporter(MetricExporter):
+    """Appends one line per exported metric name to marker_path, so a metric can be observed from inside a
+    real spawned worker process."""
+
+    def __init__(self, marker_path: Path) -> None:
+        super().__init__()
+        self._marker_path = marker_path
+
+    def export(self, metrics_data: MetricsData, timeout_millis: float = 10_000, **kwargs: Any) -> MetricExportResult:
+        lines = [f"{name}\n" for name in metric_names(metrics_data)]
+        with open(self._marker_path, "a", encoding="utf-8") as handle:
+            handle.write("".join(lines))
+        return MetricExportResult.SUCCESS
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        return True
+
+    def shutdown(self, timeout_millis: float = 30_000, **kwargs: Any) -> None:
         pass
 
 
@@ -273,7 +323,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         return nullcontext()
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
-        return _tracer_provider_resolution_spy()
+        return tracer_provider_resolution_spy()
 
     def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
         return [span for exporter in spy for span in exporter.get_finished_spans()]
