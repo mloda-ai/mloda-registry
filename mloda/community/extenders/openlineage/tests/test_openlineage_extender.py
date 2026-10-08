@@ -170,7 +170,7 @@ def _root_of(parent: parent_run.ParentRunFacet) -> parent_run.Root:
 
 
 def _emit_root_start(extender: OpenLineageExtender) -> list[Any]:
-    """Run the root START through an extender built with an injected capture client; return its events."""
+    """Emit the root START and return the captured events."""
     extender.on_run_start(RunContext(run_id=_RUN_X, plan_id="plan-0001"), _plan(), ())
     client = extender._get_client()
     assert client is not None

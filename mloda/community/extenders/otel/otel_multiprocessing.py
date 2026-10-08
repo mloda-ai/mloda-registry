@@ -25,8 +25,7 @@ def extract_carrier(carrier: dict[str, str]) -> Context:
 
 
 def env_carrier() -> dict[str, str]:
-    """Read the OTel environment-variable carrier (TRACEPARENT, TRACESTATE; never BAGGAGE) at call time. Returns a
-    carrier for run_all(carrier=...) only when TRACEPARENT is a valid span context, else {}."""
+    """Carrier from TRACEPARENT/TRACESTATE (never BAGGAGE) for run_all(carrier=...); {} unless TRACEPARENT is valid."""
     carrier = {"traceparent": os.environ.get("TRACEPARENT", "")}
     if tracestate := os.environ.get("TRACESTATE"):
         carrier["tracestate"] = tracestate

@@ -134,8 +134,6 @@ class TestExtractCarrier:
 
 
 class TestEnvCarrier:
-    """env_carrier() reads the OTel environment-variable carrier (TRACEPARENT/TRACESTATE) at call time."""
-
     _VALID = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 
     def test_valid_traceparent_round_trips_through_extract_carrier(self, monkeypatch: pytest.MonkeyPatch) -> None:
