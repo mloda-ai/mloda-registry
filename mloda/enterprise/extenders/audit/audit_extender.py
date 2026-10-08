@@ -400,7 +400,7 @@ class AuditExtender(Extender):
         After a seal it made, it rotates the segment when segment_max_bytes / segment_max_age is passed; a rotation
         failure is a seal failure too (counted and handled by seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
         at WARNING) and retries the seal once. While terminating (SIGTERM) it flushes the sink but skips the seal,
-        leaving the run pending for a seal_ndjson_runs sweep."""
+        leaving the run pending for a seal_ndjson_runs sweep; this covers the plan-refusal seal from on_plan_complete too."""
         if run.run_id is None:
             return
         try:

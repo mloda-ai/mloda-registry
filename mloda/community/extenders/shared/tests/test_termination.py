@@ -3,6 +3,7 @@ handler must never be installed inside the pytest/xdist process."""
 
 from __future__ import annotations
 
+import subprocess  # nosec
 import sys
 import textwrap
 import time
@@ -53,9 +54,22 @@ _ready()
 termination.install_sigterm_handler(grace=300.0)
 def hook():
     print("ready", flush=True)
-    time.sleep(2)
-    open(sys.argv[1], "w").write("done")
+    deadline = time.monotonic() + 30
+    while not termination.terminating() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.5)
+    open(sys.argv[1], "w").write("flag=%s" % termination.terminating())
 atexit.register(hook)
+""",
+    "second_sigterm_during_unwind": """
+termination.install_sigterm_handler(grace=300.0)
+try:
+    print("ready", flush=True)
+    time.sleep(120)
+finally:
+    os.kill(os.getpid(), signal.SIGTERM)
+    time.sleep(0.5)
+    open(sys.argv[1], "w").write("finally-completed")
 """,
     "terminating_flag": """
 print("before=%s" % termination.terminating(), flush=True)
@@ -67,7 +81,7 @@ _ready()
 
 
 def _run(case: str, marker: Path | None = None) -> tuple[int, str]:
-    code, out, _ = run_until_ready_then_sigterm(
+    code, out = run_until_ready_then_sigterm(
         [sys.executable, "-c", textwrap.dedent(_PRELUDE + _CASES[case]), str(marker)], timeout=_TIMEOUT
     )
     return code, out
@@ -106,6 +120,43 @@ class TestInstallSigtermHandler:
 
         code, _ = _run("sigterm_during_atexit", marker)
 
-        assert marker.read_text() == "done"
+        assert marker.read_text() == "flag=True"
         assert code == 0
         assert time.monotonic() - start < 45
+
+    def test_a_second_sigterm_during_the_unwind_does_not_interrupt_it(self, tmp_path: Path) -> None:
+        marker = tmp_path / "finally-done"
+
+        code, _ = _run("second_sigterm_during_unwind", marker)
+
+        assert marker.read_text() == "finally-completed"
+        assert code == 143
+
+    def test_invalid_grace_is_rejected_and_leaves_the_sigterm_handler_untouched(self) -> None:
+        script = textwrap.dedent(
+            """
+            import math, signal
+            from mloda.community.extenders.shared import termination
+
+            before = signal.getsignal(signal.SIGTERM)
+            for grace in (0, -1.0, math.nan, math.inf):
+                try:
+                    termination.install_sigterm_handler(grace=grace)
+                    print("%r: no error" % grace)
+                except Exception as exc:
+                    print("%r: %s" % (grace, type(exc).__name__))
+            print("untouched=%s" % (signal.getsignal(signal.SIGTERM) is before))
+            """
+        )
+
+        result = subprocess.run(  # nosec
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=_TIMEOUT
+        )
+
+        assert result.stdout.splitlines() == [
+            "0: ValueError",
+            "-1.0: ValueError",
+            "nan: ValueError",
+            "inf: ValueError",
+            "untouched=True",
+        ], result.stderr

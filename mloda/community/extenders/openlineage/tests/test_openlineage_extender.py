@@ -3576,11 +3576,10 @@ _SIGTERM_CHILD = """
 import sys, time
 import pyarrow as pa
 from mloda.provider import BaseInputData, FeatureGroup
-from mloda.user import PluginCollector, mloda
+from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.community.extenders.shared import termination
-from mloda.core.abstract_plugins.components.parallelization_modes import ParallelizationMode
 
 
 class SigtermSleepingFeature(FeatureGroup):
@@ -3621,10 +3620,10 @@ class TestOpenLineageExtenderSigterm:
     def test_sigterm_mid_run_aborts_the_step_and_the_run_and_closes_the_transport(self, tmp_path: Path) -> None:
         (tmp_path / "sigterm_transport.py").write_text(_SIGTERM_TRANSPORT_MODULE, encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith(_OPENLINEAGE_ENV_PREFIXES)}
-        env["PYTHONPATH"] = os.pathsep.join([str(tmp_path), env.get("PYTHONPATH", "")])
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(tmp_path), env.get("PYTHONPATH")]))
         env["MLODA_TEST_OL_DIR"] = str(tmp_path)
         env["OPENLINEAGE__TRANSPORT__TYPE"] = "sigterm_transport.SigtermTransport"
-        returncode, _, _ = run_until_ready_then_sigterm([sys.executable, "-c", _SIGTERM_CHILD], env=env, timeout=120)
+        returncode, _ = run_until_ready_then_sigterm([sys.executable, "-c", _SIGTERM_CHILD], env=env, timeout=120)
 
         assert returncode == 143
         events = [json.loads(raw) for raw in (tmp_path / "events.ndjson").read_text(encoding="utf-8").splitlines()]

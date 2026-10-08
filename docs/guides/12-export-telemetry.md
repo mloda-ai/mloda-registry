@@ -209,7 +209,7 @@ Spark steps in the same pipeline read `spark.openlineage.parentJobNamespace`, `p
 
 ### End a run on SIGTERM
 
-Eviction, preemption and rollouts send SIGTERM. Python's default action exits without running `atexit`, so the run keeps a START event with no terminal event and its open spans are lost. Opt in from the batch entrypoint (never from a library, and not in a server such as uvicorn, whose own graceful drain it would preempt):
+Eviction, preemption and rollouts send SIGTERM. Python's default action exits without running `atexit` (as PID 1 it ignores SIGTERM until the SIGKILL at the end of the grace period), so the run keeps a START event with no terminal event and its open spans are lost. Opt in from the batch entrypoint (never from a library, and not in a server such as uvicorn, whose own graceful drain it would preempt):
 
 ```python
 from mloda.community.extenders.shared.termination import install_sigterm_handler
@@ -221,8 +221,9 @@ if __name__ == "__main__":
 
 On SIGTERM the handler calls any Python handler installed before it, then raises `SystemExit(143)` in the main thread. Open step spans end with status `ERROR`, open OpenLineage step runs and the root run end with ABORT, and the exit flushes run as on a normal exit (OpenLineage self-built clients, up to 10s each; the SDK providers' own exit flush). After `grace` seconds a watchdog ends the process with `os._exit(143)` whatever is still running, so anything not yet flushed is lost. Notes:
 
-- Run Python as PID 1 with an exec-form `CMD ["python", "main.py"]`, or under `tini`/`dumb-init`. A shell-form `CMD` makes `sh` PID 1, which does not forward SIGTERM.
-- The grace period also covers `preStop`, and the handler only runs once the main thread is back in Python (a long C call delays it). Keep the flush under `grace`: lower `OTEL_BSP_EXPORT_TIMEOUT` (default 30s) and prefer a short OpenLineage transport timeout.
+- Run Python as PID 1 with an exec-form `CMD ["python", "main.py"]`, or under `tini`/`dumb-init`. A shell that stays PID 1 (a shell-form `CMD` with more than one command) does not forward SIGTERM.
+- The grace period also covers `preStop`, and the handler only runs once the main thread is back in Python (a long C call delays it). The watchdog is the real cap; to fit the flush under `grace`, lower `OTEL_EXPORTER_OTLP_TIMEOUT` (default 10s per export; the batch processors ignore `OTEL_BSP_EXPORT_TIMEOUT`) and the OpenLineage `http` transport's timeout and retries.
+- A second SIGTERM during the unwind is ignored.
 - Full ABORT and flush cover `SYNC` runs. A `THREADING` run waits for the step in flight before it unwinds, so a long step reaches the watchdog first. A `MULTIPROCESSING` step in flight is ended by core with a plain SIGTERM to its worker, so that step's terminal event and spans are lost; the root run still ends with ABORT.
 - `AuditExtender` flushes its sink but does not seal a run while terminating: the run stays pending for a `seal_ndjson_runs(..., older_than=...)` sweep, which seals it as `sealed_late` (see [Sealing and anchoring](11-create-extender.md#sealing-and-anchoring)). Schedule that sweep.
 
@@ -255,7 +256,7 @@ The injected SDK shadows the image's own `opentelemetry` install, so pin compati
 
 ### Pod attributes in the Collector
 
-The Operator already sets `k8s.pod.name` and `k8s.namespace.name` in `OTEL_RESOURCE_ATTRIBUTES`. For labels and annotations, or for pods without the Operator, add the Collector's `k8sattributes` processor (its service account needs `get`, `watch` and `list` on pods, namespaces and replicasets). It enriches OTel signals only, never OpenLineage events.
+The Operator already sets `k8s.pod.name` and `k8s.namespace.name` in `OTEL_RESOURCE_ATTRIBUTES`. For labels and annotations, or for pods without the Operator, add the Collector's `k8sattributes` processor (its service account needs read access to pods and namespaces, plus the workload kinds you extract; see the processor's README for your Collector version). It enriches OTel signals only, never OpenLineage events.
 
 ```yaml
 processors:
@@ -274,11 +275,11 @@ service:
 
 ### Jobs and CronJobs
 
-A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`), else the Job never completes.
+A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes.
 
 ### Serverless
 
-Lambda and Cloud Run freeze or stop the process after the handler returns, so exit-time flushes may never run, and Lambda delivers no SIGTERM to function code, so the handler does not apply. Before returning, call `force_flush()` on the tracer and meter providers. For OpenLineage use the synchronous `http` transport, which sends each event as it is emitted; do not call `OpenLineageExtender.close()` on a warm instance you reuse, since a closed extender emits nothing more (build one per invocation if you must close it).
+Lambda freezes the process after the handler returns and Cloud Run throttles its CPU, so exit-time flushes may never run. Before returning, call `force_flush()` on the tracer and meter providers. For OpenLineage use the synchronous `http` transport, which sends each event as it is emitted; do not call `OpenLineageExtender.close()` on a warm instance you reuse, since a closed extender raises on its next use (build one per invocation if you must close it). Lambda sends SIGTERM only when an extension is registered, with about 500 ms to react, too short for the handler. Cloud Run sends SIGTERM 10s before SIGKILL, so install the handler with a smaller `grace`.
 
 ## Multiprocessing, threads and asyncio
 
