@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import socket
+import uuid
 from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -25,6 +26,7 @@ from mloda.steward import (
 )
 
 from mloda.community.extenders.shared import termination
+from mloda.community.extenders.shared.classification import LEVELS, feature_classifications
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
@@ -42,6 +44,7 @@ from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
 from mloda.enterprise.extenders.audit._segments import _genesis_older_than, _InterruptedRotationError, _rotate
 from mloda.enterprise.extenders.audit._signers import ManifestSigner, _signer_map
 from mloda.enterprise.extenders.audit._trace import trace_ids
+from mloda.enterprise.extenders.audit.classification import ClassificationDeniedError, ClassificationPolicy
 from mloda.enterprise.extenders.audit.run_manifest import (
     _check_run_against_seal,
     seal_ndjson_runs,
@@ -214,6 +217,7 @@ class AuditExtender(Extender):
         seal_index_path: str | Path | None = None,
         segment_max_bytes: int | None = None,
         segment_max_age: timedelta | None = None,
+        classification: ClassificationPolicy | None = None,
     ) -> None:
         unknown = [name for name in required_identity if name not in _ALLOWED_IDENTITY_NAMES]
         if unknown:
@@ -230,6 +234,15 @@ class AuditExtender(Extender):
             )
         if policy_version is not None and (not isinstance(policy_version, str) or _is_blank(policy_version)):
             raise ValueError(f"AuditExtender policy_version must be a non-blank str, got {policy_version!r}")
+        if classification is not None and not (fail_closed and "principal" in required_identity):
+            raise ValueError(
+                "AuditExtender classification needs fail_closed=True and 'principal' in required_identity, "
+                "else the clearance is checked for no one"
+            )
+        if classification is not None and policy_version is None:
+            raise ValueError(
+                "AuditExtender classification needs an explicit policy_version: the clearance callable cannot be fingerprinted"
+            )
         previous_signers = tuple(previous_signers)
         if seal_failure_policy not in ("log", "raise") and (
             isinstance(seal_failure_policy, (str, type)) or not callable(seal_failure_policy)
@@ -303,6 +316,7 @@ class AuditExtender(Extender):
                     **({"head_anchor": anchor_path} if anchor_path is not None else {}),
                 )
         self.sink = sink
+        self.classification = classification
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
         self._fail_closed = fail_closed
@@ -323,6 +337,7 @@ class AuditExtender(Extender):
         self.seal_failures = 0
         self._plan_refusals: set[str] = set()
         self._structure_hashes: dict[str, str] = {}
+        self._classifications: dict[str, dict[uuid.UUID, str]] = {}
         self._pickle_drop_warning = WarnOncePerInstance()
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
@@ -351,21 +366,72 @@ class AuditExtender(Extender):
         if not self.fail_closed:
             return
         missing = self._missing_identity(run)
-        if not missing:
+        if missing:
+            self._deny_run_start(
+                run, plan, IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
+            )
+        if self.classification is not None:
+            self._check_classification(run, plan, steps, self.classification)
+
+    def _check_classification(
+        self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...], policy: ClassificationPolicy
+    ) -> None:
+        try:
+            levels = feature_classifications(steps, undeclared=policy.undeclared)
+            clearance = policy.clearance(run.tenant_id, run.principal)
+            if clearance not in LEVELS:
+                raise ValueError("clearance is not a known level")
+        except Exception:
+            self._deny_run_start(
+                run,
+                plan,
+                ClassificationDeniedError("AuditExtender refused the run: its classification could not be resolved"),
+                deny_reason="classification_unresolved",
+            )
             return
+        compute = [step for step in steps if step.step_kind == "compute"]
+        requested = {name for step in compute for name in step.requested_feature_names}
+        offending = sorted(name for name in requested if LEVELS.index(levels[name]) > LEVELS.index(clearance))
+        if offending:
+            self._deny_run_start(
+                run,
+                plan,
+                ClassificationDeniedError(f"AuditExtender refused the run: {offending} are above the clearance"),
+                deny_reason="classification_above_clearance",
+                feature_names=offending,
+                classification=max((levels[name] for name in offending), key=LEVELS.index),
+            )
+        if run.run_id is not None:
+            self._classifications[run.run_id] = {
+                step.step_uuid: max((levels[name] for name in step.feature_names), key=LEVELS.index)
+                for step in compute
+                if step.step_uuid is not None and step.feature_names
+            }
+
+    def _deny_run_start(
+        self,
+        run: RunContext,
+        plan: PlanContext,
+        error: RuntimeError,
+        *,
+        deny_reason: str | None = None,
+        feature_names: Iterable[str] = (),
+        classification: str | None = None,
+    ) -> None:
         per_call: dict[str, Any] = {
             "feature_group_class": None,
             "feature_group_version": None,
             "plugin_version": None,
-            "feature_names": [],
+            "feature_names": list(feature_names),
             "input_features": None,
+            "input_feature_edges": None,
             "compute_framework_name": None,
             "rows_out": None,
             "duration_seconds": None,
         }
         try:
-            raise IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
-        except IdentityRequiredError as refusal:
+            raise error
+        except RuntimeError as refusal:
             # Unguarded on purpose, as in __call__: a sink failure must propagate, chained to the refusal.
             self.sink.write(
                 self._record(
@@ -381,6 +447,8 @@ class AuditExtender(Extender):
                     enforced=True,
                     start_time=None,
                     trace=trace_ids(run.carrier),
+                    deny_reason=deny_reason,
+                    classification=classification,
                 )
             )
             raise
@@ -407,6 +475,7 @@ class AuditExtender(Extender):
             self._auto_seal(run.run_id)
         finally:
             self._structure_hashes.pop(run.run_id, None)
+            self._classifications.pop(run.run_id, None)
 
     def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
         """Auto-seal `plan.plan_id` when a plan-time refusal record was written under it (the refusal never
@@ -587,6 +656,8 @@ class AuditExtender(Extender):
         state["_head_anchor"] = None
         state["_seal_failure_policy"] = "log"
         state["_structure_hashes"] = dict(self._structure_hashes)
+        state["_classifications"] = {run_id: dict(levels) for run_id, levels in self._classifications.items()}
+        state["classification"] = None
         return state
 
     def wraps(self) -> set[ExtenderHook]:
@@ -723,6 +794,7 @@ class AuditExtender(Extender):
             enforced=self.fail_closed and bool(self._missing_identity(context)),
             start_time=start_time,
             trace=trace,
+            classification=self._step_classification(context),
             step_run=None
             if matched
             else step_run_id(
@@ -734,6 +806,11 @@ class AuditExtender(Extender):
             ),
             worker_index=context.worker_index,
         )
+
+    def _step_classification(self, context: HookContext) -> str | None:
+        if context.run_id is None or context.step_uuid is None:
+            return None
+        return self._classifications.get(context.run_id, {}).get(context.step_uuid)
 
     def _record(
         self,
@@ -752,6 +829,8 @@ class AuditExtender(Extender):
         trace: tuple[str | None, str | None],
         step_run: str | None = None,
         worker_index: int | None = None,
+        deny_reason: str | None = None,
+        classification: str | None = None,
     ) -> dict[str, Any]:
         missing = self._missing_identity(identity)
         event_time = _utc_now()
@@ -765,7 +844,7 @@ class AuditExtender(Extender):
             "tenant_id": identity.tenant_id,
             "project_id": identity.project_id,
             "principal": identity.principal,
-            "decision": "deny" if missing else "allow",
+            "decision": "deny" if missing or deny_reason else "allow",
             "enforced": enforced,
             "compliant": not missing and not _is_blank(identity.principal),
             "phase": phase,
@@ -775,7 +854,8 @@ class AuditExtender(Extender):
             "structure_hash": self._structure_hashes.get(run_id) if run_id is not None else None,
             "trace_id": trace[0],
             "span_id": trace[1],
-            "deny_reason": ("missing_" + "_and_".join(missing)) if missing else None,
+            "deny_reason": deny_reason or (("missing_" + "_and_".join(missing)) if missing else None),
+            "classification": classification,
             "hook": hook,
             **per_call,
             "status": status,

@@ -27,6 +27,7 @@ from mloda.enterprise.extenders.audit.audit_extender import (
     NdjsonAuditSink,
     TeeAuditSink,
 )
+from mloda.enterprise.extenders.audit.classification import ClassificationDeniedError, ClassificationPolicy
 from mloda.enterprise.extenders.audit.otel_log_sink import OtelLogAuditSink
 from mloda.enterprise.extenders.audit.run_manifest import (
     rotate_manifest_key,
@@ -38,6 +39,8 @@ from mloda.enterprise.extenders.audit.run_manifest import (
 __all__ = [
     "AuditExtender",
     "AuditSink",
+    "ClassificationDeniedError",
+    "ClassificationPolicy",
     "Ed25519Signer",
     "HeadAnchor",
     "HmacSha256Signer",

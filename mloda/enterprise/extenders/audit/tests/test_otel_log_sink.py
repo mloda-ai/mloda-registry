@@ -82,6 +82,7 @@ _STR_ATTRIBUTES = {
     "project_id": "mloda.project.id",
     "feature_group_class": "mloda.feature_group.name",
     "error_type": "error.type",
+    "classification": "mloda.audit.classification",
 }
 
 _BLANK_OMITTED_ATTRIBUTES = {**_STR_ATTRIBUTES, "principal": "user.hash"}
@@ -680,6 +681,16 @@ class TestOtelLogAuditSinkMapping:
         record = {**_audit_record(tenant_id="tenant-1"), "enforced": enforced}
 
         assert _attributes(_write_one(log_exporter, record))["mloda.audit.enforced"] is enforced
+
+    def test_classification_is_forwarded_as_a_string_attribute(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "classification": "pii"}
+
+        assert _attributes(_write_one(log_exporter, record))["mloda.audit.classification"] == "pii"
+
+    def test_a_none_classification_is_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = {**_audit_record(tenant_id="tenant-1"), "classification": None}
+
+        assert "mloda.audit.classification" not in _attributes(_write_one(log_exporter, record))
 
     def test_a_none_step_run_id_and_structure_hash_are_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
         record = {**_audit_record(tenant_id="tenant-1"), "step_run_id": None, "structure_hash": None}
