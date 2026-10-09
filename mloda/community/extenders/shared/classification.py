@@ -1,4 +1,4 @@
-"""Data classification levels and their propagation through a resolved plan, shared by the OTel and audit extenders."""
+"""Data classification levels and their propagation through a resolved plan."""
 
 from __future__ import annotations
 
