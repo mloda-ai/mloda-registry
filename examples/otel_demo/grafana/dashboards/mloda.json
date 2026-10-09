@@ -1,0 +1,52 @@
+{
+  "title": "mloda steps",
+  "uid": "mloda-otel-demo",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-30m", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "p95 step duration per feature group",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
+          "expr": "histogram_quantile(0.95, sum by (le, mloda_feature_group_name) (rate(mloda_step_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{mloda_feature_group_name}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "failed step share per feature group",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
+          "expr": "sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_type!=\"\"}[5m])) / sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count[5m]))",
+          "legendFormat": "{{mloda_feature_group_name}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "text",
+      "title": "Traces and lineage",
+      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 4},
+      "options": {
+        "mode": "markdown",
+        "content": "[Marquez UI](http://localhost:3001) for lineage. [Explore Tempo](http://localhost:3000/explore?left=%7B%22datasource%22:%22otel-demo-tempo%22%7D) for traces."
+      }
+    }
+  ]
+}

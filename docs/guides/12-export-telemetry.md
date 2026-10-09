@@ -2,6 +2,8 @@
 
 Run the community extenders (`OtelExtender` for spans, `OtelMetricsExtender` for metrics, `OpenLineageExtender` for lineage events) against any backend. mloda contains no cloud code and sends nothing on its own: it emits through the provider or client you configure. The community extenders emit spans, metrics and OpenLineage events only, no log records. Extender internals are in [Create an Extender Plugin](11-create-extender.md). Select step spans by `mloda.operation.name`, not by name (see [Selecting OTel spans](11-create-extender.md#selecting-otel-spans)).
 
+A runnable local stack (Collector, Tempo, Prometheus, Grafana, Marquez) is in [examples/otel_demo](../../examples/otel_demo/README.md).
+
 ## Install
 
 ```bash
