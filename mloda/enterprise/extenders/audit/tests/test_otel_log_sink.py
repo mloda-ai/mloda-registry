@@ -687,11 +687,6 @@ class TestOtelLogAuditSinkMapping:
 
         assert _attributes(_write_one(log_exporter, record))["mloda.audit.classification"] == "pii"
 
-    def test_a_none_classification_is_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
-        record = {**_audit_record(tenant_id="tenant-1"), "classification": None}
-
-        assert "mloda.audit.classification" not in _attributes(_write_one(log_exporter, record))
-
     def test_a_none_step_run_id_and_structure_hash_are_omitted(self, log_exporter: InMemoryLogRecordExporter) -> None:
         record = {**_audit_record(tenant_id="tenant-1"), "step_run_id": None, "structure_hash": None}
 

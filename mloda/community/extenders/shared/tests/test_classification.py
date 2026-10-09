@@ -198,6 +198,17 @@ def test_a_masking_group_with_a_reader_declares_its_own_level_not_the_readers() 
     assert feature_classifications(steps, undeclared="public") == {"a": "internal"}
 
 
+def test_a_masking_declared_attribute_without_the_class_attribute_does_not_lower() -> None:
+    class _MaskingOnlyDeclared(FeatureGroup):
+        @classmethod
+        def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
+            return {CLASSIFICATION_KEY: "internal", MASKING_ATTRIBUTE: True}
+
+    steps = [_step(_Pii, ("raw",)), _derived(_MaskingOnlyDeclared, "masked", "raw")]
+
+    assert feature_classifications(steps, undeclared="public")["masked"] == "pii"
+
+
 def test_the_per_feature_masking_option_does_not_lower() -> None:
     options = Options(context={MASKING_ATTRIBUTE: True})
     steps = [_step(_Pii, ("raw",)), _step(_Internal, ("d",), {"d": ("raw",)}, options=options)]

@@ -25,7 +25,7 @@ from mloda.steward import (
     WarnOncePerInstance,
 )
 
-from mloda.community.extenders.shared import termination
+from mloda.community.extenders.shared import is_picklable, termination
 from mloda.community.extenders.shared.classification import LEVELS, feature_classifications
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
@@ -198,7 +198,8 @@ class AuditExtender(Extender):
     segment_max_age (need log_id) rotate the segment after an auto-seal once the sealed bytes a rotation would
     archive reach that size (carried pending runs do not count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
-    audit_path, manifest_path or the anchor path."""
+    audit_path, manifest_path or the anchor path. classification (a ClassificationPolicy; needs fail_closed, a
+    principal identity and a policy_version) refuses a run requesting data above the caller's clearance."""
 
     def __init__(
         self,
@@ -234,6 +235,10 @@ class AuditExtender(Extender):
             )
         if policy_version is not None and (not isinstance(policy_version, str) or _is_blank(policy_version)):
             raise ValueError(f"AuditExtender policy_version must be a non-blank str, got {policy_version!r}")
+        if classification is not None and not isinstance(classification, ClassificationPolicy):
+            raise TypeError(
+                f"AuditExtender classification must be a ClassificationPolicy or None, got {classification!r}"
+            )
         if classification is not None and not (fail_closed and "principal" in required_identity):
             raise ValueError(
                 "AuditExtender classification needs fail_closed=True and 'principal' in required_identity, "
@@ -241,7 +246,8 @@ class AuditExtender(Extender):
             )
         if classification is not None and policy_version is None:
             raise ValueError(
-                "AuditExtender classification needs an explicit policy_version: the clearance callable cannot be fingerprinted"
+                "AuditExtender classification needs an explicit policy_version: "
+                "the clearance callable cannot be fingerprinted"
             )
         previous_signers = tuple(previous_signers)
         if seal_failure_policy not in ("log", "raise") and (
@@ -316,7 +322,8 @@ class AuditExtender(Extender):
                     **({"head_anchor": anchor_path} if anchor_path is not None else {}),
                 )
         self.sink = sink
-        self.classification = classification
+        self._classification = classification
+        self._classification_dropped = False
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
         self._fail_closed = fail_closed
@@ -349,6 +356,11 @@ class AuditExtender(Extender):
         """Read-only: fixed at construction, never a value set later."""
         return self._fail_closed
 
+    @property
+    def classification(self) -> ClassificationPolicy | None:
+        """Read-only: fixed at construction, never a value set later."""
+        return self._classification
+
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self) -> None:
         """Flush the sink if it defines flush(); a no-op otherwise. An exception propagates (core logs
@@ -360,7 +372,8 @@ class AuditExtender(Extender):
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...]) -> None:
         """Caches the plan's structure_hash for the run's records. With fail_closed, refuses a run whose
         RunContext lacks a required identity: one deny record, then IdentityRequiredError. Overriding this also
-        lets core run a session whose identity changed since prepare."""
+        lets core run a session whose identity changed since prepare. With a classification policy, also refuses a run
+        requesting data above the caller's clearance; a copy whose unpicklable policy was dropped refuses every run."""
         if run.run_id is not None and plan.structure_hash is not None:
             self._structure_hashes[run.run_id] = plan.structure_hash
         if not self.fail_closed:
@@ -369,6 +382,15 @@ class AuditExtender(Extender):
         if missing:
             self._deny_run_start(
                 run, plan, IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
+            )
+        if self._classification_dropped:
+            self._deny_run_start(
+                run,
+                plan,
+                ClassificationDeniedError(
+                    "AuditExtender refused the run: its classification policy did not survive a copy"
+                ),
+                deny_reason="classification_unresolved",
             )
         if self.classification is not None:
             self._check_classification(run, plan, steps, self.classification)
@@ -379,7 +401,7 @@ class AuditExtender(Extender):
         try:
             levels = feature_classifications(steps, undeclared=policy.undeclared)
             clearance = policy.clearance(run.tenant_id, run.principal)
-            if clearance not in LEVELS:
+            if clearance is not None and clearance not in LEVELS:
                 raise ValueError("clearance is not a known level")
         except Exception:
             self._deny_run_start(
@@ -389,9 +411,10 @@ class AuditExtender(Extender):
                 deny_reason="classification_unresolved",
             )
             return
+        rank = -1 if clearance is None else LEVELS.index(clearance)
         compute = [step for step in steps if step.step_kind == "compute"]
         requested = {name for step in compute for name in step.requested_feature_names}
-        offending = sorted(name for name in requested if LEVELS.index(levels[name]) > LEVELS.index(clearance))
+        offending = sorted(name for name in requested if LEVELS.index(levels[name]) > rank)
         if offending:
             self._deny_run_start(
                 run,
@@ -649,7 +672,8 @@ class AuditExtender(Extender):
         """Drops the signer material, head anchor and failure policy so a pickled copy (e.g. into a
         MULTIPROCESSING worker's dispatch payload) carries none: on_run_complete only ever runs in the parent,
         never in a worker copy, and Ed25519Signer holds non-picklable cryptography key objects besides.
-        raise_on_run_complete is kept: harmless, since copies never get on_run_complete."""
+        raise_on_run_complete is kept: harmless, since copies never get on_run_complete. The classification policy
+        is kept when picklable; else it is dropped and the copy's on_run_start refuses every run."""
         state = dict(self.__dict__)
         state["_signer"] = None
         state["_previous_signers"] = ()
@@ -657,7 +681,9 @@ class AuditExtender(Extender):
         state["_seal_failure_policy"] = "log"
         state["_structure_hashes"] = dict(self._structure_hashes)
         state["_classifications"] = {run_id: dict(levels) for run_id, levels in self._classifications.items()}
-        state["classification"] = None
+        if not is_picklable(self._classification):
+            state["_classification"] = None
+            state["_classification_dropped"] = True
         return state
 
     def wraps(self) -> set[ExtenderHook]:

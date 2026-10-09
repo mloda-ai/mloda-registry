@@ -1,4 +1,4 @@
-"""mloda-community-extenders-shared: Pickle-safety, open-invocation and SIGTERM helpers shared by mloda extenders."""
+"""mloda-community-extenders-shared: Pickle-safety, open-invocation, SIGTERM and classification propagation helpers shared by mloda extenders."""
 
 from mloda.steward import is_picklable
 

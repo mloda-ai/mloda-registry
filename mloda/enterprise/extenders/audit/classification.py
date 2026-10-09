@@ -14,7 +14,8 @@ class ClassificationDeniedError(RuntimeError):
 
 @dataclass(frozen=True)
 class ClassificationPolicy:
-    """clearance(tenant_id, principal) returns the highest level the caller may read, or None for none; undeclared
+    """clearance(tenant_id, principal) returns the highest level the caller may read, or None for none (every requested
+    feature is then refused); a raise or an unknown level refuses the run as unresolved. undeclared
     is the level assumed for a step that declares nothing."""
 
     clearance: Callable[[str | None, str | None], str | None]

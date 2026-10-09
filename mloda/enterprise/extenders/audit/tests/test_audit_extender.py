@@ -4,6 +4,7 @@ core's own instrumentation."""
 
 from __future__ import annotations
 
+import copy
 import errno
 import hashlib
 import json
@@ -22,7 +23,7 @@ from contextlib import AbstractContextManager, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pyarrow as pa
@@ -45,7 +46,7 @@ from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFea
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.community.extenders.shared import termination
-from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, MASKING_ATTRIBUTE
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
@@ -239,7 +240,7 @@ class MlodaTestingClassMasked(FeatureGroup):
 
     @classmethod
     def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
-        return {CLASSIFICATION_KEY: "internal", MASKING_ATTRIBUTE: True}
+        return {CLASSIFICATION_KEY: "internal"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -249,6 +250,14 @@ class MlodaTestingClassMasked(FeatureGroup):
 _DERIVED = MlodaTestingClassDerived.get_class_name()
 _MASKED = MlodaTestingClassMasked.get_class_name()
 _CLASS_GROUPS = {MlodaTestingClassPiiRoot, MlodaTestingClassDerived, MlodaTestingClassMasked}
+
+
+def _clear_internal(tenant: str | None, principal: str | None) -> str:
+    return "internal"
+
+
+def _clear_pii(tenant: str | None, principal: str | None) -> str:
+    return "pii"
 
 
 def _classified(
@@ -937,6 +946,19 @@ class TestAuditExtenderConstruction:
 
         with pytest.raises(AttributeError):
             policy.undeclared = "pii"  # type: ignore[misc]
+
+    def test_the_classification_policy_is_read_only(self) -> None:
+        extender = _classified(InMemoryAuditSink())
+
+        with pytest.raises(AttributeError):
+            extender.classification = None  # type: ignore[misc]
+
+    @pytest.mark.parametrize(
+        "value", ["pii", object(), lambda tenant, principal: "pii"], ids=["str", "object", "callable"]
+    )
+    def test_a_classification_that_is_not_a_policy_raises(self, value: Any) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            _classified(InMemoryAuditSink(), classification=value)
 
     def test_a_classification_denied_error_is_a_runtime_error(self) -> None:
         assert issubclass(ClassificationDeniedError, RuntimeError)
@@ -1938,7 +1960,6 @@ class TestAuditExtenderClassificationGate:
         "clearance",
         [
             pytest.param(Mock(side_effect=RuntimeError("clearance boom")), id="raises"),
-            pytest.param(lambda tenant, principal: None, id="none"),
             pytest.param(lambda tenant, principal: "secret", id="unknown_level"),
         ],
     )
@@ -1952,6 +1973,18 @@ class TestAuditExtenderClassificationGate:
         assert sink.records[0]["decision"] == "deny"
         assert sink.records[0]["enforced"] is True
         assert sink.records[0]["deny_reason"] == "classification_unresolved"
+
+    def test_a_none_clearance_is_cleared_for_nothing_and_every_requested_feature_offends(self) -> None:
+        sink = InMemoryAuditSink()
+        steps = (*_pii_chain(requested=("derived", "root")), _class_step(_PlainGroup, ("z",), step_uuid=uuid.uuid4()))
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(_classified(sink, None), steps)
+
+        assert len(sink.records) == 1
+        assert sink.records[0]["deny_reason"] == "classification_above_clearance"
+        assert sink.records[0]["feature_names"] == ["derived", "root", "z"]
+        assert sink.records[0]["classification"] == "pii"
 
     def test_a_plan_whose_levels_cannot_be_resolved_is_refused_as_unresolved(self) -> None:
         sink = InMemoryAuditSink()
@@ -2043,7 +2076,9 @@ class TestAuditExtenderClassificationGate:
 
         assert sink.records[0]["classification"] is None
 
-    def test_the_pickled_extender_keeps_the_run_levels_and_drops_the_policy(self) -> None:
+    def test_the_pickled_extender_keeps_the_run_levels_and_refuses_a_new_run_when_the_policy_is_unpicklable(
+        self,
+    ) -> None:
         sink = InMemoryAuditSink()
         extender = _classified(sink, "pii")
         _run_start(extender, _pii_chain())
@@ -2053,10 +2088,75 @@ class TestAuditExtenderClassificationGate:
             run_id=_RUN_UUID, plan_id="plan-1", step_uuid=_CLASS_STEP_UUID, tenant_id="t", principal="svc"
         ).activate():
             worker(lambda: None)
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(worker, _pii_chain())
 
-        assert worker.classification is None
         assert worker._classifications == extender._classifications
         assert worker.sink.records[0]["classification"] == "pii"
+        assert worker.sink.records[1]["deny_reason"] == "classification_unresolved"
+
+    @pytest.mark.parametrize(
+        "duplicate",
+        [copy.copy, copy.deepcopy, lambda extender: pickle.loads(pickle.dumps(extender))],  # nosec
+        ids=["copy", "deepcopy", "pickle"],
+    )
+    def test_a_copy_with_a_picklable_clearance_still_enforces_on_run_start(
+        self, duplicate: Callable[[AuditExtender], AuditExtender]
+    ) -> None:
+        duplicated = duplicate(_classified(InMemoryAuditSink(), _clear_internal))
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(duplicated, _pii_chain())
+
+        assert cast(InMemoryAuditSink, duplicated.sink).records[0]["deny_reason"] == "classification_above_clearance"
+
+    @pytest.mark.parametrize("duplicate", [copy.copy, copy.deepcopy], ids=["copy", "deepcopy"])
+    def test_a_copy_with_a_picklable_clearance_still_allows_a_cleared_run(
+        self, duplicate: Callable[[AuditExtender], AuditExtender]
+    ) -> None:
+        duplicated = duplicate(_classified(InMemoryAuditSink(), _clear_pii))
+
+        _run_start(duplicated, _pii_chain())
+
+        assert cast(InMemoryAuditSink, duplicated.sink).records == []
+
+    @pytest.mark.parametrize(
+        "duplicate",
+        [copy.copy, copy.deepcopy, lambda extender: pickle.loads(pickle.dumps(extender))],  # nosec
+        ids=["copy", "deepcopy", "pickle"],
+    )
+    def test_a_copy_with_an_unpicklable_clearance_refuses_as_unresolved_even_when_it_would_be_cleared(
+        self, duplicate: Callable[[AuditExtender], AuditExtender]
+    ) -> None:
+        extender = _classified(InMemoryAuditSink(), "pii")
+        _run_start(extender, _pii_chain())
+        cast(InMemoryAuditSink, extender.sink).records.clear()
+        duplicated = duplicate(extender)
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(duplicated, _pii_chain())
+
+        assert len(cast(InMemoryAuditSink, duplicated.sink).records) == 1
+        assert cast(InMemoryAuditSink, duplicated.sink).records[0]["decision"] == "deny"
+        assert cast(InMemoryAuditSink, duplicated.sink).records[0]["deny_reason"] == "classification_unresolved"
+
+    def test_a_classification_deny_record_is_sealed_under_its_run_id(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        extender = _classified(
+            NdjsonAuditSink(audit_path),
+            "internal",
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+        )
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(extender, _pii_chain())
+        extender.on_run_complete(RunContext(run_id=_RUN_UUID), _SUCCEEDED)
+
+        assert _ndjson(audit_path)[0]["deny_reason"] == "classification_above_clearance"
+        manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
+        assert [manifest["run_id"] for manifest in manifests] == [_RUN_UUID]
 
 
 class TestAuditExtenderClose:
