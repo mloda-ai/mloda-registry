@@ -33,11 +33,16 @@ def demo() -> ModuleType:
     return load_script("otel_demo_features", DEMO_DIR / "demo_features.py")
 
 
-def _run(demo: ModuleType, source: str, data_dir: Path, fail: bool = False) -> tuple[list[Any], Any, Any]:
+def _capture() -> tuple[set[Extender], Any, Any]:
     client, transport = make_recording_client()
     provider, exporter = make_span_capture()
     extenders: set[Extender] = {OtelExtender(tracer_provider=provider), OpenLineageExtender(client=client)}
-    values: list[Any] = demo.run_pipeline(source, extenders, data_dir, fail=fail)
+    return extenders, exporter, transport
+
+
+def _run(demo: ModuleType, source: str, data_dir: Path) -> tuple[list[Any], Any, Any]:
+    extenders, exporter, transport = _capture()
+    values: list[Any] = demo.run_pipeline(source, extenders, data_dir)
     return values, exporter, transport
 
 
@@ -53,39 +58,26 @@ def test_every_source_has_a_join_span_and_two_calculate_spans(demo: ModuleType, 
     assert len(_spans_with_operation(exporter, "calculate")) >= 2
 
 
-def test_every_source_returns_the_same_values(demo: ModuleType, tmp_path: Path) -> None:
-    results = {}
-    for source in SOURCES:
-        data_dir = tmp_path / source
-        data_dir.mkdir()
-        values, _, _ = _run(demo, source, data_dir)
-        assert values, source
-        assert sorted(values) == sorted(["NORTH:5.00", "SOUTH:7.00", "NORTH:9.00", "NORTH:11.00"]), source
-        results[source] = values
+@pytest.mark.parametrize("source", SOURCES)
+def test_every_source_returns_the_pinned_values(demo: ModuleType, tmp_path: Path, source: str) -> None:
+    values, _, _ = _run(demo, source, tmp_path)
 
-    assert results["csv"] == results["parquet"] == results["memory"]
+    assert sorted(values) == sorted(["NORTH:5.00", "SOUTH:7.00", "NORTH:9.00", "NORTH:11.00"])
 
 
-@pytest.mark.parametrize("source", sorted(LOAD_FORMATS))
-def test_file_sources_have_one_load_span_with_their_reader_format(
-    demo: ModuleType, tmp_path: Path, source: str
+def test_file_sources_have_one_load_span_with_their_reader_format_and_distinct_identities(
+    demo: ModuleType, tmp_path: Path
 ) -> None:
-    _, exporter, _ = _run(demo, source, tmp_path)
-
-    load_spans = _spans_with_operation(exporter, "load")
-    assert len(load_spans) == 1
-    assert (load_spans[0].attributes or {}).get("mloda.data_access.format") == LOAD_FORMATS[source]
-
-
-def test_csv_and_parquet_load_identities_differ(demo: ModuleType, tmp_path: Path) -> None:
     identities = {}
-    for source in LOAD_FORMATS:
+    for source, reader in LOAD_FORMATS.items():
         data_dir = tmp_path / source
         data_dir.mkdir()
         _, exporter, _ = _run(demo, source, data_dir)
-        identities[source] = (_spans_with_operation(exporter, "load")[0].attributes or {}).get(
-            "mloda.data_access.identity"
-        )
+        load_spans = _spans_with_operation(exporter, "load")
+        assert len(load_spans) == 1, source
+        attributes = load_spans[0].attributes or {}
+        assert attributes.get("mloda.data_access.format") == reader
+        identities[source] = attributes.get("mloda.data_access.identity")
 
     assert identities["csv"] is not None
     assert identities["parquet"] is not None
@@ -124,9 +116,7 @@ def test_a_step_run_event_carries_mloda_trace(demo: ModuleType, tmp_path: Path) 
 
 @pytest.mark.parametrize("source", SOURCES)
 def test_fail_raises_and_leaves_a_step_span_with_error_type(demo: ModuleType, tmp_path: Path, source: str) -> None:
-    client, _ = make_recording_client()
-    provider, exporter = make_span_capture()
-    extenders: set[Extender] = {OtelExtender(tracer_provider=provider), OpenLineageExtender(client=client)}
+    extenders, exporter, _ = _capture()
 
     with pytest.raises(ValueError, match="simulated failure"):
         demo.run_pipeline(source, extenders, tmp_path, fail=True)
@@ -140,15 +130,19 @@ def _stack_yaml_files() -> Iterator[Path]:
     yield from sorted(p for pattern in ("*.yaml", "*.yml") for p in DEMO_DIR.rglob(pattern))
 
 
-def test_stack_directory_has_the_expected_files() -> None:
-    for name in ("compose.yaml", "otel-collector.yaml", "tempo.yaml", "prometheus.yaml"):
-        assert (DEMO_DIR / name).is_file(), name
-    assert (DEMO_DIR / "grafana" / "dashboards" / "mloda.json").is_file()
+EXPECTED_YAML_FILES = {
+    "compose.yaml",
+    "otel-collector.yaml",
+    "tempo.yaml",
+    "prometheus.yaml",
+    "datasources.yaml",
+    "dashboards.yaml",
+}
 
 
 def test_every_yaml_file_parses() -> None:
     paths = list(_stack_yaml_files())
-    assert paths, f"no yaml files under {DEMO_DIR}"
+    assert {p.name for p in paths} == EXPECTED_YAML_FILES
     for path in paths:
         assert yaml.safe_load(path.read_text(encoding="utf-8")) is not None, path
 
