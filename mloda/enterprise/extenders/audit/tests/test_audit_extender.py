@@ -41,6 +41,7 @@ from mloda.user import ParallelizationMode
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
+from mloda.community.extenders.shared import termination
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
@@ -1713,6 +1714,24 @@ class TestAuditExtenderSealing:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[0])
         assert manifest["run_id"] == "run-1"
         assert manifest["record_count"] == 1
+
+    def test_while_terminating_flushes_the_sink_but_skips_the_seal_and_warns_with_the_run_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifest.ndjson"
+        sink = BufferingNdjsonAuditSink(audit_path)
+        sink.write(_minimal_audit_record("run-1"))
+        extender = AuditExtender(sink=sink, audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer())
+        monkeypatch.setattr(termination, "_terminating", True)
+
+        with caplog.at_level(logging.WARNING):
+            extender.on_run_complete(RunContext(run_id="run-1"), _SUCCEEDED)
+
+        assert audit_path.exists()  # the sink was flushed
+        assert not manifest_path.exists()
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("run-1" in r.getMessage() for r in warnings)
 
     def test_zero_records_and_missing_audit_file_is_a_noop_and_creates_no_manifest(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

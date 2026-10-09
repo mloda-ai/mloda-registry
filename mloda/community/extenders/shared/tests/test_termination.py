@@ -1,0 +1,162 @@
+"""Tests for termination.py: the opt-in SIGTERM handler. Every case runs in a child process because the
+handler must never be installed inside the pytest/xdist process."""
+
+from __future__ import annotations
+
+import subprocess  # nosec
+import sys
+import textwrap
+import time
+from pathlib import Path
+
+import pytest
+
+from mloda.testing.extenders.runners import run_until_ready_then_sigterm
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+
+_TIMEOUT = 60.0
+
+_PRELUDE = """
+import atexit, os, signal, sys, time
+from mloda.community.extenders.shared import termination
+
+def _ready():
+    print("ready", flush=True)
+    time.sleep(120)
+"""
+
+_CASES = {
+    "chains_once_and_exits_143": """
+calls = []
+def previous(signum, frame):
+    calls.append(signum)
+signal.signal(signal.SIGTERM, previous)
+termination.install_sigterm_handler()
+termination.install_sigterm_handler()
+atexit.register(lambda: print("atexit-ran calls=%d" % len(calls), flush=True))
+_ready()
+""",
+    "raising_previous_handler_does_not_block": """
+def previous(signum, frame):
+    raise RuntimeError("boom")
+signal.signal(signal.SIGTERM, previous)
+termination.install_sigterm_handler()
+atexit.register(lambda: print("atexit-ran", flush=True))
+_ready()
+""",
+    "watchdog_caps_a_slow_atexit": """
+termination.install_sigterm_handler(grace=0.5)
+atexit.register(lambda: time.sleep(60))
+_ready()
+""",
+    "sigterm_during_atexit": """
+termination.install_sigterm_handler(grace=300.0)
+def hook():
+    print("ready", flush=True)
+    deadline = time.monotonic() + 30
+    while not termination.terminating() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.5)
+    open(sys.argv[1], "w").write("flag=%s" % termination.terminating())
+atexit.register(hook)
+""",
+    "second_sigterm_during_unwind": """
+termination.install_sigterm_handler(grace=300.0)
+try:
+    print("ready", flush=True)
+    time.sleep(120)
+finally:
+    os.kill(os.getpid(), signal.SIGTERM)
+    time.sleep(0.5)
+    open(sys.argv[1], "w").write("finally-completed")
+""",
+    "terminating_flag": """
+print("before=%s" % termination.terminating(), flush=True)
+termination.install_sigterm_handler()
+atexit.register(lambda: print("after=%s" % termination.terminating(), flush=True))
+_ready()
+""",
+}
+
+
+def _run(case: str, marker: Path | None = None) -> tuple[int, str]:
+    code, out = run_until_ready_then_sigterm(
+        [sys.executable, "-c", textwrap.dedent(_PRELUDE + _CASES[case]), str(marker)], timeout=_TIMEOUT
+    )
+    return code, out
+
+
+class TestInstallSigtermHandler:
+    def test_chains_to_the_previous_handler_once_even_when_installed_twice_and_exits_143(self) -> None:
+        code, out = _run("chains_once_and_exits_143")
+
+        assert code == 143
+        assert "atexit-ran calls=1" in out
+
+    def test_a_raising_previous_handler_does_not_block_the_exit(self) -> None:
+        code, out = _run("raising_previous_handler_does_not_block")
+
+        assert code == 143
+        assert "atexit-ran" in out
+
+    def test_the_watchdog_ends_a_slow_atexit_hook_after_grace_with_143(self) -> None:
+        start = time.monotonic()
+        code, _ = _run("watchdog_caps_a_slow_atexit")
+
+        assert code == 143
+        assert time.monotonic() - start < 45
+
+    def test_terminating_is_false_before_and_true_after_the_signal(self) -> None:
+        code, out = _run("terminating_flag")
+
+        assert code == 143
+        assert "before=False" in out
+        assert "after=True" in out
+
+    def test_sigterm_during_atexit_does_not_cut_the_hook_short_and_keeps_status_0(self, tmp_path: Path) -> None:
+        marker = tmp_path / "hook-done"
+        start = time.monotonic()
+
+        code, _ = _run("sigterm_during_atexit", marker)
+
+        assert marker.read_text() == "flag=True"
+        assert code == 0
+        assert time.monotonic() - start < 45
+
+    def test_a_second_sigterm_during_the_unwind_does_not_interrupt_it(self, tmp_path: Path) -> None:
+        marker = tmp_path / "finally-done"
+
+        code, _ = _run("second_sigterm_during_unwind", marker)
+
+        assert marker.read_text() == "finally-completed"
+        assert code == 143
+
+    def test_invalid_grace_is_rejected_and_leaves_the_sigterm_handler_untouched(self) -> None:
+        script = textwrap.dedent(
+            """
+            import math, signal
+            from mloda.community.extenders.shared import termination
+
+            before = signal.getsignal(signal.SIGTERM)
+            for grace in (0, -1.0, math.nan, math.inf):
+                try:
+                    termination.install_sigterm_handler(grace=grace)
+                    print("%r: no error" % grace)
+                except Exception as exc:
+                    print("%r: %s" % (grace, type(exc).__name__))
+            print("untouched=%s" % (signal.getsignal(signal.SIGTERM) is before))
+            """
+        )
+
+        result = subprocess.run(  # nosec
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=_TIMEOUT
+        )
+
+        assert result.stdout.splitlines() == [
+            "0: ValueError",
+            "-1.0: ValueError",
+            "nan: ValueError",
+            "inf: ValueError",
+            "untouched=True",
+        ], result.stderr

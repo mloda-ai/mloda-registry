@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import signal
+import subprocess  # nosec
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
@@ -303,3 +307,40 @@ def run_feature(feature_group: type[MlodaTestingFailingFeatureGroup], *extenders
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
     )
+
+
+def run_until_ready_then_sigterm(
+    args: list[str], *, env: dict[str, str] | None = None, timeout: float = 60.0
+) -> tuple[int, str]:
+    """Spawn args, wait for a stdout line "ready", send SIGTERM; return (returncode, merged stdout and stderr).
+    timeout is one deadline over the whole run; on expiry the child is killed and the output so far is reported."""
+    proc = subprocess.Popen(  # nosec
+        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
+    )
+    lines: list[str] = []
+    ready = threading.Event()
+
+    def read() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            lines.append(line)
+            if line.strip() == "ready":
+                ready.set()
+        ready.set()
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout
+    try:
+        if not ready.wait(timeout) or not any(line.strip() == "ready" for line in lines):
+            raise AssertionError(f"child never printed ready within {timeout}s: {''.join(lines)}")
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
+        except subprocess.TimeoutExpired:
+            raise AssertionError(f"child did not exit within {timeout}s of start: {''.join(lines)}") from None
+        reader.join(5.0)
+        return proc.returncode, "".join(lines)
+    finally:
+        proc.kill()
+        proc.wait()

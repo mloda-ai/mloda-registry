@@ -24,6 +24,7 @@ from mloda.steward import (
     WarnOncePerInstance,
 )
 
+from mloda.community.extenders.shared import termination
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
@@ -398,7 +399,8 @@ class AuditExtender(Extender):
         other) fails a run that otherwise succeeded; a failed run keeps its own error and core only logs this one.
         After a seal it made, it rotates the segment when segment_max_bytes / segment_max_age is passed; a rotation
         failure is a seal failure too (counted and handled by seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
-        at WARNING) and retries the seal once."""
+        at WARNING) and retries the seal once. While terminating (SIGTERM) it flushes the sink but skips the seal,
+        leaving the run pending for a seal_ndjson_runs sweep; this covers the plan-refusal seal from on_plan_complete too."""
         if run.run_id is None:
             return
         try:
@@ -429,6 +431,11 @@ class AuditExtender(Extender):
             return
         assert self._audit_path is not None and self._manifest_path is not None  # construction enforces this
         self.close()
+        if termination.terminating():
+            logger.warning(
+                "AuditExtender: terminating; run_id %r is left pending, seal it with a seal_ndjson_runs sweep", run_id
+            )
+            return
         if not Path(self._audit_path).exists():
             logger.warning(
                 "AuditExtender: audit_path %s does not exist; run_id %r wrote nothing to seal",
