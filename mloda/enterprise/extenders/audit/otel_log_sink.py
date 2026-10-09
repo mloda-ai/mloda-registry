@@ -39,6 +39,7 @@ _STR_ATTRIBUTES = {
     "error_type": "error.type",
     "phase": "mloda.audit.phase",
     "step_run_id": "mloda.step.run_id",
+    "classification": "mloda.audit.classification",
 }
 _ENFORCED_ATTRIBUTE = "mloda.audit.enforced"
 _PRINCIPAL_ATTRIBUTE = "user.hash"

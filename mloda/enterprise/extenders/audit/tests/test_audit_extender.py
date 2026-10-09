@@ -4,6 +4,7 @@ core's own instrumentation."""
 
 from __future__ import annotations
 
+import copy
 import errno
 import hashlib
 import json
@@ -22,11 +23,12 @@ from contextlib import AbstractContextManager, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
+import pyarrow as pa
 import pytest
-from mloda.provider import BaseInputData
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -34,17 +36,22 @@ from mloda.steward import (
     HookContext,
     LifecycleOutcome,
     PlanContext,
+    PlanStep,
     RunContext,
     verified_context,
 )
-from mloda.user import ParallelizationMode
+from mloda.user import Feature, FeatureName, Options, ParallelizationMode, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.community.extenders.shared import termination
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
+    ClassificationDeniedError,
+    ClassificationPolicy,
     Ed25519Signer,
     HmacSha256Signer,
     IdentityRequiredError,
@@ -164,12 +171,176 @@ _EXPECTED_RECORD_KEYS = {
     "structure_hash",
     "trace_id",
     "span_id",
+    "classification",
 }
 
 _FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 
 # Neither 12 characters nor hex, so a truncated or hashed value would not equal it.
 _POLICY_VERSION = "policy-2026-09-rev-3"
+
+
+# Classification gate fixtures. Module-level so MULTIPROCESSING can pickle them by path; the MlodaTestingClass prefix
+# and the column name keep them from colliding with other plugins during resolution.
+_PII_COLUMN = "mloda_testing_class_pii_value"
+_CLASS_STEP_UUID = uuid.UUID("6f1c2d3e-4a5b-4c6d-8e7f-0123456789ab")
+_OTHER_STEP_UUID = uuid.UUID("0a1b2c3d-4e5f-4a6b-8c7d-0123456789cd")
+
+
+class _PlainGroup(FeatureGroup):
+    """Declares nothing, so it takes the policy's undeclared level."""
+
+
+class MlodaTestingClassPiiRoot(FeatureGroup):
+    """Root source declared pii."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({_PII_COLUMN})
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
+        return {CLASSIFICATION_KEY: "pii"}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pa.table({_PII_COLUMN: [1, 2, 3]})
+
+
+class MlodaTestingClassDerived(FeatureGroup):
+    """Declares nothing: inherits pii from its input."""
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature(_PII_COLUMN)}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {cls.get_class_name(): data[_PII_COLUMN].to_pylist()}
+
+
+class MlodaTestingClassMasked(FeatureGroup):
+    """Masking step declaring internal."""
+
+    masking = True
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature(_PII_COLUMN)}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
+        return {CLASSIFICATION_KEY: "internal"}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {cls.get_class_name(): [None for _ in data[_PII_COLUMN].to_pylist()]}
+
+
+_DERIVED = MlodaTestingClassDerived.get_class_name()
+_MASKED = MlodaTestingClassMasked.get_class_name()
+_CLASS_GROUPS = {MlodaTestingClassPiiRoot, MlodaTestingClassDerived, MlodaTestingClassMasked}
+
+
+def _clear_internal(tenant: str | None, principal: str | None) -> str:
+    return "internal"
+
+
+def _clear_pii(tenant: str | None, principal: str | None) -> str:
+    return "pii"
+
+
+def _classified(
+    sink: Any, clearance: Callable[[str | None, str | None], str | None] | str | None = "pii", **kwargs: Any
+) -> AuditExtender:
+    """A fail_closed gate with a classification policy; a str clearance is a fixed level for every caller."""
+    grant = clearance if callable(clearance) else (lambda tenant, principal: clearance)
+    options: dict[str, Any] = {
+        "fail_closed": True,
+        "required_identity": ("tenant_id", "principal"),
+        "policy_version": _POLICY_VERSION,
+        "classification": ClassificationPolicy(clearance=grant, undeclared="public"),
+        **kwargs,
+    }
+    return AuditExtender(sink=sink, **options)
+
+
+def _class_step(
+    group: type[FeatureGroup],
+    names: tuple[str, ...],
+    edges: Mapping[str, tuple[str, ...]] | None = None,
+    *,
+    requested: tuple[str, ...] | None = None,
+    step_uuid: uuid.UUID | None = _CLASS_STEP_UUID,
+) -> PlanStep:
+    return PlanStep(
+        step_kind="compute",
+        feature_names=names,
+        feature_group=group,
+        compute_framework=None,
+        source_feature_group=None,
+        source_compute_framework=None,
+        requested_feature_names=names if requested is None else requested,
+        input_feature_edges=edges or {},
+        step_uuid=step_uuid,
+    )
+
+
+def _pii_chain(requested: tuple[str, ...] = ("derived",)) -> tuple[PlanStep, ...]:
+    """A pii root and a derived feature that inherits it; `requested` names the user-requested ones."""
+    root = _class_step(MlodaTestingClassPiiRoot, ("root",), requested=() if "root" not in requested else ("root",))
+    derived = _class_step(
+        _PlainGroup,
+        ("derived",),
+        {"derived": ("root",)},
+        requested=("derived",) if "derived" in requested else (),
+        step_uuid=_OTHER_STEP_UUID,
+    )
+    return (root, derived)
+
+
+def _run_start(extender: AuditExtender, steps: tuple[PlanStep, ...], **identity: Any) -> None:
+    run = RunContext(run_id=_RUN_UUID, plan_id="plan-1", **{"tenant_id": "t", "principal": "svc", **identity})
+    extender.on_run_start(run, Mock(plan_id="plan-1", structure_hash=None), steps)
+
+
+def _run_class_features(
+    features: list[Feature | str],
+    *extenders: Extender,
+    mode: ParallelizationMode = ParallelizationMode.SYNC,
+    **kwargs: Any,
+) -> list[Any]:
+    return mloda.run_all(
+        features,
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups(_CLASS_GROUPS),
+        function_extender=set(extenders),
+        parallelization_modes={mode},
+        **kwargs,
+    )
+
+
+def _prepare_class_feature(feature: str, *extenders: Extender) -> mloda:
+    return mloda.prepare(
+        [feature],
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups(_CLASS_GROUPS),
+        function_extender=set(extenders),
+    )
+
+
+def _ndjson(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 # Sealing (AuditExtender.on_run_complete) fixtures: deterministic keys, never used for anything but these tests.
@@ -655,6 +826,22 @@ class TestAuditExtenderFailClosedContract(TestAuditExtenderContract):
         return {"tenant_id": _TENANT}
 
 
+class TestAuditExtenderClassificationContract(TestAuditExtenderFailClosedContract):
+    """A fail_closed gate with a classification policy satisfies the same contract; the policy is dropped on pickle."""
+
+    @classmethod
+    def context_identity(cls) -> dict[str, str]:
+        return {"tenant_id": _TENANT, "principal": _PRINCIPAL}
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> AuditExtender:
+        extra = {} if raise_on_error is None else {"raise_on_error": raise_on_error}
+        return _classified(InMemoryAuditSink(), "pii", **extra)
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "audit.ndjson"
+        return _classified(NdjsonAuditSink(marker_path), "pii"), marker_path
+
+
 class TestAuditExtenderSealingContract(TestAuditExtenderContract):
     """The shared Extender contract also holds with auto-sealing, a genesis log_id and a head anchor configured."""
 
@@ -731,6 +918,50 @@ class TestAuditExtenderConstruction:
     def test_fail_closed_with_empty_required_identity_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, required_identity=())
+
+    def test_classification_with_every_requirement_is_accepted(self) -> None:
+        _classified(InMemoryAuditSink())
+
+    def test_classification_without_fail_closed_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            _classified(InMemoryAuditSink(), fail_closed=False)
+
+    def test_classification_without_principal_in_required_identity_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            _classified(InMemoryAuditSink(), required_identity=("tenant_id",))
+
+    @pytest.mark.parametrize("policy_version", [None, "", "   "], ids=["none", "empty", "blank"])
+    def test_classification_without_an_explicit_policy_version_raises_value_error(
+        self, policy_version: str | None
+    ) -> None:
+        with pytest.raises(ValueError):
+            _classified(InMemoryAuditSink(), policy_version=policy_version)
+
+    def test_a_classification_policy_with_an_unknown_undeclared_level_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="secret")
+
+    def test_a_classification_policy_is_frozen(self) -> None:
+        policy = ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="public")
+
+        with pytest.raises(AttributeError):
+            policy.undeclared = "pii"  # type: ignore[misc]
+
+    def test_the_classification_policy_is_read_only(self) -> None:
+        extender = _classified(InMemoryAuditSink())
+
+        with pytest.raises(AttributeError):
+            extender.classification = None  # type: ignore[misc]
+
+    @pytest.mark.parametrize(
+        "value", ["pii", object(), lambda tenant, principal: "pii"], ids=["str", "object", "callable"]
+    )
+    def test_a_classification_that_is_not_a_policy_raises(self, value: Any) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            _classified(InMemoryAuditSink(), classification=value)
+
+    def test_a_classification_denied_error_is_a_runtime_error(self) -> None:
+        assert issubclass(ClassificationDeniedError, RuntimeError)
 
     def test_fail_closed_with_raise_on_error_false_is_accepted(self) -> None:
         extender = AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, raise_on_error=False)
@@ -1645,6 +1876,287 @@ class TestAuditExtenderFailClosed:
 
         assert call.calls == 0
         assert isinstance(excinfo.value.__context__, IdentityRequiredError)
+
+
+class TestAuditExtenderClassificationGate:
+    """With a classification policy, on_run_start refuses a run whose caller is not cleared for a requested feature."""
+
+    def test_a_requested_feature_above_the_clearance_is_refused_with_one_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "internal")
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(extender, _pii_chain())
+
+        assert len(sink.records) == 1
+        record = sink.records[0]
+        assert record["hook"] == "RUN_START"
+        assert record["phase"] == "run"
+        assert record["status"] == "error"
+        assert record["run_id"] == _RUN_UUID
+        assert record["decision"] == "deny"
+        assert record["enforced"] is True
+        assert record["compliant"] is True
+        assert record["deny_reason"] == "classification_above_clearance"
+        assert record["feature_names"] == ["derived"]
+        assert record["classification"] == "pii"
+        assert record["policy_version"] == _POLICY_VERSION
+        assert set(record) == _EXPECTED_RECORD_KEYS
+
+    def test_only_requested_offending_names_are_listed_sorted_with_their_most_restrictive_level(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "internal")
+        steps = (
+            *_pii_chain(requested=("derived",)),
+            _class_step(MlodaTestingClassPiiRoot, ("b", "a"), step_uuid=uuid.uuid4()),
+            _class_step(MlodaTestingClassMasked, ("ok",), {"ok": ("root",)}, step_uuid=uuid.uuid4()),
+        )
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(extender, steps)
+
+        assert sink.records[0]["feature_names"] == ["a", "b", "derived"]
+        assert sink.records[0]["classification"] == "pii"
+
+    def test_an_unrequested_restricted_intermediate_does_not_deny(self) -> None:
+        sink = InMemoryAuditSink()
+        steps = (
+            _class_step(MlodaTestingClassPiiRoot, ("root",), requested=()),
+            _class_step(MlodaTestingClassMasked, ("masked",), {"masked": ("root",)}, step_uuid=_OTHER_STEP_UUID),
+        )
+
+        _run_start(_classified(sink, "internal"), steps)
+
+        assert sink.records == []
+
+    def test_an_undeclared_step_takes_the_policy_undeclared_level(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(
+            sink,
+            "internal",
+            classification=ClassificationPolicy(clearance=lambda tenant, principal: "internal", undeclared="pii"),
+        )
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(extender, (_class_step(_PlainGroup, ("a",)),))
+
+        assert sink.records[0]["classification"] == "pii"
+
+    def test_a_clearance_at_the_level_allows_and_writes_nothing(self) -> None:
+        sink = InMemoryAuditSink()
+
+        _run_start(_classified(sink, "pii"), _pii_chain())
+
+        assert sink.records == []
+
+    def test_the_clearance_is_called_with_the_run_tenant_and_principal(self) -> None:
+        clearance = Mock(return_value="pii")
+
+        _run_start(_classified(InMemoryAuditSink(), clearance), _pii_chain(), tenant_id="t-1", principal="alice")
+
+        clearance.assert_called_once_with("t-1", "alice")
+
+    @pytest.mark.parametrize(
+        "clearance",
+        [
+            pytest.param(Mock(side_effect=RuntimeError("clearance boom")), id="raises"),
+            pytest.param(lambda tenant, principal: "secret", id="unknown_level"),
+        ],
+    )
+    def test_an_unresolvable_clearance_is_refused_as_unresolved(self, clearance: Callable[..., Any]) -> None:
+        sink = InMemoryAuditSink()
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(_classified(sink, clearance), _pii_chain())
+
+        assert len(sink.records) == 1
+        assert sink.records[0]["decision"] == "deny"
+        assert sink.records[0]["enforced"] is True
+        assert sink.records[0]["deny_reason"] == "classification_unresolved"
+
+    def test_a_none_clearance_is_cleared_for_nothing_and_every_requested_feature_offends(self) -> None:
+        sink = InMemoryAuditSink()
+        steps = (*_pii_chain(requested=("derived", "root")), _class_step(_PlainGroup, ("z",), step_uuid=uuid.uuid4()))
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(_classified(sink, None), steps)
+
+        assert len(sink.records) == 1
+        assert sink.records[0]["deny_reason"] == "classification_above_clearance"
+        assert sink.records[0]["feature_names"] == ["derived", "root", "z"]
+        assert sink.records[0]["classification"] == "pii"
+
+    def test_a_plan_whose_levels_cannot_be_resolved_is_refused_as_unresolved(self) -> None:
+        sink = InMemoryAuditSink()
+        steps = (_class_step(_PlainGroup, ("d",), {"d": ("ghost",)}),)
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(_classified(sink, "pii"), steps)
+
+        assert sink.records[0]["deny_reason"] == "classification_unresolved"
+
+    def test_missing_identity_is_refused_first_and_its_record_is_unchanged(self) -> None:
+        sink = InMemoryAuditSink()
+        clearance = Mock(return_value="public")
+        extender = _classified(sink, clearance)
+
+        with pytest.raises(IdentityRequiredError):
+            extender.on_run_start(
+                RunContext(run_id=_RUN_UUID, plan_id="plan-1", principal="svc"),
+                Mock(plan_id="plan-1", structure_hash=None),
+                _pii_chain(),
+            )
+
+        clearance.assert_not_called()
+        assert len(sink.records) == 1
+        assert sink.records[0]["deny_reason"] == "missing_tenant_id"
+        assert sink.records[0]["classification"] is None
+
+    def test_the_gate_is_checked_again_on_every_run_start(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, lambda tenant, principal: "pii" if principal == "alice" else "internal")
+
+        _run_start(extender, _pii_chain(), principal="alice")
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(extender, _pii_chain(), principal="bob")
+
+        assert [record["deny_reason"] for record in sink.records] == ["classification_above_clearance"]
+
+    def test_a_sink_failure_on_the_classification_refusal_propagates_chained_to_the_refusal(self) -> None:
+        extender = _classified(_DiskFullSink(), "internal")
+
+        with pytest.raises(OSError, match="disk full") as excinfo:
+            _run_start(extender, _pii_chain())
+
+        assert isinstance(excinfo.value.__context__, ClassificationDeniedError)
+
+    def test_an_allowed_runs_call_records_carry_the_level_of_their_step_until_on_run_complete(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "pii")
+        _run_start(extender, _pii_chain())
+
+        for step_uuid in (_CLASS_STEP_UUID, _OTHER_STEP_UUID, uuid.uuid4()):
+            with make_hook_context(
+                run_id=_RUN_UUID, plan_id="plan-1", step_uuid=step_uuid, tenant_id="t", principal="svc"
+            ).activate():
+                extender(lambda: None)
+        extender.on_run_complete(RunContext(run_id=_RUN_UUID), _SUCCEEDED)
+        with make_hook_context(
+            run_id=_RUN_UUID, plan_id="plan-1", step_uuid=_CLASS_STEP_UUID, tenant_id="t", principal="svc"
+        ).activate():
+            extender(lambda: None)
+
+        assert [record["classification"] for record in sink.records] == ["pii", "pii", None, None]
+
+    def test_a_step_level_is_the_most_restrictive_of_its_feature_names(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "pii")
+        steps = (
+            _class_step(MlodaTestingClassPiiRoot, ("root",), requested=()),
+            _class_step(MlodaTestingClassMasked, ("masked",), {"masked": ("root",)}, step_uuid=_OTHER_STEP_UUID),
+        )
+        _run_start(extender, steps)
+
+        with make_hook_context(
+            run_id=_RUN_UUID, plan_id="plan-1", step_uuid=_OTHER_STEP_UUID, tenant_id="t", principal="svc"
+        ).activate():
+            extender(lambda: None)
+
+        assert sink.records[0]["classification"] == "internal"
+
+    def test_a_call_record_without_a_policy_or_step_uuid_has_a_none_classification(self) -> None:
+        assert _calculate_record()["classification"] is None
+        assert _calculate_record(step_uuid=_CLASS_STEP_UUID)["classification"] is None
+
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "pii")
+        _run_start(extender, _pii_chain())
+        with make_hook_context(run_id=_RUN_UUID, plan_id="plan-1", tenant_id="t", principal="svc").activate():
+            extender(lambda: None)
+
+        assert sink.records[0]["classification"] is None
+
+    def test_the_pickled_extender_keeps_the_run_levels_and_refuses_a_new_run_when_the_policy_is_unpicklable(
+        self,
+    ) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "pii")
+        _run_start(extender, _pii_chain())
+
+        worker = pickle.loads(pickle.dumps(extender))  # nosec
+        with make_hook_context(
+            run_id=_RUN_UUID, plan_id="plan-1", step_uuid=_CLASS_STEP_UUID, tenant_id="t", principal="svc"
+        ).activate():
+            worker(lambda: None)
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(worker, _pii_chain())
+
+        assert worker._classifications == extender._classifications
+        assert worker.sink.records[0]["classification"] == "pii"
+        assert worker.sink.records[1]["deny_reason"] == "classification_unresolved"
+
+    @pytest.mark.parametrize(
+        "duplicate",
+        [copy.copy, copy.deepcopy, lambda extender: pickle.loads(pickle.dumps(extender))],  # nosec
+        ids=["copy", "deepcopy", "pickle"],
+    )
+    def test_a_copy_with_a_picklable_clearance_still_enforces_on_run_start(
+        self, duplicate: Callable[[AuditExtender], AuditExtender]
+    ) -> None:
+        duplicated = duplicate(_classified(InMemoryAuditSink(), _clear_internal))
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(duplicated, _pii_chain())
+
+        assert cast(InMemoryAuditSink, duplicated.sink).records[0]["deny_reason"] == "classification_above_clearance"
+
+    @pytest.mark.parametrize("duplicate", [copy.copy, copy.deepcopy], ids=["copy", "deepcopy"])
+    def test_a_copy_with_a_picklable_clearance_still_allows_a_cleared_run(
+        self, duplicate: Callable[[AuditExtender], AuditExtender]
+    ) -> None:
+        duplicated = duplicate(_classified(InMemoryAuditSink(), _clear_pii))
+
+        _run_start(duplicated, _pii_chain())
+
+        assert cast(InMemoryAuditSink, duplicated.sink).records == []
+
+    @pytest.mark.parametrize(
+        "duplicate",
+        [copy.copy, copy.deepcopy, lambda extender: pickle.loads(pickle.dumps(extender))],  # nosec
+        ids=["copy", "deepcopy", "pickle"],
+    )
+    def test_a_copy_with_an_unpicklable_clearance_refuses_as_unresolved_even_when_it_would_be_cleared(
+        self, duplicate: Callable[[AuditExtender], AuditExtender]
+    ) -> None:
+        extender = _classified(InMemoryAuditSink(), "pii")
+        _run_start(extender, _pii_chain())
+        cast(InMemoryAuditSink, extender.sink).records.clear()
+        duplicated = duplicate(extender)
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(duplicated, _pii_chain())
+
+        assert len(cast(InMemoryAuditSink, duplicated.sink).records) == 1
+        assert cast(InMemoryAuditSink, duplicated.sink).records[0]["decision"] == "deny"
+        assert cast(InMemoryAuditSink, duplicated.sink).records[0]["deny_reason"] == "classification_unresolved"
+
+    def test_a_classification_deny_record_is_sealed_under_its_run_id(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        extender = _classified(
+            NdjsonAuditSink(audit_path),
+            "internal",
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+        )
+
+        with pytest.raises(ClassificationDeniedError):
+            _run_start(extender, _pii_chain())
+        extender.on_run_complete(RunContext(run_id=_RUN_UUID), _SUCCEEDED)
+
+        assert _ndjson(audit_path)[0]["deny_reason"] == "classification_above_clearance"
+        manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
+        assert [manifest["run_id"] for manifest in manifests] == [_RUN_UUID]
 
 
 class TestAuditExtenderClose:
@@ -2906,6 +3418,19 @@ class TestAuditExtenderPolicyVersion:
 
         assert AuditExtender(sink=InMemoryAuditSink(), **changed).policy_version != baseline.policy_version
 
+    @pytest.mark.parametrize(
+        ("options", "expected"),
+        [
+            ({}, "4003968045ae"),
+            ({"fail_closed": True, "required_identity": ("tenant_id", "principal")}, "809a86028b49"),
+        ],
+        ids=["defaults", "fail_closed"],
+    )
+    def test_the_default_fingerprint_without_a_classification_policy_is_unchanged(
+        self, options: dict[str, Any], expected: str
+    ) -> None:
+        assert AuditExtender(sink=InMemoryAuditSink(), classification=None, **options).policy_version == expected
+
     @_BOTH_POSTURES
     def test_required_identity_order_does_not_change_the_fingerprint(self, fail_closed: bool) -> None:
         forward = AuditExtender(
@@ -3715,3 +4240,105 @@ class TestAuditExtenderRunAll:
         for record in calculate:
             assert record["tenant_id"] == "tenant-b"
             assert record["decision"] == "allow"
+
+
+class TestAuditExtenderClassificationRunAll:
+    """run_all round trips of the classification gate under verified_context."""
+
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
+    def test_a_run_requesting_an_uncleared_feature_is_refused_before_any_row(
+        self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        marker_path = tmp_path / "counting_calls"
+        counting = CountingExtender(marker_path=marker_path)
+        counting.priority = 50
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
+        gate = _classified(NdjsonAuditSink(audit_path), "internal")
+
+        with verified_context(tenant_id="t", principal="svc"):
+            with pytest.raises(ClassificationDeniedError):
+                _run_class_features([_DERIVED], gate, counting, mode=mode, flight_server=flight_server)
+
+        records = _ndjson(audit_path)
+        assert len(records) == 1
+        assert records[0]["hook"] == "RUN_START"
+        assert records[0]["decision"] == "deny"
+        assert records[0]["deny_reason"] == "classification_above_clearance"
+        assert records[0]["feature_names"] == [_DERIVED]
+        assert records[0]["classification"] == "pii"
+        assert counting.calls == 0
+        # Marker file covers MULTIPROCESSING: a worker's own `calls` copy would be invisible here.
+        assert not marker_path.exists()
+
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
+    def test_a_cleared_principal_runs_and_every_allow_record_carries_the_level(
+        self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
+        gate = _classified(NdjsonAuditSink(audit_path), "pii")
+
+        with verified_context(tenant_id="t", principal="svc"):
+            _run_class_features([_DERIVED], gate, mode=mode, flight_server=flight_server)
+
+        records = [r for r in _ndjson(audit_path) if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+        assert len(records) == 2
+        for record in records:
+            assert record["decision"] == "allow"
+            assert record["classification"] == "pii"
+
+    def test_a_masked_derivative_of_pii_is_allowed_for_an_internal_principal(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        gate = _classified(NdjsonAuditSink(audit_path), "internal")
+
+        with verified_context(tenant_id="t", principal="svc"):
+            _run_class_features([_MASKED], gate)
+
+        records = [r for r in _ndjson(audit_path) if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+        assert {r["decision"] for r in records} == {"allow"}
+        assert {r["classification"] for r in records} == {"pii", "internal"}
+
+    def test_a_rerun_of_one_prepared_session_is_checked_per_principal(self) -> None:
+        sink = InMemoryAuditSink()
+        gate = _classified(sink, lambda tenant, principal: "pii" if principal == "alice" else "internal")
+
+        with verified_context(tenant_id="t", principal="alice"):
+            session = _prepare_class_feature(_DERIVED, gate)
+        session.run()
+        with verified_context(tenant_id="t", principal="bob"):
+            with pytest.raises(ClassificationDeniedError):
+                session.run()
+
+        denies = [r for r in sink.records if r["decision"] == "deny"]
+        assert [r["deny_reason"] for r in denies] == ["classification_above_clearance"]
+        assert denies[0]["principal"] == "bob"
+
+    @pytest.mark.parametrize(("clearance", "denied"), [("internal", True), ("pii", False)])
+    def test_a_reader_declared_pii_root_is_gated_through_run_csv_feature(
+        self, clearance: str, denied: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            CsvReader, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
+        )
+        sink = InMemoryAuditSink()
+        gate = _classified(sink, clearance)
+
+        with verified_context(tenant_id="t", principal="svc"):
+            if denied:
+                with pytest.raises(ClassificationDeniedError):
+                    run_csv_feature(tmp_path, gate)
+            else:
+                run_csv_feature(tmp_path, gate)
+
+        if denied:
+            assert [r["deny_reason"] for r in sink.records] == ["classification_above_clearance"]
+            assert sink.records[0]["feature_names"] == ["alpha"]
+        else:
+            assert {r["classification"] for r in sink.records} == {"pii"}

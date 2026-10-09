@@ -18,6 +18,7 @@ from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_q
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, owner_name
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
+from mloda.community.extenders.shared.classification import MASKING_ATTRIBUTE
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.enterprise.extenders.lineage.community_version import require_matching_community
 
@@ -34,7 +35,7 @@ _SCHEMA_URL = (
     "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/lineage/lineage_extender.py"
 )
 _STEP_LEVEL_DESCRIPTION = "step-level declared inputs"
-_MASKING = "masking"
+_MASKING = MASKING_ATTRIBUTE
 _SOURCE_COLUMN = "lineage_source_column"
 _VALIDATOR_METHODS: dict[ExtenderHook, str] = {
     ExtenderHook.VALIDATE_INPUT_FEATURE: "validate_input_features",
