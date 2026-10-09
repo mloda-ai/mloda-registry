@@ -1,4 +1,4 @@
-# Local demo stack. Ports are bound to 127.0.0.1 only.
+# Ports are bound to 127.0.0.1 only.
 services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.162.0

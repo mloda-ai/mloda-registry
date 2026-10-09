@@ -29,7 +29,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     os.environ.setdefault("OTEL_SERVICE_NAME", "mloda-otel-demo")
-    # Explicit transport config (the simple OPENLINEAGE_URL form has no timeout); short timeout when Marquez is down.
+    # Explicit transport config: the OPENLINEAGE_URL form has no timeout.
     os.environ.setdefault("OPENLINEAGE__TRANSPORT__TYPE", "http")
     os.environ.setdefault("OPENLINEAGE__TRANSPORT__URL", os.environ.get("OPENLINEAGE_URL", "http://localhost:5002"))
     os.environ.setdefault("OPENLINEAGE__TRANSPORT__TIMEOUT", "5")
@@ -43,7 +43,7 @@ def main() -> None:
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-    # Delta temporality: the Collector turns it back into cumulative (deltatocumulative processor).
+    # Delta temporality; the Collector converts back to cumulative.
     delta = {Counter: AggregationTemporality.DELTA, Histogram: AggregationTemporality.DELTA}
     tracer_provider = TracerProvider()
     tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))

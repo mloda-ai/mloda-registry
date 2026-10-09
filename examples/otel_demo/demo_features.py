@@ -26,7 +26,7 @@ ORDERS = {
 }
 CUSTOMERS = {"otel_demo_cust_id": [1, 2, 3], "otel_demo_region": ["north", "south", "north"]}
 
-# Per-run settings read by the feature groups (the demo runs one pipeline at a time).
+# Per-run settings; the demo runs one pipeline at a time.
 _STATE: dict[str, Any] = {"reader": {}, "fail": False}
 
 
@@ -104,7 +104,6 @@ def default_data_dir() -> Path:
 
 
 def write_orders(data_dir: Path, source: str) -> Path | None:
-    """Write the orders dataset for a file source; None for memory."""
     table = pa.table(ORDERS)
     if source == "csv":
         path = data_dir / "orders.csv"
@@ -118,7 +117,6 @@ def write_orders(data_dir: Path, source: str) -> Path | None:
 
 
 def run_pipeline(source: str, extenders: set[Extender], data_dir: Path, fail: bool = False) -> list[Any]:
-    """Run the pipeline on one source and return the final column values."""
     if source not in SOURCES:
         raise ValueError(f"unknown source {source!r}, expected one of {SOURCES}")
     path = write_orders(data_dir, source)
