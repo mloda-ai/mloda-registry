@@ -4,19 +4,38 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "5s",
-  "time": {"from": "now-30m", "to": "now"},
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "timeseries",
       "title": "p95 step duration per feature group",
-      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
-      "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "otel-demo-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "otel-demo-prometheus"
+          },
           "expr": "histogram_quantile(0.95, sum by (le, mloda_feature_group_name) (rate(mloda_step_duration_seconds_bucket[5m])))",
           "legendFormat": "{{mloda_feature_group_name}}"
         }
@@ -26,13 +45,29 @@
       "id": 2,
       "type": "timeseries",
       "title": "failed step share per feature group",
-      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
-      "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
-      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "otel-demo-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "prometheus", "uid": "otel-demo-prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "otel-demo-prometheus"
+          },
           "expr": "sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_type!=\"\"}[5m])) / sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count[5m]))",
           "legendFormat": "{{mloda_feature_group_name}}"
         }
@@ -42,10 +77,15 @@
       "id": 3,
       "type": "text",
       "title": "Traces and lineage",
-      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 4},
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 4
+      },
       "options": {
         "mode": "markdown",
-        "content": "[Marquez UI](http://localhost:3001) for lineage. [Explore Tempo](http://localhost:3000/explore?left=%7B%22datasource%22:%22otel-demo-tempo%22%7D) for traces."
+        "content": "[Marquez UI](http://localhost:3001) for lineage. [Explore Tempo](http://localhost:3000/explore?schemaVersion=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22otel-demo-tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22otel-demo-tempo%22%7D%2C%22queryType%22%3A%22traceqlSearch%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-30m%22%2C%22to%22%3A%22now%22%7D%7D%7D) for traces."
       }
     }
   ]

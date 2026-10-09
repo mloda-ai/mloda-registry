@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +25,13 @@ ORDERS = {
 }
 CUSTOMERS = {"otel_demo_cust_id": [1, 2, 3], "otel_demo_region": ["north", "south", "north"]}
 
-# Per-run settings; the demo runs one pipeline at a time.
-_STATE: dict[str, Any] = {"reader": {}, "fail": False}
+READERS = (CsvReader, ParquetReader)
+FAIL_KEY = "otel_demo_fail"
+
+
+def _reader_options(options: Options) -> dict[str, Any]:
+    """The reader option (reader class name -> path) of a feature, to forward to the order features."""
+    return {r.__name__: options.get(r.__name__) for r in READERS if r.__name__ in options}
 
 
 def _pyarrow_only() -> set[type[ComputeFramework]]:
@@ -66,7 +70,7 @@ class OtelDemoRegionAmount(FeatureGroup):
     """Joins orders with customers and combines region and amount."""
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        reader = _STATE["reader"]
+        reader = _reader_options(options)
         return {
             Feature("otel_demo_amount", options=reader),
             Feature("otel_demo_customer_id", options=reader),
@@ -85,7 +89,7 @@ class OtelDemoRegionAmount(FeatureGroup):
 
 class OtelDemoTaxedRegion(FeatureGroup):
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        return {Feature("OtelDemoRegionAmount")}
+        return {Feature("OtelDemoRegionAmount", options=_reader_options(options))}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
@@ -93,14 +97,14 @@ class OtelDemoTaxedRegion(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        if _STATE["fail"]:
+        if features.get_options_key(FAIL_KEY):
             raise ValueError("otel demo: simulated failure in the last calculate step")
         return {cls.get_class_name(): [v.upper() for v in data["OtelDemoRegionAmount"].to_pylist()]}
 
 
 def default_data_dir() -> Path:
     """A stable folder so Marquez sees the same dataset across runs."""
-    return Path(tempfile.gettempdir()) / "mloda-otel-demo"
+    return Path.home() / ".cache" / "mloda-otel-demo"
 
 
 def write_orders(data_dir: Path, source: str) -> Path | None:
@@ -116,30 +120,30 @@ def write_orders(data_dir: Path, source: str) -> Path | None:
     return path
 
 
+def requested_feature(source: str, data_dir: Path, fail: bool = False) -> Feature:
+    """The one feature the pipeline requests: reader path as group option, fail flag as context option."""
+    group: dict[str, Any] = {}
+    if source == "csv":
+        group[CsvReader.__name__] = str(data_dir / "orders.csv")
+    elif source == "parquet":
+        group[ParquetReader.__name__] = str(data_dir / "orders.parquet")
+    return Feature("OtelDemoTaxedRegion", Options(group=group, context={FAIL_KEY: fail}))
+
+
 def run_pipeline(source: str, extenders: set[Extender], data_dir: Path, fail: bool = False) -> list[Any]:
     if source not in SOURCES:
         raise ValueError(f"unknown source {source!r}, expected one of {SOURCES}")
-    path = write_orders(data_dir, source)
-    reader: dict[str, Any] = {}
-    if source == "csv":
-        reader[CsvReader.__name__] = str(path)
-    elif source == "parquet":
-        reader[ParquetReader.__name__] = str(path)
-    _STATE.update(reader=reader, fail=fail)
-
+    write_orders(data_dir, source)
     left: type[FeatureGroup] = OtelDemoOrdersMemory if source == "memory" else ReadFileFeature
     link = Link.inner(
         JoinSpec(left, Index(("otel_demo_customer_id",))), JoinSpec(OtelDemoCustomers, Index(("otel_demo_cust_id",)))
     )
     groups: set[type[FeatureGroup]] = {left, OtelDemoCustomers, OtelDemoRegionAmount, OtelDemoTaxedRegion}
-    try:
-        results = mloda.run_all(
-            ["OtelDemoTaxedRegion"],
-            compute_frameworks=[PyArrowTable],
-            plugin_collector=PluginCollector.enabled_feature_groups(groups),
-            links={link},
-            function_extender=extenders,
-        )
-    finally:
-        _STATE.update(reader={}, fail=False)
+    results = mloda.run_all(
+        [requested_feature(source, data_dir, fail)],
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups(groups),
+        links={link},
+        function_extender=extenders,
+    )
     return list(results[0].column("OtelDemoTaxedRegion").to_pylist())

@@ -29,10 +29,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     os.environ.setdefault("OTEL_SERVICE_NAME", "mloda-otel-demo")
-    # Explicit transport config: the OPENLINEAGE_URL form has no timeout.
-    os.environ.setdefault("OPENLINEAGE__TRANSPORT__TYPE", "http")
-    os.environ.setdefault("OPENLINEAGE__TRANSPORT__URL", os.environ.get("OPENLINEAGE_URL", "http://localhost:5002"))
-    os.environ.setdefault("OPENLINEAGE__TRANSPORT__TIMEOUT", "5")
+    os.environ.setdefault("OPENLINEAGE_URL", "http://localhost:5002")
 
     from opentelemetry import metrics, trace
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter

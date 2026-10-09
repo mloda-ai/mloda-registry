@@ -8,11 +8,11 @@ receivers:
 
 processors:
   batch: {}
-  deltatocumulative: {}
+  delta_to_cumulative: {}
 
 exporters:
-  otlp/tempo:
-    endpoint: ${env:TEMPO_ENDPOINT:-localhost:4317}
+  otlp_grpc/tempo:
+    endpoint: ${env:TEMPO_ENDPOINT:-tempo:4317}
     tls:
       insecure: true
   prometheus:
@@ -25,10 +25,10 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/tempo]
+      exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
-      processors: [deltatocumulative, batch]
+      processors: [delta_to_cumulative, batch]
       exporters: [prometheus]
     logs:
       receivers: [otlp]
