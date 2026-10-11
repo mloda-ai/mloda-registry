@@ -21,10 +21,16 @@ from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFea
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
-from openlineage.client.facet_v2 import column_lineage_dataset, data_quality_assertions_dataset, parent_run
+from openlineage.client.facet_v2 import (
+    column_lineage_dataset,
+    data_quality_assertions_dataset,
+    parent_run,
+    tags_dataset,
+)
 from openlineage.client.serde import Serde
 
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.enterprise.extenders.lineage import lineage_extender as lineage_extender_module
 from mloda.enterprise.extenders.lineage.lineage_extender import LineageFacetsExtender, MlodaRunFacet
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -833,6 +839,29 @@ class TestLineageFacetsMasking:
         assert [t.masking for t in _transformations(events[-1], name)] == [None]
         assert all(_run_facet(event).declaredMasking == [name] for event in events)
         assert all(_run_facet(event).declaredMasking == [] for event in _events_for(transport.events, _job(_Root)))
+
+    def test_a_declared_masking_option_does_not_lower_the_classification_tag(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            _Root, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
+        )
+        client, transport = ol_capture
+        name = _Derived.outputs[0]
+        options = Options(context={"masking": True})
+
+        _run(
+            LineageFacetsExtender(client=client, classification_undeclared="public"),
+            [Feature(name, options=options)],
+            _Derived,
+        )
+
+        complete = _complete(transport.events, _job(_Derived))
+        assert _run_facet(complete).declaredMasking == [name]
+        tags = (_output(complete, name).facets or {}).get("tags")
+        assert isinstance(tags, tags_dataset.TagsDatasetFacet)
+        assert [(t.key, t.value, t.source) for t in tags.tags or []] == [(CLASSIFICATION_KEY, "pii", "mloda")]
+        assert _has_column_lineage(complete, name)
 
     @pytest.mark.parametrize(("feature_group", "make_options"), _NOT_MASKED_CASES)
     def test_undeclared_or_misdeclared_masking_is_ignored(

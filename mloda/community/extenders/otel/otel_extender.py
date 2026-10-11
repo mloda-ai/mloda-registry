@@ -39,6 +39,7 @@ from opentelemetry.trace import (
 
 from mloda.community.extenders.otel._constants import DECLARABLE_HOOKS, OPERATION_NAMES, TRACER_NAME
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
@@ -277,7 +278,8 @@ class OtelExtender(Extender):
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
     plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
-    by `mloda.operation.name`, not by name. Without a known root, spans fall back to the carrier or run_id trace."""
+    by `mloda.operation.name`, not by name. Without a known root, spans fall back to the carrier or run_id trace.
+    classification_undeclared (default None, off) adds the effective `mloda.data.classification` to calculate spans."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -289,12 +291,14 @@ class OtelExtender(Extender):
         tracer_provider: TracerProvider | None = None,
         use_sdk_defaults: bool = False,
         trace_scope: Literal["run", "plan"] = "run",
+        classification_undeclared: str | None = None,
     ) -> None:
         if trace_scope not in ("run", "plan"):
             raise ValueError(f"OtelExtender trace_scope must be 'run' or 'plan', got {trace_scope!r}")
         self.trace_scope = trace_scope
         if capture_content is True and mask is None:
             raise ValueError("OtelExtender capture_content=True requires a mask")
+        self._classifications = RunClassifications(classification_undeclared, type(self).__name__)
         self.raise_on_error = raise_on_error
         self.capture_content = capture_content
         self.mask = mask
@@ -347,6 +351,7 @@ class OtelExtender(Extender):
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
         run_id = run.run_id
+        self._classifications.start(run_id, steps, raise_on_error=self.raise_on_error)
         if run_id is None:
             return
         attributes: dict[str, str] = {"mloda.run.id": run_id}
@@ -374,6 +379,7 @@ class OtelExtender(Extender):
             self._root_spans[run_id] = span
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
+        self._classifications.pop(run.run_id)
         if run.run_id is None:
             return
         with self._lock:
@@ -452,6 +458,10 @@ class OtelExtender(Extender):
                 try:
                     _set_context_attributes(span, context)
                     _set_step_attributes(span, context, func)
+                    if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+                        level = self._classifications.step_level(context.run_id, context.feature_names)
+                        if level is not None:
+                            span.set_attribute(CLASSIFICATION_KEY, level)
                     if context.hook == ExtenderHook.INPUT_DATA_LOAD:
                         _set_load_attributes(span, context)
                     if context.hook == ExtenderHook.JOIN:

@@ -27,6 +27,7 @@ from mloda.steward import (
 )
 
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
@@ -35,7 +36,7 @@ from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, capped_clos
 from mloda.community.extenders.shared.trace_context import active_step_span_ids
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
+from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset, tags_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,8 @@ class OpenLineageExtender(Extender):
     _call_input_data_load, _call_calculate_feature, _calculate_run_facets, _calculate_output_facets,
     _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing. parent_id (and root_parent_id) as
     {namespace}/{job_name}/{run_id}, or parent_from_env for OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach
-    the run to an orchestrator run."""
+    the run to an orchestrator run. classification_undeclared (default None, off) tags each COMPLETE output dataset
+    with its effective `mloda.data.classification` in a standard `tags` facet."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -196,7 +198,9 @@ class OpenLineageExtender(Extender):
         parent_id: str | None = None,
         root_parent_id: str | None = None,
         parent_from_env: bool = False,
+        classification_undeclared: str | None = None,
     ) -> None:
+        self._classifications = RunClassifications(classification_undeclared, type(self).__name__)
         self.raise_on_error = raise_on_error
         self._client = client
         self.job_namespace = job_namespace
@@ -364,6 +368,7 @@ class OpenLineageExtender(Extender):
         )
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
+        self._classifications.start(run.run_id, steps, raise_on_error=self.raise_on_error)
         if run.run_id is None:
             return
         started_at = run.started_at.isoformat() if run.started_at is not None else _now_iso()
@@ -403,6 +408,7 @@ class OpenLineageExtender(Extender):
                 self._tripped_runs.pop(run.run_id, None)
                 self._started_runs.discard(run.run_id)
             self._plans.pop(run.run_id, None)
+            self._classifications.pop(run.run_id)
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
@@ -531,10 +537,18 @@ class OpenLineageExtender(Extender):
                 logger.warning("%s output facets failed for %s: %s", type(self).__name__, name, type(exc).__name__)
                 return {}
 
+        levels = self._classifications.levels(context.run_id)
+
         def build_outputs(inputs: list[InputDataset]) -> list[OutputDataset]:
             fields = _schema_dataset_fields(context.output_schema)
             return [
-                _build_output_dataset(self.dataset_namespace, name, fields, self.producer, output_facets(name, inputs))
+                _build_output_dataset(
+                    self.dataset_namespace,
+                    name,
+                    fields,
+                    self.producer,
+                    _with_classification_tag(output_facets(name, inputs), levels.get(name), self.producer),
+                )
                 for name in context.feature_names
             ]
 
@@ -713,6 +727,16 @@ def _build_output_dataset(
         facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=producer)
     facets.update(extra_facets)
     return OutputDataset(namespace=namespace, name=name, facets=facets)
+
+
+def _with_classification_tag(facets: dict[str, Any], level: str | None, producer: str) -> dict[str, Any]:
+    """`facets` plus the classification tag, appended to the seam's own tags facet if it returned one."""
+    if level is None:
+        return facets
+    existing = facets.get("tags")
+    tags = list(existing.tags) if existing is not None else []
+    tags.append(tags_dataset.TagsDatasetFacetFields(key=CLASSIFICATION_KEY, value=level, source="mloda"))
+    return {**facets, "tags": tags_dataset.TagsDatasetFacet(tags=tags, producer=producer)}
 
 
 def _schema_dataset_fields(output_schema: OutputSchema | None) -> list[schema_dataset.SchemaDatasetFacetFields]:

@@ -31,7 +31,7 @@ import pyarrow as pa
 import pytest
 import requests
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData
+from mloda.provider import BaseInputData, FeatureGroup
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -39,6 +39,7 @@ from mloda.steward import (
     HookContext,
     LifecycleOutcome,
     PlanContext,
+    PlanStep,
     RunContext,
 )
 from mloda.user import PluginCollector, mloda
@@ -46,6 +47,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import active_close_context
@@ -63,12 +65,19 @@ from mloda.testing.extenders.openlineage import (
 from mloda.testing.extenders.runners import (
     MlodaTestingValueIntPlusOne,
     expected_value_int,
+    run_two_features,
     run_until_ready_then_sigterm,
     run_value_int,
 )
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, RunState
-from openlineage.client.facet_v2 import documentation_dataset, nominal_time_run, parent_run, schema_dataset
+from openlineage.client.facet_v2 import (
+    documentation_dataset,
+    nominal_time_run,
+    parent_run,
+    schema_dataset,
+    tags_dataset,
+)
 from openlineage.client.serde import Serde
 from openlineage.client.transport.transport import Config, Transport
 
@@ -2943,6 +2952,164 @@ class TestOpenLineageExtenderInputDedupe:
 
         for event in transport.events:
             assert marker not in Serde.to_json(event)
+
+
+class _ClassifiedInternal(FeatureGroup):
+    @classmethod
+    def declared_attributes(cls, features: Any) -> dict[str, Any]:
+        return {CLASSIFICATION_KEY: "internal"}
+
+
+class _ClassifiedPii(FeatureGroup):
+    @classmethod
+    def declared_attributes(cls, features: Any) -> dict[str, Any]:
+        return {CLASSIFICATION_KEY: "pii"}
+
+
+class _OwnTagsExtender(OpenLineageExtender):
+    """Returns its own tags facet from the output seam."""
+
+    def _calculate_output_facets(
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
+    ) -> dict[str, Any]:
+        return {
+            "tags": tags_dataset.TagsDatasetFacet(
+                tags=[tags_dataset.TagsDatasetFacetFields(key="team", value="data", source="test")],
+                producer=self.producer,
+            )
+        }
+
+
+def _classified_step(group: type[FeatureGroup], *names: str) -> PlanStep:
+    return PlanStep(
+        step_kind="compute",
+        feature_names=names,
+        feature_group=group,
+        compute_framework=None,
+        source_feature_group=None,
+        source_compute_framework=None,
+        requested_feature_names=names,
+        input_feature_edges={},
+        reader_data_access=None,
+        feature_set_options=None,
+    )
+
+
+def _classification_tags(transport: RecordingTransport) -> dict[str, list[tuple[str, str, str | None]]]:
+    """Output dataset name -> its tags, over every COMPLETE event; datasets without a tags facet map to []."""
+    found: dict[str, list[tuple[str, str, str | None]]] = {}
+    for event in transport.events:
+        if event.eventType != RunState.COMPLETE:
+            continue
+        for output in event.outputs or []:
+            facet = (output.facets or {}).get("tags")
+            tags = (
+                [(t.key, t.value, t.source) for t in facet.tags or []]
+                if isinstance(facet, tags_dataset.TagsDatasetFacet)
+                else []
+            )
+            found.setdefault(output.name, []).extend(tags)
+    return found
+
+
+def _start_classified(extender: OpenLineageExtender, *steps: PlanStep) -> None:
+    extender.on_run_start(RunContext(run_id=_RUN_A, plan_id=_PLAN_ID), _plan(), steps)
+
+
+class TestOpenLineageExtenderClassificationTags:
+    @pytest.mark.parametrize("value", ["secret", "PII", ""])
+    def test_unknown_classification_undeclared_raises_value_error(self, value: str) -> None:
+        with pytest.raises(ValueError, match="pii"):
+            OpenLineageExtender(classification_undeclared=value)
+
+    def test_run_all_datasets_carry_the_effective_classification_tag(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            PyArrowDataOpsTestDataCreator,
+            "declared_attributes",
+            classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"}),
+        )
+        client, transport = ol_capture
+
+        run_two_features(OpenLineageExtender(client=client, classification_undeclared="public"))
+
+        tags = _classification_tags(transport)
+        assert tags
+        for name, entries in tags.items():
+            assert entries and set(entries) == {(CLASSIFICATION_KEY, "pii", "mloda")}, name
+
+    def test_run_all_default_extender_adds_no_tags_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        run_two_features(OpenLineageExtender(client=client))
+
+        tags = _classification_tags(transport)
+        assert tags
+        assert all(entries == [] for entries in tags.values())
+
+    def test_a_multi_output_step_datasets_carry_their_own_levels(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client, classification_undeclared="public")
+        _start_classified(extender, _classified_step(_ClassifiedInternal, "a"), _classified_step(_ClassifiedPii, "b"))
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("a", "b")).activate():
+            extender(lambda: None)
+
+        assert _classification_tags(transport) == {
+            "a": [(CLASSIFICATION_KEY, "internal", "mloda")],
+            "b": [(CLASSIFICATION_KEY, "pii", "mloda")],
+        }
+
+    def test_the_tag_facet_uses_the_extender_producer(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = _CustomProducerExtender(client=client, classification_undeclared="public")
+        _start_classified(extender, _classified_step(_ClassifiedPii, "a"))
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
+            extender(lambda: None)
+
+        complete = [e for e in transport.events if e.eventType == RunState.COMPLETE][-1]
+        (output,) = complete.outputs or []
+        facet = (output.facets or {})["tags"]
+        assert facet._producer == _CUSTOM_PRODUCER
+
+    def test_a_seam_tags_facet_keeps_its_tags_and_gains_the_classification_tag(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = _OwnTagsExtender(client=client, classification_undeclared="public")
+        _start_classified(extender, _classified_step(_ClassifiedPii, "a"))
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
+            extender(lambda: None)
+
+        assert _classification_tags(transport) == {
+            "a": [("team", "data", "test"), (CLASSIFICATION_KEY, "pii", "mloda")]
+        }
+
+    def test_a_pickled_copy_taken_after_run_start_emits_the_tag_for_that_run(self) -> None:
+        _SinkTransport.events.clear()
+        extender = OpenLineageExtender(
+            client=OpenLineageClient(transport=_SinkTransport()), classification_undeclared="public"
+        )
+        _start_classified(extender, _classified_step(_ClassifiedPii, "a"))
+        clone = pickle.loads(pickle.dumps(extender))  # nosec
+        _SinkTransport.events.clear()
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
+            clone(lambda: None)
+
+        complete = [e for e in _SinkTransport.events if e.eventType == RunState.COMPLETE][-1]
+        (output,) = complete.outputs or []
+        tags = (output.facets or {})["tags"]
+        assert [(t.key, t.value, t.source) for t in tags.tags] == [(CLASSIFICATION_KEY, "pii", "mloda")]
 
 
 class TestOpenLineageExtenderRunAll:

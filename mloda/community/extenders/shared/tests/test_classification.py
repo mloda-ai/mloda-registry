@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import pickle  # nosec
 from collections.abc import Mapping
 from typing import Any
 
@@ -14,6 +16,7 @@ from mloda.community.extenders.shared.classification import (
     CLASSIFICATION_KEY,
     LEVELS,
     MASKING_ATTRIBUTE,
+    RunClassifications,
     feature_classifications,
 )
 
@@ -269,3 +272,115 @@ def test_join_and_transform_steps_are_skipped(kind: str) -> None:
     steps = [_step(_Pii, ("a",)), _step(_Pii, ("joined",), kind=kind)]
 
     assert feature_classifications(steps, undeclared="public") == {"a": "pii"}
+
+
+_CLASSIFICATION_LOGGER = "mloda.community.extenders.shared.classification"
+
+
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == _CLASSIFICATION_LOGGER and r.levelno == logging.WARNING]
+
+
+def _tracker(undeclared: str | None = "public") -> RunClassifications:
+    return RunClassifications(undeclared, "Owner")
+
+
+class TestRunClassifications:
+    def test_an_unknown_undeclared_level_raises_naming_the_levels(self) -> None:
+        with pytest.raises(ValueError, match="pii"):
+            RunClassifications("secret", "Owner")
+
+    def test_undeclared_is_exposed(self) -> None:
+        assert _tracker("internal").undeclared == "internal"
+        assert _tracker(None).undeclared is None
+
+    def test_off_stores_nothing(self) -> None:
+        tracker = _tracker(None)
+
+        tracker.start("run", [_step(_Pii, ("a",))], raise_on_error=True)
+
+        assert tracker.levels("run") == {}
+        assert tracker.step_level("run", ["a"]) is None
+
+    def test_a_run_id_of_none_stores_nothing(self) -> None:
+        tracker = _tracker()
+
+        tracker.start(None, [_step(_Pii, ("a",))], raise_on_error=True)
+
+        assert tracker.levels(None) == {}
+        assert tracker.step_level(None, ["a"]) is None
+
+    def test_levels_hold_the_effective_levels_of_the_run(self) -> None:
+        tracker = _tracker()
+
+        tracker.start("run", [_step(_Pii, ("raw",)), _derived(_Public, "d", "raw")], raise_on_error=False)
+
+        assert tracker.levels("run") == {"raw": "pii", "d": "pii"}
+        assert tracker.levels("other") == {}
+
+    def test_step_level_is_the_most_restrictive_among_the_names(self) -> None:
+        tracker = _tracker()
+        tracker.start("run", [_step(_Internal, ("a",)), _step(_Pii, ("b",))], raise_on_error=False)
+
+        assert tracker.step_level("run", ["a", "b"]) == "pii"
+        assert tracker.step_level("run", ["a"]) == "internal"
+
+    def test_step_level_ignores_names_without_a_level(self) -> None:
+        tracker = _tracker()
+        tracker.start("run", [_step(_Internal, ("a",))], raise_on_error=False)
+
+        assert tracker.step_level("run", ["ghost", "a"]) == "internal"
+
+    def test_step_level_is_none_when_no_name_has_a_level(self) -> None:
+        tracker = _tracker()
+        tracker.start("run", [_step(_Internal, ("a",))], raise_on_error=False)
+
+        assert tracker.step_level("run", ["ghost"]) is None
+        assert tracker.step_level("other", ["a"]) is None
+
+    def test_pop_forgets_the_run(self) -> None:
+        tracker = _tracker()
+        tracker.start("run", [_step(_Pii, ("a",))], raise_on_error=False)
+
+        tracker.pop("run")
+        tracker.pop(None)
+
+        assert tracker.levels("run") == {}
+
+    def test_a_resolution_failure_logs_one_warning_with_the_type_only_and_stores_nothing(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        tracker = _tracker()
+
+        with caplog.at_level(logging.WARNING, logger=_CLASSIFICATION_LOGGER):
+            tracker.start("run", [_step(_Unknown, ("a",))], raise_on_error=False)
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "Owner" in message
+        assert "ValueError" in message
+        assert "secret" not in message
+        assert tracker.levels("run") == {}
+
+    def test_a_resolution_failure_raises_when_raise_on_error(self) -> None:
+        tracker = _tracker()
+
+        with pytest.raises(ValueError):
+            tracker.start("run", [_step(_Unknown, ("a",))], raise_on_error=True)
+
+        assert tracker.levels("run") == {}
+
+    def test_a_pickle_round_trip_keeps_undeclared_and_stored_levels(self) -> None:
+        tracker = _tracker("internal")
+        tracker.start("run", [_step(_Pii, ("a",))], raise_on_error=False)
+
+        clone = pickle.loads(pickle.dumps(tracker))  # nosec
+
+        assert clone.undeclared == "internal"
+        assert clone.levels("run") == {"a": "pii"}
+        clone.start("run2", [_step(_Undeclared, ("b",))], raise_on_error=False)
+        assert clone.levels("run2") == {"b": "internal"}
+        clone.pop("run")
+        assert clone.levels("run") == {}
+        assert tracker.levels("run") == {"a": "pii"}
