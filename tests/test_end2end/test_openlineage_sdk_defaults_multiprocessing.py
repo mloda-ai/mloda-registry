@@ -1,6 +1,7 @@
 """The supported OpenLineage pattern under MULTIPROCESSING: no child_bootstrap-equivalent seam exists,
 so OpenLineageExtender(use_sdk_defaults=True) must resolve its own client from OPENLINEAGE__* env vars
 inherited by the spawned worker at process start; proven with a real spawned worker.
+It also covers SIGTERM to the parent of a MULTIPROCESSING run, with and without the handler in the worker bootstrap.
 """
 
 from __future__ import annotations
@@ -73,7 +74,6 @@ WORKER_GRACE = 15.0
 _SIGTERM_TRANSPORT_MODULE = """
 import json, os
 from pathlib import Path
-from openlineage.client.serde import Serde
 from openlineage.client.transport.transport import Config, Transport
 
 
@@ -95,7 +95,7 @@ class SigtermTransport(Transport):
 """
 
 _SIGTERM_MULTIPROCESSING_CHILD = """
-import functools, json, os, time
+import json, os, time
 from pathlib import Path
 from mloda.core.runtime.flight.runner_flight_server import ParallelRunnerFlightServer
 from mloda.provider import FeatureGroup
@@ -128,7 +128,7 @@ class MlodaTestingSigtermSleeper(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data, features):
         print("ready", flush=True)
-        time.sleep(120)
+        time.sleep(30)
         return {"sigterm_sleeping": [1]}
 
 
@@ -187,7 +187,7 @@ def test_sigterm_to_parent_aborts_the_worker_step_only_when_the_worker_installs_
     env["MLODA_TEST_WORKER_HANDLER"] = "1" if worker_handler else "0"
     env["OPENLINEAGE__TRANSPORT__TYPE"] = "sigterm_transport.SigtermTransport"
 
-    returncode, output = run_until_ready_then_sigterm([sys.executable, str(script)], env=env, timeout=60)
+    returncode, output = run_until_ready_then_sigterm([sys.executable, str(script)], env=env, timeout=120)
 
     assert returncode == 143, output
     events = [json.loads(line) for line in (tmp_path / "events.ndjson").read_text(encoding="utf-8").splitlines()]
@@ -205,9 +205,12 @@ def test_sigterm_to_parent_aborts_the_worker_step_only_when_the_worker_installs_
         if spans_path.exists()
         else []
     )
+    calculate_statuses = [r["status"] for r in worker_spans if r["name"].startswith("calculate ")]
     if worker_handler:
         assert worker_step == ["START", "ABORT"], events
         assert (tmp_path / f"closed.{worker_pid}.marker").exists(), output
-        assert [r["status"] for r in worker_spans if r["name"].startswith("calculate ")] == ["ERROR"], worker_spans
+        assert calculate_statuses == ["ERROR"], worker_spans
     else:
         assert worker_step == ["START"], events
+        assert calculate_statuses == [], worker_spans
+        assert not (tmp_path / f"closed.{worker_pid}.marker").exists(), output
