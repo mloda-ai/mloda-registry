@@ -67,7 +67,7 @@ def test_use_sdk_defaults_client_emits_inside_the_spawned_worker(
 
 
 PARENT_GRACE = 30.0
-# Must stay below PARENT_GRACE minus core's 2.0s graceful_shutdown_timeout so the worker watchdog never races the parent's.
+# Below PARENT_GRACE minus core's graceful_shutdown_timeout, so the worker watchdog never races the parent's.
 WORKER_GRACE = 15.0
 
 _SIGTERM_TRANSPORT_MODULE = """
