@@ -135,6 +135,8 @@ Then it projects the frame to the input columns, strips Arrow metadata, casts `l
 
 All are `ValueError` subclasses carrying `code` and `message`. The binary's `--version` and exit code are logged at debug level; the config (which may carry secrets) never is. Stderr from a successful run is logged at WARNING, bounded, so a binary must never write cell values or parameter values there.
 
+The license never influences matching. A binary-backed FeatureGroup matches on its name and options alone; without a usable license the feature still resolves and the run fails with `LicenseMissingError` or `LicenseInvalidError`, after the grace window's WARNING. It never yields to another FeatureGroup: mloda matches once at prepare and never re-matches, two matching groups are a `Multiple feature groups found` error, and a quiet change of implementation would change the tokens a data user joins on without anyone deciding it. A steward who wants a different group while the paid one is unavailable disables it on purpose, with `PluginCollector.disabled_feature_groups({BinaryExampleFeatureGroup})` or a [domain](19-domain.md), and records the change.
+
 ## Test
 
 Point the class at the simulated binary from `mloda-testing[binary-model]` and give it a signed test license (the vectors are signed with the published test key):

@@ -17,7 +17,7 @@ pip install "mloda-enterprise[anonymizer]"
 
 Platforms: Linux x86_64 and aarch64, macOS x86_64 and arm64, Windows x86_64, Python 3.10 to 3.14 (details on https://pypi.org/project/mloda-anonymizer-binary/).
 
-License: every run needs a license, read from the first of these that is set: `MLODA_LICENSE_FILE` (path to the license file), `MLODA_LICENSE_KEY` (the token itself). After `exp` a license keeps working for its grace days with a WARNING in the log; renew before.
+License: every run needs a license, read from the first of these that is set: `MLODA_LICENSE_FILE` (path to the license file), `MLODA_LICENSE_KEY` (the token itself). After `exp` a license keeps working for its grace days with a WARNING in the log; renew before. Without a usable license the feature still resolves and the run fails with `LicenseMissingError` or `LicenseInvalidError`; no other plugin takes its place.
 
 Key: generate it once with `python -c "import secrets; print(secrets.token_hex(32))"`, store it as a secret and export it as `PII_KEY` (the env var `pii_key_env` names). Keep it stable, a new key gives unrelated pseudonyms.
 
