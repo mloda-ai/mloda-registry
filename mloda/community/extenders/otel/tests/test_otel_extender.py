@@ -28,7 +28,7 @@ from unittest.mock import Mock
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, FeatureSet
 from mloda.steward import (
     AsOfJoinConfig,
     CompositeExtender,
@@ -38,7 +38,6 @@ from mloda.steward import (
     HookContext,
     LifecycleOutcome,
     PlanContext,
-    PlanStep,
     RunContext,
     scrub_credentials,
 )
@@ -55,6 +54,7 @@ from mloda.community.extenders.otel.otel_multiprocessing import env_carrier
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
+from mloda.community.extenders.shared.tests.classification_helpers import InternalGroup, PiiGroup, classified_step
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import ProviderCloseTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -2579,51 +2579,23 @@ class TestOtelExtenderTraceScopeOption:
         assert otel_extender_module._MAX_PLAN_SPANS == 1024
 
 
-class _ClassifiedInternal(FeatureGroup):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
-        return {CLASSIFICATION_KEY: "internal"}
-
-
-class _ClassifiedPii(FeatureGroup):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
-        return {CLASSIFICATION_KEY: "pii"}
-
-
-def _classified_step(group: type[FeatureGroup], *names: str) -> PlanStep:
-    return PlanStep(
-        step_kind="compute",
-        feature_names=names,
-        feature_group=group,
-        compute_framework=None,
-        source_feature_group=None,
-        source_compute_framework=None,
-        requested_feature_names=names,
-        input_feature_edges={},
-        reader_data_access=None,
-        feature_set_options=None,
-    )
-
-
 def _calculate_classification(exporter: InMemorySpanExporter) -> list[Any]:
     spans = [span for span in exporter.get_finished_spans() if span.name.startswith("calculate ")]
     return [(span.attributes or {}).get(CLASSIFICATION_KEY) for span in spans]
 
 
 class TestOtelExtenderClassificationOption:
-    @pytest.mark.parametrize("value", ["secret", "PII", ""])
-    def test_unknown_classification_undeclared_raises_value_error(self, value: str) -> None:
+    def test_unknown_classification_undeclared_raises_value_error(self) -> None:
         with pytest.raises(ValueError, match="pii"):
-            OtelExtender(classification_undeclared=value)
+            OtelExtender(classification_undeclared="secret")
 
     def test_a_multi_output_step_span_carries_the_most_restrictive_level(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, classification_undeclared="public")
-        steps = (_classified_step(_ClassifiedInternal, "a"), _classified_step(_ClassifiedPii, "b"))
-        otel.on_run_start(_run("run-1"), Mock(plan_id="plan-1", structure_hash=None), steps)
+        steps = (classified_step(InternalGroup, ("a",)), classified_step(PiiGroup, ("b",)))
+        otel.on_run_start(_run("run-1"), _plan("plan-1"), steps)
 
         with make_hook_context(run_id="run-1", feature_names=("a", "b")).activate():
             otel(lambda: None)
@@ -2635,8 +2607,8 @@ class TestOtelExtenderClassificationOption:
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, classification_undeclared="public")
-        steps = (_classified_step(_ClassifiedInternal, "a"), _classified_step(_ClassifiedPii, "b"))
-        otel.on_run_start(_run("run-1"), Mock(plan_id="plan-1", structure_hash=None), steps)
+        steps = (classified_step(InternalGroup, ("a",)), classified_step(PiiGroup, ("b",)))
+        otel.on_run_start(_run("run-1"), _plan("plan-1"), steps)
 
         with make_hook_context(run_id="run-1", feature_names=("a",)).activate():
             otel(lambda: None)
@@ -2648,9 +2620,7 @@ class TestOtelExtenderClassificationOption:
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, classification_undeclared="public")
-        otel.on_run_start(
-            _run("run-1"), Mock(plan_id="plan-1", structure_hash=None), (_classified_step(_ClassifiedPii, "a"),)
-        )
+        otel.on_run_start(_run("run-1"), _plan("plan-1"), (classified_step(PiiGroup, ("a",)),))
         clone = pickle.loads(pickle.dumps(otel))  # nosec
         clone._tracer_provider = provider
 

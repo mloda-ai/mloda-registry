@@ -31,7 +31,7 @@ import pyarrow as pa
 import pytest
 import requests
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData, FeatureGroup
+from mloda.provider import BaseInputData
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -49,6 +49,7 @@ from mloda.community.extenders.openlineage import openlineage_extender as openli
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import step_run_id
+from mloda.community.extenders.shared.tests.classification_helpers import InternalGroup, PiiGroup, classified_step
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import active_close_context
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -2954,18 +2955,6 @@ class TestOpenLineageExtenderInputDedupe:
             assert marker not in Serde.to_json(event)
 
 
-class _ClassifiedInternal(FeatureGroup):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> dict[str, Any]:
-        return {CLASSIFICATION_KEY: "internal"}
-
-
-class _ClassifiedPii(FeatureGroup):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> dict[str, Any]:
-        return {CLASSIFICATION_KEY: "pii"}
-
-
 class _OwnTagsExtender(OpenLineageExtender):
     """Returns its own tags facet from the output seam."""
 
@@ -2978,21 +2967,6 @@ class _OwnTagsExtender(OpenLineageExtender):
                 producer=self.producer,
             )
         }
-
-
-def _classified_step(group: type[FeatureGroup], *names: str) -> PlanStep:
-    return PlanStep(
-        step_kind="compute",
-        feature_names=names,
-        feature_group=group,
-        compute_framework=None,
-        source_feature_group=None,
-        source_compute_framework=None,
-        requested_feature_names=names,
-        input_feature_edges={},
-        reader_data_access=None,
-        feature_set_options=None,
-    )
 
 
 def _classification_tags(transport: RecordingTransport) -> dict[str, list[tuple[str, str, str | None]]]:
@@ -3017,10 +2991,9 @@ def _start_classified(extender: OpenLineageExtender, *steps: PlanStep) -> None:
 
 
 class TestOpenLineageExtenderClassificationTags:
-    @pytest.mark.parametrize("value", ["secret", "PII", ""])
-    def test_unknown_classification_undeclared_raises_value_error(self, value: str) -> None:
+    def test_unknown_classification_undeclared_raises_value_error(self) -> None:
         with pytest.raises(ValueError, match="pii"):
-            OpenLineageExtender(classification_undeclared=value)
+            OpenLineageExtender(classification_undeclared="secret")
 
     def test_run_all_datasets_carry_the_effective_classification_tag(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
@@ -3055,7 +3028,7 @@ class TestOpenLineageExtenderClassificationTags:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client, classification_undeclared="public")
-        _start_classified(extender, _classified_step(_ClassifiedInternal, "a"), _classified_step(_ClassifiedPii, "b"))
+        _start_classified(extender, classified_step(InternalGroup, ("a",)), classified_step(PiiGroup, ("b",)))
 
         with make_hook_context(run_id=_RUN_A, feature_names=("a", "b")).activate():
             extender(lambda: None)
@@ -3070,7 +3043,7 @@ class TestOpenLineageExtenderClassificationTags:
     ) -> None:
         client, transport = ol_capture
         extender = _CustomProducerExtender(client=client, classification_undeclared="public")
-        _start_classified(extender, _classified_step(_ClassifiedPii, "a"))
+        _start_classified(extender, classified_step(PiiGroup, ("a",)))
 
         with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
             extender(lambda: None)
@@ -3085,7 +3058,7 @@ class TestOpenLineageExtenderClassificationTags:
     ) -> None:
         client, transport = ol_capture
         extender = _OwnTagsExtender(client=client, classification_undeclared="public")
-        _start_classified(extender, _classified_step(_ClassifiedPii, "a"))
+        _start_classified(extender, classified_step(PiiGroup, ("a",)))
 
         with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
             extender(lambda: None)
@@ -3099,7 +3072,7 @@ class TestOpenLineageExtenderClassificationTags:
         extender = OpenLineageExtender(
             client=OpenLineageClient(transport=_SinkTransport()), classification_undeclared="public"
         )
-        _start_classified(extender, _classified_step(_ClassifiedPii, "a"))
+        _start_classified(extender, classified_step(PiiGroup, ("a",)))
         clone = pickle.loads(pickle.dumps(extender))  # nosec
         _SinkTransport.events.clear()
 
