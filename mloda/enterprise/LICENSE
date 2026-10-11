@@ -1,31 +1,69 @@
 mloda Enterprise License
 
-Copyright (c) 2026-present Tom Kaltofen
+Copyright (c) 2026-present Tom Kaltofen (mloda)
 
-SOURCE-AVAILABLE LICENSE
+Licensor: Tom Kaltofen, trading as mloda, Berlin, Germany (contact details at
+https://mloda.ai/impressum), and any successor entity to which this license is
+assigned.
 
-The source code in the mloda/enterprise/ directory is made available for viewing
-and evaluation purposes only. This code is NOT open source.
+This license covers the software it accompanies (the "Software"): the mloda
+enterprise packages (the code under mloda/enterprise/ of mloda-registry and the
+wheels built from it) and the binary wheels the Licensor publishes for them.
+The Software is source-available. It is not open source.
 
-USAGE REQUIRES A VALID LICENSE
+Three things are called a license here. This text is the license. A license
+key is the signed file some plugins verify before they run. A license agreement
+is the written contract for production use.
+
+PERMITTED WITHOUT A LICENSE AGREEMENT
 
 You may:
-- View and read the source code
-- Evaluate the functionality before purchasing
-- Clone this repository and work on other parts of the codebase
-- Run the test suite (including enterprise plugin tests)
-- Run automated security scans
+- view, read, copy and modify the Software for development, testing and
+  evaluation;
+- install it from PyPI, run its test suites and run automated security scans
+  on it;
+- build and test your own code against it, including with the documented test
+  hooks and the simulated binary of mloda-testing, which are not license key
+  functionality;
+- keep and pass on unmodified copies as part of a fork, clone or mirror of the
+  mloda-registry repository or of a package index, with the notices kept.
 
-You may NOT without a valid license:
-- Use enterprise plugins in any application (development, testing, or production)
-- Distribute enterprise plugins as part of your own product
+PRODUCTION USE REQUIRES A LICENSE AGREEMENT
 
-To obtain a license: https://mloda.ai/enterprise
+Production use means operating the Software for your business, for example
+processing live data with it or delivering a product or service with it. A
+time-limited evaluation to decide on a license agreement is not production use.
+Production use requires a license agreement with the Licensor:
+https://mloda.ai/enterprise. A plugin gated by a license key runs only with a
+key the Licensor issues, for an evaluation or under an agreement, and stops
+after the key's grace window. For a plugin without a key, the right to
+production use ends with the agreement.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+LIMITATIONS
+
+You may not:
+- distribute, sublicense or sell the Software or a modified copy, or ship it as
+  part of your own product, except as permitted above or by a license agreement;
+- provide the Software to third parties as a hosted or managed service, except
+  as a license agreement permits;
+- move, change, disable or circumvent the license key functionality of a
+  shipped binary, or remove or obscure functionality it protects;
+- alter, remove or obscure any licensing, copyright or other notice of the
+  Licensor;
+- decompile or reverse engineer a shipped binary, except where mandatory law
+  permits it.
+
+A modification you make remains subject to this license.
+
+THIRD-PARTY COMPONENTS
+
+Third-party components bundled with the Software remain under their own
+licenses, as stated in the accompanying notices where present.
+
+NO WARRANTY
+
+Outside a license agreement, the Software is provided free of charge and "as
+is", without warranty of any kind. The Licensor is liable only for intent and
+gross negligence; liability for injury to life, body or health and under the
+Product Liability Act remains unaffected. Warranty, liability, support and term
+for production use are governed by the license agreement. German law applies.

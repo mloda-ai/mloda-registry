@@ -288,7 +288,7 @@ optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineag
 py_typed = true
 
 [packages.mloda-enterprise]
-description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
+description = "All enterprise plugins for mloda (production use needs a license agreement: https://mloda.ai/enterprise)"
 # Mixin floor: the binary FeatureGroups (example, anonymizer) subclass the binary-model mixin, and a manifest
 # import that fails on a missing mloda.community module aborts plugin discovery. It is `>=`, not `~=`, because
 # they use only its public names, which includes subclassing it (docs/packaging.md#sibling-dependency-floors).

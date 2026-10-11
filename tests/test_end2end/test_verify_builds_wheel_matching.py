@@ -511,3 +511,52 @@ def test_cli_wheels_exits_non_zero_when_nothing_is_published(
         "'published = true', the same as the bare invocation"
     )
     assert err.strip(), "the reason must be printed on stderr, not silently swallowed"
+
+
+_APACHE_PKG = {"path": "mloda/community/example"}
+_PROPRIETARY_PKG = {"path": "mloda/enterprise/audit"}
+
+
+def _license_file_lines(*names: str) -> str:
+    """METADATA text carrying one ``License-File`` line per name."""
+    return "".join(f"License-File: {name}\n" for name in names)
+
+
+@pytest.mark.parametrize(
+    ("pkg_config", "names", "expected"),
+    [
+        pytest.param(_APACHE_PKG, ("LICENSE", "NOTICE"), [], id="apache-complete"),
+        pytest.param(_APACHE_PKG, ("LICENSE",), ["NOTICE"], id="apache-no-notice"),
+        pytest.param(_PROPRIETARY_PKG, ("LICENSE",), [], id="proprietary-license-only"),
+        pytest.param(_PROPRIETARY_PKG, ("LICENSE-APACHE",), ["LICENSE"], id="longer-name-is-not-a-match"),
+    ],
+)
+def test_missing_license_files_names_the_absent_copies(
+    pkg_config: dict[str, Any], names: tuple[str, ...], expected: list[str]
+) -> None:
+    """Only copies the package form requires, and absent from the METADATA header, are reported."""
+    metadata = f"Metadata-Version: 2.4\nName: x\n{_license_file_lines(*names)}"
+    assert vb.missing_license_files(metadata, pkg_config) == expected
+
+
+def test_missing_license_files_ignores_the_readme_body() -> None:
+    """A License-File string in the description body (after the blank line) does not count."""
+    metadata = "Metadata-Version: 2.4\nName: x\n\nSee License-File: LICENSE for details\nLicense-File: LICENSE\n"
+    assert vb.missing_license_files(metadata, _PROPRIETARY_PKG) == ["LICENSE"]
+
+
+def _write_licensed_wheel(out_dir: Path, pkg_name: str, license_files: list[str]) -> Path:
+    """A wheel whose METADATA lists ``license_files`` and which carries top_level.txt."""
+    path = _write_wheel_with_metadata(out_dir, pkg_name, [f"License-File: {name}" for name in license_files])
+    with zipfile.ZipFile(path, "a") as zf:
+        zf.writestr(f"{pkg_name.replace('-', '_')}-{_VERSION}.dist-info/top_level.txt", "mloda\n")
+    return path
+
+
+def test_wheel_metadata_reports_a_missing_notice(tmp_path: Path) -> None:
+    """An Apache wheel without a NOTICE License-File line is reported by name."""
+    wheel = _write_licensed_wheel(tmp_path, "mloda-registry", ["LICENSE"])
+
+    errors = vb.verify_wheel_metadata({"mloda-registry": wheel})
+
+    assert errors == ["mloda-registry: METADATA has no 'License-File: NOTICE' line"], errors

@@ -128,7 +128,12 @@ The generator rejects a config that breaks ownership:
 
 **Generator infers:**
 
-- `license` from path (`mloda/enterprise/*` → proprietary, else default)
+- `license` from path (`mloda/enterprise/*` → proprietary, else default), and with it `license-files` and
+  the license copies: Apache packages get `LICENSE` and `NOTICE` copied from the root `LICENSE-APACHE` and
+  `NOTICE.md`, enterprise packages `LICENSE` copied from `mloda/enterprise/LICENSE`. The copies are generated
+  files (hand edits are overwritten) and are committed, because setuptools resolves `license-files` only
+  inside the package directory (`package-dir` does not move it, a `..` pattern is refused at the floor);
+  `--check` reports a missing or differing copy like a stale `pyproject.toml`
 - `packages` from filesystem (scans for `__init__.py`, excludes `tests/`, `build/`, etc.)
 - wheel boundaries from the layout: a nested package stays out of its parent's wheel,
   published or not; an `entry_point_bundle` ships all nested code except the own wheel
@@ -283,7 +288,7 @@ python scripts/generate_pyproject.py    # Regenerate
    package also `entry_point_groups = ["mloda.feature_groups" | ...]`), above the
    `# --- Bundles ---` marker and after every published package it depends on:
    `scripts/published_packages.py` rejects a config that is not dependency-first.
-2. Create `<path>/__init__.py` before generating; for a plugin package, also create `<path>/manifest.py` listing the concrete classes.
+2. Create `<path>/__init__.py` before generating; for a plugin package, also create `<path>/manifest.py` listing the concrete classes. The generator also writes the package's license copies (`LICENSE`, plus `NOTICE` for Apache packages); commit them with the `pyproject.toml`.
 3. If it should ship standalone on PyPI, set `published = true` and add the name to
    `_EXPECTED_PUBLISHED` in `tests/test_end2end/test_published_set_single_source.py`;
    otherwise add it to `_BUNDLE_ONLY` there. The gate checks both lists against config, in

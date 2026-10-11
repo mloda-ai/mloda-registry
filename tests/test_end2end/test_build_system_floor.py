@@ -1,6 +1,7 @@
 """The declared setuptools build floor must cover the bare PEP 639 SPDX license string the generator
 emits; setuptools rejects that form before 77.0.1. The floor is proven by ``tox -e verify-build-floor``,
-which really builds at it; this module only guards the declaration against drift."""
+which really builds at it; this module only guards the declaration against drift. It also guards the
+license metadata: per-package SPDX string, ``license-files``, and the committed license copies."""
 
 from __future__ import annotations
 
@@ -22,8 +23,12 @@ _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 # First setuptools release accepting a PEP 639 SPDX license string (77.0.0 was never published).
 _PEP639_SETUPTOOLS = "77.0.1"
 
-# One package per emitted license form; the generator infers proprietary from an mloda/enterprise path.
-_LICENSE_SAMPLES = [("mloda-registry", "Apache-2.0"), ("mloda-enterprise", "LicenseRef-Proprietary")]
+_SPDX_BY_FORM = {"apache": "Apache-2.0", "proprietary": "LicenseRef-Proprietary"}
+_LICENSE_FILES_BY_FORM = {"apache": ["LICENSE", "NOTICE"], "proprietary": ["LICENSE"]}
+_LICENSE_SOURCES = ["LICENSE", "LICENSE-APACHE", "NOTICE.md", "mloda/enterprise/LICENSE"]
+_LICENSE_HOLDER = "Tom Kaltofen (mloda)"
+_PACKAGES = load_toml(_PACKAGES_CONFIG)["packages"]
+_SHARED = load_toml(_SHARED_CONFIG)
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 
@@ -42,29 +47,62 @@ def _version_tuple(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
-def _generated_license(pkg_name: str) -> Any:
-    """The ``[project].license`` value the generator emits for a package."""
-    shared = load_toml(_SHARED_CONFIG)
-    packages = load_toml(_PACKAGES_CONFIG)["packages"]
-    content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    return loads_toml(content).get("project", {}).get("license")
+def _generated_project(pkg_name: str) -> dict[str, Any]:
+    """The ``[project]`` table the generator emits for a package."""
+    content: str = gen.generate_pyproject(pkg_name, _PACKAGES[pkg_name], _SHARED, _PACKAGES)
+    project: dict[str, Any] = loads_toml(content).get("project", {})
+    return project
 
 
-@pytest.mark.parametrize(("pkg_name", "expected_license"), _LICENSE_SAMPLES)
-def test_build_floor_covers_the_emitted_license_form(pkg_name: str, expected_license: str) -> None:
-    """Both emitted forms are bare SPDX strings, which setuptools accepts only from 77.0.1 on."""
-    license_value = _generated_license(pkg_name)
+@pytest.mark.parametrize("pkg_name", list(_PACKAGES))
+def test_emitted_license_and_files_match_the_package_form(pkg_name: str) -> None:
+    """The SPDX string and ``license-files`` are chosen by the package path (bare SPDX needs the floor below)."""
+    form = gen.license_form(_PACKAGES[pkg_name]["path"])
+    project = _generated_project(pkg_name)
+    expected_license = _SPDX_BY_FORM[form]
+    license_value = project.get("license")
     assert license_value == expected_license, (
         f"{pkg_name}: expected the PEP 639 SPDX string {expected_license!r}, got {license_value!r}; "
-        "the setuptools floor asserted below exists for that form, revisit it"
+        "the setuptools floor test below exists for that form, revisit it"
     )
+    license_files = project.get("license-files")
+    assert license_files == _LICENSE_FILES_BY_FORM[form], f"{pkg_name}: got {license_files!r}"
 
+
+def test_build_floor_covers_the_emitted_license_form() -> None:
+    """Bare SPDX license strings are accepted by setuptools only from 77.0.1 on."""
     floor = _declared_setuptools_floor()()
     assert _version_tuple(floor) >= _version_tuple(_PEP639_SETUPTOOLS), (
-        f'config/shared.toml declares setuptools>={floor}, but the generator emits license = "{license_value}", '
-        f"which setuptools accepts only from {_PEP639_SETUPTOOLS} on. Run 'tox -e verify-build-floor': that env "
+        f"config/shared.toml declares setuptools>={floor}, but the generator emits the bare SPDX strings "
+        "Apache-2.0 and LicenseRef-Proprietary, which setuptools accepts only from "
+        f"{_PEP639_SETUPTOOLS} on. Run 'tox -e verify-build-floor': that env "
         "builds at the declared floor and is what proves it, this assertion only guards the declaration."
     )
+
+
+def test_package_directories_carry_byte_equal_license_copies() -> None:
+    """Every package directory holds each file its license-files names, equal to its source."""
+    checked = 0
+    for pkg_name, pkg_config in _PACKAGES.items():
+        for name, source in gen.license_copies(pkg_config).items():
+            copy_path = _REPO_ROOT / pkg_config["path"] / name
+            assert copy_path.exists(), f"{pkg_name}: {copy_path} is missing (run scripts/generate_pyproject.py)."
+            assert copy_path.read_bytes() == (_REPO_ROOT / source).read_bytes(), (
+                f"{pkg_name}: {copy_path} differs from {source} (run scripts/generate_pyproject.py)."
+            )
+            checked += 1
+
+    assert checked > 0, "expected at least one license copy to be checked."
+
+
+@pytest.mark.parametrize("source", _LICENSE_SOURCES)
+def test_license_sources_name_the_holder_and_avoid_dashes(source: str) -> None:
+    """Each license source carries the copyright holder line and no em or en dash."""
+    text = (_REPO_ROOT / source).read_text(encoding="utf-8")
+    assert any("copyright" in line.lower() and _LICENSE_HOLDER in line for line in text.splitlines()), (
+        f"{source}: no copyright line naming {_LICENSE_HOLDER!r}"
+    )
+    assert "\u2014" not in text and "\u2013" not in text, f"{source} contains an em or en dash"
 
 
 def test_declared_floor_defaults_to_the_shared_config() -> None:

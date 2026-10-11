@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import subprocess  # nosec
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -23,11 +26,16 @@ else:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHARED_CONFIG = REPO_ROOT / "config" / "shared.toml"
 
+# Loaded by file path, as verify_builds does: this script is also loaded by path in tests.
+_load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(Path(__file__).resolve().parent / "script_loader.py"))[
+    "load_sibling"
+]
+_gen = _load_sibling("generate_pyproject")
+PROPRIETARY_PATH_PREFIX: str = _gen.PROPRIETARY_PATH_PREFIX
+license_form: Callable[[str], str] = _gen.license_form
+
 # Only the lower bound matters: "setuptools>=77.0.1" and "setuptools >= 77.0.1, < 90" both floor at 77.0.1.
 SETUPTOOLS_FLOOR_RE = re.compile(r"^setuptools\s*>=\s*([^\s,;]+)")
-
-# The path prefix the generator reads as proprietary, which emits a LicenseRef instead of an SPDX id.
-PROPRIETARY_PATH_PREFIX = "mloda/enterprise"
 
 LICENSE_FORMS = ("apache", "proprietary")
 
@@ -42,11 +50,6 @@ def declared_setuptools_floor(requires: list[str] | None = None) -> str:
         if match is not None:
             return match.group(1)
     raise ValueError(f"no setuptools lower bound in build-system requires: {requires!r}")
-
-
-def license_form(path: str) -> str:
-    """The license form the generator emits for a package path."""
-    return "proprietary" if path.startswith(PROPRIETARY_PATH_PREFIX) else "apache"
 
 
 def license_sample_packages(packages: dict[str, dict[str, Any]]) -> dict[str, str]:
@@ -90,6 +93,7 @@ def main() -> int:
         find_wheels,
         get_wheel_metadata,
         load_packages_config,
+        missing_license_files,
     )
 
     floor = declared_setuptools_floor()
@@ -129,8 +133,16 @@ def main() -> int:
                     continue
 
                 # A dropped license field would still build, so the metadata has to carry the form back.
-                if "License-Expression:" not in get_wheel_metadata(wheels[0]):
+                metadata = get_wheel_metadata(wheels[0])
+                if "License-Expression:" not in metadata:
                     errors.append(f"{pkg_name}: {wheels[0].name} METADATA has no 'License-Expression:' line")
+                    continue
+
+                missing_files = missing_license_files(metadata, packages[pkg_name])
+                if missing_files:
+                    errors.append(
+                        f"{pkg_name}: {wheels[0].name} METADATA has no 'License-File:' line for {missing_files}"
+                    )
                     continue
 
                 print(f"  ✓ {wheels[0].name}")

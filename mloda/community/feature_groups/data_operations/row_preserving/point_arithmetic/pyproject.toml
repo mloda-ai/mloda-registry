@@ -10,6 +10,7 @@ name = "mloda-community-point-arithmetic"
 version = "0.9.0"
 description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-data-operations>=0.9.0"]
 requires-python = ">=3.10,<3.15"

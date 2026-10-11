@@ -144,17 +144,28 @@ def verify_wheel_version(wheel_path: Path, expected: str) -> bool:
     return f"Version: {expected}" in metadata
 
 
+def missing_license_files(metadata: str, pkg_config: dict[str, Any]) -> list[str]:
+    """License copy names the package requires that METADATA has no 'License-File:' line for."""
+    header_lines = metadata.split("\n\n", 1)[0].splitlines()
+    return [name for name in gen.license_copies(pkg_config) if f"License-File: {name}" not in header_lines]
+
+
 def verify_wheel_metadata(wheels: dict[str, Path]) -> list[str]:
     """Verify wheel metadata for namespace package compliance.
 
     Checks:
     - top_level.txt contains 'mloda'
+    - METADATA has a License-File line per license copy
     - No __init__.py in namespace directories (mloda/, mloda/community/, mloda/enterprise/)
     """
     errors = []
     namespace_dirs = ["mloda/", "mloda/community/", "mloda/enterprise/"]
+    packages = load_packages_config()
 
     for pkg_name, wheel_path in wheels.items():
+        for name in missing_license_files(get_wheel_metadata(wheel_path), packages[pkg_name]):
+            errors.append(f"{pkg_name}: METADATA has no 'License-File: {name}' line")
+
         # Check top_level.txt
         top_level = get_wheel_top_level(wheel_path)
         if not top_level:

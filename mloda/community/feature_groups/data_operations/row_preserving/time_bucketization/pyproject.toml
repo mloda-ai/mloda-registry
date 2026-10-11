@@ -10,6 +10,7 @@ name = "mloda-community-time-bucketization"
 version = "0.9.0"
 description = "Time bucketization feature group (floor, ceil, round a timestamp to a bucket interval, row-preserving)"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-data-operations>=0.9.0"]
 requires-python = ">=3.10,<3.15"

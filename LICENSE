@@ -10,9 +10,9 @@ See: LICENSE-APACHE
 
 SOURCE-AVAILABLE (mloda/enterprise/ only)
 =========================================
-Usage requires a valid license.
-See: mloda/enterprise/LICENSE
+Free for development, testing and evaluation; production use requires a
+license agreement. See: mloda/enterprise/LICENSE
 
 ---
 
-Copyright 2026-present Tom Kaltofen
+Copyright 2026-present Tom Kaltofen (mloda)

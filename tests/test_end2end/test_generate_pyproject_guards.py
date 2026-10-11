@@ -41,6 +41,31 @@ _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 
+_LICENSE_SOURCE_FILES = {
+    "LICENSE-APACHE": b"apache text\n",
+    "NOTICE.md": b"notice text\n",
+    "mloda/enterprise/LICENSE": b"prop\n",
+}
+
+
+def _write_license_sources(root: Path) -> None:
+    """Create the license source files the generator copies from, under ``root``."""
+    for rel, data in _LICENSE_SOURCE_FILES.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(data)
+
+
+def _sandbox_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, packages_toml: str, root_pyproject: str, *argv: str
+) -> None:
+    """Isolated generator workspace: real shared.toml, given packages.toml and root pyproject, chdir, argv."""
+    (tmp_path / "config").mkdir()
+    shutil.copy(_REPO_ROOT / "config" / "shared.toml", tmp_path / "config" / "shared.toml")
+    (tmp_path / "config" / "packages.toml").write_text(packages_toml)
+    (tmp_path / "pyproject.toml").write_text(root_pyproject)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["generate_pyproject.py", *argv])
+
 
 def test_generate_quotes_all_configured_toml_string_values() -> None:
     """Every configured string surface must survive TOML generation unchanged."""
@@ -76,6 +101,7 @@ def test_generate_quotes_all_configured_toml_string_values() -> None:
         "version": special,
         "description": special,
         "license": special,
+        "license-files": ["LICENSE", "NOTICE"],
         "authors": [{"name": special, "email": special}],
         "dependencies": [special],
         "requires-python": special,
@@ -133,26 +159,20 @@ def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkey
     # Snapshot the real root pyproject to prove the run never touches the repo.
     real_root_before = _ROOT_PYPROJECT.read_text()
 
-    # Build an isolated workspace: real configs, sandboxed root pyproject.
-    (tmp_path / "config").mkdir()
-    shutil.copy(_REPO_ROOT / "config" / "shared.toml", tmp_path / "config" / "shared.toml")
-    shutil.copy(_REPO_ROOT / "config" / "packages.toml", tmp_path / "config" / "packages.toml")
-    # Every configured package path needs a Python package so the path guard does not fire first.
-    real_packages = load_toml(_REPO_ROOT / "config" / "packages.toml")["packages"]
-    for real_cfg in real_packages.values():
-        (tmp_path / real_cfg["path"]).mkdir(parents=True, exist_ok=True)
-        (tmp_path / real_cfg["path"] / "__init__.py").write_text("")
-
     # Root pyproject deliberately lacks any ``mloda`` core dependency entry,
     # so update_root_core_dependency cannot find one to sync.
-    (tmp_path / "pyproject.toml").write_text(
+    packages_toml = (_REPO_ROOT / "config" / "packages.toml").read_text()
+    _sandbox_workspace(
+        tmp_path,
+        monkeypatch,
+        packages_toml,
         '[project]\nname = "sandbox-root"\ndependencies = ["requests>=2.0"]\n',
     )
-
-    # CWD-relative globals now resolve inside the sandbox.
-    monkeypatch.chdir(tmp_path)
-    # Write mode: no --check flag.
-    monkeypatch.setattr(sys, "argv", ["generate_pyproject.py"])
+    # Every configured package path needs a Python package so the path guard does not fire first.
+    for real_cfg in load_toml(_REPO_ROOT / "config" / "packages.toml")["packages"].values():
+        (tmp_path / real_cfg["path"]).mkdir(parents=True, exist_ok=True)
+        (tmp_path / real_cfg["path"] / "__init__.py").write_text("")
+    _write_license_sources(tmp_path)
 
     return_code = gen.main()
 
@@ -387,14 +407,96 @@ def test_validate_package_paths_raises_when_only_nested_package_has_code(
 
 def test_main_raises_when_configured_package_has_no_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """main() must surface a code-less configured package before generating anything."""
-    (tmp_path / "config").mkdir()
-    shutil.copy(_REPO_ROOT / "config" / "shared.toml", tmp_path / "config" / "shared.toml")
-    (tmp_path / "config" / "packages.toml").write_text(
-        '[packages.mloda-ghost]\ndescription = "Ghost"\npath = "mloda/ghost"\ndependencies = []\n'
+    _sandbox_workspace(
+        tmp_path,
+        monkeypatch,
+        '[packages.mloda-ghost]\ndescription = "Ghost"\npath = "mloda/ghost"\ndependencies = []\n',
+        '[project]\nname = "sandbox-root"\ndependencies = []\n',
     )
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "sandbox-root"\ndependencies = []\n')
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["generate_pyproject.py"])
 
     with pytest.raises(ValueError, match="mloda-ghost"):
+        gen.main()
+
+
+_LIC_PKG_PATH = "mloda/lic"
+
+
+def _license_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *argv: str, pkg_path: str = _LIC_PKG_PATH
+) -> Path:
+    """Sandbox with one package at ``pkg_path``, a valid root pyproject and the license sources."""
+    core = load_toml(_REPO_ROOT / "config" / "shared.toml")["defaults"]["core_dependency"]
+    _sandbox_workspace(
+        tmp_path,
+        monkeypatch,
+        f'[packages.mloda-lic]\ndescription = "Lic"\npath = "{pkg_path}"\ndependencies = []\n',
+        f'[project]\nname = "sandbox-root"\ndependencies = [\n    {gen.CORE_DEPENDENCY_MARKER}\n    "{core}",\n]\n',
+        *argv,
+    )
+    (tmp_path / pkg_path).mkdir(parents=True)
+    (tmp_path / pkg_path / "__init__.py").write_text("")
+    _write_license_sources(tmp_path)
+    return tmp_path / pkg_path
+
+
+_FORM_CASES = [
+    pytest.param(_LIC_PKG_PATH, {"LICENSE": "LICENSE-APACHE", "NOTICE": "NOTICE.md"}, id="apache"),
+    pytest.param("mloda/enterprise/x", {"LICENSE": "mloda/enterprise/LICENSE"}, id="proprietary"),
+]
+
+
+@pytest.mark.parametrize("stale", [None, b"stale\n"], ids=["absent", "stale"])
+@pytest.mark.parametrize(("pkg_path", "copies"), _FORM_CASES)
+def test_write_mode_writes_license_copies_idempotently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pkg_path: str, copies: dict[str, str], stale: bytes | None
+) -> None:
+    """Write mode makes byte-equal copies (replacing a stale one), is idempotent, and check then passes."""
+    pkg_dir = _license_workspace(tmp_path, monkeypatch, pkg_path=pkg_path)
+    if stale is not None:
+        (pkg_dir / "LICENSE").write_bytes(stale)
+
+    assert gen.main() == 0
+    for name, source in copies.items():
+        assert (pkg_dir / name).read_bytes() == _LICENSE_SOURCE_FILES[source]
+    assert not (pkg_dir / "NOTICE").exists() or "NOTICE" in copies
+    before = {p.name: p.read_bytes() for p in pkg_dir.iterdir() if p.is_file()}
+    assert gen.main() == 0
+    assert {p.name: p.read_bytes() for p in pkg_dir.iterdir() if p.is_file()} == before
+    monkeypatch.setattr(sys, "argv", ["generate_pyproject.py", "--check"])
+    assert gen.main() == 0
+
+
+@pytest.mark.parametrize(("stale", "reason"), [(None, "missing"), (b"stale\n", "out of date")])
+def test_check_mode_fails_on_missing_or_stale_license_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stale: bytes | None,
+    reason: str,
+) -> None:
+    """--check reports the copy as missing or out of date and exits 1 without writing it."""
+    pkg_dir = _license_workspace(tmp_path, monkeypatch)
+    assert gen.main() == 0
+    (pkg_dir / "LICENSE").unlink()
+    if stale is not None:
+        (pkg_dir / "LICENSE").write_bytes(stale)
+    monkeypatch.setattr(sys, "argv", ["generate_pyproject.py", "--check"])
+    capsys.readouterr()
+
+    assert gen.main() == 1
+    out = capsys.readouterr().out
+    assert f"{_LIC_PKG_PATH}/LICENSE: {reason}" in out
+    assert "Files out of date" in out
+    assert (pkg_dir / "LICENSE").exists() == (stale is not None)
+
+
+@pytest.mark.parametrize("argv", [(), ("--check",)], ids=["write", "check"])
+def test_missing_license_source_raises_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: tuple[str, ...]
+) -> None:
+    """A missing license source raises ValueError naming its path."""
+    _license_workspace(tmp_path, monkeypatch, *argv)
+    (tmp_path / "NOTICE.md").unlink()
+
+    with pytest.raises(ValueError, match="NOTICE.md"):
         gen.main()

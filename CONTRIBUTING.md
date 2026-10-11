@@ -139,4 +139,4 @@ git checkout -b fix/short-description
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache License, Version 2.0](LICENSE), except for contributions to `mloda/enterprise/`, which are covered by the source-available [enterprise license](mloda/enterprise/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache License, Version 2.0](LICENSE). Contributions to `mloda/enterprise/` are accepted from the maintainers only, since the source-available [enterprise license](mloda/enterprise/LICENSE) grants the project no rights in outside contributions; open an issue instead.

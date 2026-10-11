@@ -10,6 +10,7 @@ name = "mloda-community-resample"
 version = "0.9.0"
 description = "Resample feature group (collapse events onto a regular time grid: floor to bucket, group, aggregate; one row per non-empty bucket, row-changing)"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-data-operations>=0.9.0"]
 requires-python = ">=3.10,<3.15"
