@@ -40,6 +40,7 @@ from opentelemetry.trace import (
 from mloda.community.extenders.otel._constants import DECLARABLE_HOOKS, OPERATION_NAMES, TRACER_NAME
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
+from mloda.community.extenders.shared.declared import declared_scalars
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
@@ -256,9 +257,6 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
     ExtenderHook.JOIN: "join",
 }
-
-# Declared attribute values kept; other types are dropped silently.
-_SCALAR_TYPES = (str, bool, int, float)
 
 # Caps declared keys so the SDK's attribute limit can't evict core attributes.
 _MAX_DECLARED_KEYS = 32
@@ -657,15 +655,13 @@ def _set_join_attributes(span: Span, context: HookContext) -> None:
 
 
 def _set_declared_attributes(span: Span, context: HookContext) -> None:
-    """mloda.declared.<key> attributes from the hook context's declared_attributes (validated by core)."""
+    """mloda.declared.<key> attributes from the hook context's declared_attributes, through the shared filter."""
     if not span.is_recording() or not context.declared_attributes:
         return
     count = 0
-    for key, value in context.declared_attributes.items():
+    for key, value in declared_scalars(context.declared_attributes).items():
         if count >= _MAX_DECLARED_KEYS:
             break
-        if not isinstance(value, _SCALAR_TYPES):
-            continue
         if isinstance(value, str):
             value = value[:_CONTENT_PREVIEW_MAX_LEN]
         span.set_attribute(f"mloda.declared.{key}", value)

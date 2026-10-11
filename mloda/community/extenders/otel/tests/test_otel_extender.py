@@ -2229,7 +2229,7 @@ class TestOtelExtenderDeclaredAttributes:
 
         assert _declared_span_attrs(exporter) == {}
 
-    def test_non_scalar_declared_values_are_dropped(
+    def test_non_scalar_and_non_portable_declared_values_are_dropped(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
@@ -2241,6 +2241,13 @@ class TestOtelExtenderDeclaredAttributes:
             "listy": [1, 2, 3],
             "mapping": {"a": 1},
             "none": None,
+            "nan": float("nan"),
+            "inf": float("inf"),
+            "ninf": float("-inf"),
+            "big": 2**63,
+            "small": -(2**63) - 1,
+            "int_max": 2**63 - 1,
+            "int_min": -(2**63),
         }
         context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes=declared)
 
@@ -2254,6 +2261,10 @@ class TestOtelExtenderDeclaredAttributes:
         assert "mloda.declared.listy" not in attrs
         assert "mloda.declared.mapping" not in attrs
         assert "mloda.declared.none" not in attrs
+        for dropped in ("nan", "inf", "ninf", "big", "small"):
+            assert f"mloda.declared.{dropped}" not in attrs
+        assert attrs["mloda.declared.int_max"] == 2**63 - 1
+        assert attrs["mloda.declared.int_min"] == -(2**63)
 
     def test_long_declared_string_is_truncated(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
@@ -2281,6 +2292,21 @@ class TestOtelExtenderDeclaredAttributes:
 
         declared_keys = set(_declared_span_attrs(exporter))
         assert len(declared_keys) == 32, declared_keys
+        assert declared_keys == {f"mloda.declared.k{i}" for i in range(32)}
+
+    def test_dropped_declared_values_do_not_use_up_cap_slots(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        declared: dict[str, Any] = {"nan": float("nan"), "big": 2**63}
+        declared.update({f"k{i}": i for i in range(32)})
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes=declared)
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        declared_keys = set(_declared_span_attrs(exporter))
         assert declared_keys == {f"mloda.declared.k{i}" for i in range(32)}
 
 

@@ -1,4 +1,4 @@
-"""Declared-attribute helpers shared by the OpenLineage and audit extenders."""
+"""Declared-attribute helpers shared by the OpenLineage, audit and OTel extenders."""
 
 from __future__ import annotations
 
