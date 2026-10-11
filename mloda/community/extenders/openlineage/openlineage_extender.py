@@ -734,7 +734,9 @@ def _with_classification_tag(facets: dict[str, Any], level: str | None, producer
     if level is None:
         return facets
     existing = facets.get("tags")
-    tags = list(existing.tags) if existing is not None else []
+    if existing is not None and not isinstance(existing, tags_dataset.TagsDatasetFacet):
+        return facets
+    tags = [t for t in (existing.tags or []) if t.key != CLASSIFICATION_KEY] if existing is not None else []
     tags.append(tags_dataset.TagsDatasetFacetFields(key=CLASSIFICATION_KEY, value=level, source="mloda"))
     return {**facets, "tags": tags_dataset.TagsDatasetFacet(tags=tags, producer=producer)}
 

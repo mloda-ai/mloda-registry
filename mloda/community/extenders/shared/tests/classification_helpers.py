@@ -28,6 +28,12 @@ class PiiGroup(FeatureGroup):
         return declaring("pii")
 
 
+class UnknownGroup(FeatureGroup):
+    @classmethod
+    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
+        return declaring("secret")
+
+
 def classified_step(
     group: type[FeatureGroup] | None,
     names: tuple[str, ...],

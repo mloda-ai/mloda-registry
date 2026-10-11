@@ -49,7 +49,12 @@ from mloda.community.extenders.openlineage import openlineage_extender as openli
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import step_run_id
-from mloda.community.extenders.shared.tests.classification_helpers import InternalGroup, PiiGroup, classified_step
+from mloda.community.extenders.shared.tests.classification_helpers import (
+    InternalGroup,
+    PiiGroup,
+    UnknownGroup,
+    classified_step,
+)
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import active_close_context
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -2956,17 +2961,24 @@ class TestOpenLineageExtenderInputDedupe:
 
 
 class _OwnTagsExtender(OpenLineageExtender):
-    """Returns its own tags facet from the output seam."""
+    """Returns the "tags" facet built by own_tags(producer) from the output seam."""
+
+    def __init__(self, own_tags: Callable[[str], Any], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.own_tags = own_tags
 
     def _calculate_output_facets(
         self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
-        return {
-            "tags": tags_dataset.TagsDatasetFacet(
-                tags=[tags_dataset.TagsDatasetFacetFields(key="team", value="data", source="test")],
-                producer=self.producer,
-            )
-        }
+        return {"tags": self.own_tags(self.producer)}
+
+
+def _tag(key: str, value: str, source: str) -> tags_dataset.TagsDatasetFacetFields:
+    return tags_dataset.TagsDatasetFacetFields(key=key, value=value, source=source)
+
+
+def _team_tags(producer: str) -> tags_dataset.TagsDatasetFacet:
+    return tags_dataset.TagsDatasetFacet(tags=[_tag("team", "data", "test")], producer=producer)
 
 
 def _classification_tags(transport: RecordingTransport) -> dict[str, list[tuple[str, str, str | None]]]:
@@ -3053,19 +3065,83 @@ class TestOpenLineageExtenderClassificationTags:
         facet = (output.facets or {})["tags"]
         assert facet._producer == _CUSTOM_PRODUCER
 
-    def test_a_seam_tags_facet_keeps_its_tags_and_gains_the_classification_tag(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    @pytest.mark.parametrize(
+        ("own_tags", "expected"),
+        [
+            pytest.param(
+                _team_tags,
+                [("team", "data", "test"), (CLASSIFICATION_KEY, "pii", "mloda")],
+                id="keeps its tags and gains ours",
+            ),
+            pytest.param(
+                lambda producer: tags_dataset.TagsDatasetFacet(tags=None, producer=producer),
+                [(CLASSIFICATION_KEY, "pii", "mloda")],
+                id="tags None",
+            ),
+            pytest.param(
+                lambda producer: tags_dataset.TagsDatasetFacet(
+                    tags=[_tag("team", "data", "test"), _tag(CLASSIFICATION_KEY, "public", "seam")], producer=producer
+                ),
+                [("team", "data", "test"), (CLASSIFICATION_KEY, "pii", "mloda")],
+                id="own classification tag replaced",
+            ),
+        ],
+    )
+    def test_a_seam_tags_facet_is_merged_with_the_classification_tag(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        own_tags: Callable[[str], Any],
+        expected: list[tuple[str, str, str | None]],
     ) -> None:
         client, transport = ol_capture
-        extender = _OwnTagsExtender(client=client, classification_undeclared="public")
+        extender = _OwnTagsExtender(own_tags, client=client, classification_undeclared="public")
         _start_classified(extender, classified_step(PiiGroup, ("a",)))
 
         with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
             extender(lambda: None)
 
-        assert _classification_tags(transport) == {
-            "a": [("team", "data", "test"), (CLASSIFICATION_KEY, "pii", "mloda")]
-        }
+        assert sorted(_classification_tags(transport)["a"], key=str) == sorted(expected, key=str)
+
+    def test_a_seam_tags_value_of_an_unknown_shape_wins_and_the_event_is_still_emitted(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        own = {"not": "a facet"}
+        extender = _OwnTagsExtender(lambda producer: own, client=client, classification_undeclared="public")
+        _start_classified(extender, classified_step(PiiGroup, ("a",)))
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
+            extender(lambda: None)
+
+        complete = [e for e in transport.events if e.eventType == RunState.COMPLETE]
+        assert len(complete) == 1
+        (output,) = complete[0].outputs or []
+        assert cast(Any, (output.facets or {}).get("tags")) is own
+
+    @pytest.mark.parametrize("raise_on_error", [False, True])
+    def test_an_unresolvable_plan_warns_without_a_tag_or_refuses_the_run(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        caplog: pytest.LogCaptureFixture,
+        raise_on_error: bool,
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client, classification_undeclared="public", raise_on_error=raise_on_error)
+        step = classified_step(UnknownGroup, ("a",))
+
+        if raise_on_error:
+            with pytest.raises(ValueError):
+                _start_classified(extender, step)
+            return
+
+        with caplog.at_level(logging.WARNING):
+            _start_classified(extender, step)
+        with make_hook_context(run_id=_RUN_A, feature_names=("a",)).activate():
+            extender(lambda: None)
+
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OpenLineageExtender" in m and "ValueError" in m for m in messages), messages
+        assert _classification_tags(transport) == {"a": []}
 
     def test_a_pickled_copy_taken_after_run_start_emits_the_tag_for_that_run(self) -> None:
         _SinkTransport.events.clear()

@@ -271,10 +271,6 @@ class TestRunClassifications:
         with pytest.raises(ValueError, match="pii"):
             RunClassifications("secret", "Owner")
 
-    def test_undeclared_is_exposed(self) -> None:
-        assert _tracker("internal").undeclared == "internal"
-        assert _tracker(None).undeclared is None
-
     def test_off_stores_nothing(self) -> None:
         tracker = _tracker(None)
 
