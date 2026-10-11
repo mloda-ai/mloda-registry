@@ -165,6 +165,7 @@ _UNFORWARDED = {
     "extra_marker": "extra-marker-9c1d",
     "data_access_identity": ["s3://bucket-marker-9c1d/key"],
     "data_access_format": ["format-marker-9c1d"],
+    "data_access_declared_attributes": [{"license": "declared-marker-9c1d"}],
     "input_features": ["input-marker-9c1d"],
     "rows_out": 987654321,
     "duration_seconds": 12.3456789,
@@ -763,7 +764,8 @@ class TestOtelLogAuditSinkMapping:
         for value in _UNFORWARDED.values():
             markers = value if isinstance(value, list) else [value]
             for marker in markers:
-                assert str(marker) not in haystack
+                for leaf in marker.values() if isinstance(marker, dict) else [marker]:
+                    assert str(leaf) not in haystack
 
     def test_with_a_key_neither_the_raw_principal_nor_the_key_appears_anywhere(
         self, log_exporter: InMemoryLogRecordExporter

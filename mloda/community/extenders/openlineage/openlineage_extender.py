@@ -27,6 +27,7 @@ from mloda.steward import (
 )
 
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
+from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
 from mloda.community.extenders.shared.step_run_id import step_run_id
@@ -130,6 +131,28 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
         return state
 
 
+def _with_declared(
+    facets: dict[str, Any], declared: dict[str, str | int | float | bool], producer: str
+) -> dict[str, Any]:
+    """facets plus an mlodaDeclared facet; a key declared differently (type-strict) moves to its conflicts."""
+    # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+    from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
+
+    previous = facets.get("mlodaDeclared")
+    merged = dict(previous.attributes) if previous is not None else {}
+    conflicts = set(previous.conflicts) if previous is not None else set()
+    for key, value in declared.items():
+        if key in conflicts:
+            continue
+        if key in merged and not same_scalar(merged[key], value):
+            del merged[key]
+            conflicts.add(key)
+        else:
+            merged.setdefault(key, value)
+    facet = MlodaDeclaredDatasetFacet(attributes=merged, conflicts=sorted(conflicts), producer=producer)
+    return {**facets, "mlodaDeclared": facet}
+
+
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client wins,
@@ -145,13 +168,15 @@ class OpenLineageExtender(Extender):
     the dataSource facet always carries the identity. A step run carries an mlodaTrace facet (traceId, spanId) when its
     own OtelExtender span is current; priority is 110 so OtelExtender wraps outside. Any fallback load of a name
     (core's data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess facet (identityIsFallback
-    true), so consumers can tell a placeholder from a dataset. After a transport failure (connection, timeout, HTTP
-    5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
-    terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such
-    as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass seams: producer,
-    job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
-    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
-    assert_openlineage_extender_seams in mloda.testing. parent_id (and root_parent_id) as
+    true), so consumers can tell a placeholder from a dataset. A load's declared attributes (core's
+    declared_attributes, values that are not portable JSON numbers dropped) ride on its input dataset as an
+    mlodaDeclared facet; a key that loads of one dataset declare differently moves from attributes to the facet's
+    conflicts. After a transport failure (connection, timeout, HTTP 5xx/408/429) in a run, that run's new steps skip
+    emission for a minute; steps already started still emit their terminal event, and raise_on_error=True disables
+    the skip. Only OSError-based failures (requests transports such as http) trip it; other transports (kafka,
+    composite, cloud SDKs) never do. Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch,
+    _call_input_data_load, _call_calculate_feature, _calculate_run_facets, _calculate_output_facets,
+    _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing. parent_id (and root_parent_id) as
     {namespace}/{job_name}/{run_id}, or parent_from_env for OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach
     the run to an orchestrator run."""
 
@@ -459,9 +484,12 @@ class OpenLineageExtender(Extender):
                 from mloda.community.extenders.openlineage._facets import MlodaDataAccessFacet
 
                 facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
-                if existing is not None:
-                    existing.facets = facets
-            if existing is None:
+            declared = declared_scalars(context.declared_attributes)
+            if declared:
+                facets = _with_declared(facets, declared, self.producer)
+            if existing is not None:
+                existing.facets = facets
+            else:
                 invocation.inputs.append(InputDataset(namespace=namespace, name=name, facets=facets))
         if invocation is None:
             logger.debug(

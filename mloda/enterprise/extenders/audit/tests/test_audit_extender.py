@@ -160,6 +160,7 @@ _EXPECTED_RECORD_KEYS = {
     "data_access_identity",
     "data_access_format",
     "data_access_identity_is_fallback",
+    "data_access_declared_attributes",
     "policy_version",
     "enforced",
     "phase",
@@ -603,13 +604,19 @@ _OUTER_CLASS = "my.module.OuterFeatureGroup"
 _INNER_CLASS = "my.module.InnerFeatureGroup"
 
 
-def _load_context(identity: str | None, data_format: str | None = None, is_fallback: bool | None = None) -> HookContext:
+def _load_context(
+    identity: str | None,
+    data_format: str | None = None,
+    is_fallback: bool | None = None,
+    declared: dict[str, str | int | float | bool] | None = None,
+) -> HookContext:
     """An INPUT_DATA_LOAD context without a tenant_id, so a load that got gated would be refused."""
     return make_hook_context(
         hook=ExtenderHook.INPUT_DATA_LOAD,
         data_access_identity=identity,
         data_access_format=data_format,
         data_access_identity_is_fallback=is_fallback,
+        declared_attributes=declared,
     )
 
 
@@ -620,9 +627,10 @@ def _load(
     *,
     args: tuple[Any, ...] = (),
     is_fallback: bool | None = None,
+    declared: dict[str, str | int | float | bool] | None = None,
 ) -> Any:
     """Run one wrapped load, passing args to the wrapped call; call it from inside a calculate call."""
-    with _load_context(identity, data_format, is_fallback).activate():
+    with _load_context(identity, data_format, is_fallback, declared).activate():
         return extender(lambda *_: "loaded", *args)
 
 
@@ -635,15 +643,24 @@ def _calculate(extender: Callable[..., Any], body: Callable[[], Any], feature_gr
 def _record_for_loads(
     loads: Sequence[tuple[str | None, str | None] | tuple[str | None, str | None, bool | None]],
     args: tuple[Any, ...] = (),
+    *,
+    declared: Sequence[dict[str, str | int | float | bool] | None] | None = None,
 ) -> dict[str, Any]:
     """The record of one calculate call that ran the given (identity, format[, is_fallback]) loads, each called
-    with args."""
+    with args; declared holds one declaration per load."""
     sink = InMemoryAuditSink()
     extender = AuditExtender(sink=sink)
 
     def body() -> None:
-        for identity, data_format, *rest in loads:
-            _load(extender, identity, data_format, args=args, is_fallback=rest[0] if rest else None)
+        for index, (identity, data_format, *rest) in enumerate(loads):
+            _load(
+                extender,
+                identity,
+                data_format,
+                args=args,
+                is_fallback=rest[0] if rest else None,
+                declared=declared[index] if declared else None,
+            )
 
     _calculate(extender, body)
 
@@ -3508,6 +3525,7 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
         assert record["data_access_identity_is_fallback"] == []
+        assert record["data_access_declared_attributes"] == []
 
     def test_refusal_record_carries_empty_data_access_lists(self) -> None:
         sink = InMemoryAuditSink()
@@ -3520,6 +3538,7 @@ class TestAuditExtenderDataAccess:
         assert sink.records[0]["data_access_identity"] == []
         assert sink.records[0]["data_access_format"] == []
         assert sink.records[0]["data_access_identity_is_fallback"] == []
+        assert sink.records[0]["data_access_declared_attributes"] == []
 
     def test_nested_load_lands_on_the_enclosing_record_and_writes_no_record_of_its_own(self) -> None:
         sink = InMemoryAuditSink()
@@ -3551,6 +3570,7 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
         assert record["data_access_identity_is_fallback"] == []
+        assert record["data_access_declared_attributes"] == []
 
     def test_failing_load_appears_on_the_error_record_and_the_exception_propagates(self) -> None:
         sink = InMemoryAuditSink()
@@ -3563,7 +3583,7 @@ class TestAuditExtenderDataAccess:
             raise RuntimeError("load boom")
 
         def body() -> None:
-            with _load_context(_BUCKET_KEY, "ParquetReader").activate():
+            with _load_context(_BUCKET_KEY, "ParquetReader", declared={"license": "a"}).activate():
                 extender(failing_load)
 
         with pytest.raises(RuntimeError, match="load boom"):
@@ -3576,6 +3596,7 @@ class TestAuditExtenderDataAccess:
         assert record["error_type"] == "builtins.RuntimeError"
         assert record["data_access_identity"] == [_BUCKET_KEY]
         assert record["data_access_format"] == ["ParquetReader"]
+        assert record["data_access_declared_attributes"] == [{"license": "a"}]
 
     def test_failing_load_swallowed_by_the_calculate_body_is_still_recorded(self) -> None:
         sink = InMemoryAuditSink()
@@ -3624,6 +3645,80 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_identity"] == ["str", "str"]
         assert record["data_access_format"] == ["CsvReader", "CsvReader"]
         assert record["data_access_identity_is_fallback"] == [True, False]
+
+    def test_load_with_a_declaration_records_a_plain_json_dict(self) -> None:
+        declared: dict[str, str | int | float | bool] = {"license": "dl-de/by-2-0", "scale": 0.001}
+
+        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")], declared=[declared])
+
+        assert record["data_access_declared_attributes"] == [declared]
+        assert type(record["data_access_declared_attributes"][0]) is dict
+        assert json.loads(json.dumps(record["data_access_declared_attributes"])) == [declared]
+
+    @pytest.mark.parametrize(
+        ("declared", "expected"), [(None, [None]), ({}, [{}])], ids=["unreadable_none", "declared_nothing_empty"]
+    )
+    def test_load_without_a_readable_declaration_records_it_as_given(
+        self, declared: dict[str, str | int | float | bool] | None, expected: list[dict[str, Any] | None]
+    ) -> None:
+        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")], declared=[declared])
+
+        assert record["data_access_declared_attributes"] == expected
+
+    def test_declarations_stay_index_aligned_across_distinct_loads(self) -> None:
+        other = "s3://bucket/other.csv"
+
+        record = _record_for_loads(
+            [(_BUCKET_KEY, "ParquetReader"), (other, "CsvReader")], declared=[{"license": "a"}, None]
+        )
+
+        assert record["data_access_identity"] == [_BUCKET_KEY, other]
+        assert record["data_access_declared_attributes"] == [{"license": "a"}, None]
+
+    @pytest.mark.parametrize("declaration", [{"license": "a"}, {"open": 1}], ids=["string_value", "int_value"])
+    def test_repeated_loads_with_equal_declarations_are_deduplicated(
+        self, declaration: dict[str, str | int | float | bool]
+    ) -> None:
+        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")] * 3, declared=[declaration] * 3)
+
+        assert record["data_access_identity"] == [_BUCKET_KEY]
+        assert record["data_access_declared_attributes"] == [declaration]
+
+    @pytest.mark.parametrize(
+        "declarations",
+        [
+            [{"license": "a"}, {"license": "b"}],
+            [{"open": True}, {"open": 1}, {"open": 1.0}],
+        ],
+        ids=["different_values", "type_only_differences"],
+    )
+    def test_same_identity_format_and_flag_with_different_declarations_gives_separate_entries(
+        self, declarations: list[dict[str, str | int | float | bool]]
+    ) -> None:
+        record = _record_for_loads([("str", "CsvReader", True)] * len(declarations), declared=declarations)
+
+        recorded = record["data_access_declared_attributes"]
+        assert record["data_access_identity"] == ["str"] * len(declarations)
+        assert recorded == declarations
+        assert [type(entry["open"]) for entry in recorded if "open" in entry] == [
+            type(entry["open"]) for entry in declarations if "open" in entry
+        ]
+
+    @pytest.mark.parametrize("dropped", [float("nan"), 10**5000], ids=["nan", "oversized_int"])
+    def test_unrecordable_declared_value_is_dropped_and_the_record_is_written_to_an_ndjson_sink(
+        self, tmp_path: Path, dropped: float
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+
+        def body() -> None:
+            _load(extender, _BUCKET_KEY, "CsvReader", declared={"license": "a", "scale": dropped})
+
+        _calculate(extender, body)
+
+        records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        assert len(records) == 1
+        assert records[0]["data_access_declared_attributes"] == [{"license": "a"}]
 
     def test_hand_built_context_without_the_flag_records_none(self) -> None:
         record = _record_for_loads([(_BUCKET_KEY, "CsvReader")])
@@ -4112,6 +4207,7 @@ class TestAuditExtenderRunAll:
         assert records[0]["data_access_identity"] == [str(tmp_path / "data.csv")]
         assert records[0]["data_access_format"] == ["CsvReader"]
         assert records[0]["data_access_identity_is_fallback"] == [False]
+        assert records[0]["data_access_declared_attributes"] == [{}]
 
     def test_run_all_csv_read_with_a_fallback_identity_records_the_flag_true(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4132,6 +4228,24 @@ class TestAuditExtenderRunAll:
         assert len(records) == 1
         assert records[0]["data_access_identity"] == ["str"]
         assert records[0]["data_access_identity_is_fallback"] == [True]
+
+    def test_run_all_csv_read_with_a_declaring_reader_records_the_declaration(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            CsvReader, "declared_attributes", classmethod(lambda cls, features: {"license": "dl-de/by-2-0"})
+        )
+        audit_path = tmp_path / "audit.ndjson"
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+
+        with verified_context(tenant_id="tenant-42"):
+            run_csv_feature(tmp_path, extender)
+
+        read_class = f"{ReadFileFeature.__module__}.{ReadFileFeature.__qualname__}"
+        sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        records = [record for record in sink_records if record["feature_group_class"] == read_class]
+        assert len(records) == 1
+        assert records[0]["data_access_declared_attributes"] == [{"license": "dl-de/by-2-0"}]
 
     def test_run_all_without_verified_context_denies_but_still_runs(self) -> None:
         sink = InMemoryAuditSink()

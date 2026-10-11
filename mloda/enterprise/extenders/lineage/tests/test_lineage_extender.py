@@ -1226,16 +1226,32 @@ class TestLineageFacetsRootSourceColumns:
         assert (event.inputs or [])[0].name == context_identity
         assert "hunter2" not in Serde.to_json(event)
 
-    def test_fallback_load_emits_the_data_access_facet_with_the_enterprise_producer(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    @pytest.mark.parametrize(
+        ("context_kwargs", "facet_key", "field", "expected"),
+        [
+            ({"data_access_identity_is_fallback": True}, "mlodaDataAccess", "identityIsFallback", True),
+            (
+                {"declared_attributes": {"license": "dl-de/by-2-0"}},
+                "mlodaDeclared",
+                "attributes",
+                {"license": "dl-de/by-2-0"},
+            ),
+        ],
+        ids=["fallback", "declared"],
+    )
+    def test_load_emits_its_custom_dataset_facet_with_the_enterprise_producer(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        context_kwargs: dict[str, Any],
+        facet_key: str,
+        field: str,
+        expected: Any,
     ) -> None:
         client, transport = ol_capture
         extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
 
         def load() -> str:
-            context = make_hook_context(
-                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="str", data_access_identity_is_fallback=True
-            )
+            context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="str", **context_kwargs)
             with context.activate():
                 assert extender(lambda *_: "loaded", "host=db") == "loaded"
             return "data"
@@ -1244,8 +1260,9 @@ class TestLineageFacetsRootSourceColumns:
             extender(_SourceByDict.calculate_feature, load, FeatureSet([Feature("out")]))
 
         payload = json.loads(Serde.to_json(transport.events[-1]))
-        facet = payload["inputs"][0]["facets"]["mlodaDataAccess"]
-        assert facet["identityIsFallback"] is True
+        facet = payload["inputs"][0]["facets"][facet_key]
+        assert facet[field] == expected
+        assert type(facet[field]) is type(expected)
         assert facet["_producer"] == _LINEAGE_PRODUCER
 
     def test_two_sources_with_equal_core_identity_but_different_raw_args_merge_into_one_dataset(

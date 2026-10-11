@@ -27,6 +27,7 @@ from mloda.steward import (
 
 from mloda.community.extenders.shared import is_picklable, termination
 from mloda.community.extenders.shared.classification import LEVELS, feature_classifications
+from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
@@ -64,9 +65,21 @@ def _hostname() -> str:
     return _host
 
 
-_open_calculates: OpenInvocationStack[list[tuple[str, str | None, bool | None]]] = OpenInvocationStack(
-    "audit_open_calculates"
-)
+# (identity, format, identity is fallback, declared attributes)
+_Load = tuple[str, str | None, bool | None, dict[str, str | int | float | bool] | None]
+
+
+def _same_load(left: _Load, right: _Load) -> bool:
+    """Equal identity, format and flag, and declarations that are both None or have pairwise same_scalar values."""
+    if left[:3] != right[:3]:
+        return False
+    a, b = left[3], right[3]
+    if a is None or b is None:
+        return a is b
+    return a.keys() == b.keys() and all(same_scalar(value, b[key]) for key, value in a.items())
+
+
+_open_calculates: OpenInvocationStack[list[_Load]] = OpenInvocationStack("audit_open_calculates")
 
 
 class AuditSink(Protocol):
@@ -171,8 +184,10 @@ class AuditExtender(Extender):
     before the wrapped call, also at FEATURE_GROUP_MATCHED, and runs outermost (priority 0). fail_closed=True
     declares core's never_fall_back, so raise_on_error has no effect on it: the refusal, and a sink
     failure on the refusal path or after a successful call, always propagate. fail_closed is read-only.
-    Records also list the distinct data loads the call attempted, as three index-aligned identity, format and
-    identity-is-fallback lists ([] for none; a load without an identity is omitted). The identity is core's
+    Records also list the distinct data loads the call attempted, as four index-aligned identity, format,
+    identity-is-fallback and declared-attributes lists ([] for none; {} for a load that declared none, null when
+    core could not read the declaration, values that are not portable JSON numbers dropped; a load without an
+    identity is omitted). The identity is core's
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
@@ -731,7 +746,7 @@ class AuditExtender(Extender):
             if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED:
                 return func(*args, **kwargs)
 
-        loads: list[tuple[str, str | None, bool | None]] = []
+        loads: list[_Load] = []
         try:
             with _open_calculates.open(self, loads):
                 result = func(*args, **kwargs)
@@ -773,8 +788,13 @@ class AuditExtender(Extender):
         identity = context.data_access_identity
         if identity is None:
             return
-        entry = (identity, context.data_access_format, context.data_access_identity_is_fallback)
-        if entry not in loads:
+        entry: _Load = (
+            identity,
+            context.data_access_format,
+            context.data_access_identity_is_fallback,
+            None if context.declared_attributes is None else declared_scalars(context.declared_attributes),
+        )
+        if not any(_same_load(entry, seen) for seen in loads):
             loads.append(entry)
 
     def _missing_identity(self, context: HookContext | RunContext) -> list[str]:
@@ -784,7 +804,7 @@ class AuditExtender(Extender):
         self,
         context: HookContext,
         func: Any,
-        loads: list[tuple[str, str | None, bool | None]],
+        loads: list[_Load],
         *,
         status: str | None,
         error_type: str | None,
@@ -845,7 +865,7 @@ class AuditExtender(Extender):
         run_id: str | None,
         plan_id: str | None,
         per_call: dict[str, Any],
-        loads: list[tuple[str, str | None, bool | None]],
+        loads: list[_Load],
         status: str | None,
         error_type: str | None,
         *,
@@ -886,7 +906,8 @@ class AuditExtender(Extender):
             **per_call,
             "status": status,
             "error_type": error_type,
-            "data_access_identity": [identity for identity, _, _ in loads],
-            "data_access_format": [fmt for _, fmt, _ in loads],
-            "data_access_identity_is_fallback": [flag for _, _, flag in loads],
+            "data_access_identity": [identity for identity, _, _, _ in loads],
+            "data_access_format": [fmt for _, fmt, _, _ in loads],
+            "data_access_identity_is_fallback": [flag for _, _, flag, _ in loads],
+            "data_access_declared_attributes": [declared for _, _, _, declared in loads],
         }

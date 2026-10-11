@@ -20,6 +20,16 @@ class MlodaDataAccessFacet(DatasetFacet):
 
 
 @attr.define
+class MlodaDeclaredDatasetFacet(DatasetFacet):
+    attributes: dict[str, str | int | float | bool] = attr.field()
+    conflicts: list[str] = attr.field(factory=list)
+
+    @staticmethod
+    def _get_schema() -> str:
+        return _SCHEMA_URL
+
+
+@attr.define
 class MlodaPlanRunFacet(RunFacet):
     planId: str = attr.field()
     structureHash: str | None = attr.field(default=None)

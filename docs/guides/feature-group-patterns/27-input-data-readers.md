@@ -189,7 +189,7 @@ class UbaAirReader(ReadFile):  # added to UbaAirReader above
 - Core checks the candidate group's declarations merged with the selected reader's (the reader wins on a shared key) at plan time, calling `declared_attributes` with `features=None`, so a declaration must not depend on the `FeatureSet`. An unpinned reader that misses is skipped, so a sibling that declares the key can match; a pinned reader is final. A `declared_attributes` that raises refuses the candidate.
 - A refused run fails at plan time, before loading any data, with a reason such as `Pm10Rebased requires declared 'scale'; UbaAirReader declares none` (when it declares nothing; `declares no such key` when it declares other keys), or `requires declared 'scale' == 5; UbaAirReader declares 0.001` for a value.
 - To keep the check opt-in, add the requirement only when a consumer option asks for it. A chained group whose `input_features` builds plain features from the parsed name overrides `input_features` to attach it. A top-level request can carry it too (`Feature("pm10_value", required_declarations={"scale": None})`; its reason starts with `request for 'pm10_value'`).
-- Declarations are also recorded on extender spans, so never put a credential in one.
+- Declarations are also recorded on extender spans, OpenLineage events and audit records (untruncated in the last two), and a sealed audit log cannot be redacted, so never echo an option value or a credential.
 
 ## Decline Names You Cannot Confirm
 

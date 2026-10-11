@@ -2480,6 +2480,147 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         else:
             assert "mlodaDataAccess" not in facets
 
+    @staticmethod
+    def _declared_payload(
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        declarations: list[dict[str, Any] | None],
+        is_fallback: bool | None = None,
+    ) -> tuple[OpenLineageExtender, dict[str, Any], str]:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        def outer_func() -> str:
+            for declared in declarations:
+                inner_context = make_hook_context(
+                    hook=ExtenderHook.INPUT_DATA_LOAD,
+                    data_access_identity="str",
+                    data_access_identity_is_fallback=is_fallback,
+                    declared_attributes=declared,
+                )
+                with inner_context.activate():
+                    extender(lambda *_: "loaded-data", "host=db")
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            extender(outer_func)
+
+        serialized = Serde.to_json(transport.events[1])
+        return extender, json.loads(serialized), serialized
+
+    @pytest.mark.parametrize(
+        ("declared", "expected"),
+        [
+            (
+                {"license": "dl-de/by-2-0", "scale": 0.001, "open": True, "rows": 3},
+                {"license": "dl-de/by-2-0", "scale": 0.001, "open": True, "rows": 3},
+            ),
+            ({"text": "x" * 500}, {"text": "x" * 500}),
+            ({}, None),
+            (None, None),
+        ],
+        ids=["scalars", "long_string_untruncated", "empty", "none"],
+    )
+    def test_declared_attributes_facet_is_present_only_for_a_non_empty_declaration(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        declared: dict[str, Any] | None,
+        expected: dict[str, Any] | None,
+    ) -> None:
+        extender, payload, _ = self._declared_payload(ol_capture, [declared])
+
+        assert len(payload["inputs"]) == 1
+        facets = payload["inputs"][0]["facets"]
+        if expected is None:
+            assert "mlodaDeclared" not in facets
+        else:
+            assert facets["mlodaDeclared"]["attributes"] == expected
+            assert facets["mlodaDeclared"]["conflicts"] == []
+            attributes = facets["mlodaDeclared"]["attributes"]
+            assert {key: type(value) for key, value in attributes.items()} == {
+                key: type(value) for key, value in expected.items()
+            }
+            assert facets["mlodaDeclared"]["_producer"] == extender.producer
+
+    def test_non_finite_declared_float_is_dropped_and_the_event_is_strict_json(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        def reject(constant: str) -> None:
+            raise AssertionError(f"non-finite constant {constant} in the event")
+
+        _, payload, serialized = self._declared_payload(ol_capture, [{"license": "a", "scale": float("nan")}])
+
+        json.loads(serialized, parse_constant=reject)
+        assert payload["inputs"][0]["facets"]["mlodaDeclared"]["attributes"] == {"license": "a"}
+
+    @pytest.mark.parametrize(
+        ("declarations", "expected", "conflicts"),
+        [
+            (
+                [{"license": "a", "unit": "kg"}, {"license": "b", "scale": 2}],
+                {"unit": "kg", "scale": 2},
+                ["license"],
+            ),
+            ([{"license": "a"}, {"license": "a"}], {"license": "a"}, []),
+            ([{"open": 1}, {"open": True}], {}, ["open"]),
+            ([{"license": "a"}, {"license": "b"}, {"license": "a"}], {}, ["license"]),
+            ([None, {"license": "a"}], {"license": "a"}, []),
+        ],
+        ids=[
+            "differing_value_conflicts",
+            "agreeing_values",
+            "type_only_difference",
+            "conflict_is_sticky",
+            "first_load_declared_nothing",
+        ],
+    )
+    def test_declarations_of_loads_of_one_dataset_are_merged_and_differing_values_are_conflicts(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        declarations: list[dict[str, Any] | None],
+        expected: dict[str, Any],
+        conflicts: list[str],
+    ) -> None:
+        _, payload, _ = self._declared_payload(ol_capture, declarations)
+
+        assert len(payload["inputs"]) == 1
+        facet = payload["inputs"][0]["facets"]["mlodaDeclared"]
+        assert facet["attributes"] == expected
+        assert facet["conflicts"] == conflicts
+
+    def test_failing_load_still_carries_its_declaration_on_the_fail_event(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="str", declared_attributes={"license": "a"}
+        )
+
+        def failing_load(*_: Any) -> str:
+            raise RuntimeError("load boom")
+
+        def outer_func() -> str:
+            with inner_context.activate():
+                extender(failing_load, "host=db")
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            with pytest.raises(RuntimeError, match="load boom"):
+                extender(outer_func)
+
+        fail_payload = json.loads(Serde.to_json(transport.events[-1]))
+        assert fail_payload["eventType"] == "FAIL"
+        assert fail_payload["inputs"][0]["facets"]["mlodaDeclared"]["attributes"] == {"license": "a"}
+
+    def test_declared_attributes_facet_coexists_with_the_fallback_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        _, payload, _ = self._declared_payload(ol_capture, [{"license": "a"}], is_fallback=True)
+
+        facets = payload["inputs"][0]["facets"]
+        assert facets["mlodaDataAccess"]["identityIsFallback"] is True
+        assert facets["mlodaDeclared"]["attributes"] == {"license": "a"}
+
     @pytest.mark.parametrize("flags", [(False, True), (True, False)], ids=["real_then_fallback", "fallback_then_real"])
     def test_any_fallback_load_of_an_identity_marks_the_one_input_dataset(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], flags: tuple[bool, bool]
@@ -2705,12 +2846,15 @@ class TestOpenLineageExtenderInputDedupe:
         assert complete_event.inputs is not None
         assert [i.name for i in complete_event.inputs] == ["https://host/p"]
 
+    @pytest.mark.parametrize("declared", [None, {"license": "a"}], ids=["undeclared", "declared"])
     def test_input_feature_matching_a_data_load_identity_is_reported_once(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], declared: dict[str, Any] | None
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client, dataset_namespace="custom-ds")
-        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="shared")
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="shared", declared_attributes=declared
+        )
 
         def inner_loader() -> str:
             return "loaded-data"
@@ -2730,6 +2874,13 @@ class TestOpenLineageExtenderInputDedupe:
             ("custom-ds", "other"),
             ("custom-ds", "shared"),
         ]
+
+        payload = json.loads(Serde.to_json(complete_event))
+        shared = next(i for i in payload["inputs"] if i["name"] == "shared")
+        if declared is None:
+            assert "mlodaDeclared" not in shared["facets"]
+        else:
+            assert shared["facets"]["mlodaDeclared"]["attributes"] == declared
 
     def test_uri_shaped_input_feature_is_published_as_given_and_not_merged_with_a_stripped_load(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
