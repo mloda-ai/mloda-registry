@@ -1038,7 +1038,7 @@ class TestProviderCloseTestMixinFailsABrokenExtender:
     """An extender whose close() raises or whose warning wording differs must fail the mixin, so it is not vacuous."""
 
     def test_a_misworded_warning_fails_the_blocking_flush_test(self, caplog: pytest.LogCaptureFixture) -> None:
-        with pytest.raises(AssertionError, match="did not flush all"):
+        with pytest.raises(AssertionError, match=r"probes.*spans"):
             _MiswordedWarningProbeHost().test_close_bounds_a_blocking_force_flush_and_logs_a_warning(caplog)
 
     def test_a_raising_close_fails_the_flush_test(self) -> None:

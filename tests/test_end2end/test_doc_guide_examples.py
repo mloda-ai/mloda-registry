@@ -23,8 +23,9 @@ import pkgutil
 import re
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, create_autospec, patch
 
 import pytest
 from mloda.core.abstract_plugins.components.feature import Feature
@@ -33,6 +34,7 @@ from mloda.core.abstract_plugins.compute_framework import ComputeFramework
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
 from mloda.steward import resolve_feature
 from mloda.user import DataAccessCollection, Options, PluginCollector, load_features_from_config
+from mloda.user import mloda as real_mloda
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
 
 import mloda.community.feature_groups.data_operations as data_operations
@@ -45,7 +47,7 @@ WAY_2_HEADING = "## Way 2: Discriminator Option (Sibling FeatureGroups)"
 WAY_2_MODULE = "guide_28_way_2"
 WAY_3_HEADING = "## Way 3: Reader Delegation (Sibling Readers)"
 WAY_3_MODULE = "guide_28_way_3"
-TEST_HEADING = "## Test\n"
+TEST_HEADING = "\n## Test\n"
 
 _FENCE_RE = re.compile(r"```(json|python|py)\n(.*?)```", re.DOTALL)
 _CONFIG_STRING_RE = re.compile(r'config\s*=\s*"""(.*?)"""', re.DOTALL)
@@ -203,7 +205,8 @@ def load_way_3_usage_call() -> tuple[Feature, DataAccessCollection, set[type[Com
     fences = _python_fences(WAY_3_HEADING)
     assert len(fences) >= 2, "the Way 3 section no longer has a second python block with the run_all call"
     code = compile(fences[1], f"<{BACKEND_FAMILIES_GUIDE.name} Way 3 usage>", "exec", dont_inherit=True)
-    mloda = Mock()
+    mloda = Mock(spec_set=["run_all"])
+    mloda.run_all = create_autospec(real_mloda.run_all)
     exec(code, {**_load_namespace(WAY_3_HEADING, WAY_3_MODULE), "Feature": Feature, "mloda": mloda})  # nosec
     assert mloda.run_all.call_count == 1, "the Way 3 usage block no longer calls mloda.run_all exactly once"
     args, kwargs = mloda.run_all.call_args
@@ -286,9 +289,9 @@ def test_way_3_guide_usage_resolves_to_the_reader_sibling() -> None:
 
 def test_way_3_collection_without_the_slot_resolves_to_nothing() -> None:
     feature, _, frameworks = load_way_3_usage_call()
-    collection = DataAccessCollection(credentials=[{"oxigraph_sparql": {"locator": "graph.ttl"}}])
+    collection = DataAccessCollection(credentials=[{"no_such_connector": {"locator": "graph.ttl"}}])
     _, result = _resolve_way_3(feature, collection, frameworks)
-    assert result.feature_group is None
+    assert result.feature_group is None, result.feature_group
     assert result.candidates == []
     assert "No feature groups found" in str(result.error)
 
@@ -299,8 +302,18 @@ def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
     namespace = dict(_load_namespace(WAY_2_HEADING, WAY_2_MODULE))
     before = set(namespace)
     code = compile(fences[0], f"<{BACKEND_FAMILIES_GUIDE.name} Test>", "exec", dont_inherit=True)
-    exec(code, namespace)  # nosec
-    tests = [v for k, v in namespace.items() if k not in before and k.startswith("test_") and callable(v)]
-    assert tests, "the Test section python block no longer defines a test_ function"
-    for sibling_test in tests:
-        sibling_test()
+    with patch("mloda.steward.resolve_feature", wraps=resolve_feature) as spy:
+        exec(code, namespace)  # nosec
+        tests = [v for k, v in namespace.items() if k not in before and k.startswith("test_") and callable(v)]
+        assert tests, "the Test section python block no longer defines a test_ function"
+        for sibling_test in tests:
+            sibling_test()
+        assert spy.called, "the Test section sibling test no longer calls resolve_feature"
+        for call in spy.call_args_list:
+            assert "plugin_collector" in call.kwargs, "the Test section no longer passes plugin_collector"
+            assert "compute_frameworks" in call.kwargs, "the Test section no longer passes compute_frameworks"
+        spy.return_value = SimpleNamespace(feature_group=None, candidates=[], error=None)
+        spy.side_effect = None
+        for sibling_test in tests:
+            with pytest.raises(AssertionError):
+                sibling_test()
