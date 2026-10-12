@@ -1075,11 +1075,20 @@ class TestOtelLogAuditSinkFlush:
             with caplog.at_level(logging.WARNING, logger=otel_log_sink_module.__name__):
                 sink.flush()  # must not raise
 
-        warnings = _module_warnings(caplog)
-        assert len(warnings) == 1
-        assert "OtelLogAuditSink" in warnings[0]
-        assert "RuntimeError" in warnings[0]
+        assert _module_warnings(caplog) == ["OtelLogAuditSink failed to flush the logger provider: RuntimeError"]
         assert "flush boom" not in caplog.text
+
+    def test_flush_swallows_a_raising_provider_lookup_and_logs_a_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        sink = OtelLogAuditSink()
+
+        with patch(_GET_LOGGER_PROVIDER, side_effect=RuntimeError("lookup boom")):
+            with caplog.at_level(logging.WARNING, logger=otel_log_sink_module.__name__):
+                sink.flush()  # must not raise
+
+        assert _module_warnings(caplog) == ["OtelLogAuditSink failed to flush the logger provider: RuntimeError"]
+        assert "lookup boom" not in caplog.text
 
     def test_flush_logs_a_warning_when_force_flush_returns_false(self, caplog: pytest.LogCaptureFixture) -> None:
         provider = Mock(force_flush=Mock(return_value=False))
@@ -1089,9 +1098,7 @@ class TestOtelLogAuditSinkFlush:
             with caplog.at_level(logging.WARNING, logger=otel_log_sink_module.__name__):
                 sink.flush()
 
-        warnings = _module_warnings(caplog)
-        assert len(warnings) == 1
-        assert "OtelLogAuditSink" in warnings[0]
+        assert _module_warnings(caplog) == ["OtelLogAuditSink did not flush all log records within its close budget"]
 
     def test_close_timeout_override_is_honored(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
@@ -1121,9 +1128,7 @@ class TestOtelLogAuditSinkFlush:
             raise outcome["error"]
         assert elapsed < 1.0, elapsed
 
-        warnings = _module_warnings(caplog)
-        assert len(warnings) == 1
-        assert "OtelLogAuditSink" in warnings[0]
+        assert _module_warnings(caplog) == ["OtelLogAuditSink did not flush all log records within its close budget"]
 
     def test_negative_close_timeout_flushes_with_no_args(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))

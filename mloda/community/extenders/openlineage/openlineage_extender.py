@@ -23,13 +23,13 @@ from mloda.steward import (
     PlanContext,
     RunContext,
     WarnOncePerInstance,
-    pickle_failure_reason,
 )
 
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
+from mloda.community.extenders.shared.provider_sink import drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, capped_close_timeout
@@ -411,21 +411,18 @@ class OpenLineageExtender(Extender):
             self._classifications.pop(run.run_id)
 
     def __getstate__(self) -> dict[str, Any]:
-        client = self._client
-        failure_reason = pickle_failure_reason(client) if not self._owns_client and client is not None else None
-        client_unpicklable = failure_reason is not None
-        if client_unpicklable:
-            self._pickle_drop_warning.warn_once(
-                lambda: logger.warning(
-                    f"{type(self).__name__} drops an injected client when pickled or copied because it isn't "
-                    f"picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, which "
-                    "lets it build its own client in its own process, e.g. under MULTIPROCESSING."
-                )
-            )
         state = dict(self.__dict__)
-        if self._owns_client or client_unpicklable:
+        if self._owns_client:
+            # Not the helper's job: a self-built client is dropped silently and unconditionally, the copy rebuilds it.
             state["_client"] = None
-        if client_unpicklable:
+        elif drop_unpicklable_provider(
+            state,
+            "client",
+            owner_name=type(self).__name__,
+            warning=self._pickle_drop_warning,
+            log=logger,
+            recovery="build its own client in its own process, e.g. under MULTIPROCESSING",
+        ):
             # The copy no longer holds an injected client; it will self-build (and own) whatever
             # client it needs from here on, so a later pickle of the copy treats that client as owned.
             state["_owns_client"] = True

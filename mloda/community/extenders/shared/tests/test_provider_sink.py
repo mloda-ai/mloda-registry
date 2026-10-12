@@ -55,19 +55,27 @@ class TestConfiguredProvider:
 class TestDropUnpicklableProvider:
     _LOG = logging.getLogger("mloda.test.provider_sink")
 
-    def _drop(self, state: dict[str, Any], warning: WarnOncePerInstance | None = None, owner: str = "Owner") -> None:
+    def _drop(
+        self,
+        state: dict[str, Any],
+        warning: WarnOncePerInstance | None = None,
+        owner: str = "Owner",
+        recovery: str | None = None,
+    ) -> bool:
         from mloda.community.extenders.shared.provider_sink import drop_unpicklable_provider
 
-        drop_unpicklable_provider(
-            state, "thing", owner_name=owner, warning=warning or WarnOncePerInstance(), log=self._LOG
+        extra = {} if recovery is None else {"recovery": recovery}
+        return drop_unpicklable_provider(
+            state, "thing", owner_name=owner, warning=warning or WarnOncePerInstance(), log=self._LOG, **extra
         )
 
     def test_picklable_provider_is_kept_without_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         state: dict[str, Any] = {"_thing": [1, 2, 3]}
 
         with caplog.at_level(logging.WARNING):
-            self._drop(state)
+            dropped = self._drop(state)
 
+        assert dropped is False
         assert state == {"_thing": [1, 2, 3]}
         assert caplog.records == []
 
@@ -75,8 +83,9 @@ class TestDropUnpicklableProvider:
         state: dict[str, Any] = {"_thing": None, "other": 1}
 
         with caplog.at_level(logging.WARNING):
-            self._drop(state)
+            dropped = self._drop(state)
 
+        assert dropped is False
         assert state == {"_thing": None, "other": 1}
         assert caplog.records == []
 
@@ -84,8 +93,9 @@ class TestDropUnpicklableProvider:
         state: dict[str, Any] = {"_thing": _LockHolder(), "other": 1}
 
         with caplog.at_level(logging.WARNING):
-            self._drop(state, owner="MyOwner")
+            dropped = self._drop(state, owner="MyOwner")
 
+        assert dropped is True
         assert state["_thing"] is None
         assert state["other"] == 1
         assert [r.getMessage() for r in caplog.records] == [
@@ -104,3 +114,14 @@ class TestDropUnpicklableProvider:
                 assert state["_thing"] is None
 
         assert len(caplog.records) == 1
+
+    def test_custom_recovery_replaces_only_the_tail_of_the_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        state: dict[str, Any] = {"_thing": _LockHolder()}
+
+        with caplog.at_level(logging.WARNING):
+            self._drop(state, owner="MyOwner", recovery="build its own thing")
+
+        assert [r.getMessage() for r in caplog.records] == [
+            "MyOwner drops an injected thing when pickled or copied because it isn't picklable (TypeError); "
+            "the copy is inert unless use_sdk_defaults=True, which lets it build its own thing."
+        ]

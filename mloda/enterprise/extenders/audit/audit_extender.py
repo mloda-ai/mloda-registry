@@ -688,7 +688,10 @@ class AuditExtender(Extender):
         MULTIPROCESSING worker's dispatch payload) carries none: on_run_complete only ever runs in the parent,
         never in a worker copy, and Ed25519Signer holds non-picklable cryptography key objects besides.
         raise_on_run_complete is kept: harmless, since copies never get on_run_complete. The classification policy
-        is kept when picklable; else it is dropped and the copy's on_run_start refuses every run."""
+        is kept when picklable; else it is dropped and the copy's on_run_start refuses every run.
+        It does not use the shared drop_unpicklable_provider: the signer material, head anchor and failure policy are
+        dropped unconditionally (key material never travels), and a dropped classification policy is fail-closed
+        (the copy refuses every run) rather than inert unless use_sdk_defaults."""
         state = dict(self.__dict__)
         state["_signer"] = None
         state["_previous_signers"] = ()

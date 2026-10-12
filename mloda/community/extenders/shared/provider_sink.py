@@ -21,20 +21,26 @@ def configured_provider(injected: _T | None, use_sdk_defaults: bool, ambient: Ca
 
 
 def drop_unpicklable_provider(
-    state: dict[str, Any], noun: str, *, owner_name: str, warning: WarnOncePerInstance, log: logging.Logger
-) -> None:
-    """Replace an unpicklable state[f"_{noun}"] with None, warning once."""
+    state: dict[str, Any],
+    noun: str,
+    *,
+    owner_name: str,
+    warning: WarnOncePerInstance,
+    log: logging.Logger,
+    recovery: str = "resolve a provider installed in its own process, e.g. via child_bootstrap under MULTIPROCESSING",
+) -> bool:
+    """Replace an unpicklable state[f"_{noun}"] with None, warning once; True if it was replaced."""
     key = f"_{noun}"
     provider = state.get(key)
     reason = pickle_failure_reason(provider) if provider is not None else None
     if reason is None:
-        return
+        return False
     warning.warn_once(
         lambda: log.warning(
             f"{owner_name} drops an injected {noun} when pickled or copied because it "
             f"isn't picklable ({reason}); the copy is inert unless use_sdk_defaults=True, which lets it "
-            "resolve a provider installed in its own process, e.g. via child_bootstrap under "
-            "MULTIPROCESSING."
+            f"{recovery}."
         )
     )
     state[key] = None
+    return True
