@@ -40,6 +40,11 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from mloda.community.extenders.otel import OtelExtender, OtelMetricsExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.community.extenders.otel import otel_metrics_extender as otel_metrics_extender_module
+from mloda.community.extenders.otel.tests.provider_warnings import (
+    AmbientProvider,
+    ProviderWarningTestMixin,
+    patch_ambient_provider,
+)
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.flush import ProviderCloseTestMixin
@@ -60,8 +65,6 @@ _STEP_ATTRIBUTES = {"mloda.operation.name", "mloda.feature_group.name", "mloda.c
 _METRIC_ATTRIBUTE_ALLOWLIST = _STEP_ATTRIBUTES | {"error.type", "mloda.run.status"}
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
 
-_NO_SDK_PROVIDER_MARKER = "found no OpenTelemetry SDK meter provider"
-
 
 @pytest.fixture
 def metric_capture() -> Iterator[tuple[MeterProvider, InMemoryMetricReader]]:
@@ -71,25 +74,10 @@ def metric_capture() -> Iterator[tuple[MeterProvider, InMemoryMetricReader]]:
     provider.shutdown()
 
 
-class _AmbientMeterProvider:
-    """What the patched opentelemetry.metrics.get_meter_provider returns; reassign .meter_provider to switch."""
-
-    def __init__(self) -> None:
-        # The real API default (the proxy), captured before get_meter_provider is patched.
-        self.meter_provider: metrics.MeterProvider = metrics.get_meter_provider()
-        self.meter_provider_calls = 0
-
-    def get_meter_provider(self) -> metrics.MeterProvider:
-        self.meter_provider_calls += 1
-        return self.meter_provider
-
-
 @pytest.fixture
-def ambient_provider(monkeypatch: pytest.MonkeyPatch) -> _AmbientMeterProvider:
-    """Patch get_meter_provider so no test installs a real global meter provider."""
-    holder = _AmbientMeterProvider()
-    monkeypatch.setattr(metrics, "get_meter_provider", holder.get_meter_provider)
-    return holder
+def ambient_provider(monkeypatch: pytest.MonkeyPatch) -> AmbientProvider:
+    """Patch get_meter_provider so no test installs a real global meter provider; starts as the real API default."""
+    return patch_ambient_provider(monkeypatch, "opentelemetry.metrics.get_meter_provider", metrics.get_meter_provider())
 
 
 def _call_once(otel: OtelMetricsExtender, context: HookContext | None = None) -> Any:
@@ -116,15 +104,7 @@ def _join_context(**kwargs: Any) -> HookContext:
     )
 
 
-def _marker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
-    return [r for r in caplog.records if _NO_SDK_PROVIDER_MARKER in r.getMessage()]
-
-
-def _inert_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
-    return [r for r in caplog.records if "inert" in r.getMessage().lower()]
-
-
-class TestOtelMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTestMixin):
+class TestOtelMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTestMixin, ProviderWarningTestMixin):
     """OtelMetricsExtender must satisfy the shared Extender contract."""
 
     @classmethod
@@ -195,6 +175,33 @@ class TestOtelMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTe
     def flushed_signal(cls) -> str:
         return "metrics"
 
+    def make_proxy_provider(self) -> metrics.MeterProvider:
+        # The real API default (the proxy has no public class), read before the ambient getter is patched.
+        return metrics.get_meter_provider()
+
+    def make_noop_provider(self) -> metrics.MeterProvider:
+        return metrics.NoOpMeterProvider()
+
+    def api_default_in_effect(self) -> bool:
+        return type(metrics.get_meter_provider()).__module__.startswith("opentelemetry.metrics")
+
+    def no_sdk_marker(self) -> str:
+        return "found no OpenTelemetry SDK meter provider"
+
+    def module_logger(self) -> logging.Logger:
+        return otel_metrics_extender_module.logger
+
+    def inert_guidance_substrings(self) -> tuple[str, ...]:
+        return ("use_sdk_defaults=True and configure", "SDK meter provider")
+
+    def make_real_provider_and_signal_check(self) -> tuple[Any, Callable[[], None]]:
+        provider, reader = make_metric_capture()
+        return provider, lambda: self._assert_step_duration(reader)
+
+    @staticmethod
+    def _assert_step_duration(reader: InMemoryMetricReader) -> None:
+        assert _STEP_DURATION in metric_names(reader.get_metrics_data())
+
 
 class TestOtelMetricsExtenderModule:
     """Both extender modules read shared constants from _constants; the metrics module never imports otel_extender."""
@@ -259,101 +266,6 @@ class TestOtelMetricsExtenderConstructorOptions:
         assert otel.close_timeout == CLOSE_TIMEOUT
         assert otel.raise_on_error is False
         assert otel.use_sdk_defaults is False
-
-
-class TestOtelMetricsExtenderInertWarning:
-    def test_inert_extender_warns_once_per_instance_and_still_calls_through(
-        self, ambient_provider: _AmbientMeterProvider, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        otel = OtelMetricsExtender()
-
-        with caplog.at_level(logging.WARNING):
-            assert _call_once(otel) == 42
-            assert _call_once(otel) == 42
-            records = _inert_records(caplog)
-            assert len(records) == 1, caplog.records
-            message = records[0].getMessage()
-            assert "OtelMetricsExtender" in message and "meter_provider" in message
-            assert "use_sdk_defaults=True" in message
-
-            _call_once(OtelMetricsExtender())
-
-        assert len(_inert_records(caplog)) == 2, caplog.records
-        assert ambient_provider.meter_provider_calls == 0
-
-    def test_injected_meter_provider_is_not_inert(
-        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        provider, _ = metric_capture
-
-        with caplog.at_level(logging.WARNING):
-            _call_once(OtelMetricsExtender(meter_provider=provider))
-
-        assert _inert_records(caplog) == [], caplog.records
-
-    def test_pickled_copy_warns_for_its_own_inert_state(self, caplog: pytest.LogCaptureFixture) -> None:
-        otel = OtelMetricsExtender()
-        with caplog.at_level(logging.WARNING):
-            _call_once(otel)
-            copy = pickle.loads(pickle.dumps(otel))  # nosec
-            _call_once(copy)
-
-        assert len(_inert_records(caplog)) == 2, caplog.records
-
-
-class TestOtelMetricsExtenderNoSdkProviderWarning:
-    """use_sdk_defaults with only the API default meter provider: one warning per instance."""
-
-    @pytest.mark.parametrize("default_kind", ["proxy", "noop"])
-    def test_warns_once_per_instance_when_ambient_provider_is_the_api_default(
-        self, ambient_provider: _AmbientMeterProvider, caplog: pytest.LogCaptureFixture, default_kind: str
-    ) -> None:
-        if default_kind == "noop":
-            ambient_provider.meter_provider = metrics.NoOpMeterProvider()
-        otel = OtelMetricsExtender(use_sdk_defaults=True)
-
-        with caplog.at_level(logging.WARNING):
-            assert _call_once(otel) == 42
-            assert _call_once(otel) == 42
-
-            records = _marker_records(caplog)
-            assert len(records) == 1, caplog.records
-            assert records[0].levelno == logging.WARNING
-            message = records[0].getMessage()
-            assert "OtelMetricsExtender" in message and "opentelemetry-sdk" in message
-            assert "inert" not in message.lower()
-
-            _call_once(OtelMetricsExtender(use_sdk_defaults=True))
-
-        assert len(_marker_records(caplog)) == 2, caplog.records
-
-    def test_real_ambient_provider_does_not_warn_and_receives_the_metrics(
-        self,
-        ambient_provider: _AmbientMeterProvider,
-        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        provider, reader = metric_capture
-        ambient_provider.meter_provider = provider
-
-        with caplog.at_level(logging.WARNING):
-            assert _call_once(OtelMetricsExtender(use_sdk_defaults=True)) == 42
-
-        assert _marker_records(caplog) == []
-        assert _STEP_DURATION in metric_names(reader.get_metrics_data())
-
-    def test_pickled_copy_warns_again(
-        self, ambient_provider: _AmbientMeterProvider, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        otel = OtelMetricsExtender(use_sdk_defaults=True)
-
-        with caplog.at_level(logging.WARNING):
-            _call_once(otel)
-            assert len(_marker_records(caplog)) == 1, caplog.records
-
-            _call_once(pickle.loads(pickle.dumps(otel)))  # nosec
-
-        assert len(_marker_records(caplog)) == 2, caplog.records
 
 
 class TestOtelMetricsExtenderPickling:
@@ -831,11 +743,11 @@ class TestOtelMetricsExtenderMetrics:
         assert _single_point(reader, _RUN_DURATION).sum == 0
 
     def test_injected_meter_provider_wins_over_the_ambient_one_end_to_end(
-        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], ambient_provider: _AmbientMeterProvider
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], ambient_provider: AmbientProvider
     ) -> None:
         provider, reader = metric_capture
         ambient, ambient_reader = make_metric_capture()
-        ambient_provider.meter_provider = ambient
+        ambient_provider.provider = ambient
 
         _call_once(OtelMetricsExtender(meter_provider=provider, use_sdk_defaults=True), _rows_context())
 
@@ -859,9 +771,9 @@ class TestOtelMetricsExtenderMetrics:
         assert _single_point(reader, _STEP_DURATION).count == 5
 
     def test_repeated_recordings_on_the_api_proxy_meter_provider_add_one_meter(
-        self, ambient_provider: _AmbientMeterProvider
+        self, ambient_provider: AmbientProvider
     ) -> None:
-        proxy: Any = ambient_provider.meter_provider
+        proxy: Any = ambient_provider.provider
         if not hasattr(proxy, "_meters"):
             pytest.skip("global meter provider already installed in this process")
         before = len(proxy._meters)
