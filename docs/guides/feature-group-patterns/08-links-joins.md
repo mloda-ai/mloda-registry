@@ -262,14 +262,15 @@ link = Link.inner(
 
 A `JoinSpec` matches its feature group and its subclasses, so a link declared on a base class also joins the subclasses and injects the side's join key into them; each subclass must provide that column. Matching rules: [Polymorphic Link Matching](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/join_data.md#polymorphic-link-matching).
 
-A link side can therefore have several members, and a subclass may run on another compute framework (its own `compute_framework_rule()`). A consumer that joins two members of one side plans only when:
-
-- both members run on one compute framework, or
-- the other link side runs on one of the members' frameworks.
-
-Otherwise planning rejects it: from the release after mloda 0.15.1 with a `ValueError` that names the consumer and both members and contains `Read one member of the link side per consumer`. Append and union links are exempt.
+A link side can therefore have several members, and a subclass may run on another compute framework (its own `compute_framework_rule()`). From the release after mloda 0.15.1, a consumer that joins two members of one side on different frameworks plans only when the other link side runs on one of the members' frameworks and the consumer can run there too. Otherwise planning fails with a `ValueError` whose listed rule names the consumer and both members and contains `Read one member of the link side per consumer`.
 
 Remedy: split the consumer into one FeatureGroup per member, each requesting that member and the other side in `input_features()`.
+
+The check has limits:
+
+- mloda 0.15.1 and older do not have it: some of these layouts plan, others fail with unrelated join errors.
+- It does not cover append and union links.
+- Members that share a compute framework pass it, but one base-class link over both is still ambiguous (`There are more than one solution for the join`).
 
 ## When to Use Each Approach
 
