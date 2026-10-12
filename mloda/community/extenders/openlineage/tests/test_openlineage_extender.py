@@ -631,21 +631,20 @@ class TestOpenLineageExtenderPickling:
         assert extender._finalizer.peek()[0] is extender
         assert extender._finalizer.alive
 
-    def test_client_published_before_ownership_flag_is_still_dropped_on_pickle(self) -> None:
+    @pytest.mark.parametrize(
+        "make_client",
+        [
+            pytest.param(lambda: cast(OpenLineageClient, _PicklableFakeClient()), id="picklable"),
+            pytest.param(lambda: OpenLineageClient(transport=LockHoldingTransport()), id="unpicklable"),
+        ],
+    )
+    def test_client_published_before_ownership_flag_is_still_dropped_on_pickle(
+        self, caplog: pytest.LogCaptureFixture, make_client: Callable[[], OpenLineageClient]
+    ) -> None:
         """Ownership must follow from use_sdk_defaults with no injected client, not from a flag that
         could lag a lazy build publishing _client."""
         extender = OpenLineageExtender(use_sdk_defaults=True)
-        extender._client = cast(OpenLineageClient, _PicklableFakeClient())
-
-        copy = pickle.loads(pickle.dumps(extender))  # nosec
-
-        assert copy._client is None
-
-    def test_self_built_unpicklable_client_is_dropped_silently_on_pickle(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        extender = OpenLineageExtender(use_sdk_defaults=True)
-        extender._client = OpenLineageClient(transport=LockHoldingTransport())
+        extender._client = make_client()
 
         with caplog.at_level(logging.WARNING):
             copy = pickle.loads(pickle.dumps(extender))  # nosec

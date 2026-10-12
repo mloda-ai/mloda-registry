@@ -103,12 +103,12 @@ class ProviderWarningTestMixin:
         return [r for r in caplog.records if self.no_sdk_marker() in r.getMessage()]
 
     def _inert_records(self, caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
-        return [r for r in caplog.records if self._name() in r.getMessage() and "inert" in r.getMessage().lower()]
+        return [r for r in caplog.records if "inert" in r.getMessage().lower()]
 
-    def _extender_with_injected(self, provider: Any, **kwargs: Any) -> Extender:
+    def _extender_with_injected(self, provider: Any) -> Extender:
         noun = self.sink_noun()
         assert noun, "ProviderWarningTestMixin needs sink_noun()"
-        return self.extender_class()(**{noun: provider}, **kwargs)
+        return self.extender_class()(**{noun: provider})
 
     def test_inert_extender_warns_once_per_instance_and_still_calls_through(
         self, ambient: AmbientProvider, caplog: pytest.LogCaptureFixture
