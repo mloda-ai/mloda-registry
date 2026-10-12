@@ -204,6 +204,7 @@ class FraudScore(FeatureGroup):
     def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
         return {"mloda.owner": "team:fraud, team:risk"}
 
+
 OpenLineageExtender(
     client=client,
     dataset_owners={("s3://raw", "payments/2026.parquet"): ["team:payments"]},

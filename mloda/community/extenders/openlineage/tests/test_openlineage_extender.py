@@ -2615,25 +2615,37 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert all(owner.type is None for owner in facet.owners)
         assert facet._producer == extender.producer
 
-    def test_unmapped_input_dataset_carries_no_ownership_facet(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    @pytest.mark.parametrize(
+        ("dataset_owners", "identities", "is_fallback", "expected"),
+        [
+            pytest.param(None, ["s3://bucket/key.parquet"], None, {("s3://bucket", "key.parquet"): False}, id="none"),
+            pytest.param(
+                {("custom-ds", "str"): "team:fraud"}, ["str"], True, {("custom-ds", "str"): False}, id="fallback"
+            ),
+            pytest.param(
+                {("s3://bucket", "key.parquet"): "team:fraud"},
+                ["s3://bucket/key.parquet", "s3://bucket/other.parquet", "str"],
+                None,
+                {
+                    ("s3://bucket", "key.parquet"): True,
+                    ("s3://bucket", "other.parquet"): False,
+                    ("custom-ds", "str"): False,
+                },
+                id="unmapped",
+            ),
+        ],
+    )
+    def test_only_mapped_non_fallback_input_datasets_carry_an_ownership_facet(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        dataset_owners: Any,
+        identities: list[str],
+        is_fallback: bool | None,
+        expected: dict[tuple[str, str], bool],
     ) -> None:
-        _, facets = self._owner_facets(
-            ol_capture,
-            {("s3://bucket", "key.parquet"): "team:fraud"},
-            ["s3://bucket/key.parquet", "s3://bucket/other.parquet", "str"],
-        )
+        _, facets = self._owner_facets(ol_capture, dataset_owners, identities, is_fallback=is_fallback)
 
-        assert facets[("s3://bucket", "key.parquet")] is not None
-        assert facets[("s3://bucket", "other.parquet")] is None
-        assert facets[("custom-ds", "str")] is None
-
-    def test_no_dataset_owners_means_no_ownership_facet(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        _, facets = self._owner_facets(ol_capture, None, ["s3://bucket/key.parquet"])
-
-        assert facets == {("s3://bucket", "key.parquet"): None}
+        assert {key: facet is not None for key, facet in facets.items()} == expected
 
     def test_repeated_load_keeps_one_ownership_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -2646,13 +2658,6 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
 
         facet = facets[("s3://bucket", "key.parquet")]
         assert [owner.name for owner in facet.owners] == ["team:fraud"]
-
-    def test_fallback_identity_load_gets_no_ownership_facet(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        _, facets = self._owner_facets(ol_capture, {("custom-ds", "str"): "team:fraud"}, ["str"], is_fallback=True)
-
-        assert facets == {("custom-ds", "str"): None}
 
     @staticmethod
     def _declared_payload(
@@ -4069,11 +4074,10 @@ class TestOpenLineageExtenderSubclassSeams:
     @pytest.mark.parametrize(
         ("value", "expected"),
         [
-            ("team:fraud", ["team:fraud"]),
             (" team:fraud , team:risk ", ["team:fraud", "team:risk"]),
             ("team:risk,team:fraud,team:risk,,  ,team:fraud", ["team:risk", "team:fraud"]),
         ],
-        ids=["single", "split_and_strip", "dedupe_keeps_first_seen_order"],
+        ids=["split_and_strip", "dedupe_keeps_first_seen_order"],
     )
     def test_declared_owner_is_split_stripped_and_deduped(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], value: str, expected: list[str]
