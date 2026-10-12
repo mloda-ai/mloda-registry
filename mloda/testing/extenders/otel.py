@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
@@ -14,8 +15,16 @@ from unittest.mock import patch
 import pytest
 from mloda.steward import Extender, ExtenderHook, HookContext
 from opentelemetry import propagate
+from opentelemetry.metrics import Meter
+from opentelemetry.metrics import MeterProvider as ApiMeterProvider
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader, MetricExporter, MetricExportResult, MetricsData
+from opentelemetry.sdk.metrics.export import (
+    InMemoryMetricReader,
+    MetricExporter,
+    MetricExportResult,
+    MetricsData,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -267,6 +276,41 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
         self._marker_path = state["_marker_path"]
         self._batch = state.get("_batch", False)
         self._records = state.get("_records", False)
+        self._sdk_provider = None
+
+
+class RebuildingMetricCaptureProvider(ApiMeterProvider):
+    """Picklable custom MeterProvider. Lazily builds an SDK provider whose reader never exports on its own,
+    so only force_flush() writes metric names to marker_path. Pickling drops the live SDK provider."""
+
+    def __init__(self, marker_path: Path) -> None:
+        self._marker_path = marker_path
+        self._sdk_provider: MeterProvider | None = None
+
+    def get_meter(
+        self,
+        name: str,
+        version: str | None = None,
+        schema_url: str | None = None,
+        attributes: Any = None,
+    ) -> Meter:
+        if self._sdk_provider is None:
+            reader = PeriodicExportingMetricReader(
+                FileMetricExporter(self._marker_path), export_interval_millis=math.inf
+            )
+            self._sdk_provider = MeterProvider(metric_readers=[reader], shutdown_on_exit=False)
+        return self._sdk_provider.get_meter(name, version, schema_url, attributes)
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        if self._sdk_provider is None:
+            return True
+        return self._sdk_provider.force_flush(timeout_millis=timeout_millis)
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {"_marker_path": self._marker_path}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self._marker_path = state["_marker_path"]
         self._sdk_provider = None
 
 

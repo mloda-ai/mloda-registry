@@ -50,6 +50,7 @@ from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.flush import ProviderCloseTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
+    RebuildingMetricCaptureProvider,
     make_metric_capture,
     meter_provider_resolution_spy,
     metric_names,
@@ -162,6 +163,15 @@ class TestOtelMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTe
     def make_unpicklable_sink_extender(self) -> Extender:
         provider, _ = make_metric_capture()
         return OtelMetricsExtender(meter_provider=provider)
+
+    @classmethod
+    def supports_real_worker_sink(cls) -> bool:
+        return True
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "otel_real_worker_metrics.txt"
+        provider = RebuildingMetricCaptureProvider(marker_path=marker_path)
+        return OtelMetricsExtender(meter_provider=provider), marker_path
 
     @classmethod
     def sink_noun(cls) -> str | None:

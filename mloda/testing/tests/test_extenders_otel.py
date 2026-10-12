@@ -29,6 +29,7 @@ from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
     FileMetricExporter,
     OtelExtenderTestMixin,
+    RebuildingMetricCaptureProvider,
     RebuildingSpanCaptureProvider,
     assert_well_formed_trace,
     inject_parent_carrier,
@@ -223,6 +224,39 @@ class TestRebuildingSpanCaptureProviderBatch:
 
         assert copy._batch is True
         assert copy._marker_path == marker_path
+
+
+class TestRebuildingMetricCaptureProvider:
+    """Only an explicit force_flush() writes recorded metric names to the marker."""
+
+    def test_force_flush_before_any_meter_returns_true_and_writes_nothing(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        provider = RebuildingMetricCaptureProvider(marker_path=marker_path)
+
+        assert provider.force_flush() is True
+        assert not marker_path.exists()
+
+    def test_metric_reaches_the_marker_only_after_force_flush(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        provider = RebuildingMetricCaptureProvider(marker_path=marker_path)
+        provider.get_meter("test-extenders-otel-metrics").create_counter("probe.counter").add(1)
+
+        assert not marker_path.exists()
+
+        assert provider.force_flush() is True
+
+        assert marker_path.read_text().splitlines() == ["probe.counter"]
+
+    def test_pickle_round_trip_after_recording_rebuilds_into_the_same_marker(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        provider = RebuildingMetricCaptureProvider(marker_path=marker_path)
+        provider.get_meter("test-extenders-otel-metrics").create_counter("original.counter").add(1)
+
+        copy = pickle.loads(pickle.dumps(provider))  # nosec
+        copy.get_meter("test-extenders-otel-metrics").create_counter("copy.counter").add(1)
+
+        assert copy.force_flush() is True
+        assert "copy.counter" in marker_path.read_text().splitlines()
 
 
 class TestRecordModeSpanCapture:
