@@ -24,6 +24,7 @@ from mloda.testing.extenders import runners
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.flush import (
     ProviderCloseTestMixin,
+    ProviderFlushTestMixin,
     active_close_context,
     blocking_flush_provider,
     call_with_join_timeout,
@@ -1027,8 +1028,18 @@ class _RaisingCloseProbeHost(TestFlushingProbeProviderClose):
         return _RaisingCloseProbeExtender
 
 
+class _MiswordedWarningProbeHost(TestFlushingProbeProviderClose):
+    @classmethod
+    def flushed_signal(cls) -> str:
+        return "spans"
+
+
 class TestProviderCloseTestMixinFailsABrokenExtender:
-    """An extender whose close() raises must fail the mixin, so the mixin is not vacuous."""
+    """An extender whose close() raises or whose warning wording differs must fail the mixin, so it is not vacuous."""
+
+    def test_a_misworded_warning_fails_the_blocking_flush_test(self, caplog: pytest.LogCaptureFixture) -> None:
+        with pytest.raises(AssertionError, match=r"probes.*spans"):
+            _MiswordedWarningProbeHost().test_close_bounds_a_blocking_force_flush_and_logs_a_warning(caplog)
 
     def test_a_raising_close_fails_the_flush_test(self) -> None:
         with pytest.raises(RuntimeError, match="close boom"):
@@ -1037,3 +1048,64 @@ class TestProviderCloseTestMixinFailsABrokenExtender:
     def test_a_raising_close_fails_the_swallow_test(self, caplog: pytest.LogCaptureFixture) -> None:
         with pytest.raises(RuntimeError, match="close boom"):
             _RaisingCloseProbeHost().test_close_swallows_a_raising_force_flush_and_logs_a_warning(caplog)
+
+
+class _FlushingProbe:
+    """Not an Extender: flushes the ambient probe provider on flush(), the shape the log sink has."""
+
+    log = _FLUSH_PROBE_LOG
+
+    def __init__(self) -> None:
+        self.close_timeout = 1.0
+
+    def flush(self) -> None:
+        flush_on_close(
+            type(self).__name__,
+            _ambient_probe_provider,
+            self.close_timeout,
+            log=self.log,
+            noun="the probe provider",
+            signal="probes",
+        )
+
+
+class TestFlushingProbeProviderFlush(ProviderFlushTestMixin):
+    """Self-test: a non-Extender flusher with an ambient provider satisfies every case ProviderFlushTestMixin defines."""
+
+    def make_flusher(self, provider: Any) -> Any:
+        return _FlushingProbe()
+
+    def provider_in_effect(self, provider: Any) -> AbstractContextManager[Any]:
+        return patch(f"{__name__}._ambient_probe_provider", return_value=provider)
+
+    def flush(self, flusher: Any) -> None:
+        flusher.flush()
+
+    @classmethod
+    def flush_noun(cls) -> str:
+        return "the probe provider"
+
+    @classmethod
+    def flushed_signal(cls) -> str:
+        return "probes"
+
+    @classmethod
+    def flush_logger_name(cls) -> str | None:
+        return _FLUSH_PROBE_LOG.name
+
+
+class _OtherLoggerFlushingProbe(_FlushingProbe):
+    log = logging.getLogger("mloda.testing.tests.other_flush_probe")
+
+
+class _OtherLoggerProbeHost(TestFlushingProbeProviderFlush):
+    def make_flusher(self, provider: Any) -> Any:
+        return _OtherLoggerFlushingProbe()
+
+
+class TestProviderFlushTestMixinLoggerFilterIsNotVacuous:
+    """A flusher warning on a logger other than flush_logger_name() must fail the mixin."""
+
+    def test_warnings_on_another_logger_fail_the_returns_false_test(self, caplog: pytest.LogCaptureFixture) -> None:
+        with pytest.raises(AssertionError):
+            _OtherLoggerProbeHost().test_close_logs_a_warning_when_force_flush_returns_false(caplog)
