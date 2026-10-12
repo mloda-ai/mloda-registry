@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -36,11 +36,20 @@ from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, capped_clos
 from mloda.community.extenders.shared.trace_context import active_step_span_ids
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset, tags_dataset
+from openlineage.client.facet_v2 import (
+    datasource_dataset,
+    ownership_dataset,
+    ownership_job,
+    parent_run,
+    schema_dataset,
+    tags_dataset,
+)
 
 logger = logging.getLogger(__name__)
 
 _ABORT_ERROR_TYPES = frozenset({"SystemExit", "KeyboardInterrupt"})
+
+OWNER_KEY = "mloda.owner"
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/community/extenders/openlineage"
 
@@ -184,7 +193,8 @@ class OpenLineageExtender(Extender):
     in mloda.testing. parent_id (and root_parent_id) as {namespace}/{job_name}/{run_id}, or parent_from_env for
     OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach the run to an orchestrator run.
     classification_undeclared (default None, off) tags each COMPLETE output dataset with its effective
-    `mloda.data.classification` in a standard `tags` facet."""
+    `mloda.data.classification` in a standard `tags` facet. A group's declared `mloda.owner` (comma separated) becomes
+    the calculate job's ownership facet; dataset_owners maps a load's (namespace, name) to its dataset owners."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -203,7 +213,9 @@ class OpenLineageExtender(Extender):
         root_parent_id: str | None = None,
         parent_from_env: bool = False,
         classification_undeclared: str | None = None,
+        dataset_owners: Mapping[tuple[str, str], str | Sequence[str]] | None = None,
     ) -> None:
+        self._dataset_owners = _normalize_dataset_owners(dataset_owners)
         self._classifications = RunClassifications(classification_undeclared, type(self).__name__)
         self.raise_on_error = raise_on_error
         self._client = client
@@ -491,6 +503,13 @@ class OpenLineageExtender(Extender):
                 from mloda.community.extenders.openlineage._facets import MlodaDataAccessFacet
 
                 facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
+            owners = self._dataset_owners.get((namespace, name))
+            if "mlodaDataAccess" in facets:
+                facets.pop("ownership", None)
+            elif owners and "ownership" not in facets:
+                facets["ownership"] = ownership_dataset.OwnershipDatasetFacet(
+                    owners=[ownership_dataset.Owner(name=owner) for owner in owners], producer=self.producer
+                )
             declared = readable_declared(context.declared_attributes)
             if declared is not None:
                 facets = _with_declared(facets, declared, self.producer)
@@ -564,7 +583,11 @@ class OpenLineageExtender(Extender):
             func,
             args,
             kwargs,
-            job=Job(namespace=self.job_namespace, name=owner_name(context, func)),
+            job=Job(
+                namespace=self.job_namespace,
+                name=owner_name(context, func),
+                facets=_job_ownership_facets(declared, self.producer),
+            ),
             run_facets=self._calculate_run_facets(context, func, args),
             declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)
@@ -716,6 +739,40 @@ def _resolve_parent(
     if root_value and root is None:
         logger.warning("OPENLINEAGE_ROOT_PARENT_ID is malformed; the root defaults to the parent")
     return parent, root
+
+
+def _normalize_dataset_owners(
+    dataset_owners: Mapping[tuple[str, str], str | Sequence[str]] | None,
+) -> dict[tuple[str, str], tuple[str, ...]]:
+    normalized: dict[tuple[str, str], tuple[str, ...]] = {}
+    for key, value in (dataset_owners or {}).items():
+        if not (isinstance(key, tuple) and len(key) == 2 and all(isinstance(k, str) and k for k in key)):
+            raise ValueError("dataset_owners keys must be (namespace, name) tuples of non-empty strings")
+        names = [value] if isinstance(value, str) else value
+        if not isinstance(names, Sequence) or not all(isinstance(n, str) and n for n in names):
+            raise ValueError("dataset_owners values must be a non-empty owner name or a sequence of non-empty names")
+        stripped = [n.strip() for n in names]
+        if not all(stripped) or any("," in n for n in stripped):
+            raise ValueError("dataset_owners names must be non-empty after stripping and must not contain commas")
+        unique = tuple(dict.fromkeys(stripped))
+        if not unique:
+            raise ValueError("dataset_owners must not map a dataset to an empty owner list")
+        normalized[key] = unique
+    return normalized
+
+
+def _job_ownership_facets(declared: dict[str, str | int | float | bool] | None, producer: str) -> dict[str, Any]:
+    value = declared.get(OWNER_KEY) if declared is not None else None
+    if not isinstance(value, str):
+        return {}
+    names = list(dict.fromkeys(n for n in (part.strip() for part in value.split(",")) if n))
+    if not names:
+        return {}
+    return {
+        "ownership": ownership_job.OwnershipJobFacet(
+            owners=[ownership_job.Owner(name=n) for n in names], producer=producer
+        )
+    }
 
 
 def _now_iso() -> str:

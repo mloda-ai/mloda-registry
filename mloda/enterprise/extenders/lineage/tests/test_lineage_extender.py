@@ -24,6 +24,7 @@ from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, R
 from openlineage.client.facet_v2 import (
     column_lineage_dataset,
     data_quality_assertions_dataset,
+    ownership_dataset,
     parent_run,
     tags_dataset,
 )
@@ -1303,6 +1304,30 @@ class TestLineageFacetsRootSourceColumns:
         assert facet[field] == expected
         assert type(facet[field]) is type(expected)
         assert facet["_producer"] == _LINEAGE_PRODUCER
+
+    def test_dataset_owners_emit_the_ownership_facet_on_a_mapped_load_input(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = LineageFacetsExtender(
+            client=client, dataset_namespace="lineage-ds", dataset_owners={("s3://bucket", "key.parquet"): "team:fraud"}
+        )
+
+        def load() -> str:
+            context = make_hook_context(
+                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+            )
+            with context.activate():
+                extender(lambda *_: "loaded")
+            return "data"
+
+        with make_hook_context(feature_names=("out",), output_schema=(("out", "int64"),)).activate():
+            extender(_SourceByDict.calculate_feature, load, FeatureSet([Feature("out")]))
+
+        dataset = (transport.events[-1].inputs or [])[0]
+        facet = (dataset.facets or {}).get("ownership")
+        assert isinstance(facet, ownership_dataset.OwnershipDatasetFacet)
+        assert [owner.name for owner in facet.owners or []] == ["team:fraud"]
 
     def test_two_sources_with_equal_core_identity_but_different_raw_args_merge_into_one_dataset(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
