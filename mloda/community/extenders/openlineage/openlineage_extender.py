@@ -27,7 +27,7 @@ from mloda.steward import (
 
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
-from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
+from mloda.community.extenders.shared.declared import readable_declared, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.provider_sink import drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
@@ -135,11 +135,14 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
 def _with_declared(
     facets: dict[str, Any], declared: dict[str, str | int | float | bool], producer: str
 ) -> dict[str, Any]:
-    """facets plus an mlodaDeclared facet; a key declared differently (type-strict) moves to its conflicts."""
+    """facets plus an mlodaDeclared facet; a key declared differently (type-strict) moves to its conflicts, and a
+    foreign mlodaDeclared value is kept as is."""
     # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
     from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
 
     previous = facets.get("mlodaDeclared")
+    if previous is not None and not isinstance(previous, MlodaDeclaredDatasetFacet):
+        return facets
     merged = dict(previous.attributes) if previous is not None else {}
     conflicts = set(previous.conflicts) if previous is not None else set()
     for key, value in declared.items():
@@ -171,8 +174,9 @@ class OpenLineageExtender(Extender):
     (core's data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess facet (identityIsFallback
     true), so consumers can tell a placeholder from a dataset. A load's declared attributes (core's
     declared_attributes, values that are not portable JSON numbers dropped) ride on its input dataset as an
-    mlodaDeclared facet; a key that loads of one dataset declare differently moves from attributes to the facet's
-    conflicts. After a transport failure (connection, timeout, HTTP 5xx/408/429) in a run, that run's new steps skip
+    mlodaDeclared facet (present, possibly empty, whenever core read the declaration), and the calculate
+    context's declaration rides on every COMPLETE output dataset; a key that loads of one dataset declare
+    differently moves from attributes to the facet's conflicts. After a transport failure (connection, timeout, HTTP 5xx/408/429) in a run, that run's new steps skip
     emission for a minute; steps already started still emit their terminal event, and raise_on_error=True disables
     the skip. Only OSError-based failures (requests transports such as http) trip it; other transports (kafka,
     composite, cloud SDKs) never do. Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch,
@@ -487,8 +491,8 @@ class OpenLineageExtender(Extender):
                 from mloda.community.extenders.openlineage._facets import MlodaDataAccessFacet
 
                 facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
-            declared = declared_scalars(context.declared_attributes)
-            if declared:
+            declared = readable_declared(context.declared_attributes)
+            if declared is not None:
                 facets = _with_declared(facets, declared, self.producer)
             if existing is not None:
                 existing.facets = facets
@@ -535,6 +539,7 @@ class OpenLineageExtender(Extender):
                 return {}
 
         levels = self._classifications.levels(context.run_id)
+        declared = readable_declared(context.declared_attributes)
 
         def build_outputs(inputs: list[InputDataset]) -> list[OutputDataset]:
             fields = _schema_dataset_fields(context.output_schema)
@@ -544,7 +549,13 @@ class OpenLineageExtender(Extender):
                     name,
                     fields,
                     self.producer,
-                    _with_classification_tag(output_facets(name, inputs), levels.get(name), self.producer),
+                    _with_classification_tag(
+                        output_facets(name, inputs)
+                        if declared is None
+                        else _with_declared(output_facets(name, inputs), declared, self.producer),
+                        levels.get(name),
+                        self.producer,
+                    ),
                 )
                 for name in context.feature_names
             ]

@@ -27,7 +27,7 @@ from mloda.steward import (
 
 from mloda.community.extenders.shared import is_picklable, termination
 from mloda.community.extenders.shared.classification import LEVELS, feature_classifications
-from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
+from mloda.community.extenders.shared.declared import readable_declared, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
@@ -187,7 +187,8 @@ class AuditExtender(Extender):
     Records also list the distinct data loads the call attempted, as four index-aligned identity, format,
     identity-is-fallback and declared-attributes lists ([] for none; {} for a load that declared none, null when
     core could not read the declaration, values that are not portable JSON numbers dropped; a load without an
-    identity is omitted). The identity is core's
+    identity is omitted). The feature group's own declaration is feature_group_declared_attributes (same
+    rule, null on a match record). The identity is core's
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
@@ -795,7 +796,7 @@ class AuditExtender(Extender):
             identity,
             context.data_access_format,
             context.data_access_identity_is_fallback,
-            None if context.declared_attributes is None else declared_scalars(context.declared_attributes),
+            readable_declared(context.declared_attributes),
         )
         if not any(_same_load(entry, seen) for seen in loads):
             loads.append(entry)
@@ -814,6 +815,7 @@ class AuditExtender(Extender):
         start_time: str | None,
         trace: tuple[str | None, str | None],
     ) -> dict[str, Any]:
+        matched = context.hook is ExtenderHook.FEATURE_GROUP_MATCHED
         per_call: dict[str, Any] = {
             "feature_group_class": context.feature_group_class,
             "feature_group_version": context.feature_group_version,
@@ -828,8 +830,8 @@ class AuditExtender(Extender):
             "compute_framework_name": context.compute_framework_name,
             "rows_out": context.rows_out,
             "duration_seconds": context.duration_seconds,
+            "feature_group_declared_attributes": None if matched else readable_declared(context.declared_attributes),
         }
-        matched = context.hook is ExtenderHook.FEATURE_GROUP_MATCHED
         return self._record(
             context,
             context.hook.name,
@@ -906,6 +908,7 @@ class AuditExtender(Extender):
             "deny_reason": deny_reason or (("missing_" + "_and_".join(missing)) if missing else None),
             "classification": classification,
             "hook": hook,
+            "feature_group_declared_attributes": None,
             **per_call,
             "status": status,
             "error_type": error_type,

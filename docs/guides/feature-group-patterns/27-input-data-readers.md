@@ -162,7 +162,7 @@ class UbaAirReader(ReadFile):  # added to UbaAirReader above
 
 ## Required Declarations
 
-A consumer that needs a property of its input's source (a unit, a scale) requires it on the input feature instead of having the reader inspect consumer options and call `record_match_rejection`. Readers and feature groups declare scalars with a `declared_attributes(features)` classmethod (the same declarations extenders record, see [Declared attributes](../11-create-extender.md#declared-attributes)):
+A consumer that needs a property of its input's source (a unit, a scale) requires it on the input feature instead of having the reader inspect consumer options and call `record_match_rejection`. Readers and feature groups declare scalars with a `declared_attributes(features)` classmethod (the same declarations extenders record, on output datasets and audit records too, see [Declared attributes](../11-create-extender.md#declared-attributes)):
 
 ```python
 from collections.abc import Mapping

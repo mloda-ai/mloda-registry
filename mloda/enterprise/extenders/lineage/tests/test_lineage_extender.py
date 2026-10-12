@@ -29,6 +29,7 @@ from openlineage.client.facet_v2 import (
 )
 from openlineage.client.serde import Serde
 
+from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.enterprise.extenders.lineage import lineage_extender as lineage_extender_module
@@ -862,6 +863,15 @@ class TestLineageFacetsMasking:
         assert isinstance(tags, tags_dataset.TagsDatasetFacet)
         assert [(t.key, t.value, t.source) for t in tags.tags or []] == [(CLASSIFICATION_KEY, "pii", "mloda")]
         assert _has_column_lineage(complete, name)
+        declared = (_output(complete, name).facets or {}).get("mlodaDeclared")
+        assert isinstance(declared, MlodaDeclaredDatasetFacet)
+        assert declared.attributes == {}
+        assert declared.conflicts == []
+        assert declared._producer == _LINEAGE_PRODUCER
+        root_complete = _complete(transport.events, _job(_Root))
+        root_declared = (_output(root_complete, _ROOT).facets or {}).get("mlodaDeclared")
+        assert isinstance(root_declared, MlodaDeclaredDatasetFacet)
+        assert root_declared.attributes == {CLASSIFICATION_KEY: "pii"}
 
     @pytest.mark.parametrize(("feature_group", "make_options"), _NOT_MASKED_CASES)
     def test_undeclared_or_misdeclared_masking_is_ignored(

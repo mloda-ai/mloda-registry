@@ -47,6 +47,7 @@ from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
+from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import step_run_id
@@ -2551,12 +2552,12 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
                 {"license": "dl-de/by-2-0", "scale": 0.001, "open": True, "rows": 3},
             ),
             ({"text": "x" * 500}, {"text": "x" * 500}),
-            ({}, None),
+            ({}, {}),
             (None, None),
         ],
         ids=["scalars", "long_string_untruncated", "empty", "none"],
     )
-    def test_declared_attributes_facet_is_present_only_for_a_non_empty_declaration(
+    def test_declared_attributes_facet_is_present_whenever_the_declaration_was_readable(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         declared: dict[str, Any] | None,
@@ -2600,13 +2601,15 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             ([{"open": 1}, {"open": True}], {}, ["open"]),
             ([{"license": "a"}, {"license": "b"}, {"license": "a"}], {}, ["license"]),
             ([None, {"license": "a"}], {"license": "a"}, []),
+            ([None, {}], {}, []),
         ],
         ids=[
             "differing_value_conflicts",
             "agreeing_values",
             "type_only_difference",
             "conflict_is_sticky",
-            "first_load_declared_nothing",
+            "first_load_unreadable",
+            "unreadable_then_empty",
         ],
     )
     def test_declarations_of_loads_of_one_dataset_are_merged_and_differing_values_are_conflicts(
@@ -2882,7 +2885,7 @@ class TestOpenLineageExtenderInputDedupe:
         assert complete_event.inputs is not None
         assert [i.name for i in complete_event.inputs] == ["https://host/p"]
 
-    @pytest.mark.parametrize("declared", [None, {"license": "a"}], ids=["undeclared", "declared"])
+    @pytest.mark.parametrize("declared", [None, {}, {"license": "a"}], ids=["unreadable", "empty", "declared"])
     def test_input_feature_matching_a_data_load_identity_is_reported_once(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], declared: dict[str, Any] | None
     ) -> None:
@@ -2982,16 +2985,17 @@ class TestOpenLineageExtenderInputDedupe:
 
 
 class _OwnTagsExtender(OpenLineageExtender):
-    """Returns the "tags" facet built by own_tags(producer) from the output seam."""
+    """Returns the facet (default "tags") built by own_tags(producer) from the output seam."""
 
-    def __init__(self, own_tags: Callable[[str], Any], **kwargs: Any) -> None:
+    def __init__(self, own_tags: Callable[[str], Any], facet_key: str = "tags", **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.own_tags = own_tags
+        self.facet_key = facet_key
 
     def _calculate_output_facets(
         self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
-        return {"tags": self.own_tags(self.producer)}
+        return {self.facet_key: self.own_tags(self.producer)}
 
 
 def _tag(key: str, value: str, source: str) -> tags_dataset.TagsDatasetFacetFields:
@@ -3019,6 +3023,19 @@ def _classification_tags(transport: RecordingTransport) -> dict[str, list[tuple[
     return found
 
 
+def _output_declared(transport: RecordingTransport) -> dict[str, tuple[dict[str, Any], list[str]]]:
+    """Output dataset name -> its (mlodaDeclared attributes, conflicts), over COMPLETE events; datasets without one are left out."""
+    found: dict[str, tuple[dict[str, Any], list[str]]] = {}
+    for event in transport.events:
+        if event.eventType != RunState.COMPLETE:
+            continue
+        for output in event.outputs or []:
+            facet = (output.facets or {}).get("mlodaDeclared")
+            if isinstance(facet, MlodaDeclaredDatasetFacet):
+                found[output.name] = (facet.attributes, facet.conflicts)
+    return found
+
+
 def _start_classified(extender: OpenLineageExtender, *steps: PlanStep) -> None:
     extender.on_run_start(RunContext(run_id=_RUN_A, plan_id=_PLAN_ID), _plan(), steps)
 
@@ -3034,7 +3051,7 @@ class TestOpenLineageExtenderClassificationTags:
         monkeypatch.setattr(
             PyArrowDataOpsTestDataCreator,
             "declared_attributes",
-            classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"}),
+            classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii", "license": "x"}),
         )
         client, transport = ol_capture
 
@@ -3044,6 +3061,14 @@ class TestOpenLineageExtenderClassificationTags:
         assert tags
         for name, entries in tags.items():
             assert entries and set(entries) == {(CLASSIFICATION_KEY, "pii", "mloda")}, name
+        declared = _output_declared(transport)
+        assert set(declared) == set(tags)
+        for name, found in declared.items():
+            root_declaration = {CLASSIFICATION_KEY: "pii", "license": "x"}
+            expected: tuple[dict[str, Any], list[str]] = (
+                ({}, []) if name == MlodaTestingValueIntPlusOne.get_class_name() else (root_declaration, [])
+            )
+            assert found == expected, name
 
     def test_run_all_default_extender_adds_no_tags_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -3063,13 +3088,15 @@ class TestOpenLineageExtenderClassificationTags:
         extender = OpenLineageExtender(client=client, classification_undeclared="public")
         _start_classified(extender, classified_step(InternalGroup, ("a",)), classified_step(PiiGroup, ("b",)))
 
-        with make_hook_context(run_id=_RUN_A, feature_names=("a", "b")).activate():
+        declared: dict[str, str | int | float | bool] = {CLASSIFICATION_KEY: "public", "license": "x"}
+        with make_hook_context(run_id=_RUN_A, feature_names=("a", "b"), declared_attributes=declared).activate():
             extender(lambda: None)
 
         assert _classification_tags(transport) == {
             "a": [(CLASSIFICATION_KEY, "internal", "mloda")],
             "b": [(CLASSIFICATION_KEY, "pii", "mloda")],
         }
+        assert _output_declared(transport) == {"a": (declared, []), "b": (declared, [])}
 
     def test_the_tag_facet_uses_the_extender_producer(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -3138,6 +3165,49 @@ class TestOpenLineageExtenderClassificationTags:
         assert len(complete) == 1
         (output,) = complete[0].outputs or []
         assert cast(Any, (output.facets or {}).get("tags")) is own
+
+    @pytest.mark.parametrize(
+        ("seam_attributes", "declared", "expected", "conflicts"),
+        [
+            pytest.param({"team": "data"}, {"license": "x"}, {"team": "data", "license": "x"}, [], id="gains ours"),
+            pytest.param({"license": "x"}, {"license": "x"}, {"license": "x"}, [], id="agreement"),
+            pytest.param({"n": 1}, {"n": 1.0, "license": "x"}, {"license": "x"}, ["n"], id="type difference"),
+        ],
+    )
+    def test_a_seam_declared_facet_is_merged_with_the_group_declaration(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        seam_attributes: dict[str, Any],
+        declared: dict[str, Any],
+        expected: dict[str, Any],
+        conflicts: list[str],
+    ) -> None:
+        client, transport = ol_capture
+        extender = _OwnTagsExtender(
+            lambda producer: MlodaDeclaredDatasetFacet(attributes=seam_attributes, conflicts=[], producer=producer),
+            facet_key="mlodaDeclared",
+            client=client,
+        )
+
+        with make_hook_context(feature_names=("a",), declared_attributes=declared).activate():
+            extender(lambda: None)
+
+        assert _output_declared(transport)["a"] == (expected, conflicts)
+
+    def test_a_seam_declared_value_of_an_unknown_shape_wins_and_the_event_is_still_emitted(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        own = {"not": "a facet"}
+        extender = _OwnTagsExtender(lambda producer: own, facet_key="mlodaDeclared", client=client)
+
+        with make_hook_context(feature_names=("a",), declared_attributes={"license": "x"}).activate():
+            extender(lambda: None)
+
+        complete = [e for e in transport.events if e.eventType == RunState.COMPLETE]
+        assert len(complete) == 1
+        (output,) = complete[0].outputs or []
+        assert cast(Any, (output.facets or {}).get("mlodaDeclared")) is own
 
     @pytest.mark.parametrize("raise_on_error", [False, True])
     def test_an_unresolvable_plan_warns_without_a_tag_or_refuses_the_run(
@@ -3658,12 +3728,13 @@ class TestOpenLineageExtenderSubclassSeams:
         def failing_body() -> None:
             raise RuntimeError("calculate boom")
 
-        with make_hook_context(run_id=str(uuid.uuid4())).activate():
+        with make_hook_context(run_id=str(uuid.uuid4()), declared_attributes={"license": "a"}).activate():
             with pytest.raises(RuntimeError, match="calculate boom"):
                 extender(failing_body)
 
         fail_payload = json.loads(Serde.to_json(transport.events[-1]))
         assert fail_payload["eventType"] == "FAIL"
+        assert not fail_payload.get("outputs")
         assert fail_payload["producer"] == _CUSTOM_PRODUCER
         assert fail_payload["run"]["facets"]["parent"]["_producer"] == _CUSTOM_PRODUCER
 
@@ -3800,13 +3871,61 @@ class TestOpenLineageExtenderSubclassSeams:
             assert isinstance(probe, documentation_dataset.DocumentationDatasetFacet)
             assert probe.description == f"probe:{output.name}"
 
-    def test_output_facets_seam_failure_never_corrupts_the_result(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    @pytest.mark.parametrize(
+        ("declared", "expected"),
+        [
+            ({"license": "a", "scale": float("nan")}, {"license": "a"}),
+            ({"license": "a", "big": 2**63, "small": -(2**63) - 1}, {"license": "a"}),
+            ({"n": 2**63 - 1, "flag": True, "ratio": 0.5}, {"n": 2**63 - 1, "flag": True, "ratio": 0.5}),
+            ({}, {}),
+        ],
+        ids=["non_finite_float", "int_beyond_int64", "types_preserved", "empty"],
+    )
+    def test_output_datasets_carry_the_filtered_group_declaration(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        declared: dict[str, Any],
+        expected: dict[str, Any],
     ) -> None:
-        """A raising seam is logged, not fatal: COMPLETE is still emitted with the base (schema) facets only."""
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with make_hook_context(feature_names=("a",), declared_attributes=declared).activate():
+            extender(lambda: None)
+
+        (attributes, conflicts) = _output_declared(transport)["a"]
+        assert attributes == expected
+        assert {k: type(v) for k, v in attributes.items()} == {k: type(v) for k, v in expected.items()}
+        assert conflicts == []
+
+    def test_output_datasets_of_an_unreadable_declaration_carry_no_declared_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        with make_hook_context(feature_names=("a",), declared_attributes=None).activate():
+            OpenLineageExtender(client=client)(lambda: None)
+
+        assert _output_declared(transport) == {}
+
+    @pytest.mark.parametrize(
+        ("declared", "expected_facets"),
+        [(None, {"schema"}), ({"license": "a"}, {"schema", "mlodaDeclared"})],
+        ids=["undeclared", "declared"],
+    )
+    def test_output_facets_seam_failure_never_corrupts_the_result(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        caplog: pytest.LogCaptureFixture,
+        declared: dict[str, Any] | None,
+        expected_facets: set[str],
+    ) -> None:
+        """A raising seam is logged, not fatal: COMPLETE is still emitted with the base facets (and the declaration)."""
         client, transport = ol_capture
         extender = _FailingOutputFacetExtender(client=client)
-        context = make_hook_context(feature_names=("value_int",), output_schema=(("value_int", "int64"),))
+        context = make_hook_context(
+            feature_names=("value_int",), output_schema=(("value_int", "int64"),), declared_attributes=declared
+        )
 
         with context.activate():
             with caplog.at_level(logging.WARNING):
@@ -3817,7 +3936,7 @@ class TestOpenLineageExtenderSubclassSeams:
         complete_event = transport.events[-1]
         assert [output.name for output in complete_event.outputs or []] == ["value_int"]
         for output in complete_event.outputs or []:
-            assert set(output.facets or {}) == {"schema"}
+            assert set(output.facets or {}) == expected_facets
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(type(extender).__name__ in message and "RuntimeError" in message for message in warnings)
         assert "output facet boom" not in caplog.text

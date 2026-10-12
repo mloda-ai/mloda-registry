@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from mloda.community.extenders.shared.declared import declared_scalars, same_scalar
+from mloda.community.extenders.shared.declared import declared_scalars, readable_declared, same_scalar
 
 
 @pytest.mark.parametrize("declared", [None, {}], ids=["none", "empty"])
@@ -61,3 +61,20 @@ def test_declared_scalars_returns_a_fresh_plain_dict() -> None:
 
     assert declared_scalars(source) is not source
     assert type(declared_scalars(MappingProxyType(source))) is dict
+
+
+def test_readable_declared_of_an_unreadable_declaration_is_none() -> None:
+    assert readable_declared(None) is None
+
+
+def test_readable_declared_of_a_mapping_filters_like_declared_scalars_into_a_fresh_dict() -> None:
+    source = {"keep": "k", "n": 1, "bad": float("nan"), "nested": {"a": 1}}
+
+    result = readable_declared(source)
+
+    assert result == {"keep": "k", "n": 1}
+    assert result is not source
+
+
+def test_readable_declared_of_an_empty_mapping_is_an_empty_dict() -> None:
+    assert readable_declared({}) == {}

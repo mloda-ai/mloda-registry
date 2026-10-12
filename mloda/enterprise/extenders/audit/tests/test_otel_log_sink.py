@@ -166,6 +166,7 @@ _UNFORWARDED = {
     "data_access_identity": ["s3://bucket-marker-9c1d/key"],
     "data_access_format": ["format-marker-9c1d"],
     "data_access_declared_attributes": [{"license": "declared-marker-9c1d"}],
+    "feature_group_declared_attributes": {"license": "fg-declared-marker-9c1d"},
     "input_features": ["input-marker-9c1d"],
     "rows_out": 987654321,
     "duration_seconds": 12.3456789,
