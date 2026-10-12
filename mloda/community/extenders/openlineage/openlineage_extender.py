@@ -135,8 +135,7 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
 def _with_declared(
     facets: dict[str, Any], declared: dict[str, str | int | float | bool], producer: str
 ) -> dict[str, Any]:
-    """facets plus an mlodaDeclared facet; a key declared differently (type-strict) moves to its conflicts, and a
-    foreign mlodaDeclared value is kept as is."""
+    """facets plus an mlodaDeclared facet; a key declared differently (type-strict) moves to its conflicts."""
     # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
     from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
 
@@ -176,9 +175,9 @@ class OpenLineageExtender(Extender):
     declared_attributes, values that are not portable JSON numbers dropped) ride on its input dataset as an
     mlodaDeclared facet (present, possibly empty, whenever core read the declaration), and the calculate
     context's declaration rides on every COMPLETE output dataset; a key that loads of one dataset declare
-    differently moves from attributes to the facet's conflicts. After a transport failure (connection, timeout, HTTP 5xx/408/429) in a run, that run's new steps skip
-    emission for a minute; steps already started still emit their terminal event, and raise_on_error=True disables
-    the skip. Only OSError-based failures (requests transports such as http) trip it; other transports (kafka,
+    differently moves from attributes to the facet's conflicts. After a transport failure (connection, timeout,
+    HTTP 5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit
+    their terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such as http) trip it; other transports (kafka,
     composite, cloud SDKs) never do. Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch,
     _call_input_data_load, _call_calculate_feature, _calculate_run_facets, _calculate_output_facets,
     _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing. parent_id (and root_parent_id) as

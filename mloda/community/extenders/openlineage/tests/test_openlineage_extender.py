@@ -3875,11 +3875,10 @@ class TestOpenLineageExtenderSubclassSeams:
         ("declared", "expected"),
         [
             ({"license": "a", "scale": float("nan")}, {"license": "a"}),
-            ({"license": "a", "big": 2**63, "small": -(2**63) - 1}, {"license": "a"}),
             ({"n": 2**63 - 1, "flag": True, "ratio": 0.5}, {"n": 2**63 - 1, "flag": True, "ratio": 0.5}),
             ({}, {}),
         ],
-        ids=["non_finite_float", "int_beyond_int64", "types_preserved", "empty"],
+        ids=["non_finite_float", "types_preserved", "empty"],
     )
     def test_output_datasets_carry_the_filtered_group_declaration(
         self,

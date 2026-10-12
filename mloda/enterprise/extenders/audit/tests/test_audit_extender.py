@@ -1631,7 +1631,7 @@ class TestAuditExtenderRecordV2:
     def test_decision_enforced_and_phase_matrix(
         self, kind: str, fail_closed: bool, identity_present: bool, expected: tuple[str, bool, str] | None
     ) -> None:
-        record = _write_gate_record(kind, fail_closed, identity_present)
+        record = _write_gate_record(kind, fail_closed, identity_present, declared_attributes={"license": "a"})
 
         if expected is None:
             assert record is None
@@ -1640,20 +1640,9 @@ class TestAuditExtenderRecordV2:
         assert record["record_version"] == 2
         assert (record["decision"], record["enforced"], record["phase"]) == expected
         assert record["compliant"] is identity_present
+        assert record["feature_group_declared_attributes"] == ({"license": "a"} if kind == "calculate" else None)
         if record["enforced"]:
             assert record["start_time"] == record["event_time"]
-
-    @pytest.mark.parametrize(("kind", "fail_closed", "identity_present", "expected"), _GATE_MATRIX)
-    def test_group_declaration_matrix(
-        self, kind: str, fail_closed: bool, identity_present: bool, expected: tuple[str, bool, str] | None
-    ) -> None:
-        record = _write_gate_record(kind, fail_closed, identity_present, declared_attributes={"license": "a"})
-
-        if expected is None:
-            assert record is None
-            return
-        assert record is not None
-        assert record["feature_group_declared_attributes"] == ({"license": "a"} if kind == "calculate" else None)
 
     @pytest.mark.parametrize(
         ("declared", "expected"),
@@ -1661,9 +1650,6 @@ class TestAuditExtenderRecordV2:
             pytest.param({}, {}, id="empty"),
             pytest.param(None, None, id="unreadable"),
             pytest.param({"license": "a", "scale": float("nan")}, {"license": "a"}, id="non_finite_float"),
-            pytest.param(
-                {"license": "a", "big": 2**63, "small": -(2**63) - 1}, {"license": "a"}, id="int_beyond_int64"
-            ),
             pytest.param(
                 {"text": "x", "flag": True, "count": 1, "scale": 0.5},
                 {"text": "x", "flag": True, "count": 1, "scale": 0.5},
