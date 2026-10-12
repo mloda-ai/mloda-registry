@@ -270,9 +270,6 @@ class ProviderCloseTestMixin(ProviderFlushTestMixin):
     def flush(self, flusher: Any) -> None:
         flusher.close()
 
-    def assert_blocking_flush_warned(self, caplog: pytest.LogCaptureFixture, name: str) -> None:
-        assert any(name in message for message in self._warnings(caplog)), self._warnings(caplog)
-
     def test_close_flushes_the_global_provider_under_use_sdk_defaults(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
 
