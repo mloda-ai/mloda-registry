@@ -635,9 +635,16 @@ def _load(
         return extender(lambda *_: "loaded", *args)
 
 
-def _calculate(extender: Callable[..., Any], body: Callable[[], Any], feature_group_class: str = _OUTER_CLASS) -> Any:
+def _calculate(
+    extender: Callable[..., Any],
+    body: Callable[[], Any],
+    feature_group_class: str = _OUTER_CLASS,
+    declared_attributes: dict[str, str | int | float | bool] | None = None,
+) -> Any:
     """Run body as one wrapped calculate call under a present tenant_id."""
-    with make_hook_context(feature_group_class=feature_group_class, tenant_id="tenant-1").activate():
+    with make_hook_context(
+        feature_group_class=feature_group_class, tenant_id="tenant-1", declared_attributes=declared_attributes
+    ).activate():
         return extender(body)
 
 
@@ -646,9 +653,10 @@ def _record_for_loads(
     args: tuple[Any, ...] = (),
     *,
     declared: Sequence[dict[str, str | int | float | bool] | None] | None = None,
+    group_declared: dict[str, str | int | float | bool] | None = None,
 ) -> dict[str, Any]:
     """The record of one calculate call that ran the given (identity, format[, is_fallback]) loads, each called
-    with args; declared holds one declaration per load."""
+    with args; declared holds one declaration per load, group_declared the calculate context's."""
     sink = InMemoryAuditSink()
     extender = AuditExtender(sink=sink)
 
@@ -663,7 +671,7 @@ def _record_for_loads(
                 declared=declared[index] if declared else None,
             )
 
-    _calculate(extender, body)
+    _calculate(extender, body, declared_attributes=group_declared)
 
     assert len(sink.records) == 1
     return sink.records[0]
@@ -3701,10 +3709,12 @@ class TestAuditExtenderDataAccess:
     def test_load_with_a_declaration_records_a_plain_json_dict(self) -> None:
         declared: dict[str, str | int | float | bool] = {"license": "dl-de/by-2-0", "scale": 0.001}
 
-        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")], declared=[declared])
+        group_declared: dict[str, str | int | float | bool] = {"license": "group-license"}
+
+        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")], declared=[declared], group_declared=group_declared)
 
         assert record["data_access_declared_attributes"] == [declared]
-        assert "license" not in (record["feature_group_declared_attributes"] or {})
+        assert record["feature_group_declared_attributes"] == group_declared
         assert type(record["data_access_declared_attributes"][0]) is dict
         assert json.loads(json.dumps(record["data_access_declared_attributes"])) == [declared]
 

@@ -177,13 +177,14 @@ class OpenLineageExtender(Extender):
     context's declaration rides on every COMPLETE output dataset; a key that loads of one dataset declare
     differently moves from attributes to the facet's conflicts. After a transport failure (connection, timeout,
     HTTP 5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit
-    their terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such as http) trip it; other transports (kafka,
-    composite, cloud SDKs) never do. Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch,
-    _call_input_data_load, _call_calculate_feature, _calculate_run_facets, _calculate_output_facets,
-    _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing. parent_id (and root_parent_id) as
-    {namespace}/{job_name}/{run_id}, or parent_from_env for OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach
-    the run to an orchestrator run. classification_undeclared (default None, off) tags each COMPLETE output dataset
-    with its effective `mloda.data.classification` in a standard `tags` facet."""
+    their terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests
+    transports such as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass
+    seams: producer, job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
+    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by assert_openlineage_extender_seams
+    in mloda.testing. parent_id (and root_parent_id) as {namespace}/{job_name}/{run_id}, or parent_from_env for
+    OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach the run to an orchestrator run.
+    classification_undeclared (default None, off) tags each COMPLETE output dataset with its effective
+    `mloda.data.classification` in a standard `tags` facet."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0

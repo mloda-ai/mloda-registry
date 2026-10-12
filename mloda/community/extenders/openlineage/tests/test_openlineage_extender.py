@@ -3024,7 +3024,8 @@ def _classification_tags(transport: RecordingTransport) -> dict[str, list[tuple[
 
 
 def _output_declared(transport: RecordingTransport) -> dict[str, tuple[dict[str, Any], list[str]]]:
-    """Output dataset name -> its (mlodaDeclared attributes, conflicts), over COMPLETE events; datasets without one are left out."""
+    """Output dataset name -> its (mlodaDeclared attributes, conflicts), over COMPLETE events; datasets without
+    one are left out."""
     found: dict[str, tuple[dict[str, Any], list[str]]] = {}
     for event in transport.events:
         if event.eventType != RunState.COMPLETE:
@@ -3063,8 +3064,8 @@ class TestOpenLineageExtenderClassificationTags:
             assert entries and set(entries) == {(CLASSIFICATION_KEY, "pii", "mloda")}, name
         declared = _output_declared(transport)
         assert set(declared) == set(tags)
+        root_declaration = {CLASSIFICATION_KEY: "pii", "license": "x"}
         for name, found in declared.items():
-            root_declaration = {CLASSIFICATION_KEY: "pii", "license": "x"}
             expected: tuple[dict[str, Any], list[str]] = (
                 ({}, []) if name == MlodaTestingValueIntPlusOne.get_class_name() else (root_declaration, [])
             )

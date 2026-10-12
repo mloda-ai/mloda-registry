@@ -63,18 +63,22 @@ def test_declared_scalars_returns_a_fresh_plain_dict() -> None:
     assert type(declared_scalars(MappingProxyType(source))) is dict
 
 
-def test_readable_declared_of_an_unreadable_declaration_is_none() -> None:
-    assert readable_declared(None) is None
+@pytest.mark.parametrize(
+    ("declared", "expected"),
+    [
+        pytest.param(None, None, id="unreadable"),
+        pytest.param({}, {}, id="empty"),
+        pytest.param(
+            {"keep": "k", "n": 1, "bad": float("nan"), "nested": {"a": 1}}, {"keep": "k", "n": 1}, id="filtered"
+        ),
+    ],
+)
+def test_readable_declared_is_none_when_unreadable_else_the_filtered_scalars(
+    declared: Mapping[str, Any] | None, expected: dict[str, Any] | None
+) -> None:
+    result = readable_declared(declared)
 
-
-def test_readable_declared_of_a_mapping_filters_like_declared_scalars_into_a_fresh_dict() -> None:
-    source = {"keep": "k", "n": 1, "bad": float("nan"), "nested": {"a": 1}}
-
-    result = readable_declared(source)
-
-    assert result == {"keep": "k", "n": 1}
-    assert result is not source
-
-
-def test_readable_declared_of_an_empty_mapping_is_an_empty_dict() -> None:
-    assert readable_declared({}) == {}
+    assert result == expected
+    if expected is not None:
+        assert type(result) is dict
+        assert result is not declared

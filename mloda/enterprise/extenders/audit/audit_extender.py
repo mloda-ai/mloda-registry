@@ -188,7 +188,7 @@ class AuditExtender(Extender):
     identity-is-fallback and declared-attributes lists ([] for none; {} for a load that declared none, null when
     core could not read the declaration, values that are not portable JSON numbers dropped; a load without an
     identity is omitted). The feature group's own declaration is feature_group_declared_attributes (same
-    rule, null on a match record). The identity is core's
+    rule, null on match and RUN_START records). The identity is core's
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
@@ -467,6 +467,7 @@ class AuditExtender(Extender):
             "compute_framework_name": None,
             "rows_out": None,
             "duration_seconds": None,
+            "feature_group_declared_attributes": None,
         }
         try:
             raise error
@@ -908,7 +909,6 @@ class AuditExtender(Extender):
             "deny_reason": deny_reason or (("missing_" + "_and_".join(missing)) if missing else None),
             "classification": classification,
             "hook": hook,
-            "feature_group_declared_attributes": None,
             **per_call,
             "status": status,
             "error_type": error_type,
