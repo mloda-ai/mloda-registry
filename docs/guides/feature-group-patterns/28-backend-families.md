@@ -228,7 +228,25 @@ The upstream then selects its own sibling from the forwarded discriminator (`kg_
 - An unknown value or slot resolves to nothing.
 - Way 3: run with `ReadDBFeature` / `ReadFileFeature` enabled if your readers derive from a stock base.
 
-Use `resolve_feature` to see the candidates ([Debugging Matching](14-feature-matching.md#debugging-matching)).
+Resolve each value with `resolve_feature` instead of running it ([Debugging Matching](14-feature-matching.md#debugging-matching)). For the way 2 siblings:
+
+```python
+from mloda.steward import resolve_feature
+from mloda.user import Feature, Options, PluginCollector
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+
+def test_faiss_resolves_to_exactly_one_sibling() -> None:
+    result = resolve_feature(
+        Feature("retrieved_passages", options=Options(group={"retrieve_backend": "faiss"})),
+        plugin_collector=PluginCollector.enabled_feature_groups({Bm25Retriever, FaissRetriever}),
+        compute_frameworks={PythonDictFramework},
+    )
+    assert result.feature_group is FaissRetriever, result.error
+    assert result.candidates == [FaissRetriever]
+```
+
+Pass both arguments: the pinned `plugin_collector` keeps other loaded plugins out of the result, and `compute_frameworks` keeps it independent of which compute framework plugins the process has imported (with none loaded, every matching sibling is reported as eliminated: `none of its compute frameworks are enabled for this run`).
 
 ## Combines With
 

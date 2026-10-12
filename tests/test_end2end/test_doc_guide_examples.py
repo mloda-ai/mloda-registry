@@ -45,6 +45,7 @@ WAY_2_HEADING = "## Way 2: Discriminator Option (Sibling FeatureGroups)"
 WAY_2_MODULE = "guide_28_way_2"
 WAY_3_HEADING = "## Way 3: Reader Delegation (Sibling Readers)"
 WAY_3_MODULE = "guide_28_way_3"
+TEST_HEADING = "## Test\n"
 
 _FENCE_RE = re.compile(r"```(json|python|py)\n(.*?)```", re.DOTALL)
 _CONFIG_STRING_RE = re.compile(r'config\s*=\s*"""(.*?)"""', re.DOTALL)
@@ -290,3 +291,16 @@ def test_way_3_collection_without_the_slot_resolves_to_nothing() -> None:
     assert result.feature_group is None
     assert result.candidates == []
     assert "No feature groups found" in str(result.error)
+
+
+def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
+    fences = _python_fences(TEST_HEADING)
+    assert fences, "the Test section of the guide no longer has a python block with a sibling test"
+    namespace = dict(_load_namespace(WAY_2_HEADING, WAY_2_MODULE))
+    before = set(namespace)
+    code = compile(fences[0], f"<{BACKEND_FAMILIES_GUIDE.name} Test>", "exec", dont_inherit=True)
+    exec(code, namespace)  # nosec
+    tests = [v for k, v in namespace.items() if k not in before and k.startswith("test_") and callable(v)]
+    assert tests, "the Test section python block no longer defines a test_ function"
+    for sibling_test in tests:
+        sibling_test()
