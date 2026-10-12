@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate pyproject.toml files from shared configuration.
+"""Generate pyproject.toml files, and the license copies next to them, from shared configuration.
 
 Usage:
     python scripts/generate_pyproject.py          # Generate all files
@@ -37,6 +37,9 @@ HEADER = """\
 
 # The path prefix read as proprietary: it emits a LicenseRef instead of an SPDX id and ships its own license text.
 PROPRIETARY_PATH_PREFIX = "mloda/enterprise"
+
+# Every form license_form can return; the build floor is verified per form.
+LICENSE_FORMS = ("apache", "proprietary")
 
 # Expands to the published packages nested under a package's path. See issue #345.
 PUBLISHED_CHILDREN = "{published_children}"
@@ -91,7 +94,9 @@ ENTRY_POINT_MODULE_SUFFIX: dict[str, str] = {
 
 def license_form(path: str) -> str:
     """The license form emitted for a package path: 'proprietary' or 'apache'."""
-    return "proprietary" if path.startswith(PROPRIETARY_PATH_PREFIX) else "apache"
+    if path == PROPRIETARY_PATH_PREFIX or path.startswith(PROPRIETARY_PATH_PREFIX + "/"):
+        return "proprietary"
+    return "apache"
 
 
 def license_copies(pkg_config: dict[str, Any]) -> dict[str, Path]:
@@ -855,6 +860,14 @@ def validate_package_paths(packages: dict[str, dict[str, Any]]) -> None:
             )
 
 
+def validate_license_sources(packages: dict[str, dict[str, Any]]) -> None:
+    """Raise if a license source a configured package copies from is not a file."""
+    for pkg_name, pkg_config in packages.items():
+        for source in license_copies(pkg_config).values():
+            if not source.is_file():
+                raise ValueError(f"{pkg_name}: license source {source} is missing")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate pyproject.toml files")
     parser.add_argument("--check", action="store_true", help="Check if files are up-to-date")
@@ -863,9 +876,11 @@ def main() -> int:
     shared, packages_config = load_configs()
     packages = packages_config.get("packages", {})
     validate_package_paths(packages)
+    validate_license_sources(packages)
 
     errors = []
     updated = []
+    license_copies_written = 0
 
     for pkg_name, pkg_config in packages.items():
         pyproject_path = get_pyproject_path(pkg_config)
@@ -886,8 +901,6 @@ def main() -> int:
             print(f"  ✓ {pyproject_path}")
 
         for name, source in license_copies(pkg_config).items():
-            if not source.is_file():
-                raise ValueError(f"{pkg_name}: license source {source} is missing")
             destination = Path(pkg_config["path"]) / name
             if args.check:
                 if not destination.exists():
@@ -896,6 +909,8 @@ def main() -> int:
                     errors.append(f"{destination}: out of date")
             elif not destination.exists() or destination.read_bytes() != source.read_bytes():
                 destination.write_bytes(source.read_bytes())
+                license_copies_written += 1
+                print(f"  ✓ {destination}")
 
     # Handle workspace members
     workspace_ok, workspace_msg = update_workspace_members(packages, check=args.check)
@@ -934,7 +949,7 @@ def main() -> int:
     if core_ok and core_msg == "updated":
         print(f"  ✓ {ROOT_PYPROJECT} (mloda-core dependency)")
 
-    print(f"\n✅ Generated {len(updated)} pyproject.toml files")
+    print(f"\n✅ Generated {len(updated)} pyproject.toml files; license copies written: {license_copies_written}")
     return 0
 
 

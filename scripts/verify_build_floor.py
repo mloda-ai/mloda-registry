@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import os
 import re
-import runpy
 import subprocess  # nosec
 import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -26,18 +24,8 @@ else:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHARED_CONFIG = REPO_ROOT / "config" / "shared.toml"
 
-# Loaded by file path, as verify_builds does: this script is also loaded by path in tests.
-_load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(Path(__file__).resolve().parent / "script_loader.py"))[
-    "load_sibling"
-]
-_gen = _load_sibling("generate_pyproject")
-PROPRIETARY_PATH_PREFIX: str = _gen.PROPRIETARY_PATH_PREFIX
-license_form: Callable[[str], str] = _gen.license_form
-
 # Only the lower bound matters: "setuptools>=77.0.1" and "setuptools >= 77.0.1, < 90" both floor at 77.0.1.
 SETUPTOOLS_FLOOR_RE = re.compile(r"^setuptools\s*>=\s*([^\s,;]+)")
-
-LICENSE_FORMS = ("apache", "proprietary")
 
 
 def declared_setuptools_floor(requires: list[str] | None = None) -> str:
@@ -52,7 +40,7 @@ def declared_setuptools_floor(requires: list[str] | None = None) -> str:
     raise ValueError(f"no setuptools lower bound in build-system requires: {requires!r}")
 
 
-def license_sample_packages(packages: dict[str, dict[str, Any]]) -> dict[str, str]:
+def license_sample_packages(packages: dict[str, dict[str, Any]], license_form: Callable[[str], str]) -> dict[str, str]:
     """First package name per license form; setuptools validates a LicenseRef on a different path than an SPDX id."""
     samples: dict[str, str] = {}
     for pkg_name, pkg_config in packages.items():
@@ -91,6 +79,7 @@ def main() -> int:
         cleanup_build_dirs,
         cleanup_egg_info,
         find_wheels,
+        gen,
         get_wheel_metadata,
         load_packages_config,
         missing_license_files,
@@ -100,8 +89,8 @@ def main() -> int:
     print(f"Verifying the declared build floor: setuptools=={floor}")
 
     packages = load_packages_config()
-    samples = license_sample_packages(packages)
-    missing = [form for form in LICENSE_FORMS if form not in samples]
+    samples = license_sample_packages(packages, gen.license_form)
+    missing = [form for form in gen.LICENSE_FORMS if form not in samples]
     if missing:
         print(f"\n❌ config/packages.toml declares no package for license form(s): {missing}")
         return 1
@@ -119,7 +108,7 @@ def main() -> int:
                 print(f"\n❌ {setup_error}")
                 return 1
 
-            for form in LICENSE_FORMS:
+            for form in gen.LICENSE_FORMS:
                 pkg_name = samples[form]
                 print(f"\nBuilding {pkg_name} ({form} license) at setuptools=={floor}...")
                 result = build_wheel_with(venv_python(venv), REPO_ROOT / packages[pkg_name]["path"], out_dir)

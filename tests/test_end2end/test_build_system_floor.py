@@ -26,7 +26,8 @@ _PEP639_SETUPTOOLS = "77.0.1"
 _SPDX_BY_FORM = {"apache": "Apache-2.0", "proprietary": "LicenseRef-Proprietary"}
 _LICENSE_FILES_BY_FORM = {"apache": ["LICENSE", "NOTICE"], "proprietary": ["LICENSE"]}
 _LICENSE_SOURCES = ["LICENSE", "LICENSE-APACHE", "NOTICE.md", "mloda/enterprise/LICENSE"]
-_LICENSE_HOLDER = "Tom Kaltofen (mloda)"
+# The exact copyright line every license source opens with (after stripping indentation).
+_COPYRIGHT_LINE = "Copyright 2026-present Tom Kaltofen (mloda)"
 _PACKAGES = load_toml(_PACKAGES_CONFIG)["packages"]
 _SHARED = load_toml(_SHARED_CONFIG)
 
@@ -69,6 +70,30 @@ def test_emitted_license_and_files_match_the_package_form(pkg_name: str) -> None
     assert license_files == _LICENSE_FILES_BY_FORM[form], f"{pkg_name}: got {license_files!r}"
 
 
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        pytest.param("mloda/enterprise", "proprietary", id="enterprise-root"),
+        pytest.param("mloda/enterprise/extenders/audit", "proprietary", id="enterprise-nested"),
+        pytest.param("mloda/enterprise_extras", "apache", id="enterprise-sibling-prefix"),
+        pytest.param("mloda/community/x", "apache", id="community"),
+    ],
+)
+def test_license_form_is_bounded_by_a_path_separator(path: str, expected: str) -> None:
+    """The proprietary prefix is a directory, so a sibling whose name merely starts with it stays Apache."""
+    form = gen.license_form(path)
+    assert form == expected, f"license_form({path!r}) returned {form!r}, expected {expected!r}"
+
+
+def test_generator_declares_the_license_forms_it_emits() -> None:
+    """``LICENSE_FORMS`` lives next to ``license_form`` so the floor script reads the forms from the generator."""
+    forms = getattr(gen, "LICENSE_FORMS", None)
+    assert forms == ("apache", "proprietary"), f"generate_pyproject.LICENSE_FORMS is {forms!r}"
+    for pkg_name, pkg_config in _PACKAGES.items():
+        form = gen.license_form(pkg_config["path"])
+        assert form in forms, f"{pkg_name}: license_form returned {form!r}, absent from LICENSE_FORMS {forms!r}"
+
+
 def test_build_floor_covers_the_emitted_license_form() -> None:
     """Bare SPDX license strings are accepted by setuptools only from 77.0.1 on."""
     floor = _declared_setuptools_floor()()
@@ -97,10 +122,10 @@ def test_package_directories_carry_byte_equal_license_copies() -> None:
 
 @pytest.mark.parametrize("source", _LICENSE_SOURCES)
 def test_license_sources_name_the_holder_and_avoid_dashes(source: str) -> None:
-    """Each license source carries the copyright holder line and no em or en dash."""
+    """Each license source carries the exact copyright line and no em or en dash."""
     text = (_REPO_ROOT / source).read_text(encoding="utf-8")
-    assert any("copyright" in line.lower() and _LICENSE_HOLDER in line for line in text.splitlines()), (
-        f"{source}: no copyright line naming {_LICENSE_HOLDER!r}"
+    assert any(line.strip().startswith(_COPYRIGHT_LINE) for line in text.splitlines()), (
+        f"{source}: no line starts with {_COPYRIGHT_LINE!r}"
     )
     assert "\u2014" not in text and "\u2013" not in text, f"{source} contains an em or en dash"
 
@@ -133,6 +158,21 @@ def test_declared_floor_rejects_requires_without_setuptools() -> None:
     """A build-system block that lost its setuptools pin must fail loudly, not fall back to a default."""
     with pytest.raises(ValueError, match="setuptools"):
         _declared_setuptools_floor()(["wheel"])
+
+
+def test_license_sample_packages_take_the_classifier_and_pick_the_first_per_form() -> None:
+    """The floor script samples one package per form with the classifier passed in, not a module-level copy."""
+    module = load_script("verify_build_floor", _FLOOR_PATH)
+    packages = {
+        "a": {"path": "mloda/x"},
+        "b": {"path": "mloda/enterprise/y"},
+        "c": {"path": "mloda/z"},
+        "d": {"path": "mloda/enterprise/w"},
+    }
+
+    samples: dict[str, str] = module.license_sample_packages(packages, gen.license_form)
+
+    assert samples == {"apache": "a", "proprietary": "b"}, samples
 
 
 def test_generated_pyprojects_carry_the_shared_build_floor() -> None:

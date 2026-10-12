@@ -448,19 +448,31 @@ _FORM_CASES = [
 @pytest.mark.parametrize("stale", [None, b"stale\n"], ids=["absent", "stale"])
 @pytest.mark.parametrize(("pkg_path", "copies"), _FORM_CASES)
 def test_write_mode_writes_license_copies_idempotently(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pkg_path: str, copies: dict[str, str], stale: bytes | None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    pkg_path: str,
+    copies: dict[str, str],
+    stale: bytes | None,
 ) -> None:
-    """Write mode makes byte-equal copies (replacing a stale one), is idempotent, and check then passes."""
+    """Write mode makes byte-equal copies (replacing a stale one), reports each written copy and the count,
+    is idempotent (then reporting zero copies written), and check then passes."""
     pkg_dir = _license_workspace(tmp_path, monkeypatch, pkg_path=pkg_path)
     if stale is not None:
         (pkg_dir / "LICENSE").write_bytes(stale)
 
     assert gen.main() == 0
+    out = capsys.readouterr().out
     for name, source in copies.items():
         assert (pkg_dir / name).read_bytes() == _LICENSE_SOURCE_FILES[source]
+        assert f"  ✓ {pkg_path}/{name}" in out.splitlines(), out
+    assert f"license copies written: {len(copies)}" in out, out
     assert not (pkg_dir / "NOTICE").exists() or "NOTICE" in copies
     before = {p.name: p.read_bytes() for p in pkg_dir.iterdir() if p.is_file()}
     assert gen.main() == 0
+    out = capsys.readouterr().out
+    assert "license copies written: 0" in out, out
+    assert f"✓ {pkg_path}/LICENSE" not in out, out
     assert {p.name: p.read_bytes() for p in pkg_dir.iterdir() if p.is_file()} == before
     monkeypatch.setattr(sys, "argv", ["generate_pyproject.py", "--check"])
     assert gen.main() == 0
@@ -494,9 +506,11 @@ def test_check_mode_fails_on_missing_or_stale_license_copy(
 def test_missing_license_source_raises_naming_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: tuple[str, ...]
 ) -> None:
-    """A missing license source raises ValueError naming its path."""
-    _license_workspace(tmp_path, monkeypatch, *argv)
+    """A missing license source raises ValueError naming its path, before any file is written."""
+    pkg_dir = _license_workspace(tmp_path, monkeypatch, *argv)
     (tmp_path / "NOTICE.md").unlink()
 
     with pytest.raises(ValueError, match="NOTICE.md"):
         gen.main()
+    assert not (pkg_dir / "pyproject.toml").exists(), "pyproject.toml was written before the source check"
+    assert not (pkg_dir / "LICENSE").exists(), "the LICENSE copy was written before the source check"
