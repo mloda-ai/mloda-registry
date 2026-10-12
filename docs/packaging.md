@@ -300,7 +300,7 @@ python scripts/generate_pyproject.py    # Regenerate
 ```bash
 python scripts/generate_pyproject.py
 uv tool run --from "uv==0.12.9" uv lock
-uv sync --all-packages --extra dev
+uv sync --frozen --all-packages --extra dev
 ```
 
 ### Add a test-only dependency
@@ -313,7 +313,7 @@ uv tool run --from "uv==0.12.9" uv lock
 ```
 
 Relock with exactly the uv the release job pins in `.github/workflows/release.yaml`, since
-that job rewrites `uv.lock` on every release: an older or newer uv also rewrites unrelated
+that job rewrites `uv.lock` on every release: an older or newer uv can also rewrite unrelated
 lock lines, and the next release commit flips them back. tox syncs every workspace
 member's `dev` extra (`--all-packages` plus `extras = dev`), so root
 `pyproject.toml` never repeats the entry; but it installs the lock with

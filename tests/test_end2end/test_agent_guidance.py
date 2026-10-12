@@ -11,6 +11,7 @@ _CLAUDE_GUIDANCE = _REPO_ROOT / "CLAUDE.md"
 _AGENT_GUIDANCE = _REPO_ROOT / "AGENTS.md"
 _PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
 _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
+_UV_PIN = r"(?<![\w-])uv==(\d+\.\d+\.\d+)"
 
 
 def _single_bullet(prefix: str) -> str:
@@ -58,8 +59,8 @@ def test_relock_guidance_names_the_uv_version_pinned_by_the_release_job() -> Non
         f"the release job pins uv=={next(iter(pins))}; if you bumped it in {_RELEASE_WORKFLOW.name}, "
         "update the uv==X.Y.Z version in the CLAUDE.md '- **Relocking**:' bullet (and AGENTS.md) and in docs/packaging.md"
     )
-    claude_versions = set(re.findall(r"uv==(\d+\.\d+\.\d+)", _single_bullet("- **Relocking**:")))
+    claude_versions = set(re.findall(_UV_PIN, _single_bullet("- **Relocking**:")))
     assert claude_versions == pins, f"CLAUDE.md Relocking bullet names {claude_versions}: {update_hint}"
 
-    doc_versions = set(re.findall(r"uv==(\d+\.\d+\.\d+)", _PACKAGING_DOC.read_text(encoding="utf-8")))
+    doc_versions = set(re.findall(_UV_PIN, _PACKAGING_DOC.read_text(encoding="utf-8")))
     assert doc_versions == pins, f"docs/packaging.md names {doc_versions}: {update_hint}"
