@@ -30,7 +30,7 @@ def test_required_test_dependency_is_installed(module_name: str) -> None:
 
     If this test fails, add the missing package to the relevant package's
     ``optional_dependencies.dev`` in ``config/packages.toml``. Then run
-    ``python scripts/generate_pyproject.py`` followed by ``uv lock``.
+    ``python scripts/generate_pyproject.py`` followed by relocking ``uv.lock`` as described in ``docs/packaging.md``.
     """
     try:
         importlib.import_module(module_name)
@@ -38,7 +38,7 @@ def test_required_test_dependency_is_installed(module_name: str) -> None:
         pytest.fail(
             f"Required test dependency '{module_name}' is not installed. "
             "Add it to the relevant package's optional_dependencies.dev in config/packages.toml, "
-            "run python scripts/generate_pyproject.py, then run uv lock."
+            "run python scripts/generate_pyproject.py, then relock uv.lock as described in docs/packaging.md."
         )
 
 
@@ -73,5 +73,6 @@ def test_framework_tests_are_not_skipped(framework: str, module_path: str) -> No
         pytest.fail(
             f"{framework} test module was skipped at import time. "
             f"{framework} is not installed; add it to the relevant package's optional_dependencies.dev in "
-            "config/packages.toml, run python scripts/generate_pyproject.py, then run uv lock."
+            "config/packages.toml, run python scripts/generate_pyproject.py, then relock uv.lock as described in "
+            "docs/packaging.md."
         )

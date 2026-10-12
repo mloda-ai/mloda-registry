@@ -295,17 +295,26 @@ python scripts/generate_pyproject.py    # Regenerate
    `mloda-enterprise`), the bundle must also own it: add `"<name>=={version}"` to the bundle's
    own `dependencies` or a non-dev extra (see [Bundled packages](#bundled-packages)), or
    generation fails.
-4. Regenerate and sync:
+4. Regenerate, relock (see [Add a test-only dependency](#add-a-test-only-dependency)) and sync:
 
 ```bash
 python scripts/generate_pyproject.py
+uv tool run --from "uv==0.12.9" uv lock
 uv sync --all-packages --extra dev
 ```
 
 ### Add a test-only dependency
 
 Declare it in the package's `optional_dependencies.dev` in `config/packages.toml`,
-regenerate, then run `uv lock` and commit `uv.lock`. tox syncs every workspace
+regenerate, then relock and commit `uv.lock`:
+
+```bash
+uv tool run --from "uv==0.12.9" uv lock
+```
+
+Relock with exactly the uv the release job pins in `.github/workflows/release.yaml`, since
+that job rewrites `uv.lock` on every release: an older or newer uv also rewrites unrelated
+lock lines, and the next release commit flips them back. tox syncs every workspace
 member's `dev` extra (`--all-packages` plus `extras = dev`), so root
 `pyproject.toml` never repeats the entry; but it installs the lock with
 `--frozen`, so a dependency missing from `uv.lock` is not installed.
@@ -320,7 +329,7 @@ dependency (today `cryptography` behind `mloda-enterprise[ed25519]` and `opentel
    `mloda-community`, also add it to the `all` extra.
 2. Add the same specifier to the leaf's `optional_dependencies.dev`, repeating the default `dev`
    entries (a package's `dev` replaces them). Not its `dependencies`: a bundle install never reads them.
-3. Regenerate, run `uv lock` and commit `uv.lock`, as in
+3. Regenerate, relock and commit `uv.lock`, as in
    [Add a test-only dependency](#add-a-test-only-dependency).
 4. If a test imports the dependency, add its import name to `REQUIRED_TEST_DEPENDENCIES` in
    `tests/test_end2end/test_dev_dependencies.py`.

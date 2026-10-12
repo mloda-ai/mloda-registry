@@ -36,7 +36,8 @@ jobs:
           # Pinned: this job now writes uv.lock (via prepareCmd's `uv lock`) into an
           # unreviewed [skip ci] commit, so an unpinned uv could silently change the
           # lockfile format underneath that commit. Kept inside the >=0.12,<0.13 range
-          # the other workflows read the lock with.
+          # the other workflows read the lock with. docs/packaging.md and CLAUDE.md / AGENTS.md
+          # name this version for manual relocks; test_agent_guidance.py keeps them in step.
           python -m pip install uv==0.12.9
 
       - name: Setup Node.js

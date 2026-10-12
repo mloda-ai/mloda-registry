@@ -9,6 +9,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 _CLAUDE_GUIDANCE = _REPO_ROOT / "CLAUDE.md"
 _AGENT_GUIDANCE = _REPO_ROOT / "AGENTS.md"
+_PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
+_RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
 
 
 def _single_bullet(prefix: str) -> str:
@@ -40,3 +42,24 @@ def test_type_hints_guidance_matches_ruff_select() -> None:
 
     select = loads_toml(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["ruff"]["lint"]["select"]
     assert codes == {rule for rule in select if rule.startswith("UP")}
+
+
+def test_relock_guidance_names_the_uv_version_pinned_by_the_release_job() -> None:
+    """The relock guidance must name exactly the uv version the release job installs.
+
+    The pin is read from the ``pip install uv==...`` line of the release workflow,
+    not from the comment block above it. CLAUDE.md and docs/packaging.md must
+    each name only that version.
+    """
+    pins = set(re.findall(r"pip install uv==(\d+\.\d+\.\d+)", _RELEASE_WORKFLOW.read_text(encoding="utf-8")))
+    assert len(pins) == 1, f"expected one 'pip install uv==X.Y.Z' pin in {_RELEASE_WORKFLOW.name}, found {pins}"
+
+    update_hint = (
+        f"the release job pins uv=={next(iter(pins))}; if you bumped it in {_RELEASE_WORKFLOW.name}, "
+        "update the uv==X.Y.Z version in the CLAUDE.md '- **Relocking**:' bullet (and AGENTS.md) and in docs/packaging.md"
+    )
+    claude_versions = set(re.findall(r"uv==(\d+\.\d+\.\d+)", _single_bullet("- **Relocking**:")))
+    assert claude_versions == pins, f"CLAUDE.md Relocking bullet names {claude_versions}: {update_hint}"
+
+    doc_versions = set(re.findall(r"uv==(\d+\.\d+\.\d+)", _PACKAGING_DOC.read_text(encoding="utf-8")))
+    assert doc_versions == pins, f"docs/packaging.md names {doc_versions}: {update_hint}"
