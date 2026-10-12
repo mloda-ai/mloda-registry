@@ -469,7 +469,7 @@ A host that must record the raw URI overrides `test_otel_input_data_load_query_s
 
 Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`; `records=True` on either writes one JSON record per span, with ids and attributes, instead of a bare name), `read_span_records` (parses those records back).
 
-A metrics extender hosts plain `ExtenderContractTestMixin`; `RebuildingMetricCaptureProvider` (same module) is the picklable meter provider for its `make_real_worker_extender_and_marker`, writing exported metric names to a marker file only on `force_flush()`.
+A metrics extender hosts `ExtenderContractTestMixin` with `ProviderCloseTestMixin`; `RebuildingMetricCaptureProvider` (`mloda.testing.extenders.otel`) is the picklable meter provider for its `make_real_worker_extender_and_marker`. It writes exported metric names to the marker file only on `force_flush()`, so the extender must flush its provider in `close()`.
 
 ### OpenLineageExtenderTestMixin
 

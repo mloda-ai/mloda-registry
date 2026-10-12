@@ -10,7 +10,7 @@ When a feature group declares **another group's** feature in `input_features()`,
 
 ## The Default: Group Options Forward
 
-A consumer's **group** options flow onto every input feature by default. **Context** options never flow through this forwarding merge (the one exception is a bare-string child, which shares the consumer's `Options` outright: see the caveat below). `in_features` itself never flows.
+A consumer's **group** options flow onto every input feature by default. **Context** options never flow by default, for an explicit `Feature(...)` child and a bare-string child alike. `in_features` itself never flows.
 
 | Consumer option category | Flows to input features by default? | How to change it |
 |--------------------------|-------------------------------------|------------------|
@@ -93,7 +93,7 @@ Feature(
 )
 ```
 
-`backend="neo4j"` reaches `knowledge_graph`; `top_k=5` does not; `tenant="acme"` reaches it because the child pulled it. If the consumer would rather **push** context down (so each of its direct input features sees it without opting in; the push is one hop), it sets `propagate_context_keys` on its own `Options` instead:
+`backend="neo4j"` reaches `knowledge_graph`; `top_k=5` does not; `tenant="acme"` reaches it because the child pulled it. If the consumer would rather **push** context down (so each of its direct input features sees it without opting in, except a child declared with `forward_group=False`; the push is one hop), it sets `propagate_context_keys` on its own `Options` instead:
 
 ```python
 Options(context={"tenant": "acme"}, propagate_context_keys=frozenset({"tenant"}))
@@ -111,7 +111,7 @@ If a forwarded group key already exists on the child with a **different** value,
 
 ## Caveat: Bare-String Children Cannot Carry Directives
 
-The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group and context. The difference is that a string has nowhere to hang a directive: there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
+The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
 
 ## Test
 
