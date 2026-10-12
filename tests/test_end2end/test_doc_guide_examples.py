@@ -1,4 +1,4 @@
-"""Validate the JSON/Python config examples embedded in the FeatureConfig guide (issue #516).
+"""Validate the examples embedded in the FeatureConfig guide (issue #516) and the backend-families guide.
 
 ``scripts/lint_docs.py`` checks docs for broken links and raw-dict ``PROPERTY_MAPPING``
 values, but never executes the config snippets themselves. A FeatureConfig example once
@@ -25,15 +25,22 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import pytest
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.utils import get_all_subclasses
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
-from mloda.user import load_features_from_config
+from mloda.steward import resolve_feature
+from mloda.user import Options, PluginCollector, load_features_from_config
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
 
 import mloda.community.feature_groups.data_operations as data_operations
+from tests.test_end2end.test_binary_backed_features_guide import _section
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_CONFIG_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "22-feature-config.md"
+BACKEND_FAMILIES_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "28-backend-families.md"
+WAY_2_HEADING = "## Way 2: Discriminator Option (Sibling FeatureGroups)"
+WAY_2_MODULE = "guide_28_way_2"
 
 _FENCE_RE = re.compile(r"```(json|python|py)\n(.*?)```", re.DOTALL)
 _CONFIG_STRING_RE = re.compile(r'config\s*=\s*"""(.*?)"""', re.DOTALL)
@@ -158,3 +165,57 @@ def test_missing_partition_by_regression_is_rejected() -> None:
     assert problems != [], "missing-partition_by regression was not caught; the validation logic is vacuous"
     assert "sales__sum_agg" in problems[0]
     assert "PandasAggregation" in problems[0]
+
+
+@lru_cache(maxsize=1)
+def load_way_2_namespace() -> dict[str, Any]:
+    """Run the first python block of the guide's Way 2 section and return its namespace."""
+    section = _section(BACKEND_FAMILIES_GUIDE.read_text(encoding="utf-8"), WAY_2_HEADING, ("\n## ",))
+    fence = next((m for m in _FENCE_RE.finditer(section) if m.group(1) == "python"), None)
+    assert fence is not None, "no python block found in the Way 2 section of the guide"
+    code = compile(fence.group(2), f"<{BACKEND_FAMILIES_GUIDE.name} Way 2>", "exec", dont_inherit=True)
+    namespace: dict[str, Any] = {"__name__": WAY_2_MODULE}
+    exec(code, namespace)  # nosec
+    return namespace
+
+
+def _way_2_siblings(namespace: dict[str, Any]) -> set[type[FeatureGroup]]:
+    return {
+        v
+        for v in namespace.values()
+        if isinstance(v, type) and issubclass(v, FeatureGroup) and v.__module__ == WAY_2_MODULE
+    }
+
+
+def _resolve_way_2(group: dict[str, str]) -> tuple[dict[str, Any], Any]:
+    namespace = load_way_2_namespace()
+    for name in ("Bm25Retriever", "FaissRetriever"):
+        assert name in namespace, f"the Way 2 block no longer defines {name}"
+    result = resolve_feature(
+        "retrieved_passages",
+        options=Options(group=group),
+        plugin_collector=PluginCollector.enabled_feature_groups(_way_2_siblings(namespace)),
+        compute_frameworks={PythonDictFramework},
+    )
+    return namespace, result
+
+
+@pytest.mark.parametrize(
+    "group, expected",
+    [
+        ({"retrieve_backend": "faiss", "query_text": "cat"}, "FaissRetriever"),
+        ({"retrieve_backend": "faiss"}, "FaissRetriever"),
+        ({"retrieve_backend": "bm25"}, "Bm25Retriever"),
+    ],
+)
+def test_way_2_discriminator_resolves_to_exactly_one_sibling(group: dict[str, str], expected: str) -> None:
+    namespace, result = _resolve_way_2(group)
+    assert result.feature_group is namespace[expected], result.error
+    assert result.candidates == [namespace[expected]]
+
+
+def test_way_2_unknown_discriminator_value_resolves_to_nothing() -> None:
+    _, result = _resolve_way_2({"retrieve_backend": "fiass"})
+    assert result.feature_group is None
+    assert result.candidates == []
+    assert "No feature groups found" in str(result.error)
