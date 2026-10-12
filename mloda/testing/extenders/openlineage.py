@@ -1016,6 +1016,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             run_id=run_id,
             feature_names=("value_int",),
             output_schema=(("value_int", "int64"),),
+            declared_attributes={"mloda.owner": "team:fraud"},
         ).activate():
             extender(outer_func)
 
@@ -1031,6 +1032,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             parent_facet = (payload.get("run") or {}).get("facets") or {}
             if "parent" in parent_facet:
                 facet_groups.append(parent_facet["parent"])
+            facet_groups.append((payload.get("job") or {}).get("facets") or {})
             facet_groups.extend((dataset.get("facets") or {}) for dataset in payload.get("inputs") or [])
             facet_groups.extend((dataset.get("facets") or {}) for dataset in payload.get("outputs") or [])
             offending = [

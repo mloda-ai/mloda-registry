@@ -82,6 +82,8 @@ from openlineage.client.event_v2 import InputDataset, RunState
 from openlineage.client.facet_v2 import (
     documentation_dataset,
     nominal_time_run,
+    ownership_dataset,
+    ownership_job,
     parent_run,
     schema_dataset,
     tags_dataset,
@@ -547,6 +549,27 @@ class TestOpenLineageExtenderConstructorOptions:
 
         assert result == 42
 
+    @pytest.mark.parametrize(
+        "dataset_owners",
+        [
+            pytest.param({"s3://bucket": "team:fraud"}, id="key_not_a_tuple"),
+            pytest.param({("s3://bucket",): "team:fraud"}, id="key_wrong_length"),
+            pytest.param({("s3://bucket", "a", "b"): "team:fraud"}, id="key_too_long"),
+            pytest.param({("", "a"): "team:fraud"}, id="empty_namespace"),
+            pytest.param({("s3://bucket", ""): "team:fraud"}, id="empty_name"),
+            pytest.param({("s3://bucket", 1): "team:fraud"}, id="non_str_key_part"),
+            pytest.param({("s3://bucket", "a"): 5}, id="value_not_str_or_sequence"),
+            pytest.param({("s3://bucket", "a"): None}, id="value_none"),
+            pytest.param({("s3://bucket", "a"): ""}, id="empty_str_owner"),
+            pytest.param({("s3://bucket", "a"): ["team:fraud", ""]}, id="empty_name_in_sequence"),
+            pytest.param({("s3://bucket", "a"): [1]}, id="non_str_in_sequence"),
+            pytest.param({("s3://bucket", "a"): []}, id="empty_owner_list"),
+        ],
+    )
+    def test_invalid_dataset_owners_raise_value_error(self, dataset_owners: Any) -> None:
+        with pytest.raises(ValueError):
+            OpenLineageExtender(dataset_owners=dataset_owners)
+
 
 class TestOpenLineageExtenderPickling:
     """An injected client is pickled as-is if it can be, else trial-pickle drops it with a warning;
@@ -577,6 +600,32 @@ class TestOpenLineageExtenderPickling:
         assert parent.root is not None
         assert parent.root.run.runId == _RUN_B
         assert (parent.root.job.namespace, parent.root.job.name) == ("airflow", "dag")
+
+    def test_dataset_owners_survive_a_pickle_round_trip(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(
+            client=client, dataset_owners={("s3://bucket", "key.parquet"): ["team:fraud", "team:risk"]}
+        )
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+        copy._client = client
+
+        inner = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet")
+
+        def outer_func() -> str:
+            with inner.activate():
+                copy(lambda: "loaded-data")
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            copy(outer_func)
+
+        facet = (transport.events[-1].inputs or [])[0].facets["ownership"]  # type: ignore[index]
+        assert isinstance(facet, ownership_dataset.OwnershipDatasetFacet)
+        assert facet.owners is not None
+        assert [owner.name for owner in facet.owners] == ["team:fraud", "team:risk"]
 
     def test_pickled_copy_can_still_build_a_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         extender = OpenLineageExtender(use_sdk_defaults=True)
@@ -2518,6 +2567,94 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             assert "mlodaDataAccess" not in facets
 
     @staticmethod
+    def _owner_facets(
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        dataset_owners: Any,
+        identities: list[str],
+        is_fallback: bool | None = None,
+    ) -> tuple[OpenLineageExtender, dict[tuple[str, str], Any]]:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client, dataset_namespace="custom-ds", dataset_owners=dataset_owners)
+
+        def outer_func() -> str:
+            for identity in identities:
+                inner = make_hook_context(
+                    hook=ExtenderHook.INPUT_DATA_LOAD,
+                    data_access_identity=identity,
+                    data_access_identity_is_fallback=is_fallback,
+                )
+                with inner.activate():
+                    extender(lambda: "loaded-data")
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            extender(outer_func)
+
+        inputs = transport.events[-1].inputs or []
+        return extender, {(i.namespace, i.name): (i.facets or {}).get("ownership") for i in inputs}
+
+    @pytest.mark.parametrize(
+        ("owners", "expected"),
+        [
+            pytest.param("team:fraud", ["team:fraud"], id="bare_str_is_one_owner"),
+            pytest.param(["team:risk", "team:fraud", "team:risk"], ["team:risk", "team:fraud"], id="order_and_dedupe"),
+            pytest.param(("team:fraud",), ["team:fraud"], id="tuple"),
+        ],
+    )
+    def test_mapped_input_dataset_carries_the_ownership_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], owners: Any, expected: list[str]
+    ) -> None:
+        extender, facets = self._owner_facets(
+            ol_capture, {("s3://bucket", "key.parquet"): owners}, ["s3://bucket/key.parquet"]
+        )
+
+        facet = facets[("s3://bucket", "key.parquet")]
+        assert isinstance(facet, ownership_dataset.OwnershipDatasetFacet)
+        assert facet.owners is not None
+        assert [owner.name for owner in facet.owners] == expected
+        assert all(owner.type is None for owner in facet.owners)
+        assert facet._producer == extender.producer
+
+    def test_unmapped_input_dataset_carries_no_ownership_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        _, facets = self._owner_facets(
+            ol_capture,
+            {("s3://bucket", "key.parquet"): "team:fraud"},
+            ["s3://bucket/key.parquet", "s3://bucket/other.parquet", "str"],
+        )
+
+        assert facets[("s3://bucket", "key.parquet")] is not None
+        assert facets[("s3://bucket", "other.parquet")] is None
+        assert facets[("custom-ds", "str")] is None
+
+    def test_no_dataset_owners_means_no_ownership_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        _, facets = self._owner_facets(ol_capture, None, ["s3://bucket/key.parquet"])
+
+        assert facets == {("s3://bucket", "key.parquet"): None}
+
+    def test_repeated_load_keeps_one_ownership_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        _, facets = self._owner_facets(
+            ol_capture,
+            {("s3://bucket", "key.parquet"): "team:fraud"},
+            ["s3://bucket/key.parquet", "s3://bucket/key.parquet"],
+        )
+
+        facet = facets[("s3://bucket", "key.parquet")]
+        assert [owner.name for owner in facet.owners] == ["team:fraud"]
+
+    def test_fallback_identity_load_gets_no_ownership_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        _, facets = self._owner_facets(ol_capture, {("custom-ds", "str"): "team:fraud"}, ["str"], is_fallback=True)
+
+        assert facets == {("custom-ds", "str"): None}
+
+    @staticmethod
     def _declared_payload(
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         declarations: list[dict[str, Any] | None],
@@ -3897,6 +4034,102 @@ class TestOpenLineageExtenderSubclassSeams:
         assert attributes == expected
         assert {k: type(v) for k, v in attributes.items()} == {k: type(v) for k, v in expected.items()}
         assert conflicts == []
+
+    @staticmethod
+    def _owner_run(
+        client: OpenLineageClient, transport: RecordingTransport, declared: dict[str, Any] | None, fail: bool = False
+    ) -> list[Any]:
+        def func() -> None:
+            if fail:
+                raise RuntimeError("boom")
+
+        with make_hook_context(feature_names=("a",), declared_attributes=declared).activate():
+            try:
+                OpenLineageExtender(client=client)(func)
+            except RuntimeError:
+                pass
+        return list(transport.events)
+
+    @pytest.mark.parametrize("fail", [False, True], ids=["complete", "fail"])
+    def test_declared_owner_reaches_the_job_on_start_and_terminal_events(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], fail: bool
+    ) -> None:
+        client, transport = ol_capture
+
+        events = self._owner_run(client, transport, {"mloda.owner": "team:fraud"}, fail=fail)
+
+        assert [e.eventType for e in events] == [RunState.START, RunState.FAIL if fail else RunState.COMPLETE]
+        for event in events:
+            facet = event.job.facets["ownership"]
+            assert isinstance(facet, ownership_job.OwnershipJobFacet)
+            assert facet.owners is not None
+            assert [(o.name, o.type) for o in facet.owners] == [("team:fraud", None)]
+            assert facet._producer == _DEFAULT_PRODUCER
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("team:fraud", ["team:fraud"]),
+            (" team:fraud , team:risk ", ["team:fraud", "team:risk"]),
+            ("team:risk,team:fraud,team:risk,,  ,team:fraud", ["team:risk", "team:fraud"]),
+        ],
+        ids=["single", "split_and_strip", "dedupe_keeps_first_seen_order"],
+    )
+    def test_declared_owner_is_split_stripped_and_deduped(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], value: str, expected: list[str]
+    ) -> None:
+        client, transport = ol_capture
+
+        events = self._owner_run(client, transport, {"mloda.owner": value})
+
+        assert [o.name for o in events[0].job.facets["ownership"].owners] == expected
+
+    @pytest.mark.parametrize(
+        "declared",
+        [
+            None,
+            {},
+            {"license": "a"},
+            {"mloda.owner": True},
+            {"mloda.owner": 5},
+            {"mloda.owner": 1.5},
+            {"mloda.owner": ""},
+            {"mloda.owner": "  "},
+            {"mloda.owner": " , ,"},
+        ],
+        ids=["unreadable", "empty", "key_absent", "bool", "int", "float", "empty_str", "whitespace", "only_separators"],
+    )
+    def test_no_job_ownership_facet_without_a_usable_declared_owner(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], declared: dict[str, Any] | None
+    ) -> None:
+        client, transport = ol_capture
+
+        events = self._owner_run(client, transport, declared)
+
+        assert events
+        for event in events:
+            assert "ownership" not in (event.job.facets or {})
+
+    def test_declared_owner_stays_off_output_datasets_and_the_root_job(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with make_hook_context(feature_names=("a",), declared_attributes={"mloda.owner": "team:fraud"}).activate():
+            extender(lambda: None)
+        extender.on_run_start(RunContext(run_id=_RUN_X, plan_id="plan-0001"), _plan(), ())
+
+        calculate = [e for e in transport.events if e.job.name != extender.root_job_name]
+        assert calculate
+        assert all("ownership" in (e.job.facets or {}) for e in calculate)
+        for event in transport.events:
+            for output in event.outputs or []:
+                assert "ownership" not in (output.facets or {})
+        root = [e for e in transport.events if e.job.name == extender.root_job_name]
+        assert root
+        for event in root:
+            assert "ownership" not in (event.job.facets or {})
 
     def test_output_datasets_of_an_unreadable_declaration_carry_no_declared_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
