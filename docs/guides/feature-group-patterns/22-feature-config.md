@@ -38,7 +38,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 | `group_options` | object | No | Group parameters (affect FeatureGroup resolution) |
 | `context_options` | object | No | Context parameters (metadata, doesn't affect resolution) |
 | `column_index` | integer | No | Index for multi-output features (adds `~N` suffix) |
-| `propagate_context_keys` | array | No | Context keys to propagate to dependent features |
+| `propagate_context_keys` | array | No | Context keys pushed to the feature's direct input features |
 | `feature_group` | string | No | Class name to scope resolution to (matches that class and its subclasses) |
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.

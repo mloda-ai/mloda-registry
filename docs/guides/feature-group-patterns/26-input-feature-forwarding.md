@@ -93,7 +93,7 @@ Feature(
 )
 ```
 
-`backend="neo4j"` reaches `knowledge_graph`; `top_k=5` does not; `tenant="acme"` reaches it because the child pulled it. If the consumer would rather **push** context down (so every input feature in the chain sees it without each one opting in), it sets `propagate_context_keys` on its own `Options` instead:
+`backend="neo4j"` reaches `knowledge_graph`; `top_k=5` does not; `tenant="acme"` reaches it because the child pulled it. If the consumer would rather **push** context down (so each of its direct input features sees it without opting in; the push is one hop), it sets `propagate_context_keys` on its own `Options` instead:
 
 ```python
 Options(context={"tenant": "acme"}, propagate_context_keys=frozenset({"tenant"}))

@@ -33,17 +33,17 @@ feature = Feature("imputed_income", Options(group={"algorithm": "mean"}, context
 
 By default, context options stay local to each feature and are **not** propagated to input features in a dependency chain. This prevents unintended side effects when chaining features.
 
-To selectively propagate specific context keys to dependent features, use `propagate_context_keys`:
+To push specific context keys to the feature's direct input features, use `propagate_context_keys`:
 
 ```python
 from mloda.user import Feature, Options
 
-# Propagate specific context keys through the dependency chain
+# Push specific context keys to the direct input features
 feature = Feature(
     "price__scaled",
     Options(
         context={"debug": True, "trace_id": "abc123"},
-        propagate_context_keys=frozenset({"trace_id"}),  # Only trace_id flows to input features
+        propagate_context_keys=frozenset({"trace_id"}),  # Only trace_id reaches the direct input features
     ),
 )
 ```
@@ -51,9 +51,11 @@ feature = Feature(
 | Behavior | Description |
 |----------|-------------|
 | Default (no propagation) | Context stays local to the feature where it's defined |
-| With `propagate_context_keys` | Listed keys are passed to all input features in the chain |
+| With `propagate_context_keys` | Listed keys are passed to the feature's direct input features (one hop) |
 
-Use propagation sparingly; most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
+The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. A value every level needs belongs in group options, which forward down the whole chain by default and are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
+
+Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
 
 ## PROPERTY_MAPPING value space
 

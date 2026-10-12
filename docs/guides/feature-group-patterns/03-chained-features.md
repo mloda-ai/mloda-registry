@@ -85,7 +85,7 @@ Feature("income__mean_imputed")
 Feature("imputed_income", Options(context={"imputation_method": "mean", "in_features": "income"}))
 ```
 
-> **Note on Context**: Context options are local by default and do not flow to input features. If you need context to propagate through the chain (e.g., a trace ID), use `propagate_context_keys`. See [Options](11-options.md#context-propagation) for details.
+> **Note on Context**: Context options are local by default and do not flow to input features. To hand a context key to the direct input feature (e.g., a trace ID), use `propagate_context_keys`; the push is one hop. A value every level of the chain needs belongs in group options. See [Options](11-options.md#context-propagation) for details.
 
 ### Discriminator Keys
 
