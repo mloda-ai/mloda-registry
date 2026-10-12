@@ -169,6 +169,7 @@ class TestOtelMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTe
         return True
 
     def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        # Metrics export only on flush: the marker appears via the worker's close().
         marker_path = tmp_path / "otel_real_worker_metrics.txt"
         provider = RebuildingMetricCaptureProvider(marker_path=marker_path)
         return OtelMetricsExtender(meter_provider=provider), marker_path

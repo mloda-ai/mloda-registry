@@ -256,7 +256,7 @@ class TestRebuildingMetricCaptureProvider:
         copy.get_meter("test-extenders-otel-metrics").create_counter("copy.counter").add(1)
 
         assert copy.force_flush() is True
-        assert "copy.counter" in marker_path.read_text().splitlines()
+        assert marker_path.read_text().splitlines() == ["copy.counter"]
 
 
 class TestRecordModeSpanCapture:
