@@ -52,11 +52,12 @@ Use only when the orchestrator's brief names this mode. It covers work whose tes
 
 It replaces Workflow steps 3 to 5:
 
-1. **Green end state.** The tests pass when you finish. There is no Green handoff.
-2. **Liveness by mutation.** Temporarily mutate the code or document under test so the tests turn red for the expected reason, then revert with `git checkout -- <file>` and confirm with `git diff --exit-code -- <file>`. Never revert with `git stash` or `git reset`: both discard the test work. This is the only edit allowed outside test code, and it is never left in place.
-3. **Inventory for a refactor.** Run `pytest --collect-only -q` on the affected test files before and after, and map every removed test id to the test that now carries its assertions. No assertion is dropped or weakened.
-4. **Production files byte-identical.** At the end, `git status --short` lists only test code: `tests/` directories and the shipped test kits under `mloda/testing/`.
-5. **Report** each mutation with the tests it turned red, the inventory (for a refactor) and the final `git status --short`.
+1. **Green end state.** The tests pass when you finish. There is no Green handoff. A pinning test that is red on arrival means the behavior differs from the brief: stop and report, never change production code to make it pass.
+2. **Baseline first.** Before the first edit, record `git status --short` and, for a refactor, `pytest --collect-only -q` of every affected test file, including each file that hosts a changed mixin or base class.
+3. **Liveness by mutation.** Temporarily mutate the code or document under test so the tests turn red for the expected reason. Mutate only a file without uncommitted changes (`git status --short -- <file>` prints nothing; otherwise stop and report), revert with `git checkout -- <file>` and confirm with `git diff --exit-code -- <file>`. Never use `git stash`, `git reset` or a whole-tree checkout: they take the test work with them. Each new or moved test should turn red under at least one mutation; list any that did not. A mutation is the only edit allowed outside test code, and it is never left in place.
+4. **Inventory for a refactor.** Collect the same ids again at the end and map every removed test id to the test that now carries its assertions. No assertion is dropped or weakened.
+5. **Production files byte-identical.** At the end, `git status --short` differs from the baseline only in test code: `tests/` directories and the shipped test kits under `mloda/testing/`.
+6. **Report** each mutation with the tests it turned red, the inventory (for a refactor) and the final `git status --short`.
 
 ## Communication Style
 - Be concise and focused on what the tests validate

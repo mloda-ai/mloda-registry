@@ -28,7 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 4. **Validation**: Ensure tests pass and no regressions
 5. **Repeat**: Continue cycle for next requirement
 
-A test-only refactor or a behavior-pinning test is green on arrival: brief the Red Agent in **Green-on-Arrival Mode** (`.claude/agents/red-agent.md`), skip the Green Phase, and check afterwards that `git status` lists only test code.
+A test-only refactor or a behavior-pinning test is green on arrival: brief the Red Agent in **Green-on-Arrival Mode** (`.claude/agents/red-agent.md`), skip the Green Phase, and check afterwards with `git status` that it changed only test code.
 
 ## CFW Backend Rejection over Python Fallback
 
