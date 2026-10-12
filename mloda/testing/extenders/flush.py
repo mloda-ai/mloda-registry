@@ -112,19 +112,19 @@ class ProviderFlushTestMixin:
 
     def test_close_flushes_the_injected_provider_with_timeout_millis(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
-        flusher = self.make_flusher(provider)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
             self.flush(flusher)
 
         provider.force_flush.assert_called_once_with(timeout_millis=int(getattr(flusher, "close_timeout") * 1000))
 
     def test_close_caps_flush_timeout_to_the_active_close_context(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
-        flusher = self.make_flusher(provider)
-        self._set_close_timeout(flusher, 5.0)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
+            self._set_close_timeout(flusher, 5.0)
             with active_close_context(3.0):
                 self.flush(flusher)
 
@@ -133,18 +133,18 @@ class ProviderFlushTestMixin:
 
     def test_close_never_calls_shutdown(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
-        flusher = self.make_flusher(provider)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
             self.flush(flusher)
 
         provider.shutdown.assert_not_called()
 
     def test_close_swallows_a_raising_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         provider = Mock(force_flush=Mock(side_effect=RuntimeError("flush boom")))
-        flusher = self.make_flusher(provider)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
             with caplog.at_level(logging.WARNING):
                 self.flush(flusher)
 
@@ -154,9 +154,9 @@ class ProviderFlushTestMixin:
 
     def test_close_logs_a_warning_when_force_flush_returns_false(self, caplog: pytest.LogCaptureFixture) -> None:
         provider = Mock(force_flush=Mock(return_value=False))
-        flusher = self.make_flusher(provider)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
             with caplog.at_level(logging.WARNING):
                 self.flush(flusher)
 
@@ -167,9 +167,9 @@ class ProviderFlushTestMixin:
             pass
 
         provider = _NoFlushProvider()
-        flusher = self.make_flusher(provider)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
             with caplog.at_level(logging.WARNING):
                 self.flush(flusher)
 
@@ -177,10 +177,10 @@ class ProviderFlushTestMixin:
 
     def test_close_timeout_override_is_honored(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
-        flusher = self.make_flusher(provider)
-        self._set_close_timeout(flusher, 5.0)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
+            self._set_close_timeout(flusher, 5.0)
             self.flush(flusher)
 
         provider.force_flush.assert_called_once_with(timeout_millis=5000)
@@ -189,11 +189,10 @@ class ProviderFlushTestMixin:
         """opentelemetry-sdk's BatchProcessor.force_flush(timeout_millis) currently ignores the timeout
         and exports synchronously; the flush must still return well under a second."""
         with blocking_flush_provider() as provider:
-            flusher = self.make_flusher(provider)
-            self._set_close_timeout(flusher, 0.1)
-
             start = time.monotonic()
             with self.provider_in_effect(provider):
+                flusher = self.make_flusher(provider)
+                self._set_close_timeout(flusher, 0.1)
                 with caplog.at_level(logging.WARNING):
                     still_running, outcome = call_with_join_timeout(lambda: self.flush(flusher), join_timeout=1.0)
             elapsed = time.monotonic() - start
@@ -207,10 +206,10 @@ class ProviderFlushTestMixin:
 
     def test_negative_close_timeout_calls_force_flush_with_no_args(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
-        flusher = self.make_flusher(provider)
-        self._set_close_timeout(flusher, -1.0)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
+            self._set_close_timeout(flusher, -1.0)
             self.flush(flusher)
 
         provider.force_flush.assert_called_once_with()
@@ -219,10 +218,10 @@ class ProviderFlushTestMixin:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
-        flusher = self.make_flusher(provider)
-        self._set_close_timeout(flusher, None)
 
         with self.provider_in_effect(provider):
+            flusher = self.make_flusher(provider)
+            self._set_close_timeout(flusher, None)
             with caplog.at_level(logging.WARNING):
                 self.flush(flusher)
 
@@ -233,7 +232,8 @@ class ProviderFlushTestMixin:
 class ProviderCloseTestMixin(ProviderFlushTestMixin):
     """close() contract for an extender that flushes one provider (constructor kwarg sink_noun()) within
     close_timeout. Reuses ExtenderContractTestMixin's extender_class, sink_noun, make_unconfigured_extender and
-    make_sdk_defaults_extender; adds ambient_provider_getter and flushed_signal. Must not import opentelemetry."""
+    make_sdk_defaults_extender; the flush cases and flushed_signal come from ProviderFlushTestMixin, this class
+    adds ambient_provider_getter. Must not import opentelemetry."""
 
     if TYPE_CHECKING:  # declared for mypy only, so the contract mixin's implementations are never shadowed
 

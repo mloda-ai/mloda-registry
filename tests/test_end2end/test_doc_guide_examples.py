@@ -167,16 +167,30 @@ def test_missing_partition_by_regression_is_rejected() -> None:
     assert "PandasAggregation" in problems[0]
 
 
+def _way_2_python_fences() -> list[str]:
+    section = _section(BACKEND_FAMILIES_GUIDE.read_text(encoding="utf-8"), WAY_2_HEADING, ("\n## ",))
+    return [m.group(2) for m in _FENCE_RE.finditer(section) if m.group(1) == "python"]
+
+
 @lru_cache(maxsize=1)
 def load_way_2_namespace() -> dict[str, Any]:
     """Run the first python block of the guide's Way 2 section and return its namespace."""
-    section = _section(BACKEND_FAMILIES_GUIDE.read_text(encoding="utf-8"), WAY_2_HEADING, ("\n## ",))
-    fence = next((m for m in _FENCE_RE.finditer(section) if m.group(1) == "python"), None)
-    assert fence is not None, "no python block found in the Way 2 section of the guide"
-    code = compile(fence.group(2), f"<{BACKEND_FAMILIES_GUIDE.name} Way 2>", "exec", dont_inherit=True)
+    fences = _way_2_python_fences()
+    assert fences, "no python block found in the Way 2 section of the guide"
+    code = compile(fences[0], f"<{BACKEND_FAMILIES_GUIDE.name} Way 2>", "exec", dont_inherit=True)
     namespace: dict[str, Any] = {"__name__": WAY_2_MODULE}
     exec(code, namespace)  # nosec
     return namespace
+
+
+def load_way_2_usage_feature() -> Feature:
+    """Evaluate the second python block of the Way 2 section (the usage expression) against its namespace."""
+    fences = _way_2_python_fences()
+    assert len(fences) >= 2, "the Way 2 section no longer has a second python block with the usage expression"
+    code = compile(fences[1], f"<{BACKEND_FAMILIES_GUIDE.name} Way 2 usage>", "eval", dont_inherit=True)
+    feature = eval(code, {**load_way_2_namespace(), "Feature": Feature})  # nosec
+    assert isinstance(feature, Feature), f"the Way 2 usage block no longer evaluates to a Feature: {feature!r}"
+    return feature
 
 
 def _way_2_siblings(namespace: dict[str, Any]) -> set[type[FeatureGroup]]:
@@ -187,13 +201,12 @@ def _way_2_siblings(namespace: dict[str, Any]) -> set[type[FeatureGroup]]:
     }
 
 
-def _resolve_way_2(group: dict[str, str]) -> tuple[dict[str, Any], Any]:
+def _resolve_way_2(feature: str | Feature) -> tuple[dict[str, Any], Any]:
     namespace = load_way_2_namespace()
     for name in ("Bm25Retriever", "FaissRetriever"):
         assert name in namespace, f"the Way 2 block no longer defines {name}"
     result = resolve_feature(
-        "retrieved_passages",
-        options=Options(group=group),
+        feature,
         plugin_collector=PluginCollector.enabled_feature_groups(_way_2_siblings(namespace)),
         compute_frameworks={PythonDictFramework},
     )
@@ -203,19 +216,24 @@ def _resolve_way_2(group: dict[str, str]) -> tuple[dict[str, Any], Any]:
 @pytest.mark.parametrize(
     "group, expected",
     [
-        ({"retrieve_backend": "faiss", "query_text": "cat"}, "FaissRetriever"),
         ({"retrieve_backend": "faiss"}, "FaissRetriever"),
         ({"retrieve_backend": "bm25"}, "Bm25Retriever"),
     ],
 )
 def test_way_2_discriminator_resolves_to_exactly_one_sibling(group: dict[str, str], expected: str) -> None:
-    namespace, result = _resolve_way_2(group)
+    namespace, result = _resolve_way_2(Feature("retrieved_passages", options=Options(group=group)))
     assert result.feature_group is namespace[expected], result.error
     assert result.candidates == [namespace[expected]]
 
 
+def test_way_2_guide_usage_line_resolves_to_exactly_one_sibling() -> None:
+    namespace, result = _resolve_way_2(load_way_2_usage_feature())
+    assert result.feature_group is namespace["FaissRetriever"], result.error
+    assert result.candidates == [namespace["FaissRetriever"]]
+
+
 def test_way_2_unknown_discriminator_value_resolves_to_nothing() -> None:
-    _, result = _resolve_way_2({"retrieve_backend": "fiass"})
+    _, result = _resolve_way_2(Feature("retrieved_passages", options=Options(group={"retrieve_backend": "fiass"})))
     assert result.feature_group is None
     assert result.candidates == []
     assert "No feature groups found" in str(result.error)

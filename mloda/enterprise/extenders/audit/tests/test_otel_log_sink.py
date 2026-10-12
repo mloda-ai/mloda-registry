@@ -29,8 +29,6 @@ from opentelemetry.sdk._logs import Logger as SdkLogger
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
 
-from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
-
 try:
     from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 except ImportError:  # SDKs that predate the rename only ship InMemoryLogExporter
@@ -42,6 +40,7 @@ except ImportError:  # SDKs that predate the rename only ship ConsoleLogExporter
     from opentelemetry.sdk._logs.export import ConsoleLogExporter as ConsoleLogRecordExporter
 
 import mloda.enterprise.extenders.audit as audit_package
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     IdentityRequiredError,

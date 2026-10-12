@@ -1043,6 +1043,8 @@ class TestProviderCloseTestMixinFailsABrokenExtender:
 class _FlushingProbe:
     """Not an Extender: flushes the ambient probe provider on flush(), the shape the log sink has."""
 
+    log = _FLUSH_PROBE_LOG
+
     def __init__(self) -> None:
         self.close_timeout = 1.0
 
@@ -1051,7 +1053,7 @@ class _FlushingProbe:
             type(self).__name__,
             _ambient_probe_provider,
             self.close_timeout,
-            log=_FLUSH_PROBE_LOG,
+            log=self.log,
             noun="the probe provider",
             signal="probes",
         )
@@ -1083,15 +1085,7 @@ class TestFlushingProbeProviderFlush(ProviderFlushTestMixin):
 
 
 class _OtherLoggerFlushingProbe(_FlushingProbe):
-    def flush(self) -> None:
-        flush_on_close(
-            type(self).__name__,
-            _ambient_probe_provider,
-            self.close_timeout,
-            log=logging.getLogger("mloda.testing.tests.other_flush_probe"),
-            noun="the probe provider",
-            signal="probes",
-        )
+    log = logging.getLogger("mloda.testing.tests.other_flush_probe")
 
 
 class _OtherLoggerProbeHost(TestFlushingProbeProviderFlush):
