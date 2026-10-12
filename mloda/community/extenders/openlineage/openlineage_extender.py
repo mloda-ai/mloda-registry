@@ -504,7 +504,9 @@ class OpenLineageExtender(Extender):
 
                 facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
             owners = self._dataset_owners.get((namespace, name))
-            if owners and context.data_access_identity_is_fallback is not True and "ownership" not in facets:
+            if "mlodaDataAccess" in facets:
+                facets.pop("ownership", None)
+            elif owners and "ownership" not in facets:
                 facets["ownership"] = ownership_dataset.OwnershipDatasetFacet(
                     owners=[ownership_dataset.Owner(name=owner) for owner in owners], producer=self.producer
                 )
@@ -749,7 +751,10 @@ def _normalize_dataset_owners(
         names = [value] if isinstance(value, str) else value
         if not isinstance(names, Sequence) or not all(isinstance(n, str) and n for n in names):
             raise ValueError("dataset_owners values must be a non-empty owner name or a sequence of non-empty names")
-        unique = tuple(dict.fromkeys(names))
+        stripped = [n.strip() for n in names]
+        if not all(stripped) or any("," in n for n in stripped):
+            raise ValueError("dataset_owners names must be non-empty after stripping and must not contain commas")
+        unique = tuple(dict.fromkeys(stripped))
         if not unique:
             raise ValueError("dataset_owners must not map a dataset to an empty owner list")
         normalized[key] = unique

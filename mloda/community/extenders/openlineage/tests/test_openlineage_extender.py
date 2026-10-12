@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 import weakref
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -564,6 +564,9 @@ class TestOpenLineageExtenderConstructorOptions:
             pytest.param({("s3://bucket", "a"): ["team:fraud", ""]}, id="empty_name_in_sequence"),
             pytest.param({("s3://bucket", "a"): [1]}, id="non_str_in_sequence"),
             pytest.param({("s3://bucket", "a"): []}, id="empty_owner_list"),
+            pytest.param({("s3://bucket", "a"): "  "}, id="whitespace_only_owner"),
+            pytest.param({("s3://bucket", "a"): ["team:fraud", "  "]}, id="whitespace_only_in_sequence"),
+            pytest.param({("s3://bucket", "a"): "team:a, team:b"}, id="owner_name_with_comma"),
         ],
     )
     def test_invalid_dataset_owners_raise_value_error(self, dataset_owners: Any) -> None:
@@ -2571,17 +2574,19 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         dataset_owners: Any,
         identities: list[str],
-        is_fallback: bool | None = None,
+        is_fallback: bool | None | Sequence[bool | None] = None,
     ) -> tuple[OpenLineageExtender, dict[tuple[str, str], Any]]:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client, dataset_namespace="custom-ds", dataset_owners=dataset_owners)
 
         def outer_func() -> str:
-            for identity in identities:
+            for position, identity in enumerate(identities):
                 inner = make_hook_context(
                     hook=ExtenderHook.INPUT_DATA_LOAD,
                     data_access_identity=identity,
-                    data_access_identity_is_fallback=is_fallback,
+                    data_access_identity_is_fallback=is_fallback[position]
+                    if isinstance(is_fallback, Sequence)
+                    else is_fallback,
                 )
                 with inner.activate():
                     extender(lambda: "loaded-data")
@@ -2599,6 +2604,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             pytest.param("team:fraud", ["team:fraud"], id="bare_str_is_one_owner"),
             pytest.param(["team:risk", "team:fraud", "team:risk"], ["team:risk", "team:fraud"], id="order_and_dedupe"),
             pytest.param(("team:fraud",), ["team:fraud"], id="tuple"),
+            pytest.param(" team:fraud ", ["team:fraud"], id="surrounding_whitespace_stripped"),
         ],
     )
     def test_mapped_input_dataset_carries_the_ownership_facet(
@@ -2624,6 +2630,34 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             ),
             pytest.param(
                 {("s3://bucket", "key.parquet"): "team:fraud"},
+                ["s3://bucket/key.parquet", "s3://bucket/key.parquet"],
+                (False, True),
+                {("s3://bucket", "key.parquet"): False},
+                id="mixed_real_then_fallback",
+            ),
+            pytest.param(
+                {("s3://bucket", "key.parquet"): "team:fraud"},
+                ["s3://bucket/key.parquet", "s3://bucket/key.parquet"],
+                (True, False),
+                {("s3://bucket", "key.parquet"): False},
+                id="mixed_fallback_then_real",
+            ),
+            pytest.param(
+                {("s3://bucket", "key.parquet"): "team:fraud"},
+                ["s3://bucket/key.parquet", "s3://bucket/key.parquet"],
+                (True, None),
+                {("s3://bucket", "key.parquet"): False},
+                id="mixed_fallback_then_unset",
+            ),
+            pytest.param(
+                {("s3://bucket", "key.parquet"): "team:fraud"},
+                ["s3://bucket/key.parquet", "s3://bucket/key.parquet"],
+                (None, True),
+                {("s3://bucket", "key.parquet"): False},
+                id="mixed_unset_then_fallback",
+            ),
+            pytest.param(
+                {("s3://bucket", "key.parquet"): "team:fraud"},
                 ["s3://bucket/key.parquet", "s3://bucket/other.parquet", "str"],
                 None,
                 {
@@ -2640,7 +2674,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         dataset_owners: Any,
         identities: list[str],
-        is_fallback: bool | None,
+        is_fallback: bool | None | Sequence[bool | None],
         expected: dict[tuple[str, str], bool],
     ) -> None:
         _, facets = self._owner_facets(ol_capture, dataset_owners, identities, is_fallback=is_fallback)
@@ -2801,6 +2835,15 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         facets = payload["inputs"][0]["facets"]
         assert facets["mlodaDataAccess"]["identityIsFallback"] is True
         assert facets["mlodaDeclared"]["attributes"] == {"license": "a"}
+
+    def test_reader_declared_owner_without_dataset_owners_emits_no_ownership_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        _, payload, _ = self._declared_payload(ol_capture, [{"mloda.owner": "team:x"}])
+
+        facets = payload["inputs"][0]["facets"]
+        assert "ownership" not in facets
+        assert facets["mlodaDeclared"]["attributes"] == {"mloda.owner": "team:x"}
 
     @pytest.mark.parametrize("flags", [(False, True), (True, False)], ids=["real_then_fallback", "fallback_then_real"])
     def test_any_fallback_load_of_an_identity_marks_the_one_input_dataset(
