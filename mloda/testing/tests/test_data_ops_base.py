@@ -5,9 +5,9 @@ from typing import Any, ClassVar
 
 import pyarrow as pa
 import pytest
-
 from mloda.provider import FeatureGroup, property_spec
 from mloda.user import Options
+
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
