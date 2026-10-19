@@ -164,8 +164,10 @@ def _processing_engine_facet(producer: str) -> processing_engine_run.ProcessingE
         engine_version = importlib.metadata.version("mloda")
     except importlib.metadata.PackageNotFoundError:
         return None
+    if not engine_version:
+        return None
     try:
-        adapter_version: str | None = importlib.metadata.version("mloda-community-openlineage")
+        adapter_version: str | None = importlib.metadata.version("mloda-community-openlineage") or None
     except importlib.metadata.PackageNotFoundError:
         adapter_version = None
     return processing_engine_run.ProcessingEngineRunFacet(
@@ -622,7 +624,7 @@ class OpenLineageExtender(Extender):
                         levels.get(name),
                         self.producer,
                     ),
-                    output_statistics,
+                    None if output_statistics is None else dict(output_statistics),
                 )
                 for name in context.feature_names
             ]

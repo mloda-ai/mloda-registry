@@ -380,7 +380,7 @@ Validation is reported only for a feature group that overrides `validate_input_f
 
 A failing validator is re-raised and marks every validated dataset `success=false`, because the failing one is unknown. Its message reaches neither the WARNING log (only the exception type does) nor an event.
 
-Validation runs carry the parent facet only, not the `mloda` or `mlodaStep` facet. Calculate runs carry both: `mloda` repeats the versions and framework of the community `mlodaStep`, writing `unknown` for a feature group version or framework that `mlodaStep` omits. Tie one to a calculate run through the job name and the run id.
+Validation runs carry the parent facet only, not the `mloda` or `mlodaStep` facet. Calculate runs carry both: `mloda` repeats the versions and framework of the community `mlodaStep`, writing `unknown` for a feature group version or framework that `mlodaStep` omits. Tie a validation run to its calculate run through the job name and the run id.
 
 Validate-output assertions ride on input datasets of the `<feature group>.validate_output_features` job, the only spec-legal home for `dataQualityAssertions`.
 
@@ -608,7 +608,7 @@ The mixin pins:
 - the calculate context's declared `input_features` become inputs too, on both COMPLETE and FAIL, so a host must report them
 - a START emit failure under warning-only mode never prevents the wrapped call from running
 - `run_all` emits exactly one parent START and one COMPLETE for the root job, and every step's parent runId equals that run id; the parent run carries the `mlodaPlan` facet with the plan id and structure hash and a `processingEngine` facet with the mloda version; a failing run gives FAIL; preparing once and running twice gives two parent runs with the same plan id and structure hash
-- a calculate step's runId equals `step_run_id(...)` (see [Run correlation](#run-correlation)); its events carry an `mlodaStep` run facet with the context's feature group version, plugin version and compute framework, and each COMPLETE output an `outputStatistics` facet with the context's `rows_out`
+- a calculate step's runId equals `step_run_id(...)` (see [Run correlation](#run-correlation)); its events carry an `mlodaStep` run facet with the context's feature group version, plugin version and compute framework, and each COMPLETE output an `outputStatistics` facet with the context's `rows_out` (a host that does not subclass `OpenLineageExtender` must emit these, the `processingEngine` facet and `mlodaPlan` too)
 - with a recording OpenTelemetry span current, the step's START and terminal events carry an `mlodaTrace` run facet with that span's ids, and none otherwise (see [Traces and lineage](12-export-telemetry.md#traces-and-lineage))
 
 Record the context's `data_access_identity`, not `args[0]`: a host that records the raw data access fails, and so does one that drops the identity, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, or `user:password@` in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.

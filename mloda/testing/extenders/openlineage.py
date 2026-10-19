@@ -888,8 +888,8 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             context = contexts_by_run_id[event.run.runId]
             step_facet = _run_facet(event, "mlodaStep")
             assert step_facet is not None, event.eventType
-            assert step_facet["featureGroupVersion"] == context.feature_group_version
-            assert step_facet["computeFramework"] == context.compute_framework_name
+            assert step_facet.get("featureGroupVersion") == context.feature_group_version
+            assert step_facet.get("computeFramework") == context.compute_framework_name
             assert step_facet.get("pluginVersion") == context.plugin_version
             if event.eventType == RunState.COMPLETE:
                 for output in json.loads(Serde.to_json(event))["outputs"]:

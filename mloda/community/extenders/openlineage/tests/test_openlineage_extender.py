@@ -1738,7 +1738,7 @@ class TestOpenLineageExtenderCompleteEvent:
         assert [f.name for f in str_schema.fields] == ["value_str"]
         assert [f.type for f in str_schema.fields] == ["string"]
 
-    @pytest.mark.parametrize("rows_out", [None, 3])
+    @pytest.mark.parametrize("rows_out", [None, 0, 3])
     def test_output_statistics_facet_carries_rows_out_only_when_known(
         self, rows_out: int | None, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -1758,6 +1758,17 @@ class TestOpenLineageExtenderCompleteEvent:
                 assert statistics is not None
                 assert statistics["rowCount"] == rows_out
                 assert statistics["_producer"] == transport.events[1].producer
+
+        if rows_out is None:
+            return
+        event_outputs = transport.events[1].outputs or []
+        assert len(event_outputs) == 2
+        first_facets = event_outputs[0].outputFacets
+        second_facets = event_outputs[1].outputFacets
+        assert first_facets is not None
+        assert second_facets is not None
+        first_facets["probe"] = first_facets["outputStatistics"]
+        assert "probe" not in second_facets
 
     def test_schema_facet_never_leaks_columns_outside_feature_names(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -2078,27 +2089,32 @@ class TestOpenLineageExtenderParentRun:
         assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
 
     @pytest.mark.parametrize(
-        ("missing", "has_facet", "adapter_version"),
+        ("broken", "has_facet", "adapter_present"),
         [
-            (None, True, importlib.metadata.version("mloda-community-openlineage")),
-            ("mloda-community-openlineage", True, None),
-            ("mloda", False, None),
+            pytest.param({}, True, True, id="installed"),
+            pytest.param({"mloda-community-openlineage": "raise"}, True, False, id="adapter-missing"),
+            pytest.param({"mloda-community-openlineage": "none"}, True, False, id="adapter-version-none"),
+            pytest.param({"mloda": "raise"}, False, True, id="mloda-missing"),
+            pytest.param({"mloda": "none"}, False, True, id="mloda-version-none"),
         ],
     )
     def test_root_events_carry_the_processing_engine_facet(
         self,
-        missing: str | None,
+        broken: dict[str, str],
         has_facet: bool,
-        adapter_version: str | None,
+        adapter_present: bool,
         monkeypatch: pytest.MonkeyPatch,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
     ) -> None:
         client, transport = ol_capture
         real_version = importlib.metadata.version
+        adapter_version = real_version("mloda-community-openlineage")
 
-        def version(name: str) -> str:
-            if name == missing:
+        def version(name: str) -> str | None:
+            if broken.get(name) == "raise":
                 raise importlib.metadata.PackageNotFoundError(name)
+            if broken.get(name) == "none":
+                return None
             return real_version(name)
 
         monkeypatch.setattr(importlib.metadata, "version", version)
@@ -2116,7 +2132,7 @@ class TestOpenLineageExtenderParentRun:
             engine = _run_facet(event, "processingEngine")
             assert engine["name"] == "mloda"
             assert engine["version"] == real_version("mloda")
-            assert engine.get("openlineageAdapterVersion") == adapter_version
+            assert engine.get("openlineageAdapterVersion") == (adapter_version if adapter_present else None)
             assert engine["_producer"] == extender.producer
 
     def test_run_complete_without_an_emitted_start_emits_nothing(
@@ -3594,12 +3610,15 @@ class TestOpenLineageExtenderRunAll:
         assert steps
         for event in steps:
             assert "mlodaStep" in event["run"]["facets"]
+            assert event["run"]["facets"]["parent"]["run"]["runId"] == root[0]["run"]["runId"]
         completed = [e for e in steps if e["eventType"] == "COMPLETE"]
         assert completed
         for event in completed:
             assert event["outputs"]
             for output in event["outputs"]:
-                assert isinstance(output["outputFacets"]["outputStatistics"]["rowCount"], int)
+                assert output["outputFacets"]["outputStatistics"]["rowCount"] == len(
+                    PyArrowDataOpsTestDataCreator.create()
+                )
 
 
 def _breaker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
