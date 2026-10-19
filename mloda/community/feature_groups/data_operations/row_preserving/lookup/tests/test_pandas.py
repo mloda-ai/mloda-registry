@@ -14,7 +14,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.pandas
     PandasLookup,
 )
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     EmptyMappingHook,
     LookupTestBase,
@@ -41,9 +44,9 @@ class TestPandasLookup(PandasTestMixin, LookupTestBase):
     def typed_null_source_becomes_untyped(cls) -> bool:
         return True
 
-    def create_int_source(self, values: list[int | None]) -> Any:
-        # The arrow fixture turns int64 with nulls into lossy float64, so build nullable Int64 directly.
-        return pd.DataFrame({"v": pd.Series(values, dtype="Int64")})
+    @classmethod
+    def int_with_nulls_becomes_float(cls) -> bool:
+        return True
 
     @classmethod
     def hook_implementation_class(cls) -> Any:
@@ -52,6 +55,18 @@ class TestPandasLookup(PandasTestMixin, LookupTestBase):
     @classmethod
     def invalid_hook_implementation_class(cls) -> Any:
         return _EmptyMappingLookup
+
+
+class TestPandasLookupNullableInt(PandasNullableIntTestMixin, TestPandasLookup):
+    """Runs the lookup suite on nullable pandas int columns."""
+
+    @classmethod
+    def typed_null_source_becomes_untyped(cls) -> bool:
+        return False
+
+    @classmethod
+    def int_with_nulls_becomes_float(cls) -> bool:
+        return False
 
 
 class TestPandasDivergences:

@@ -428,7 +428,7 @@ regression_test:
 - **Operations**: `lookup`.
 - **Where it lives**: `_source_family` and `_compute_lookup` in `mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py`.
 - **Reference behavior**: PyArrow keys on the column type: a float column is never an int-key source, and an all-null float column with str keys raises `ValueError`.
-- **Native pandas behavior**: Pandas stores an int column with nulls as float64, so the type alone cannot tell it from a float column.
+- **Native pandas behavior**: Pandas stores an int column with nulls as float64, so the type alone cannot tell it from a float column. A nullable `Int64` column keeps its type and maps large ints exactly (`TestPandasLookupNullableInt`).
 - **Mitigation kind**: Accepted divergence.
 - **How**: A float64 source whose non-null values are all finite, integral and within int64 counts as int keys; ints beyond float64 precision are not exact. Fractional values and inf are rejected. An all-null float64 source, or an object column with no non-null values, is untyped: it skips the key-family check and yields all nulls.
 - **Regression signal**: The listed tests (four `TestPandasDivergences` plus the inherited `test_untyped_all_null_source` for the object column) pin each branch; widening or narrowing the int classification fails them.
@@ -466,7 +466,7 @@ regression_test:
 
 - **Operations**: `lookup`.
 - **Reference behavior**: A typed all-null column is still checked, so str keys on an int64 column raise `ValueError`.
-- **Native pandas behavior**: A typed all-null int64 column arrives as all-NaN float64.
+- **Native pandas behavior**: A typed all-null int64 column arrives as all-NaN float64. A nullable `Int64` all-null column keeps its type and is checked like the reference (`TestPandasLookupNullableInt`).
 - **Mitigation kind**: Accepted divergence.
 - **How**: The column is treated as untyped and yields all nulls.
 - **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output via `typed_null_source_becomes_untyped()`.

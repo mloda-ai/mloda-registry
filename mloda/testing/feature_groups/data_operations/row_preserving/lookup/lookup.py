@@ -168,7 +168,12 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def typed_null_source_becomes_untyped(cls) -> bool:
-        """True if an all-null int64 column loses its type in the fixture (pandas, python dict)."""
+        """True if an all-null int64 column loses its type in the fixture (pandas float64 fixture, python dict)."""
+        return False
+
+    @classmethod
+    def int_with_nulls_becomes_float(cls) -> bool:
+        """True if the fixture stores an int64 column with nulls as float64 (pandas)."""
         return False
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -470,10 +475,6 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
         assert_values_with_nulls(col, null_expected if policy == "null" else keep_expected, nan_is_null=True)
 
-    def create_int_source(self, values: list[int | None]) -> Any:
-        """Single int64 column ``v``; frameworks whose fixture is lossy for nulls override this."""
-        return self.create_test_data(pa.table({"v": pa.array(values, type=pa.int64())}))
-
     @pytest.mark.parametrize(
         ("policy", "mapping", "expected"),
         [
@@ -483,7 +484,9 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         ],
     )
     def test_large_int_keys_map_exactly(self, policy: str, mapping: dict[Any, Any], expected: list[Any]) -> None:
-        table = self.create_int_source([2**60, 2**60 + 1, None])
+        if self.int_with_nulls_becomes_float():
+            pytest.skip("fixture stores int64 with nulls as float64, which cannot hold 2**60 + 1")
+        table = self.create_test_data(pa.table({"v": pa.array([2**60, 2**60 + 1, None], type=pa.int64())}))
         col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
         assert col == expected
 
