@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.python_dict_lookup import (
     PythonDictLookup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     EmptyMappingHook,
@@ -31,9 +35,19 @@ class TestPythonDictLookup(PythonDictTestMixin, LookupTestBase):
         return PythonDictLookup
 
     @classmethod
+    def typed_null_source_becomes_untyped(cls) -> bool:
+        return True
+
+    @classmethod
     def hook_implementation_class(cls) -> Any:
         return PythonDictNutsLookup
 
     @classmethod
     def invalid_hook_implementation_class(cls) -> Any:
         return _EmptyMappingLookup
+
+    def test_out_of_range_int_in_column_rejected(self) -> None:
+        fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="keep")
+        with pytest.raises(ValueError, match="'v'") as excinfo:
+            PythonDictLookup.calculate_feature({"v": [1, 2**70, None]}, fs)
+        assert not isinstance(excinfo.value, LookupUnmatchedError)

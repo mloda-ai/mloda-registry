@@ -35,6 +35,10 @@ class TestDuckdbLookup(DuckdbTestMixin, LookupTestBase):
         return DuckdbLookup
 
     @classmethod
+    def untyped_null_source_becomes_int(cls) -> bool:
+        return True
+
+    @classmethod
     def hook_implementation_class(cls) -> Any:
         return DuckdbNutsLookup
 

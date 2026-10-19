@@ -161,6 +161,16 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         """The module-level ``EmptyMappingHook`` subclass for this framework, or None to skip."""
         return None
 
+    @classmethod
+    def untyped_null_source_becomes_int(cls) -> bool:
+        """True if the fixture turns an Arrow null-typed column into an integer column (DuckDB)."""
+        return False
+
+    @classmethod
+    def typed_null_source_becomes_untyped(cls) -> bool:
+        """True if an all-null int64 column loses its type in the fixture (pandas, python dict)."""
+        return False
+
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
@@ -182,7 +192,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
-        return {"__mloda_rn__", "__mloda_rn"}
+        return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_lk0__", "__mloda_lv0__"}
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
@@ -468,18 +478,46 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         err = excinfo.value
         assert (err.unmatched_rows, err.distinct_keys, err.sample) == (1, 1, (2,))
 
-    def test_uint64_above_int64_is_rejected_or_exact(self) -> None:
+    @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
+    def test_uint64_above_int64_is_rejected(self, policy: str) -> None:
         big = 2**63 + 5
         try:
             table = self.create_test_data(pa.table({"v": pa.array([1, big, None], type=pa.uint64())}))
         except OverflowError:
             pytest.skip("framework cannot hold uint64 values above int64")
-        try:
-            result = self._run("v__lookup", {1: 10}, "keep", data=table)
-        except ValueError:
+        with pytest.raises(ValueError) as excinfo:
+            self._run("v__lookup", {1: 10}, policy, data=table)
+        assert not isinstance(excinfo.value, LookupUnmatchedError)
+
+    # -- All-null sources ---------------------------------------------------------
+
+    @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
+    @pytest.mark.parametrize(
+        "mapping",
+        [pytest.param(PARTIAL_STR_MAP, id="str_keys"), pytest.param(PARTIAL_INT_MAP, id="int_keys")],
+    )
+    def test_untyped_all_null_source(self, mapping: dict[Any, Any], policy: str) -> None:
+        table = self.create_test_data(pa.table({"v": pa.array([None, None, None])}))
+        if self.untyped_null_source_becomes_int() and isinstance(next(iter(mapping)), str):
+            with pytest.raises(ValueError) as excinfo:
+                self._run("v__lookup", mapping, policy, data=table)
+            assert not isinstance(excinfo.value, LookupUnmatchedError)
             return
-        col = self.extract_column(result, "v__lookup")
-        assert [None if v is None else int(v) for v in col] == [10, big, None]
+        result = self._run("v__lookup", mapping, policy, data=table)
+        assert self.get_row_count(result) == 3
+        assert_values_with_nulls(self.extract_column(result, "v__lookup"), [None, None, None], nan_is_null=True)
+
+    @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
+    def test_typed_all_null_source_checks_key_family(self, policy: str) -> None:
+        table = self.create_test_data(pa.table({"v": pa.array([None, None, None], type=pa.int64())}))
+        if self.typed_null_source_becomes_untyped():
+            result = self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
+            assert self.get_row_count(result) == 3
+            assert_values_with_nulls(self.extract_column(result, "v__lookup"), [None, None, None], nan_is_null=True)
+            return
+        with pytest.raises(ValueError, match="'v'") as excinfo:
+            self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
+        assert not isinstance(excinfo.value, LookupUnmatchedError)
 
     # -- Hook path --------------------------------------------------------------
 
@@ -520,7 +558,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         if hook is None:
             pytest.skip("no invalid hook subclass declared for this framework")
         fs = make_feature_set("product_code__emptymap", on_unmatched="null")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid lookup mapping"):
             hook.calculate_feature(self.test_data, fs)
 
     def test_hook_reasons_in_error(self) -> None:

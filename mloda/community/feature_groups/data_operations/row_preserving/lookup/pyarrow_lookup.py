@@ -14,10 +14,18 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    value_family,
 )
 
+ARROW_VALUE_TYPES: dict[str, pa.DataType] = {
+    "str": pa.string(),
+    "int": pa.int64(),
+    "float": pa.float64(),
+    "bool": pa.bool_(),
+}
 
-def _source_family(arrow_type: pa.DataType) -> str:
+
+def arrow_source_family(arrow_type: pa.DataType) -> str:
     if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
         return "str"
     # uint64 cannot be compared at int64 width.
@@ -44,7 +52,9 @@ class PyArrowLookup(LookupFeatureGroup):
         reasons: Mapping[Any, str],
     ) -> pa.Table:
         source = data.column(source_col)
-        assert_key_family(feature_name, source_col, mapping, _source_family(source.type), str(source.type))
+        if pa.types.is_null(source.type):
+            return data.append_column(feature_name, pa.nulls(len(source), ARROW_VALUE_TYPES[value_family(mapping)]))
+        assert_key_family(feature_name, source_col, mapping, arrow_source_family(source.type), str(source.type))
 
         values = pa.array(list(mapping.values()))
         # Compare ints at int64 width so keys outside the source width never match.

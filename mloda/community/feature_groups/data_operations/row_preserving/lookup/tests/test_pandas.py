@@ -38,6 +38,10 @@ class TestPandasLookup(PandasTestMixin, LookupTestBase):
         return PandasLookup
 
     @classmethod
+    def typed_null_source_becomes_untyped(cls) -> bool:
+        return True
+
+    @classmethod
     def hook_implementation_class(cls) -> Any:
         return PandasNutsLookup
 
@@ -69,3 +73,13 @@ class TestPandasDivergences:
         fs = make_feature_set("v__lookup", lookup_mapping={1: "one"}, on_unmatched="null")
         with pytest.raises(ValueError, match="'v'"):
             PandasLookup.calculate_feature(pd.DataFrame({"v": [float("inf"), 1.0]}), fs)
+
+    def test_object_column_with_out_of_range_int_rejected(self) -> None:
+        fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="null")
+        with pytest.raises(ValueError, match="'v'"):
+            PandasLookup.calculate_feature(pd.DataFrame({"v": pd.Series([1, 2**70, None], dtype=object)}), fs)
+
+    def test_object_all_none_column_yields_nulls(self) -> None:
+        fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="null")
+        result = PandasLookup.calculate_feature(pd.DataFrame({"v": pd.Series([None, None], dtype=object)}), fs)
+        assert result["v__lookup"].isna().tolist() == [True, True]

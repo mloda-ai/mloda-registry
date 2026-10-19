@@ -20,7 +20,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 _VALUE_DTYPES: dict[str, str] = {"str": "object", "int": "Int64", "float": "float64", "bool": "boolean"}
 
 
-def _source_family(series: pd.Series) -> str:
+def _source_family(series: pd.Series) -> str | None:
+    """``str``, ``int`` or ``other``; None when an object column holds no non-null values."""
     dtype = series.dtype
     if str(dtype).lower() == "uint64":
         return "other"
@@ -33,7 +34,11 @@ def _source_family(series: pd.Series) -> str:
         return "int" if integral and bool((values.abs() < 2**63).all()) else "other"
     if pd.api.types.is_object_dtype(dtype):
         inferred = pd.api.types.infer_dtype(series, skipna=True)
-        return {"string": "str", "empty": "str", "integer": "int"}.get(inferred, "other")
+        if inferred == "empty":
+            return None
+        if inferred == "integer":
+            return "int" if bool(series.dropna().between(-(2**63), 2**63 - 1).all()) else "other"
+        return "str" if inferred == "string" else "other"
     if pd.api.types.is_string_dtype(dtype):
         return "str"
     return "other"
@@ -58,6 +63,9 @@ class PandasLookup(LookupFeatureGroup):
     ) -> pd.DataFrame:
         source = data[source_col]
         family = _source_family(source)
+        if family is None:
+            empty = pd.Series(None, index=data.index, dtype=_VALUE_DTYPES[value_family(mapping)])
+            return data.assign(**{feature_name: empty})
         if not (source.isna().all() and pd.api.types.is_float_dtype(source.dtype)):
             assert_key_family(feature_name, source_col, mapping, family, str(source.dtype))
         if family == "int":

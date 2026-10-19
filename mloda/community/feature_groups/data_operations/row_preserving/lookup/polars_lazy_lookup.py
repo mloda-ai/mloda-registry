@@ -13,7 +13,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    value_family,
 )
+
+_VALUE_DTYPES: dict[str, pl.DataType] = {
+    "str": pl.String(),
+    "int": pl.Int64(),
+    "float": pl.Float64(),
+    "bool": pl.Boolean(),
+}
 
 
 def _source_family(dtype: pl.DataType) -> str:
@@ -43,6 +51,9 @@ class PolarsLazyLookup(LookupFeatureGroup):
         reasons: Mapping[Any, str],
     ) -> pl.LazyFrame:
         source_dtype = data.collect_schema()[source_col]
+        if source_dtype == pl.Null:
+            null_column = pl.lit(None, dtype=_VALUE_DTYPES[value_family(mapping)])
+            return data.with_columns(null_column.alias(feature_name))
         assert_key_family(feature_name, source_col, mapping, _source_family(source_dtype), str(source_dtype))
 
         values = pl.Series(list(mapping.values()))

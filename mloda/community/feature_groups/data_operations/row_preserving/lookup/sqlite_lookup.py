@@ -16,9 +16,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    value_family,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
-    _source_family,
+    ARROW_VALUE_TYPES,
+    arrow_source_family,
 )
 
 
@@ -38,6 +40,25 @@ class SqliteLookup(LookupFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
+    def _null_result(
+        cls,
+        data: SqliteRelation,
+        original_cols: list[str],
+        original_types: list[pa.DataType],
+        feature_name: str,
+        mapping: Mapping[Any, Any],
+    ) -> SqliteRelation:
+        out_table = f"_lookup_out_{uuid.uuid4().hex}"
+        select_cols = ", ".join(quote_ident(c) for c in original_cols)
+        data.connection.execute(
+            f"CREATE TEMP TABLE {quote_ident(out_table)} AS "  # nosec
+            f"SELECT {select_cols}, NULL AS {quote_ident(feature_name)} FROM {quote_ident(data.table_name)} "
+            f"ORDER BY rowid"
+        )
+        value_type = ARROW_VALUE_TYPES[value_family(mapping)]
+        return SqliteRelation(data.connection, out_table, _types=[*original_types, value_type])
+
+    @classmethod
     def _compute_lookup(
         cls,
         data: SqliteRelation,
@@ -50,7 +71,9 @@ class SqliteLookup(LookupFeatureGroup):
         original_cols = list(data.columns)
         original_types = list(data.types)
         source_type = original_types[original_cols.index(source_col)]
-        assert_key_family(feature_name, source_col, mapping, _source_family(source_type), str(source_type))
+        if pa.types.is_null(source_type):
+            return cls._null_result(data, original_cols, original_types, feature_name, mapping)
+        assert_key_family(feature_name, source_col, mapping, arrow_source_family(source_type), str(source_type))
 
         conn = data.connection
         key_type = pa.array(list(mapping.keys())).type

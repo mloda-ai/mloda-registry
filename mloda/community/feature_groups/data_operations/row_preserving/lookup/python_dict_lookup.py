@@ -20,7 +20,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 def _source_family(values: list[Any]) -> str | None:
     """``str``, ``int`` or ``other`` from the non-null values; None when the column has none."""
     families = {
-        "str" if isinstance(v, str) else "int" if isinstance(v, int) and not isinstance(v, bool) else "other"
+        "str"
+        if isinstance(v, str)
+        else "int"
+        if isinstance(v, int) and not isinstance(v, bool) and -(2**63) <= v < 2**63
+        else "other"
         for v in values
         if v is not None
     }
