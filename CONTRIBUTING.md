@@ -8,7 +8,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 ### Prerequisites
 
-- Python 3.10 or higher (tested on 3.10, 3.11, 3.12, 3.13)
+- Python 3.10 or higher (tested on 3.10, 3.11, 3.12, 3.13, 3.14)
 - [uv](https://docs.astral.sh/uv/) for dependency management
 - [tox](https://tox.wiki/) as the test runner (installed via uv)
 
