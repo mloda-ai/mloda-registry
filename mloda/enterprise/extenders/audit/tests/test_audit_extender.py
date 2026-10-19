@@ -4909,7 +4909,7 @@ class TestAuditExtenderClassificationRunAll:
         ]
         assert sink.records[0]["feature_names"] == ["alpha"]
 
-    def test_a_refused_reader_in_global_scope_writes_one_deny_record_per_refused_feature_for_a_run_that_succeeds_via_a_sibling(
+    def test_a_refused_global_scope_reader_writes_a_deny_record_per_feature_when_a_sibling_serves_the_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
@@ -4930,8 +4930,10 @@ class TestAuditExtenderClassificationRunAll:
 
         assert results
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        assert {(r["hook"], r["reader_class"]) for r in denies} == {("INPUT_DATA_MATCH", _qualname(ParquetReader))}
-        assert sorted(r["feature_names"] for r in denies) == [["alpha"], ["beta"]]
+        assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=lambda t: t[2]) == [
+            ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["alpha"]),
+            ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["beta"]),
+        ]
 
     @pytest.mark.parametrize(("gate_readers", "allowed"), [(False, True), (True, False)])
     def test_a_masked_derivative_of_a_reader_declared_pii_source_needs_gate_readers_off(
