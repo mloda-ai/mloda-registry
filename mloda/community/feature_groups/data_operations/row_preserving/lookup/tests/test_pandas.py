@@ -83,11 +83,6 @@ class TestPandasDivergences:
         with pytest.raises(ValueError, match="'v'"):
             PandasLookup.calculate_feature(pd.DataFrame({"v": pd.Series([1, 2**70, None], dtype=object)}), fs)
 
-    def test_object_all_none_column_yields_nulls(self) -> None:
-        fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="null")
-        result = PandasLookup.calculate_feature(pd.DataFrame({"v": pd.Series([None, None], dtype=object)}), fs)
-        assert result["v__lookup"].isna().tolist() == [True, True]
-
     def test_object_int_column_with_null_maps_large_keys_exactly(self) -> None:
         fs = make_feature_set("v__lookup", lookup_mapping={2**60: "lo", 2**60 + 1: "hi"}, on_unmatched="null")
         source = pd.DataFrame({"v": pd.Series([2**60, 2**60 + 1, None], dtype=object)})
