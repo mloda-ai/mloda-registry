@@ -178,7 +178,7 @@ _STEP_CHANGES: list[Any] = [
     pytest.param(
         None,
         lambda e: _facets(e)["mlodaStep"].update(pluginVersion="p2"),
-        {"pluginVersion": (None, "p2")},
+        {"pluginVersion": (_RECORDED, "p2")},
         id="pluginVersion",
     ),
     pytest.param(
@@ -230,14 +230,12 @@ class TestRunDiffStepChanges:
 
         assert (recorded, other) == snapshots
         assert set(found) == set(expected)
-        recorded_version = _facets(next(e for e in recorded if e["job"]["name"].endswith(_PLUS_ONE)))["mlodaStep"][
-            "featureGroupVersion"
-        ]
+        recorded_step = _facets(next(e for e in recorded if e["job"]["name"].endswith(_PLUS_ONE)))["mlodaStep"]
         for field, (before, after) in expected.items():
             change = found[field]
             assert change.step is not None
             assert _PLUS_ONE in str(change.step)
-            assert (change.before, change.after) == (recorded_version if before is _RECORDED else before, after)
+            assert (change.before, change.after) == (recorded_step.get(field) if before is _RECORDED else before, after)
 
     def test_a_flipped_identity_fallback_flag_is_a_loaded_dataset_change(self, recorded: Events) -> None:
         before = _variant(recorded, _add_dataset_input(False), job=_PLUS_ONE, kind="COMPLETE")
