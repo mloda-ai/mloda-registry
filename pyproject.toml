@@ -32,7 +32,7 @@ dev = [
     "duckdb",
     "pandas",
     "polars",
-    "pyarrow",
+    "pyarrow>=14.0.1",
     # Deliberate: exercises the pytz-style tzinfo path in cross-framework DST tests
     # explicitly, rather than leaving it to whatever pyarrow's ambient dependency set produces.
     "pytz",
