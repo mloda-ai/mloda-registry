@@ -91,7 +91,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
     PARTITION_BY = "partition_by"
 
     PROPERTY_MAPPING = {
-        # deferred_binding stays True: see _validate_percentile_name_agreement for why.
+        # deferred_binding stays True: name has a pN percent token, option is a 0.0-1.0 fraction; binding is by hand.
         PERCENTILE: property_spec(
             "Percentile value (float between 0.0 and 1.0)",
             strict=True,
@@ -170,7 +170,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
 
     @classmethod
     def _validate_percentile_name_agreement(cls, feature_name: Any, options: Any, resolved_percentile: float) -> None:
-        """Reject an own or forwarded ``percentile`` that contradicts the name-parsed value."""
+        """Reject an own or forwarded ``percentile`` that contradicts the name (a typed pre-check: core compares strings)."""
         declared = options.get(cls.PERCENTILE)
         if declared is None or _unit_percentile(declared) == resolved_percentile:
             return

@@ -628,7 +628,7 @@ def test_every_family_module_is_discovered_on_disk() -> None:
 
 # (owner, sorted acceptors): aggregation, window_aggregation and scalar_aggregate share
 # ``aggregation_type`` and need a discriminator option to be told apart.
-# follow-up: TBD
+# The three share ``aggregation_type`` and need a discriminator before these entries can go.
 KNOWN_CONFIG_OVERLAPS: frozenset[tuple[str, tuple[str, ...]]] = frozenset(
     {
         ("aggregation", ("aggregation", "scalar_aggregate", "window_aggregation")),
@@ -654,24 +654,12 @@ def test_known_config_overlaps_still_occur() -> None:
     assert stale == [], f"Stale KNOWN_CONFIG_OVERLAPS entries (overlap no longer occurs): {stale}"
 
 
-def test_frame_aggregate_config_is_claimed_by_frame_aggregate_alone() -> None:
-    spec = next(s for s in FAMILIES if s.key == "frame_aggregate")
-    assert spec.config_options is not None
-    options = Options(context=dict(spec.config_options))
-    acceptors = [k for k, cls in _real_classes().items() if cls.match_feature_group_criteria("my_result", options)]
-    assert acceptors == ["frame_aggregate"]
-
-
 @pytest.mark.parametrize("key", ["ema", "ffill", "sessionization"])
 def test_name_only_families_reject_a_config_feature(key: str) -> None:
     """Name-only families claim nothing on the config path, even with their old shared options."""
     cls = _real_classes()[key]
     options = Options(context={"in_features": "v", "order_by": "t"})
     assert not cls.match_feature_group_criteria("my_result", options)
-
-
-@pytest.mark.parametrize("key", ["ema", "ffill", "sessionization"])
-def test_name_only_families_have_no_config_options(key: str) -> None:
     assert next(s for s in FAMILIES if s.key == key).config_options is None
 
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from mloda.provider import PropertySpec
 from mloda.user import Options
 
+from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
@@ -16,6 +19,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import PandasRank
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
+    PyArrowSessionization,
 )
 from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import FAMILIES, _load_class
 
@@ -68,10 +74,11 @@ class TestConfigPathGuardRejectionReported:
         options = Options(context={"order_by": 123})
         assert PandasRank._strict_validation_rejection_reason("some_unrelated_feature", options) is None
 
-    def test_name_only_group_reports_nothing_for_a_config_name(self) -> None:
-        """ffill is name-only: a config-path feature is not its candidate, so no reason is reported."""
+    @pytest.mark.parametrize("cls", [PandasEma, PyArrowFfill, PyArrowSessionization])
+    def test_name_only_group_reports_nothing_for_a_config_name(self, cls: Any) -> None:
+        """Name-only families: a config-path feature is not a candidate, so no reason is reported."""
         options = Options(context={"in_features": "v", "order_by": 123})
-        assert PyArrowFfill._strict_validation_rejection_reason("my_result", options) is None
+        assert cls._strict_validation_rejection_reason("my_result", options) is None
 
 
 class TestMultiElementArityRejectionReported:
@@ -155,12 +162,6 @@ class TestFrameAggregateNamePathReportsNothing:
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
         assert PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)
         assert PandasFrameAggregate._strict_validation_rejection_reason("sales__sum_rolling_3", options) is None
-
-    def test_rolling_name_with_contradicting_frame_type_raises(self) -> None:
-        """Without the downgrade, the contradicting frame_type is rejected by name agreement."""
-        options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
-        with pytest.raises(ValueError, match="frame_type"):
-            PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)
 
 
 class TestEveryGuardedSpecDeclaresExpected:

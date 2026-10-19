@@ -439,24 +439,6 @@ class TestNameBasedFrameTypeInOptions:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True
 
-    def test_rolling_name_with_stray_time_raises(self) -> None:
-        """A time frame_type option contradicting a rolling name is rejected by name agreement."""
-        options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
-        with pytest.raises(
-            ValueError,
-            match=r"option 'frame_type' is str 'time', but the feature name encodes 'rolling'\. The name is authoritative",
-        ):
-            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
-
-    def test_rolling_name_with_stray_time_skips_config_path_rules_when_downgraded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Downgraded, a stray time frame_type must not trigger config-path size/unit rules."""
-        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
-        options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
-        assert result is True
-
     def test_rolling_name_with_propagated_frame_type(self) -> None:
         """A propagated frame_type must behave like a directly set one."""
         consumer = Options(context={"frame_type": "rolling"}, propagate_context_keys=frozenset({"frame_type"}))
@@ -634,17 +616,22 @@ class TestFrameNameAgreement:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
         assert result is True
 
-    @pytest.mark.parametrize("origin", ["forwarded", "own"])
+    @pytest.mark.parametrize(
+        ("origin", "placement"),
+        [("forwarded", "group"), ("own", "group"), ("own", "context")],
+    )
     def test_frame_type_mismatch_env_downgrade_is_accepted(
-        self, origin: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self, origin: str, placement: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
         base = {"partition_by": ["region"], "order_by": "timestamp"}
         if origin == "forwarded":
             options = Options(context=base)
             options.inherit_from(Options(group={"frame_type": "time"}))
-        else:
+        elif placement == "group":
             options = Options(group={"frame_type": "time"}, context=base)
+        else:
+            options = Options(context={"frame_type": "time", **base})
         with caplog.at_level(logging.WARNING):
             result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is True

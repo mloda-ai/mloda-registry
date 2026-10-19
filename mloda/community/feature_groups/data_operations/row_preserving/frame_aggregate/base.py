@@ -247,8 +247,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             },
             match_guard=is_op_token,
             expected=OP_TOKEN_EXPECTED,
-            # A frame name carries its own type via _parse_frame_feature, not a named capture; see
-            # _validate_frame_name_agreement for the name-agreement protection this restores.
+            # frame_type is inferred from which pattern shape matched, not captured text, so the binding is built by hand.
             deferred_binding=True,
         ),
         FRAME_SIZE: property_spec(
