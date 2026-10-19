@@ -152,9 +152,19 @@ def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
             featureGroupVersion=context.feature_group_version,
             pluginVersion=context.plugin_version,
             computeFramework=context.compute_framework_name,
+            featureNames=sorted(context.feature_names),
             producer=producer,
         )
     }
+
+
+def _requested_features(steps: Any) -> list[str] | None:
+    """Sorted union of the requested feature names of the compute steps, None when there are none."""
+    names: set[str] = set()
+    for step in steps or ():
+        if step.step_kind == "compute":
+            names.update(step.requested_feature_names or ())
+    return sorted(names) or None
 
 
 def _processing_engine_facet(producer: str) -> processing_engine_run.ProcessingEngineRunFacet | None:
@@ -265,7 +275,7 @@ class OpenLineageExtender(Extender):
         self._finalizer: weakref.finalize[..., Any] | None = None
         self._tripped_runs: dict[str, float] = {}
         self._started_runs: set[str] = set()
-        self._plans: dict[str, PlanContext] = {}
+        self._plans: dict[str, tuple[PlanContext, list[str] | None]] = {}
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -391,7 +401,14 @@ class OpenLineageExtender(Extender):
             raise
         return True
 
-    def _parent_event(self, state: RunState, run: RunContext, plan: PlanContext | None, event_time: str) -> RunEvent:
+    def _parent_event(
+        self,
+        state: RunState,
+        run: RunContext,
+        plan: PlanContext | None,
+        event_time: str,
+        requested: list[str] | None = None,
+    ) -> RunEvent:
         assert run.run_id is not None
         facets: dict[str, Any] = {}
         if plan is not None and plan.plan_id is not None:
@@ -399,7 +416,11 @@ class OpenLineageExtender(Extender):
             from mloda.community.extenders.openlineage._facets import MlodaPlanRunFacet
 
             facets["mlodaPlan"] = MlodaPlanRunFacet(
-                planId=plan.plan_id, structureHash=plan.structure_hash, origin=plan.origin, producer=self.producer
+                planId=plan.plan_id,
+                structureHash=plan.structure_hash,
+                origin=plan.origin,
+                requestedFeatures=requested,
+                producer=self.producer,
             )
         if self._parent is not None:
             namespace, name, parent_run_id = self._parent
@@ -428,7 +449,10 @@ class OpenLineageExtender(Extender):
             return
         started_at = run.started_at.isoformat() if run.started_at is not None else _now_iso()
         try:
-            emitted = self._emit(self._parent_event(RunState.START, run, plan, started_at), run_id=run.run_id)
+            requested = _requested_features(steps)
+            emitted = self._emit(
+                self._parent_event(RunState.START, run, plan, started_at, requested), run_id=run.run_id
+            )
         except Exception as exc:
             if self.raise_on_error:
                 raise
@@ -437,7 +461,7 @@ class OpenLineageExtender(Extender):
         if emitted:
             with self._client_lock:
                 self._started_runs.add(run.run_id)
-            self._plans[run.run_id] = plan
+            self._plans[run.run_id] = (plan, requested)
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         if run.run_id is None:
@@ -447,9 +471,9 @@ class OpenLineageExtender(Extender):
                 started = run.run_id in self._started_runs
             if started:
                 state = {"succeeded": RunState.COMPLETE, "failed": RunState.FAIL}.get(outcome.status, RunState.ABORT)
-                plan = self._plans.get(run.run_id)
+                plan, requested = self._plans.get(run.run_id, (None, None))
                 try:
-                    self._emit(self._parent_event(state, run, plan, _now_iso()), run_id=run.run_id)
+                    self._emit(self._parent_event(state, run, plan, _now_iso(), requested), run_id=run.run_id)
                 except Exception as exc:
                     if self.raise_on_error:
                         raise

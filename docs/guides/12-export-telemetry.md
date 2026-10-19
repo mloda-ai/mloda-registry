@@ -222,8 +222,8 @@ OpenLineageExtender(use_sdk_defaults=True)
 
 Each line is one event. Per run:
 
-- **Root run** (job `mloda.run_all`, runId = `mloda.run.id`): `mlodaPlan` (plan id, structure hash, origin) and `processingEngine` (`name: mloda`, the mloda version, and the `mloda-community-openlineage` version as `openlineageAdapterVersion`). The job name stays `mloda.run_all` whatever the origin.
-- **Each calculate step** (job = feature group): `mlodaStep` (`featureGroupVersion`, `pluginVersion`, `computeFramework`; a field core does not know is omitted) and `parent` (the root run).
+- **Root run** (job `mloda.run_all`, runId = `mloda.run.id`): `mlodaPlan` (plan id, structure hash, origin, and `requestedFeatures`, the sorted names the run's compute steps were asked for) and `processingEngine` (`name: mloda`, the mloda version, and the `mloda-community-openlineage` version as `openlineageAdapterVersion`). The job name stays `mloda.run_all` whatever the origin.
+- **Each calculate step** (job = feature group): `mlodaStep` (`featureGroupVersion`, `pluginVersion`, `computeFramework`, and `featureNames`, the step's sorted feature names; a field core does not know is omitted) and `parent` (the root run).
 - **Inputs:** loaded datasets with `dataSource` (core's data-access identity) and the step's declared input features.
 - **COMPLETE outputs:** one per feature, with `schema` and, when the compute framework can count the result's rows (not for lazy frames), `outputStatistics.rowCount`. The count is the step's, repeated on every output of a multi-output step, so never sum it across outputs.
 
@@ -232,6 +232,16 @@ Notes:
 - With `append: true`, runs accumulate in one file; group lines by the root runId (each step's `parent` facet points at it).
 - Without `append`, every event goes to its own `<log_file_path>-<timestamp>.json` file.
 - Under `MULTIPROCESSING` each worker writes to the same path, and an appended line stays whole only while the event fits one write. Leave `append` off there.
+- Diff two runs with the stdlib-only `mloda.community.extenders.openlineage.run_diff`:
+
+  ```python
+  from mloda.community.extenders.openlineage.run_diff import diff_run_events, read_runs
+
+  runs = read_runs("openlineage.ndjson")
+  print(diff_run_events(runs[-2], runs[-1]))
+  ```
+
+  It compares the structure hash, mloda version, outcome and, per step, the versions, compute framework, input features, loaded datasets, output schema, row count and outcome. Durations are listed as informational and never count as changes. Identities are shown as recorded. Steps are keyed by feature group and feature names; runs that requested different features are reported as not comparable.
 - The events do not show how the plan is wired; keep a [plan lock](feature-group-patterns/10-testing-guide.md) next to the record for that.
 
 ## Traces and lineage

@@ -22,6 +22,7 @@ import time
 import uuid
 import weakref
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -2094,6 +2095,48 @@ class TestOpenLineageExtenderParentRun:
         assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
         assert [_plan_facet(event)["origin"] for event in transport.events] == ["prepare", "prepare"]
         assert {event.job.name for event in transport.events} == {"mloda.run_all"}
+
+    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
+    def test_start_and_terminal_facets_carry_the_sorted_requested_features_of_compute_steps(
+        self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+        steps = (
+            replace(classified_step(InternalGroup, ("b", "injected")), requested_feature_names=("b",)),
+            classified_step(PiiGroup, ("a", "b")),
+            classified_step(None, ("joined",), kind="join"),
+        )
+
+        extender.on_run_start(run, _plan(), steps)
+        extender.on_run_complete(run, LifecycleOutcome(status=status))
+
+        assert [_plan_facet(event)["requestedFeatures"] for event in transport.events] == [["a", "b"], ["a", "b"]]
+
+    def test_requested_features_are_absent_without_steps(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert all("requestedFeatures" not in _plan_facet(event) for event in transport.events)
+
+    def test_step_facet_carries_the_sorted_feature_names(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("b", "a")).activate():
+            extender(lambda: None)
+
+        assert transport.events
+        assert all(_run_facet(event, "mlodaStep")["featureNames"] == ["a", "b"] for event in transport.events)
 
     @pytest.mark.parametrize(
         ("broken", "has_facet", "adapter_present"),

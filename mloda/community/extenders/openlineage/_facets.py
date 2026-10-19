@@ -34,6 +34,7 @@ class MlodaPlanRunFacet(RunFacet):
     planId: str = attr.field()
     structureHash: str | None = attr.field(default=None)
     origin: str | None = attr.field(default=None)
+    requestedFeatures: list[str] | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:
@@ -45,6 +46,7 @@ class MlodaStepRunFacet(RunFacet):
     featureGroupVersion: str | None = attr.field(default=None)
     pluginVersion: str | None = attr.field(default=None)
     computeFramework: str | None = attr.field(default=None)
+    featureNames: list[str] | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:
