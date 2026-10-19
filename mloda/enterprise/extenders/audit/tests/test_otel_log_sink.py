@@ -798,6 +798,30 @@ class TestOtelLogAuditSinkMapping:
         assert _LEAK_KEY.decode("ascii") not in haystack
         assert repr(_LEAK_KEY) not in haystack
 
+    @pytest.mark.parametrize(
+        ("exc_type", "present", "absent"),
+        [
+            (KeyboardInterrupt, "mloda.cancel.type", "error.type"),
+            (SystemExit, "mloda.cancel.type", "error.type"),
+            (RuntimeError, "error.type", "mloda.cancel.type"),
+        ],
+    )
+    def test_an_interrupt_emits_the_cancel_type_and_an_exception_the_error_type(
+        self, log_exporter: InMemoryLogRecordExporter, exc_type: type[BaseException], present: str, absent: str
+    ) -> None:
+        extender = AuditExtender(sink=OtelLogAuditSink())
+
+        def func() -> None:
+            raise exc_type()
+
+        with make_hook_context(tenant_id="tenant-1").activate():
+            with pytest.raises(exc_type):
+                extender(func)
+
+        attributes = _attributes(_single_log(log_exporter))
+        assert attributes[present] == f"builtins.{exc_type.__name__}"
+        assert absent not in attributes
+
 
 class TestOtelLogAuditSinkUserHashKey:
     """user_hash_key switches user.hash to a keyed HMAC-SHA256; it must be bytes of at least 32 bytes."""
@@ -990,30 +1014,6 @@ class TestOtelLogAuditSinkFailureIsolation:
         with patch.object(SdkLogger, "emit", side_effect=RuntimeError("boom-marker")):
             with make_hook_context(tenant_id="tenant-1").activate():
                 assert extender(lambda a, b: a + b, 3, 4) == 7
-
-    @pytest.mark.parametrize(
-        ("exc_type", "present", "absent"),
-        [
-            (KeyboardInterrupt, "mloda.cancel.type", "error.type"),
-            (SystemExit, "mloda.cancel.type", "error.type"),
-            (RuntimeError, "error.type", "mloda.cancel.type"),
-        ],
-    )
-    def test_an_interrupt_emits_the_cancel_type_and_an_exception_the_error_type(
-        self, log_exporter: InMemoryLogRecordExporter, exc_type: type[BaseException], present: str, absent: str
-    ) -> None:
-        extender = AuditExtender(sink=OtelLogAuditSink())
-
-        def func() -> None:
-            raise exc_type()
-
-        with make_hook_context(tenant_id="tenant-1").activate():
-            with pytest.raises(exc_type):
-                extender(func)
-
-        attributes = _attributes(_single_log(log_exporter))
-        assert attributes[present] == f"builtins.{exc_type.__name__}"
-        assert absent not in attributes
 
     def test_a_refusal_still_raises_identity_required_when_the_emit_fails(
         self, log_exporter: InMemoryLogRecordExporter

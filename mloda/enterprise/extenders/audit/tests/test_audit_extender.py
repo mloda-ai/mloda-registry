@@ -1537,7 +1537,7 @@ class TestAuditExtenderRecord:
             raise exc_type(f"inner boom: {marker}")
 
         with make_hook_context(tenant_id="tenant-1").activate():
-            with pytest.raises(exc_type):
+            with pytest.raises(exc_type, match="inner boom"):
                 extender(func)
 
         assert calls == 1

@@ -1982,6 +1982,18 @@ class TestOpenLineageExtenderParentRunFacet:
             assert parent.root is not None
             assert (parent.root.job.namespace, parent.root.job.name, parent.root.run.runId) == expected_root
 
+    def test_step_facet_carries_the_sorted_feature_names(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with make_hook_context(run_id=_RUN_A, feature_names=("b", "a")).activate():
+            extender(lambda: None)
+
+        assert transport.events
+        assert all(_run_facet(event, "mlodaStep")["featureNames"] == ["a", "b"] for event in transport.events)
+
 
 _PLAN_ID = "plan-0001"
 
@@ -2125,18 +2137,6 @@ class TestOpenLineageExtenderParentRun:
         extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
 
         assert all("requestedFeatures" not in _plan_facet(event) for event in transport.events)
-
-    def test_step_facet_carries_the_sorted_feature_names(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-
-        with make_hook_context(run_id=_RUN_A, feature_names=("b", "a")).activate():
-            extender(lambda: None)
-
-        assert transport.events
-        assert all(_run_facet(event, "mlodaStep")["featureNames"] == ["a", "b"] for event in transport.events)
 
     @pytest.mark.parametrize(
         ("broken", "has_facet", "adapter_present"),
