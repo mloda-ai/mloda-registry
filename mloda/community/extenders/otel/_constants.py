@@ -14,5 +14,5 @@ OPERATION_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.JOIN: "join",
 }
 
-# Hooks that record the context's declared attributes and rows.out after the call: calculate and load only.
+# Hooks that record declared attributes, result attributes and rows.out: calculate and load only.
 DECLARABLE_HOOKS = {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}

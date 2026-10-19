@@ -258,7 +258,7 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.JOIN: "join",
 }
 
-# Caps declared keys so the SDK's attribute limit can't evict core attributes.
+# Caps keys per prefix (declared and result) so the SDK's attribute limit can't evict core attributes.
 _MAX_DECLARED_KEYS = 32
 
 
@@ -469,7 +469,7 @@ class OtelExtender(Extender):
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                     raise
                 if context.hook in DECLARABLE_HOOKS:
-                    _set_declared_attributes(span, context)
+                    _set_scalar_attributes(span, context.declared_attributes, "mloda.declared")
 
             try:
                 result = func(*args, **kwargs)
@@ -478,6 +478,11 @@ class OtelExtender(Extender):
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                 logger.warning("%s %s failed: %s", type(self).__name__, span_name, type(exc).__name__)
                 raise
+            finally:
+                try:
+                    _set_result_attributes(span, context)
+                except Exception as exc:
+                    logger.warning("%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__)
 
             try:
                 if context is not None and context.hook in DECLARABLE_HOOKS:
@@ -654,18 +659,25 @@ def _set_join_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.join.asof.tolerance_seconds", tolerance.total_seconds())
 
 
-def _set_declared_attributes(span: Span, context: HookContext) -> None:
-    """mloda.declared.<key> attributes from the hook context's declared_attributes, through the shared filter."""
-    if not span.is_recording() or not context.declared_attributes:
+def _set_scalar_attributes(span: Span, attributes: Mapping[str, Any] | None, prefix: str) -> None:
+    """<prefix>.<key> attributes from a context attribute mapping, through the shared filter."""
+    if not span.is_recording() or not attributes:
         return
     count = 0
-    for key, value in declared_scalars(context.declared_attributes).items():
+    for key, value in declared_scalars(attributes).items():
         if count >= _MAX_DECLARED_KEYS:
             break
         if isinstance(value, str):
             value = value[:_CONTENT_PREVIEW_MAX_LEN]
-        span.set_attribute(f"mloda.declared.{key}", value)
+        span.set_attribute(f"{prefix}.{key}", value)
         count += 1
+
+
+def _set_result_attributes(span: Span, context: HookContext | None) -> None:
+    """mloda.result.<key> attributes from the context's result_attributes, read after the call."""
+    if context is None or context.hook not in DECLARABLE_HOOKS:
+        return
+    _set_scalar_attributes(span, context.result_attributes, "mloda.result")
 
 
 def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
