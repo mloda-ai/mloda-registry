@@ -25,6 +25,7 @@ installed package), so it is loaded here by file path.
 
 from __future__ import annotations
 
+import copy
 import shutil
 import sys
 from pathlib import Path
@@ -150,6 +151,29 @@ def test_generate_raises_when_core_dependency_missing() -> None:
         assert '[""]' not in content and 'dependencies = [""]' not in content, (
             f"generate_pyproject silently produced an empty core dependency:\n{content}"
         )
+
+
+@pytest.mark.parametrize(
+    ("where", "bad_keywords"),
+    [
+        pytest.param("package", "tracing", id="package-string"),
+        pytest.param("package", ["tracing", 1], id="package-non-string-item"),
+        pytest.param("shared", "mloda", id="shared-string"),
+    ],
+)
+def test_generate_raises_when_keywords_not_a_list_of_strings(where: str, bad_keywords: Any) -> None:
+    """A mistyped keywords value must raise ValueError naming keywords, not be split into characters."""
+    shared, packages_config = gen.load_configs()
+    packages = copy.deepcopy(packages_config.get("packages", {}))
+    shared = copy.deepcopy(shared)
+    pkg_config = packages["mloda-registry"]
+    if where == "package":
+        pkg_config["keywords"] = bad_keywords
+    else:
+        shared["project"]["keywords"] = bad_keywords
+
+    with pytest.raises(ValueError, match="keywords"):
+        gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
 
 
 def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

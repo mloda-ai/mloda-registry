@@ -1,7 +1,8 @@
 """The declared setuptools build floor must cover the bare PEP 639 SPDX license string the generator
 emits; setuptools rejects that form before 77.0.1. The floor is proven by ``tox -e verify-build-floor``,
 which really builds at it; this module only guards the declaration against drift. It also guards the
-license metadata: per-package SPDX string, ``license-files``, and the committed license copies."""
+license metadata: per-package SPDX string, ``license-files``, and the committed license copies. It also
+guards the shared classifiers: no ``License ::`` entry, and Python classifiers matching ``requires-python``."""
 
 from __future__ import annotations
 
