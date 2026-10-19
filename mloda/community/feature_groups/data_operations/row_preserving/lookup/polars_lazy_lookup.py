@@ -34,7 +34,7 @@ def _source_family(dtype: pl.DataType) -> str:
 
 
 class PolarsLazyLookup(LookupFeatureGroup):
-    """Polars lazy backend: ``replace_strict`` stays lazy; ``raise`` evaluates the upstream plan once more to find unmatched keys."""
+    """Polars lazy backend: ``replace_strict`` stays lazy; ``raise`` re-evaluates the upstream plan once."""
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:

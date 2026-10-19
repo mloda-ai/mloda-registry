@@ -11,7 +11,8 @@ helper columns are made collision-free at runtime, so a user column of any name
   the FG's actual internal helpers SURVIVE unchanged in input row order. This is
   a real collision regression for row-preserving ops. It is opt-in: it runs only
   when ``reserved_columns_helper_names`` returns a non-empty set (default empty
-  skips), so ops that reduce rows or need extra options are unaffected.
+  skips), so ops that reduce rows are unaffected; ops that need extra options set
+  ``reserved_columns_extra_context``.
 
 Each feature-group test base mixes this in and overrides the abstract
 configuration methods to adapt the generic tests to its specific semantics
@@ -95,8 +96,8 @@ class ReservedColumnsTestMixin:
         Defaults to an empty set (the survival test is skipped). The test is
         opt-in because it only makes sense for row-preserving ops whose
         FeatureSet is buildable from ``feature_name`` + ``partition_by`` +
-        ``order_by`` alone; ops that reduce rows or require extra options (e.g. a
-        ``constant``) must leave this empty. Override to enable it, e.g.
+        ``order_by`` plus ``reserved_columns_extra_context``; ops that reduce rows
+        must leave this empty. Override to enable it, e.g.
         ``{"__mloda_rn__"}`` (ffill / ema / sessionization / frame_aggregate).
         """
         return set()
