@@ -86,7 +86,7 @@ sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_
 
 ### Metrics from short-lived processes
 
-`MULTIPROCESSING` workers and Kubernetes Job or CronJob runs each export from their own process with per-process resource attributes (by default a random `service.instance.id`; on Kubernetes also pod, job and node names). Each process then gets its own short series, or with the `prometheus` exporter's defaults the processes overwrite one series, so the queries above return 0, nothing or wrong totals under either temporality. To aggregate, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the parent's environment, so the parent and its workers both export deltas) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
+`MULTIPROCESSING` workers and Kubernetes Job or CronJob runs each export from their own process with per-process resource attributes (by default a random `service.instance.id`; with the Operator or `k8sattributes` also pod, job and node names). Each process then gets its own short series, and the queries above return 0 or nothing under either temporality. To aggregate, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the process environment; under `MULTIPROCESSING` the parent's, which its workers inherit) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
 
 ```yaml
 processors:
@@ -95,14 +95,14 @@ processors:
       - context: resource
         statements:
           # keep only attributes that are the same on every run
-          - keep_keys(resource.attributes, ["service.name", "k8s.namespace.name", "k8s.cronjob.name"]) where resource.attributes["service.name"] == "my-pipeline"
+          - keep_keys(resource.attributes, ["service.name", "service.namespace"]) where resource.attributes["service.name"] == "my-pipeline"
       - context: datapoint
         statements:
           # any fixed time before the first point
           - set(datapoint.start_time, Time("2026-01-01T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")) where resource.attributes["service.name"] == "my-pipeline"
           - set(datapoint.time, Now()) where resource.attributes["service.name"] == "my-pipeline"
   delta_to_cumulative:
-    max_stale: 2h  # above the longest gap between runs
+    max_stale: 25h  # above the longest gap between runs
 service:
   pipelines:
     metrics:
@@ -110,9 +110,9 @@ service:
 ```
 
 - Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-process values are gone and point times are the Collector's arrival times. Only counters and histograms (all four mloda metrics) merge correctly; keep gauges and up-down counters under another service.
-- `keep_keys` drops every attribute it does not list. Keep `service.name`, and list each stable attribute you want as a label or that separates pipelines you must not merge (for example `deployment.environment.name`); per-run pod, job and node names cannot be labels on merged series. If `k8sattributes` supplies a listed attribute, run it before the transform.
+- `keep_keys` drops every attribute it does not list; deleting only `service.instance.id` is not enough on Kubernetes, where per-run pod, job and node names keep runs apart and the exporter overwrites them on one series. The `prometheus` exporter labels series only by `service.namespace`, `service.name` and `service.instance.id`, so separate pipelines you must not merge (dev and prod) by those; another kept attribute becomes a label only with the exporter's `resource_to_telemetry_conversion` enabled. If `k8sattributes` supplies a kept attribute, run it before the transform, in the first tier when a `loadbalancing` exporter is in front.
 - The restamp stops most out-of-order drops between concurrent processes; the Collector's own `deltatocumulative` datapoints counter, with an `error` attribute, counts the rest.
-- One Collector instance must receive all of the pipeline's metrics: a central gateway, not a sidecar per pod (with several replicas, put a `loadbalancing` exporter with `routing_key: service` in front). Its state is in memory, so a restart reads as a counter reset. A series idle longer than `max_stale` restarts at zero and can lose increments, so keep `max_stale`, and the `prometheus` exporter's `metric_expiration`, above the longest gap between runs. `delta_to_cumulative` is alpha.
+- One Collector instance must receive all of the pipeline's metrics: a central gateway, not a sidecar per pod (with several replicas, put a `loadbalancing` exporter with `routing_key: service` in front). Its state is in memory: after a restart, or once a series is idle longer than `max_stale`, the series restarts from the next delta, and Prometheus sees a reset only if the value drops, so totals across it can be wrong. Keep `max_stale`, and the `prometheus` exporter's `metric_expiration`, above the longest gap between runs. `delta_to_cumulative` is alpha.
 - For scheduled runs, query with a range of at least the schedule interval (`increase(...[1d])` for a daily job); a `[5m]` range returns 0 between runs.
 
 ## Export through a Collector
@@ -307,7 +307,7 @@ service:
 
 ### Jobs and CronJobs
 
-A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes. Each run is a new pod and process, so aggregate its metrics as in [Metrics from short-lived processes](#metrics-from-short-lived-processes): send them to the central gateway that runs the merge (not a sidecar), and under the Operator set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the Instrumentation's `python.env`.
+A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes. Each run is a new pod and process, so aggregate its metrics as in [Metrics from short-lived processes](#metrics-from-short-lived-processes): run the merge only on the central gateway (a sidecar may forward to it), and set `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the Job container's `env` (under the Operator, an Instrumentation's `python.env` would switch every workload using it).
 
 ### Serverless
 
