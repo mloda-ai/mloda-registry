@@ -103,7 +103,7 @@ See [Feature Group Matching](https://mloda-ai.github.io/mloda/in_depth/feature-g
 
 When multiple method variants exist for a feature group type (e.g., different scaling algorithms), use a **unique discriminator key** to distinguish them. The `FeatureChainParserMixin` handles matching automatically via `PREFIX_PATTERN` and `PROPERTY_MAPPING`.
 
-A data operation claims a config-path feature only when it carries an option only that operation accepts. ffill, ema and sessionization have none, so they match by name only (`NameOnlyMatchMixin`). aggregation, window_aggregation and scalar_aggregate share `aggregation_type` and are a known exception.
+A data operation claims a config-path feature only when it carries an option only that operation accepts. ffill, ema and sessionization have none, so they match by name only (`NameOnlyMatchMixin`). aggregation and window_aggregation share `aggregation_type` and remain a known ambiguity.
 
 ### Existing mloda Examples
 

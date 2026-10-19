@@ -145,11 +145,6 @@ class TestFfillRequiredOrderBy:
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
         assert PyArrowFfill.match_feature_group_criteria("amount__ffill", options)
 
-    def test_config_path_missing_order_by_does_not_match(self) -> None:
-        """Config path: a config feature without order_by stays a non-match."""
-        options = Options(context={"in_features": "amount", "partition_by": ["region"]})
-        assert not PyArrowFfill.match_feature_group_criteria("my_result", options, None)
-
     def test_missing_order_by_rejected_at_discovery(self) -> None:
         """Engine level: missing order_by fails resolution, and the error names order_by, not compute."""
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})

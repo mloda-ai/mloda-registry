@@ -112,6 +112,22 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestPartitionByDeclined:
+    """scalar_aggregate is a whole-table broadcast, so a config feature with its own partition_by is declined."""
+
+    def test_config_feature_with_partition_by_is_rejected(self) -> None:
+        options = Options(context={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})
+        assert ScalarAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+
+    def test_config_feature_without_partition_by_matches(self) -> None:
+        options = Options(context={"aggregation_type": "sum", "in_features": "v"})
+        assert ScalarAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None) is True
+
+    def test_name_path_with_partition_by_still_matches(self) -> None:
+        options = Options(context={"partition_by": ["g"]})
+        assert ScalarAggregateFeatureGroup.match_feature_group_criteria("value__sum_scalar", options, None) is True
+
+
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior.
 

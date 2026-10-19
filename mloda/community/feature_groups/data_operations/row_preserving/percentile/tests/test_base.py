@@ -231,14 +231,6 @@ class TestPercentileNameAgreement:
             PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
         assert "was forwarded from a consumer" in str(exc_info.value)
 
-    def test_matching_forwarded_percentile_is_accepted(self) -> None:
-        consumer_options = Options(group={"percentile": 0.5})
-        child_options = Options(context={"partition_by": ["region"]})
-        child_options.inherit_from(consumer_options)
-
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
-        assert result is True
-
     def test_matching_forwarded_integer_percentile_is_accepted(self) -> None:
         consumer_options = Options(group={"percentile": 1})
         child_options = Options(context={"partition_by": ["region"]})
@@ -247,14 +239,16 @@ class TestPercentileNameAgreement:
         result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p100_percentile", child_options, None)
         assert result is True
 
+    @pytest.mark.parametrize("wrap", [False, True], ids=["scalar", "singleton_tuple"])
     @pytest.mark.parametrize("path", ["group", "context"])
-    def test_matching_forwarded_tuple_percentile_is_accepted(self, path: str) -> None:
+    def test_matching_forwarded_percentile_is_accepted(self, path: str, wrap: bool) -> None:
+        value: Any = (0.5,) if wrap else 0.5
         child_options = Options(context={"partition_by": ["region"]})
         if path == "group":
-            child_options.inherit_from(Options(group={"percentile": (0.5,)}))
+            child_options.inherit_from(Options(group={"percentile": value}))
         else:
             child_options.inherit_from(
-                Options(context={"percentile": (0.5,)}), inherit_context_keys=frozenset({"percentile"})
+                Options(context={"percentile": value}), inherit_context_keys=frozenset({"percentile"})
             )
 
         result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)

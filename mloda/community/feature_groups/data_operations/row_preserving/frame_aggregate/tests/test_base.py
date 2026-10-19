@@ -566,17 +566,6 @@ class TestFrameNameAgreement:
             FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
         assert "was forwarded from a consumer" in str(exc_info.value)
 
-    @pytest.mark.parametrize("path", ["group", "context"])
-    def test_matching_forwarded_singleton_tuple_frame_params_is_accepted(self, path: str) -> None:
-        values = {"frame_type": ("time",), "frame_size": (7,), "frame_unit": ("day",)}
-        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        if path == "group":
-            options.inherit_from(Options(group=values))
-        else:
-            options.inherit_from(Options(context=values), inherit_context_keys=frozenset(values))
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
-        assert result is True
-
     @pytest.mark.parametrize(
         ("feature_name", "key", "value", "binding", "type_name"),
         [
@@ -637,10 +626,17 @@ class TestFrameNameAgreement:
         assert result is True
         assert any(r.levelno == logging.WARNING and "frame_type" in r.getMessage() for r in caplog.records)
 
-    def test_matching_forwarded_frame_params_is_accepted(self) -> None:
-        consumer = Options(group={"frame_type": "time", "frame_size": 7, "frame_unit": "day"})
+    @pytest.mark.parametrize("wrap", [False, True], ids=["scalar", "singleton_tuple"])
+    @pytest.mark.parametrize("path", ["group", "context"])
+    def test_matching_forwarded_frame_params_is_accepted(self, path: str, wrap: bool) -> None:
+        values: dict[str, Any] = {"frame_type": "time", "frame_size": 7, "frame_unit": "day"}
+        if wrap:
+            values = {k: (v,) for k, v in values.items()}
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        options.inherit_from(consumer)
+        if path == "group":
+            options.inherit_from(Options(group=values))
+        else:
+            options.inherit_from(Options(context=values), inherit_context_keys=frozenset(values))
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
         assert result is True
 

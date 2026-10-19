@@ -17,13 +17,18 @@ modules.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
 from mloda.user import DataType, Feature, Options
 
-from mloda.community.feature_groups.data_operations.base import FRAME_TYPE, KeyColumnInputsMixin, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    FRAME_TYPE,
+    KeyColumnInputsMixin,
+    is_own_option,
+    name_matches_prefix,
+    op_token_value,
+)
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
@@ -58,6 +63,9 @@ class AggregationFeatureGroupBase(KeyColumnInputsMixin, SubtypeCapabilityHook, F
     #: agg types declare INT64 via ``return_data_type_rule``.
     _COUNTING_AGG_TYPES: frozenset[str] = frozenset({"count", "nunique"})
 
+    #: Own options that make a config-path feature belong to another family.
+    CONFIG_DECLINE_KEYS: tuple[str, ...] = (FRAME_TYPE,)
+
     @classmethod
     def match_feature_group_criteria(
         cls,
@@ -65,9 +73,10 @@ class AggregationFeatureGroupBase(KeyColumnInputsMixin, SubtypeCapabilityHook, F
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Decline a config-path feature carrying frame_type (frame_aggregate's discriminator)."""
-        name_matched = any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
-        if not name_matched and options.get(FRAME_TYPE) is not None:
+        """Decline a config-path feature carrying an own option of another family."""
+        if not name_matches_prefix(cls, feature_name) and any(
+            is_own_option(options, k) for k in cls.CONFIG_DECLINE_KEYS
+        ):
             return False
         return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
 

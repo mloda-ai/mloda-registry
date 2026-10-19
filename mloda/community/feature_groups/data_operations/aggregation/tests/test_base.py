@@ -10,6 +10,9 @@ from mloda.user import DataType, Feature, Options
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+    WindowAggregationFeatureGroup,
+)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -275,6 +278,31 @@ class TestConfigBasedFeatures:
         assert result_map["B"] == 140
         assert result_map["C"] == 70
         assert result_map[None] == -10
+
+
+class TestConfigFrameTypeOwnership:
+    """Only a feature's own frame_type makes a config feature frame_aggregate's; an inherited one does not."""
+
+    @staticmethod
+    def _options(origin: str) -> Options:
+        options = Options(context={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})
+        if origin == "own":
+            options.add_to_context("frame_type", "rolling")
+        elif origin == "inherited_group":
+            options.inherit_from(Options(group={"frame_type": "rolling"}))
+        elif origin == "inherited_context":
+            options.inherit_from(
+                Options(context={"frame_type": "rolling"}), inherit_context_keys=frozenset({"frame_type"})
+            )
+        return options
+
+    @pytest.mark.parametrize("cls", [AggregationFeatureGroup, WindowAggregationFeatureGroup])
+    @pytest.mark.parametrize(
+        ("origin", "expected"),
+        [("none", True), ("inherited_group", True), ("inherited_context", True), ("own", False)],
+    )
+    def test_config_match_depends_on_frame_type_ownership(self, cls: Any, origin: str, expected: bool) -> None:
+        assert cls.match_feature_group_criteria("my_result", self._options(origin), None) is expected
 
 
 class TestReturnDataTypeRule:

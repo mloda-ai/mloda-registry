@@ -314,12 +314,26 @@ class KeyColumnInputsMixin:
         return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS)
 
 
+def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
+    """True if the feature name matches one of the class's prefix patterns."""
+    return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
+
+
+def is_own_option(options: Any, key: str) -> bool:
+    """True if the feature itself set the option, not inherited via group or context keys."""
+    if options.get(key) is None:
+        return False
+    if key in options.inherited_group_keys | options.inherited_context_keys:
+        return False
+    return bool(options.is_own(key))
+
+
 class NameOnlyMatchMixin:
     """Claims a feature only by a prefix-pattern name match; a config-path feature is declined."""
 
     @classmethod
     def _name_matches_prefix(cls, feature_name: Any) -> bool:
-        return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())  # type: ignore[attr-defined]
+        return name_matches_prefix(cls, feature_name)
 
     @classmethod
     def match_feature_group_criteria(

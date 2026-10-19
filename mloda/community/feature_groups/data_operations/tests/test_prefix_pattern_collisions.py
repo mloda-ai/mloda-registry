@@ -33,7 +33,7 @@ Two complementary checks run here:
 added without a registry entry, so nothing escapes the lint.
 
 ``test_no_config_path_collisions`` covers the config path: a name matching no pattern, with a family's
-documented ``config_options``, must be claimed by that family alone (issue 1088). Name-only families
+documented ``config_options``, must be claimed by that family alone. Name-only families
 (ema, ffill, sessionization) carry no ``config_options`` and are asserted to reject a config feature.
 
 The negative tests (``test_find_*_detects_*``) feed planted collisions to the
@@ -93,12 +93,26 @@ class FamilySpec:
 _DO = "mloda.community.feature_groups.data_operations"
 
 FAMILIES: tuple[FamilySpec, ...] = (
-    FamilySpec("aggregation", f"{_DO}.aggregation.base", "AggregationFeatureGroup", ("sales__sum_agg",)),
     FamilySpec(
-        "binning", f"{_DO}.row_preserving.binning.base", "BinningFeatureGroup", ("value__bin_5", "value__qbin_10")
+        "aggregation",
+        f"{_DO}.aggregation.base",
+        "AggregationFeatureGroup",
+        ("sales__sum_agg",),
+        config_options={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
     ),
     FamilySpec(
-        "datetime", f"{_DO}.row_preserving.datetime.base", "DateTimeFeatureGroup", ("ts__year", "ts__dayofweek")
+        "binning",
+        f"{_DO}.row_preserving.binning.base",
+        "BinningFeatureGroup",
+        ("value__bin_5", "value__qbin_10"),
+        config_options={"binning_op": "bin", "n_bins": 5, "in_features": "v"},
+    ),
+    FamilySpec(
+        "datetime",
+        f"{_DO}.row_preserving.datetime.base",
+        "DateTimeFeatureGroup",
+        ("ts__year", "ts__dayofweek"),
+        config_options={"datetime_op": "year", "in_features": "v"},
     ),
     FamilySpec("ema", f"{_DO}.row_preserving.ema.base", "EmaFeatureGroup", ("price__ema_20",)),
     FamilySpec("ffill", f"{_DO}.row_preserving.ffill.base", "FfillFeatureGroup", ("sales__ffill",)),
@@ -109,6 +123,14 @@ FAMILIES: tuple[FamilySpec, ...] = (
         ("sales__sum_rolling_3", "sales__avg_7_day_window", "sales__cumsum", "sales__expanding_avg"),
         pattern_module_attrs=("_ROLLING_PATTERN", "_TIME_WINDOW_PATTERN", "_CUMULATIVE_PATTERN", "_EXPANDING_PATTERN"),
         ignore_prefix_pattern=True,
+        config_options={
+            "aggregation_type": "sum",
+            "frame_type": "rolling",
+            "frame_size": 3,
+            "in_features": "v",
+            "partition_by": ["g"],
+            "order_by": "t",
+        },
     ),
     FamilySpec(
         "lookup",
@@ -116,10 +138,21 @@ FAMILIES: tuple[FamilySpec, ...] = (
         "LookupFeatureGroup",
         ("sales__lookup",),
         options={"lookup_mapping": {"a": "b"}},
+        config_options={"in_features": "v", "lookup_mapping": {"a": "b"}},
     ),
-    FamilySpec("offset", f"{_DO}.row_preserving.offset.base", "OffsetFeatureGroup", ("sales__lag_1_offset",)),
     FamilySpec(
-        "percentile", f"{_DO}.row_preserving.percentile.base", "PercentileFeatureGroup", ("sales__p50_percentile",)
+        "offset",
+        f"{_DO}.row_preserving.offset.base",
+        "OffsetFeatureGroup",
+        ("sales__lag_1_offset",),
+        config_options={"offset_type": "first_value", "in_features": "v", "partition_by": ["g"], "order_by": "t"},
+    ),
+    FamilySpec(
+        "percentile",
+        f"{_DO}.row_preserving.percentile.base",
+        "PercentileFeatureGroup",
+        ("sales__p50_percentile",),
+        config_options={"percentile": 0.5, "in_features": "v", "partition_by": ["g"]},
     ),
     FamilySpec(
         "point_arithmetic",
@@ -128,22 +161,35 @@ FAMILIES: tuple[FamilySpec, ...] = (
         # Two operands: the documented pattern is ``{col_a}&{col_b}__{op}_point``,
         # so the one-operand form is not a valid name for this family (#403).
         ("x&y__add_point",),
+        config_options={"arithmetic_op": "add", "in_features": ("a", "b")},
     ),
-    FamilySpec("rank", f"{_DO}.row_preserving.rank.base", "RankFeatureGroup", ("sales__row_number_ranked",)),
     FamilySpec(
-        "resample", f"{_DO}.row_changing.resample.base", "ResampleFeatureGroup", ("metric__resample_60_minute_mean",)
+        "rank",
+        f"{_DO}.row_preserving.rank.base",
+        "RankFeatureGroup",
+        ("sales__row_number_ranked",),
+        config_options={"rank_type": "row_number", "in_features": "v", "partition_by": ["g"], "order_by": "t"},
+    ),
+    FamilySpec(
+        "resample",
+        f"{_DO}.row_changing.resample.base",
+        "ResampleFeatureGroup",
+        ("metric__resample_60_minute_mean",),
+        config_options={"in_features": "v", "time_column": "t", "resample_op": "60_minute_mean"},
     ),
     FamilySpec(
         "scalar_aggregate",
         f"{_DO}.row_preserving.scalar_aggregate.base",
         "ScalarAggregateFeatureGroup",
         ("value__sum_scalar",),
+        config_options={"aggregation_type": "sum", "in_features": "v"},
     ),
     FamilySpec(
         "scalar_arithmetic",
         f"{_DO}.row_preserving.scalar_arithmetic.base",
         "ScalarArithmeticFeatureGroup",
         ("value__add_constant",),
+        config_options={"arithmetic_op": "add", "in_features": "v", "constant": 2},
     ),
     FamilySpec(
         "sessionization",
@@ -151,48 +197,29 @@ FAMILIES: tuple[FamilySpec, ...] = (
         "SessionizationFeatureGroup",
         ("session__sessionize_30_minute",),
     ),
-    FamilySpec("string", f"{_DO}.string.base", "StringFeatureGroup", ("name__upper",)),
+    FamilySpec(
+        "string",
+        f"{_DO}.string.base",
+        "StringFeatureGroup",
+        ("name__upper",),
+        config_options={"string_op": "upper", "in_features": "v"},
+    ),
     FamilySpec(
         "time_bucketization",
         f"{_DO}.row_preserving.time_bucketization.base",
         "TimeBucketizationFeatureGroup",
         ("ts__floor_30_minute",),
+        config_options={"bucket_op": "floor_30_minute", "in_features": "v"},
     ),
     FamilySpec(
         "window_aggregation",
         f"{_DO}.row_preserving.window_aggregation.base",
         "WindowAggregationFeatureGroup",
         ("sales__sum_window",),
+        config_options={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
     ),
 )
 
-
-# Documented config-path options per family (name-only families are absent), applied onto FAMILIES.
-_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
-    "aggregation": {"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
-    "binning": {"binning_op": "bin", "n_bins": 5, "in_features": "v"},
-    "datetime": {"datetime_op": "year", "in_features": "v"},
-    "frame_aggregate": {
-        "aggregation_type": "sum",
-        "frame_type": "rolling",
-        "frame_size": 3,
-        "in_features": "v",
-        "partition_by": ["g"],
-        "order_by": "t",
-    },
-    "lookup": {"in_features": "v", "lookup_mapping": {"a": "b"}},
-    "offset": {"offset_type": "first_value", "in_features": "v", "partition_by": ["g"], "order_by": "t"},
-    "percentile": {"percentile": 0.5, "in_features": "v", "partition_by": ["g"]},
-    "point_arithmetic": {"arithmetic_op": "add", "in_features": ("a", "b")},
-    "rank": {"rank_type": "row_number", "in_features": "v", "partition_by": ["g"], "order_by": "t"},
-    "resample": {"in_features": "v", "time_column": "t", "resample_op": "60_minute_mean"},
-    "scalar_aggregate": {"aggregation_type": "sum", "in_features": "v"},
-    "scalar_arithmetic": {"arithmetic_op": "add", "in_features": "v", "constant": 2},
-    "string": {"string_op": "upper", "in_features": "v"},
-    "time_bucketization": {"bucket_op": "floor_30_minute", "in_features": "v"},
-    "window_aggregation": {"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
-}
-FAMILIES = tuple(replace(spec, config_options=_CONFIG_OPTIONS.get(spec.key)) for spec in FAMILIES)
 
 # (owner_key, representative_name, other_key): raw-regex PREFIX_PATTERN overlaps that
 # are known-safe because the other family's ``match_feature_group_criteria`` rejects
@@ -624,15 +651,14 @@ def test_every_family_module_is_discovered_on_disk() -> None:
     )
 
 
-# --- config-path invariants (issue 1088) ---------------------------------------
+# --- config-path invariants ---------------------------------------
 
-# (owner, sorted acceptors): aggregation, window_aggregation and scalar_aggregate share
-# ``aggregation_type`` and need a discriminator option to be told apart.
-# The three share ``aggregation_type`` and need a discriminator before these entries can go.
+# (owner, sorted acceptors): aggregation and window_aggregation share ``aggregation_type`` and
+# ``partition_by`` and need a discriminator option to be told apart.
 KNOWN_CONFIG_OVERLAPS: frozenset[tuple[str, tuple[str, ...]]] = frozenset(
     {
-        ("aggregation", ("aggregation", "scalar_aggregate", "window_aggregation")),
-        ("window_aggregation", ("aggregation", "scalar_aggregate", "window_aggregation")),
+        ("aggregation", ("aggregation", "window_aggregation")),
+        ("window_aggregation", ("aggregation", "window_aggregation")),
     }
 )
 

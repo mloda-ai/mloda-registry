@@ -158,6 +158,7 @@ class TestFrameAggregateNamePathReportsNothing:
 
     def test_rolling_name_skips_option_driven_required_when(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The name supplies size and unit, so a frame_type option cannot demand them: the match holds silently."""
+        # The env downgrade is set because the stray frame_type now contradicts the name.
         monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
         assert PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)

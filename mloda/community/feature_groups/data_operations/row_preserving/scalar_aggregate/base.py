@@ -18,7 +18,9 @@ from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
 
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
+    FRAME_TYPE,
     OP_TOKEN_EXPECTED,
+    PARTITION_BY,
     assert_key_columns_present,
     assert_source_columns_present,
     is_op_token,
@@ -45,6 +47,8 @@ AGGREGATION_TYPES = {
 class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
     KEY_COLUMN_OPTIONS = ("mask",)
     PREFIX_PATTERN = r".*__([\w]+)_scalar$"
+
+    CONFIG_DECLINE_KEYS = (FRAME_TYPE, PARTITION_BY)
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
