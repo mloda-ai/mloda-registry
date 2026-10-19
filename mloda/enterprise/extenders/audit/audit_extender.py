@@ -1,5 +1,6 @@
 """AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation.
-With fail_closed=True it also refuses at FEATURE_GROUP_MATCHED, writing a deny record."""
+With fail_closed=True it also refuses at FEATURE_GROUP_MATCHED, writing a deny record; with a classification
+policy it also refuses, at INPUT_DATA_MATCH, a reader declared above the clearance."""
 
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ from mloda.steward import (
 )
 
 from mloda.community.extenders.shared import is_picklable, termination
-from mloda.community.extenders.shared.classification import LEVELS, feature_classifications
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, LEVELS, _rank, feature_classifications
 from mloda.community.extenders.shared.declared import readable_declared, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
@@ -54,6 +55,8 @@ from mloda.enterprise.extenders.audit.run_manifest import (
 logger = logging.getLogger(__name__)
 
 _ALLOWED_IDENTITY_NAMES = ("tenant_id", "project_id", "principal")
+
+_PLAN_HOOKS = (ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.INPUT_DATA_MATCH)
 
 _host: str | None = None
 
@@ -215,7 +218,10 @@ class AuditExtender(Extender):
     archive reach that size (carried pending runs do not count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
     audit_path, manifest_path or the anchor path. classification (a ClassificationPolicy; needs fail_closed, a
-    principal identity and a policy_version) refuses a run requesting data above the caller's clearance."""
+    principal identity and a policy_version) refuses a run requesting data above the caller's clearance, and
+    (gate_readers, default True) at plan time a reader declaring a level above it: one deny record with hook
+    INPUT_DATA_MATCH and reader_class, then ClassificationDeniedError before the probe. Core contains that error
+    (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it."""
 
     def __init__(
         self,
@@ -340,6 +346,7 @@ class AuditExtender(Extender):
         self.sink = sink
         self._classification = classification
         self._classification_dropped = False
+        self._gate_readers = classification is not None and classification.gate_readers
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
         self._fail_closed = fail_closed
@@ -416,9 +423,7 @@ class AuditExtender(Extender):
     ) -> None:
         try:
             levels = feature_classifications(steps, undeclared=policy.undeclared)
-            clearance = policy.clearance(run.tenant_id, run.principal)
-            if clearance is not None and clearance not in LEVELS:
-                raise ValueError("clearance is not a known level")
+            rank = self._clearance_rank(policy, run.tenant_id, run.principal)
         except Exception:
             self._deny_run_start(
                 run,
@@ -427,7 +432,6 @@ class AuditExtender(Extender):
                 deny_reason="classification_unresolved",
             )
             return
-        rank = -1 if clearance is None else LEVELS.index(clearance)
         compute = [step for step in steps if step.step_kind == "compute"]
         requested = {name for step in compute for name in step.requested_feature_names}
         offending = sorted(name for name in requested if LEVELS.index(levels[name]) > rank)
@@ -446,6 +450,30 @@ class AuditExtender(Extender):
                 for step in compute
                 if step.step_uuid is not None and step.feature_names
             }
+
+    @staticmethod
+    def _clearance_rank(policy: ClassificationPolicy, tenant_id: str | None, principal: str | None) -> int:
+        """The rank of the caller's clearance (-1 for none); raises when the clearance is not a known level."""
+        clearance = policy.clearance(tenant_id, principal)
+        if clearance is not None and clearance not in LEVELS:
+            raise ValueError("clearance is not a known level")
+        return -1 if clearance is None else LEVELS.index(clearance)
+
+    def _reader_refusal(self, context: HookContext) -> tuple[str, str | None] | None:
+        """(deny_reason, classification) when the probed reader must be refused, else None."""
+        policy = self.classification
+        if self._classification_dropped or policy is None or context.declared_attributes is None:
+            return "classification_unresolved", None
+        try:
+            level = context.declared_attributes.get(CLASSIFICATION_KEY)
+            if level is None:
+                return None
+            declared = _rank(level, "reader")
+            if declared <= self._clearance_rank(policy, context.tenant_id, context.principal):
+                return None
+        except Exception:
+            return "classification_unresolved", None
+        return "classification_above_clearance", LEVELS[declared]
 
     def _deny_run_start(
         self,
@@ -708,11 +736,12 @@ class AuditExtender(Extender):
 
     def wraps(self) -> set[ExtenderHook]:
         if self.fail_closed:
-            return {
+            hooks = {
                 ExtenderHook.FEATURE_GROUP_MATCHED,
                 ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
                 ExtenderHook.INPUT_DATA_LOAD,
             }
+            return hooks | {ExtenderHook.INPUT_DATA_MATCH} if self._gate_readers else hooks
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -745,9 +774,14 @@ class AuditExtender(Extender):
                             trace=trace,
                         )
                     )
-                    if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED and context.plan_id is not None:
+                    if context.hook in _PLAN_HOOKS and context.plan_id is not None:
                         self._plan_refusals.add(context.plan_id)
                     raise
+            if context.hook is ExtenderHook.INPUT_DATA_MATCH:
+                refusal_reason = self._reader_refusal(context)
+                if refusal_reason is not None:
+                    self._deny_reader(context, func, refusal_reason, trace)
+                return func(*args, **kwargs)
             if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED:
                 return func(*args, **kwargs)
 
@@ -785,6 +819,36 @@ class AuditExtender(Extender):
         self.sink.write(record)
         return result
 
+    def _deny_reader(
+        self, context: HookContext, func: Any, reason: tuple[str, str | None], trace: tuple[str | None, str | None]
+    ) -> None:
+        deny_reason, level = reason
+        what = (
+            "its declared classification is above the clearance"
+            if level
+            else "its classification could not be resolved"
+        )
+        try:
+            raise ClassificationDeniedError(f"AuditExtender refused the reader: {what}")
+        except ClassificationDeniedError as refusal:
+            # Unguarded on purpose, as in __call__: a sink failure must propagate (core contains it, like the refusal).
+            self.sink.write(
+                self._build_record(
+                    context,
+                    func,
+                    [],
+                    status="error",
+                    error_type=_error_type(refusal),
+                    start_time=None,
+                    trace=trace,
+                    deny_reason=deny_reason,
+                    classification=level,
+                )
+            )
+            if context.plan_id is not None:
+                self._plan_refusals.add(context.plan_id)
+            raise
+
     def _note_load(self, context: HookContext) -> None:
         loads = _open_calculates.find(self)
         if loads is None:
@@ -815,8 +879,10 @@ class AuditExtender(Extender):
         error_type: str | None,
         start_time: str | None,
         trace: tuple[str | None, str | None],
+        deny_reason: str | None = None,
+        classification: str | None = None,
     ) -> dict[str, Any]:
-        matched = context.hook is ExtenderHook.FEATURE_GROUP_MATCHED
+        matched = context.hook in _PLAN_HOOKS
         per_call: dict[str, Any] = {
             "feature_group_class": context.feature_group_class,
             "feature_group_version": context.feature_group_version,
@@ -843,10 +909,16 @@ class AuditExtender(Extender):
             status,
             error_type,
             phase="plan" if matched else "run",
-            enforced=self.fail_closed and bool(self._missing_identity(context)),
+            enforced=self.fail_closed and bool(deny_reason or self._missing_identity(context)),
             start_time=start_time,
             trace=trace,
-            classification=self._step_classification(context),
+            deny_reason=deny_reason,
+            classification=classification or self._step_classification(context),
+            reader_class=(
+                f"{context.reader_class.__module__}.{context.reader_class.__qualname__}"
+                if context.hook is ExtenderHook.INPUT_DATA_MATCH and context.reader_class is not None
+                else None
+            ),
             step_run=None
             if matched
             else step_run_id(
@@ -883,6 +955,7 @@ class AuditExtender(Extender):
         worker_index: int | None = None,
         deny_reason: str | None = None,
         classification: str | None = None,
+        reader_class: str | None = None,
     ) -> dict[str, Any]:
         missing = self._missing_identity(identity)
         event_time = _utc_now()
@@ -908,6 +981,7 @@ class AuditExtender(Extender):
             "span_id": trace[1],
             "deny_reason": deny_reason or (("missing_" + "_and_".join(missing)) if missing else None),
             "classification": classification,
+            "reader_class": reader_class,
             "hook": hook,
             **per_call,
             "status": status,
