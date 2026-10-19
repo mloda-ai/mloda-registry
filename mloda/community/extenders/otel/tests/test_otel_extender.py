@@ -2691,7 +2691,9 @@ class TestOtelExtenderRunScopeFullRuns:
         assert plan.name == "mloda.plan"
         assert _named(exporter, "mloda.run") == []
         assert plan.status.status_code == StatusCode.ERROR
-        assert (plan.attributes or {})["error.type"] == "FeatureResolutionError"
+        assert (plan.attributes or {})["error.type"] == (
+            f"{FeatureResolutionError.__module__}.{FeatureResolutionError.__qualname__}"
+        )
 
 
 class TestOtelExtenderPlanScopeFullRuns:

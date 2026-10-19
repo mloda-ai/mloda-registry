@@ -31,6 +31,7 @@ def make_hook_context(
     status: str | None = None,
     run_id: str | None = None,
     plan_id: str | None = None,
+    structure_hash: str | None = None,
     step_uuid: UUID | None = None,
     data_access_identity: str | None = None,
     data_access_identity_is_fallback: bool | None = None,
@@ -51,6 +52,7 @@ def make_hook_context(
     plan_depth: int | None = None,
     declared_attributes: dict[str, str | int | float | bool] | None = None,
     reader_class: type[BaseInputData] | None = None,
+    result_attributes: dict[str, str | int | float | bool] | None = None,
 ) -> HookContext:
     """Build a HookContext test fixture; every keyword lands unchanged on the result."""
     return HookContext(
@@ -70,6 +72,7 @@ def make_hook_context(
         status=status,
         run_id=run_id,
         plan_id=plan_id,
+        structure_hash=structure_hash,
         step_uuid=step_uuid,
         data_access_identity=data_access_identity,
         data_access_identity_is_fallback=data_access_identity_is_fallback,
@@ -90,4 +93,5 @@ def make_hook_context(
         plan_depth=plan_depth,
         declared_attributes=declared_attributes,
         reader_class=reader_class,
+        result_attributes=result_attributes,
     )

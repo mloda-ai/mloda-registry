@@ -167,6 +167,10 @@ class TestMakeHookContextOverrides:
         context = make_hook_context(step_uuid=step_uuid)
         assert context.step_uuid == step_uuid
 
+    def test_structure_hash_override(self) -> None:
+        context = make_hook_context(structure_hash="abc123")
+        assert context.structure_hash == "abc123"
+
     def test_data_access_identity_override(self) -> None:
         context = make_hook_context(data_access_identity="s3://bucket/key")
         assert context.data_access_identity == "s3://bucket/key"
@@ -194,6 +198,10 @@ class TestMakeHookContextOverrides:
     def test_join_type_override(self) -> None:
         context = make_hook_context(join_type="inner")
         assert context.join_type == "inner"
+
+    def test_result_attributes_override(self) -> None:
+        context = make_hook_context(result_attributes={"rows": 3, "ok": True})
+        assert context.result_attributes == {"rows": 3, "ok": True}
 
     def test_join_keys_override(self) -> None:
         context = make_hook_context(join_keys=("id",))
