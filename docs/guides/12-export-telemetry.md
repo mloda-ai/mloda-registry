@@ -203,7 +203,7 @@ It sees what passes through the Collector only; OpenLineage events go straight t
 
 ### Local run record without a backend
 
-To answer "where does this value come from?" or "what changed since the last run?" without Marquez or Tempo, write the events to a local file with openlineage-python's `file` transport:
+To keep a run record without Marquez or Tempo, write the events to a local file with openlineage-python's `file` transport:
 
 ```yaml
 # openlineage.yml (or point OPENLINEAGE_CONFIG at it)
@@ -229,7 +229,7 @@ Notes:
 - With `append: true`, runs accumulate in one file; group lines by the root runId (each step's `parent` facet points at it). Set `append` in the YAML file: as an `OPENLINEAGE__TRANSPORT__APPEND` env var it is a string, so even `false` turns it on.
 - Without `append`, every event goes to its own `<log_file_path>-<timestamp>.json` file.
 - Under `MULTIPROCESSING` each worker writes to the same path, and an appended line stays whole only while the event fits one write. Leave `append` off there.
-- For the plan structure itself (which groups, readers and frameworks, and how they are wired), keep a plan lock next to the record: see [plan lock tests](feature-group-patterns/10-testing-guide.md).
+- The events do not show how the plan is wired; keep a [plan lock](feature-group-patterns/10-testing-guide.md) next to the record for that.
 
 ## Traces and lineage
 
