@@ -397,6 +397,17 @@ def _prepare_class_feature(feature: str, *extenders: Extender) -> mloda:
     )
 
 
+def _prepare_csv_feature(directory: Path, *extenders: Extender) -> mloda:
+    path = directory / "data.csv"
+    path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+    return mloda.prepare(
+        [Feature("alpha", options={CsvReader.__name__: str(path)})],
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature}),
+        function_extender=set(extenders),
+    )
+
+
 def _ndjson(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
@@ -1750,7 +1761,6 @@ class TestAuditExtenderRecordV2:
         [
             pytest.param({}, {}, id="empty"),
             pytest.param(None, None, id="unreadable"),
-            pytest.param({"license": "a", "scale": float("nan")}, {"license": "a"}, id="non_finite_float"),
             pytest.param(
                 {"text": "x", "flag": True, "count": 1, "scale": 0.5},
                 {"text": "x", "flag": True, "count": 1, "scale": 0.5},
@@ -1758,7 +1768,7 @@ class TestAuditExtenderRecordV2:
             ),
         ],
     )
-    def test_a_calculate_record_carries_the_filtered_group_declaration(
+    def test_a_calculate_record_carries_the_group_declaration(
         self, declared: dict[str, Any] | None, expected: dict[str, Any] | None
     ) -> None:
         record = _calculate_record(declared_attributes=declared)
@@ -4030,22 +4040,6 @@ class TestAuditExtenderDataAccess:
             type(entry["open"]) for entry in declarations if "open" in entry
         ]
 
-    @pytest.mark.parametrize("dropped", [float("nan"), 10**5000], ids=["nan", "oversized_int"])
-    def test_unrecordable_declared_value_is_dropped_and_the_record_is_written_to_an_ndjson_sink(
-        self, tmp_path: Path, dropped: float
-    ) -> None:
-        audit_path = tmp_path / "audit.ndjson"
-        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
-
-        def body() -> None:
-            _load(extender, _BUCKET_KEY, "CsvReader", declared={"license": "a", "scale": dropped})
-
-        _calculate(extender, body)
-
-        records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
-        assert len(records) == 1
-        assert records[0]["data_access_declared_attributes"] == [{"license": "a"}]
-
     def test_hand_built_context_without_the_flag_records_none(self) -> None:
         record = _record_for_loads([(_BUCKET_KEY, "CsvReader")])
 
@@ -4555,12 +4549,17 @@ class TestAuditExtenderRunAll:
         assert records[0]["data_access_identity"] == ["str"]
         assert records[0]["data_access_identity_is_fallback"] == [True]
 
+    @pytest.mark.parametrize(
+        ("declared", "expected"),
+        [
+            pytest.param({"license": "dl-de/by-2-0"}, {"license": "dl-de/by-2-0"}, id="portable"),
+            pytest.param({"license": "a", "scale": float("nan")}, {"license": "a"}, id="non_finite_float_dropped"),
+        ],
+    )
     def test_run_all_csv_read_with_a_declaring_reader_records_the_declaration(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declared: dict[str, Any], expected: dict[str, Any]
     ) -> None:
-        monkeypatch.setattr(
-            CsvReader, "declared_attributes", classmethod(lambda cls, features: {"license": "dl-de/by-2-0"})
-        )
+        monkeypatch.setattr(CsvReader, "declared_attributes", classmethod(lambda cls, features: declared))
         audit_path = tmp_path / "audit.ndjson"
         extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
 
@@ -4571,7 +4570,7 @@ class TestAuditExtenderRunAll:
         sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
         records = [record for record in sink_records if record["feature_group_class"] == read_class]
         assert len(records) == 1
-        assert records[0]["data_access_declared_attributes"] == [{"license": "dl-de/by-2-0"}]
+        assert records[0]["data_access_declared_attributes"] == [expected]
 
     def test_run_all_without_verified_context_denies_but_still_runs(self) -> None:
         sink = InMemoryAuditSink()
@@ -4763,6 +4762,26 @@ class TestAuditExtenderClassificationRunAll:
         denies = [r for r in sink.records if r["decision"] == "deny"]
         assert [r["deny_reason"] for r in denies] == ["classification_above_clearance"]
         assert denies[0]["principal"] == "bob"
+
+    def test_a_rerun_of_one_prepared_reader_declared_session_is_checked_per_principal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _declare_csv_level(monkeypatch, "pii")
+        sink = InMemoryAuditSink()
+        gate = _classified(sink, lambda tenant, principal: "internal" if principal == "carol" else "pii")
+
+        with verified_context(tenant_id="t", principal="alice"):
+            session = _prepare_csv_feature(tmp_path, gate)
+        with verified_context(tenant_id="t", principal="bob"):
+            session.run()
+        with verified_context(tenant_id="t", principal="carol"):
+            with pytest.raises(ClassificationDeniedError):
+                session.run()
+
+        denies = [r for r in sink.records if r["decision"] == "deny"]
+        assert [(r["hook"], r["deny_reason"], r["principal"]) for r in denies] == [
+            ("RUN_START", "classification_above_clearance", "carol")
+        ]
 
     def test_a_reader_declared_above_the_clearance_is_refused_at_plan_time_before_its_probe(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

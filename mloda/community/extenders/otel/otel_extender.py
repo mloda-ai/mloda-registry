@@ -662,7 +662,7 @@ def _set_join_attributes(span: Span, context: HookContext) -> None:
 def _set_scalar_attributes(
     span: Span, attributes: Mapping[str, Any] | None, prefix: str, *, scrub: bool = False
 ) -> None:
-    """<prefix>.<key> attributes from a context attribute mapping, through the shared filter."""
+    """<prefix>.<key> attributes from a context attribute mapping, (core already filtered them); keys are capped and strings truncated here."""
     if not span.is_recording() or not attributes:
         return
     count = 0

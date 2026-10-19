@@ -2066,7 +2066,7 @@ class TestOtelExtenderDeclaredAttributes:
         assert _declared_span_attrs(exporter, prefix) == {}
 
     @pytest.mark.parametrize(("field", "prefix"), _ATTRIBUTE_FIELDS)
-    def test_non_scalar_and_non_portable_declared_values_are_dropped(
+    def test_scalar_declared_values_are_recorded_with_their_types(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], field: str, prefix: str
     ) -> None:
         provider, exporter = otel_capture
@@ -2075,14 +2075,6 @@ class TestOtelExtenderDeclaredAttributes:
             "scalar": "kept",
             "flag": True,
             "num": 3.5,
-            "listy": [1, 2, 3],
-            "mapping": {"a": 1},
-            "none": None,
-            "nan": float("nan"),
-            "inf": float("inf"),
-            "ninf": float("-inf"),
-            "big": 2**63,
-            "small": -(2**63) - 1,
             "int_max": 2**63 - 1,
             "int_min": -(2**63),
         }
@@ -2095,11 +2087,6 @@ class TestOtelExtenderDeclaredAttributes:
         assert attrs[f"{prefix}.scalar"] == "kept"
         assert attrs[f"{prefix}.flag"] is True
         assert attrs[f"{prefix}.num"] == 3.5
-        assert f"{prefix}.listy" not in attrs
-        assert f"{prefix}.mapping" not in attrs
-        assert f"{prefix}.none" not in attrs
-        for dropped in ("nan", "inf", "ninf", "big", "small"):
-            assert f"{prefix}.{dropped}" not in attrs
         assert attrs[f"{prefix}.int_max"] == 2**63 - 1
         assert attrs[f"{prefix}.int_min"] == -(2**63)
 
@@ -2130,22 +2117,6 @@ class TestOtelExtenderDeclaredAttributes:
 
         declared_keys = set(_declared_span_attrs(exporter, prefix))
         assert len(declared_keys) == 32, declared_keys
-        assert declared_keys == {f"{prefix}.k{i}" for i in range(32)}
-
-    @pytest.mark.parametrize(("field", "prefix"), _ATTRIBUTE_FIELDS)
-    def test_dropped_declared_values_do_not_use_up_cap_slots(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], field: str, prefix: str
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        declared: dict[str, Any] = {"nan": float("nan"), "big": 2**63}
-        declared.update({f"k{i}": i for i in range(32)})
-        context = _attribute_context(field, declared)
-
-        with context.activate():
-            otel(_Target.calculate_feature, None, FeatureSet())
-
-        declared_keys = set(_declared_span_attrs(exporter, prefix))
         assert declared_keys == {f"{prefix}.k{i}" for i in range(32)}
 
 

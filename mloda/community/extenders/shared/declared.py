@@ -2,31 +2,19 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Any
 
-_INT_MIN = -(2**63)
-_INT_MAX = 2**63 - 1
-
 
 def declared_scalars(declared: Mapping[str, Any] | None) -> dict[str, str | int | float | bool]:
-    """A fresh dict of the str, bool, int and finite float declarations, types unchanged."""
+    """A fresh dict of the declarations; core already dropped non-scalars, non-finite floats and big ints."""
     if declared is None:
         return {}
-    # Dropped: values that are not portable JSON numbers (non-finite floats, which allow_nan=False rejects and
-    # OpenLineage would emit as NaN; ints beyond 64 bits, which also break json.dumps past Python's int digit limit).
-    return {
-        key: value
-        for key, value in declared.items()
-        if isinstance(value, (str, bool))
-        or (isinstance(value, int) and _INT_MIN <= value <= _INT_MAX)
-        or (isinstance(value, float) and math.isfinite(value))
-    }
+    return dict(declared)
 
 
 def readable_declared(declared: Mapping[str, Any] | None) -> dict[str, str | int | float | bool] | None:
-    """None when core could not read the declaration, else its portable scalars (possibly empty)."""
+    """None when core could not read the declaration, else its scalars (possibly empty)."""
     return None if declared is None else declared_scalars(declared)
 
 

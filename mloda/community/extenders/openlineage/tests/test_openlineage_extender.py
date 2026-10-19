@@ -46,6 +46,7 @@ from mloda.steward import (
 )
 from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
@@ -74,6 +75,7 @@ from mloda.testing.extenders.openlineage import (
 from mloda.testing.extenders.runners import (
     MlodaTestingValueIntPlusOne,
     expected_value_int,
+    run_csv_feature,
     run_two_features,
     run_until_ready_then_sigterm,
     run_value_int,
@@ -2838,16 +2840,31 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             }
             assert facets["mlodaDeclared"]["_producer"] == extender.producer
 
-    def test_non_finite_declared_float_is_dropped_and_the_event_is_strict_json(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    def test_non_finite_declared_float_is_dropped_by_core_and_the_event_is_strict_json(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         def reject(constant: str) -> None:
             raise AssertionError(f"non-finite constant {constant} in the event")
 
-        _, payload, serialized = self._declared_payload(ol_capture, [{"license": "a", "scale": float("nan")}])
+        monkeypatch.setattr(
+            CsvReader, "declared_attributes", classmethod(lambda cls, features: {"license": "a", "scale": float("nan")})
+        )
+        client, transport = ol_capture
 
-        json.loads(serialized, parse_constant=reject)
-        assert payload["inputs"][0]["facets"]["mlodaDeclared"]["attributes"] == {"license": "a"}
+        run_csv_feature(tmp_path, OpenLineageExtender(client=client))
+
+        declared = []
+        for event in transport.events:
+            serialized = Serde.to_json(event)
+            json.loads(serialized, parse_constant=reject)
+            for dataset in json.loads(serialized).get("inputs", []):
+                if "mlodaDeclared" in dataset["facets"]:
+                    declared.append(dataset["facets"]["mlodaDeclared"]["attributes"])
+        assert declared
+        assert all(attributes == {"license": "a"} for attributes in declared)
 
     @pytest.mark.parametrize(
         ("declarations", "expected", "conflicts"),
@@ -4087,7 +4104,9 @@ class TestOpenLineageExtenderSubclassSeams:
         client, transport = ol_capture
         extender = _RecordingDispatchExtender(client=client)
 
-        with make_hook_context(hook=hook).activate():
+        planning: dict[str, Any] = {"feature_group_class": None, "compute_framework_name": None}
+        overrides = planning if hook in (ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.INPUT_DATA_MATCH) else {}
+        with make_hook_context(hook=hook, **overrides).activate():
             extender(lambda: None)
 
         assert [context.hook for context, *_ in extender.dispatched] == [hook]
@@ -4182,11 +4201,10 @@ class TestOpenLineageExtenderSubclassSeams:
     @pytest.mark.parametrize(
         ("declared", "expected"),
         [
-            ({"license": "a", "scale": float("nan")}, {"license": "a"}),
             ({"n": 2**63 - 1, "flag": True, "ratio": 0.5}, {"n": 2**63 - 1, "flag": True, "ratio": 0.5}),
             ({}, {}),
         ],
-        ids=["non_finite_float", "types_preserved", "empty"],
+        ids=["types_preserved", "empty"],
     )
     def test_output_datasets_carry_the_filtered_group_declaration(
         self,
