@@ -1,4 +1,5 @@
-"""Community and enterprise FeatureGroups must never accept the same feature name (core has no precedence)."""
+"""Community and enterprise FeatureGroups never accept the same feature name (core has no precedence).
+Examples are sampled under each side's own options; groups needing extra options rely on coverage and review."""
 
 from __future__ import annotations
 
@@ -44,13 +45,21 @@ def _string_options() -> Options:
 
 def _enterprise_examples() -> list[Example]:
     anonymizer = "mloda-enterprise-anonymizer"
-    config = {"pseudonymization_algorithm": "hmac_sha256", "pii_key_env": "SOME_ENV", "in_features": "email"}
-    binary = {"binary_operation": "hash", "binary_input_columns": ["col_a"]}
-    return [
-        Example(anonymizer, AnonymizerFeatureGroup, "email__hmac_sha256_pseudonymized", _string_options()),
-        Example(anonymizer, AnonymizerFeatureGroup, "email_pseudonym", Options(context=config)),
-        Example("mloda-enterprise-binary-example", BinaryExampleFeatureGroup, "hashed", Options(context=binary)),
+    algorithms = AnonymizerFeatureGroup.PROPERTY_MAPPING[AnonymizerFeatureGroup.ALGORITHM].allowed_values or {}
+    operations = BinaryExampleFeatureGroup.PROPERTY_MAPPING[BinaryExampleFeatureGroup.OPERATION].allowed_values or {}
+    examples = [
+        Example(anonymizer, AnonymizerFeatureGroup, f"email__{alg}_pseudonymized", _string_options())
+        for alg in algorithms
     ]
+    for alg in algorithms:
+        config = {AnonymizerFeatureGroup.ALGORITHM: alg, "pii_key_env": "SOME_ENV", "in_features": "email"}
+        examples.append(Example(anonymizer, AnonymizerFeatureGroup, "email_pseudonym", Options(context=config)))
+    for op in operations:
+        binary = {BinaryExampleFeatureGroup.OPERATION: op, "binary_input_columns": ["col_a"]}
+        examples.append(
+            Example("mloda-enterprise-binary-example", BinaryExampleFeatureGroup, "hashed", Options(context=binary))
+        )
+    return examples
 
 
 def _community_explicit_examples() -> list[Example]:
@@ -142,20 +151,33 @@ def test_every_feature_group_package_has_example_features() -> None:
     assert missing == [], "Add example features to this guard for package(s):\n  " + "\n  ".join(missing)
 
 
-class _PrototypePseudonymizer(FeatureChainParserMixin, FeatureGroup):
-    """Planted community group claiming the enterprise anonymizer's name."""
-
-    PREFIX_PATTERN = r".*__(hmac_sha256|aes_siv|format_preserving)_pseudonymized$"
-    MIN_IN_FEATURES = 1
-    MAX_IN_FEATURES = 1
-    PROPERTY_MAPPING: ClassVar = {
-        "pseudonymization_algorithm": property_spec("Algorithm", allowed_values={"hmac_sha256": "HMAC"}),
-        "pii_key_env": property_spec("Key environment variable"),
-        DefaultOptionKeys.in_features: property_spec("Source column"),
-    }
+def test_every_manifest_class_is_covered_by_an_example_owner() -> None:
+    for prefix, owners in (
+        (_ENTERPRISE, {e.owner for e in _enterprise_examples()}),
+        (_COMMUNITY, {e.owner for e in _community_examples()}),
+    ):
+        classes = _manifest_classes(prefix)
+        uncovered = [c.__name__ for c in classes if not any(issubclass(c, o) for o in owners)]
+        assert uncovered == [], f"Add example features for class(es) under {prefix}:\n  " + "\n  ".join(uncovered)
+        idle = [o.__name__ for o in owners if not any(issubclass(c, o) for c in classes)]
+        assert idle == [], f"Example owners with no manifest class under {prefix} (vacuous guard):\n  " + "\n  ".join(
+            idle
+        )
 
 
 def test_detector_reports_planted_colliding_community_group() -> None:
-    enterprise = [e for e in _enterprise_examples() if e.name == "email__hmac_sha256_pseudonymized"]
+    class _PrototypePseudonymizer(FeatureChainParserMixin, FeatureGroup):
+        """Planted community group claiming the enterprise anonymizer's name."""
+
+        PREFIX_PATTERN = r".*__([a-z0-9_]+)_pseudonymized$"
+        MIN_IN_FEATURES = 1
+        MAX_IN_FEATURES = 1
+        PROPERTY_MAPPING: ClassVar = {
+            "pseudonymization_algorithm": property_spec("Algorithm", allowed_values={"hmac_sha256": "HMAC"}),
+            "pii_key_env": property_spec("Key environment variable"),
+            DefaultOptionKeys.in_features: property_spec("Source column"),
+        }
+
+    enterprise = [e for e in _enterprise_examples() if e.name.endswith("_pseudonymized")][:1]
     found = find_cross_matches([_PrototypePseudonymizer], enterprise)
-    assert len(found) == 1 and "email__hmac_sha256_pseudonymized" in found[0], found
+    assert len(found) == 1 and enterprise[0].name in found[0], found
