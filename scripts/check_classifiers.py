@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Check every generated package classifier against the trove-classifiers package.
-
-Usage:
-    python scripts/check_classifiers.py   # needs trove-classifiers (tox -e check-classifiers)
-"""
+"""Check every generated package classifier against trove-classifiers (tox -e check-classifiers)."""
 
 from __future__ import annotations
 
