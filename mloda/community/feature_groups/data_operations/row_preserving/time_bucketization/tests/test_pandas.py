@@ -13,7 +13,10 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pandas_time_bucketization import (
     PandasTimeBucketization,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
@@ -25,6 +28,10 @@ class TestPandasTimeBucketization(PandasTestMixin, TimeBucketizationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasTimeBucketization
+
+
+class TestPandasTimeBucketizationNullableInt(PandasNullableIntTestMixin, TestPandasTimeBucketization):
+    """Runs the time_bucketization suite on nullable pandas int columns."""
 
 
 class TestPandasCalendarRoundDtype:

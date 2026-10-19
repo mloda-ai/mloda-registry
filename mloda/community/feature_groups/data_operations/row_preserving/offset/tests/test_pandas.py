@@ -9,7 +9,10 @@ import pytest
 pytest.importorskip("pandas")
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.pandas_offset import PandasOffset
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import OffsetTestBase
 
 
@@ -17,3 +20,7 @@ class TestPandasOffset(PandasTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasOffset
+
+
+class TestPandasOffsetNullableInt(PandasNullableIntTestMixin, TestPandasOffset):
+    """Runs the offset suite on nullable pandas int columns."""

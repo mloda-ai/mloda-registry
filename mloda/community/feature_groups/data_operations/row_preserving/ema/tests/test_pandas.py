@@ -11,7 +11,10 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import (
     PandasEma,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import (
     EmaTestBase,
 )
@@ -23,3 +26,7 @@ class TestPandasEma(PandasTestMixin, EmaTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasEma
+
+
+class TestPandasEmaNullableInt(PandasNullableIntTestMixin, TestPandasEma):
+    """Runs the ema suite on nullable pandas int columns."""

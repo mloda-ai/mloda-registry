@@ -14,7 +14,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_r
     PandasRank,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )
@@ -38,3 +41,7 @@ class TestPandasRank(CapabilityHookTestMixin, PandasTestMixin, RankTestBase):
     def ranks_none_and_nan_apart(cls) -> bool:
         """A float64 column has no separate NaN/null representation, so pandas' ``.rank()`` ties them trivially."""
         return False
+
+
+class TestPandasRankNullableInt(PandasNullableIntTestMixin, TestPandasRank):
+    """Runs the rank suite on nullable pandas int columns."""

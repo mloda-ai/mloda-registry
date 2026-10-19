@@ -14,7 +14,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     PandasScalarAggregate,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
     ScalarAggregateTestBase,
 )
@@ -33,3 +36,7 @@ class TestPandasScalarAggregate(CapabilityHookTestMixin, PandasTestMixin, Scalar
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count and std/var."""
         return frozenset({"sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"})
+
+
+class TestPandasScalarAggregateNullableInt(PandasNullableIntTestMixin, TestPandasScalarAggregate):
+    """Runs the scalar_aggregate suite on nullable pandas int columns."""

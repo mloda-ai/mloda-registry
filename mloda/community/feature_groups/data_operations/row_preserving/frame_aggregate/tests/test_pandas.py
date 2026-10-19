@@ -17,7 +17,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
     PandasFrameAggregate,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
     time_frame_options,
@@ -93,3 +96,7 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         assert any(">=2.2" in d or ">=2.3" in d for d in pandas_deps), (
             f"frame-aggregate pandas dep should pin >=2.2 for lowercase freq codes; got {pandas_deps}"
         )
+
+
+class TestPandasFrameAggregateNullableInt(PandasNullableIntTestMixin, TestPandasFrameAggregate):
+    """Runs the frame_aggregate suite on nullable pandas int columns."""

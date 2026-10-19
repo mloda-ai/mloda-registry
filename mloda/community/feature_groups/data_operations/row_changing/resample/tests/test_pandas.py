@@ -11,7 +11,10 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_changing.resample.pandas_resample import (
     PandasResample,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     ResampleTestBase,
 )
@@ -28,3 +31,7 @@ class TestPandasResample(PandasTestMixin, ResampleTestBase):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """pandas skips NaN in sum/mean/count and returns null for an all-NaN bucket."""
         return frozenset({"sum", "mean", "count", "min", "max"})
+
+
+class TestPandasResampleNullableInt(PandasNullableIntTestMixin, TestPandasResample):
+    """Runs the resample suite on nullable pandas int columns."""

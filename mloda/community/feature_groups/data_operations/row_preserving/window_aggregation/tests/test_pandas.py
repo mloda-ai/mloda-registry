@@ -13,7 +13,10 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
     PandasWindowAggregation,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -34,6 +37,10 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count, mode() and std/var."""
         return frozenset({"mode", "sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"})
+
+
+class TestPandasWindowAggregationNullableInt(PandasNullableIntTestMixin, TestPandasWindowAggregation):
+    """Runs the window_aggregation suite on nullable pandas int columns."""
 
 
 class TestPandasWindowModeVectorized:

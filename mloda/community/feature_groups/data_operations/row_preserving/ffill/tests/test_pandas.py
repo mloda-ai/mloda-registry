@@ -11,7 +11,10 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pandas_ffill import (
     PandasFfill,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import (
     FfillTestBase,
 )
@@ -23,3 +26,7 @@ class TestPandasFfill(PandasTestMixin, FfillTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasFfill
+
+
+class TestPandasFfillNullableInt(PandasNullableIntTestMixin, TestPandasFfill):
+    """Runs the ffill suite on nullable pandas int columns."""

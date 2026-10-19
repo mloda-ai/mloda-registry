@@ -11,7 +11,10 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.binning.pandas_binning import (
     PandasBinning,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,
 )
@@ -23,3 +26,7 @@ class TestPandasBinning(PandasTestMixin, BinningTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasBinning
+
+
+class TestPandasBinningNullableInt(PandasNullableIntTestMixin, TestPandasBinning):
+    """Runs the binning suite on nullable pandas int columns."""

@@ -11,7 +11,10 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.pandas_datetime import (
     PandasDateTimeExtraction,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
@@ -23,3 +26,7 @@ class TestPandasDateTimeExtraction(PandasTestMixin, DateTimeTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasDateTimeExtraction
+
+
+class TestPandasDateTimeExtractionNullableInt(PandasNullableIntTestMixin, TestPandasDateTimeExtraction):
+    """Runs the datetime suite on nullable pandas int columns."""

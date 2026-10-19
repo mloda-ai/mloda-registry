@@ -11,7 +11,10 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pandas_scalar_arithmetic import (
     PandasScalarArithmetic,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+    PandasNullableIntTestMixin,
+    PandasTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     ScalarArithmeticTestBase,
 )
@@ -21,3 +24,7 @@ class TestPandasScalarArithmetic(PandasTestMixin, ScalarArithmeticTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasScalarArithmetic
+
+
+class TestPandasScalarArithmeticNullableInt(PandasNullableIntTestMixin, TestPandasScalarArithmetic):
+    """Runs the scalar_arithmetic suite on nullable pandas int columns."""
