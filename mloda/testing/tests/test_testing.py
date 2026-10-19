@@ -122,156 +122,160 @@ def test_contract_sentinel_has_a_clear_repr() -> None:
     assert "ALL_COMPUTE_FRAMEWORKS" in repr(_all_cfw())
 
 
-@pytest.mark.parametrize(("attr", "method"), _UNSET_CASES)
-def test_contract_unset_attribute_fails_naming_the_attribute(attr: str, method: str) -> None:
-    host = _full_host(**{attr: None})
-    with pytest.raises(pytest.fail.Exception, match=rf"_Host\.{attr}"):
-        getattr(host, method)()
-
-
-def test_contract_fully_declared_toy_passes_all_five() -> None:
-    host = _full_host()
-    host.test_contract_feature_group_class_is_a_feature_group()
-    host.test_contract_compute_framework_rule()
-    host.test_contract_matching_feature_names_match()
-    host.test_contract_non_matching_feature_names_do_not_match()
-    host.test_contract_input_features()
-
-
-def test_contract_feature_group_class_must_be_a_feature_group() -> None:
-    host = _full_host(feature_group_class=dict)
-    with pytest.raises(pytest.fail.Exception, match=r"_Host\.feature_group_class"):
-        host.test_contract_feature_group_class_is_a_feature_group()
-
-
-def test_contract_missing_rule_without_sentinel_fails() -> None:
-    host = _full_host(expected_compute_frameworks={ComputeFramework})
-    with pytest.raises(pytest.fail.Exception, match=r"_Host\.expected_compute_frameworks"):
-        host.test_contract_compute_framework_rule()
-
-
-def test_contract_missing_rule_with_sentinel_passes() -> None:
-    _full_host().test_contract_compute_framework_rule()
-
-
-def test_contract_sentinel_fails_when_the_group_declares_a_rule() -> None:
-    host = _full_host(feature_group_class=_FrameworkGroup)
-    with pytest.raises(pytest.fail.Exception, match=r"_Host\.expected_compute_frameworks"):
-        host.test_contract_compute_framework_rule()
-
-
-def test_contract_matching_rule_passes() -> None:
-    host = _full_host(feature_group_class=_FrameworkGroup, expected_compute_frameworks={ComputeFramework})
-    host.test_contract_compute_framework_rule()
-
-
-def test_contract_wrong_rule_fails() -> None:
-    host = _full_host(feature_group_class=_FrameworkGroup, expected_compute_frameworks={FeatureGroup})
-    with pytest.raises(pytest.fail.Exception, match=r"_Host\.expected_compute_frameworks"):
-        host.test_contract_compute_framework_rule()
-
-
-def test_contract_matching_names_must_not_be_empty() -> None:
-    host = _full_host(matching_feature_names=[])
-    with pytest.raises(pytest.fail.Exception, match=r"_Host\.matching_feature_names"):
-        host.test_contract_matching_feature_names_match()
-
-
-def test_contract_offending_matching_name_is_listed() -> None:
-    host = _full_host(matching_feature_names=["a__derived", "offender_one", Feature("offender_two", Options())])
-    with pytest.raises(pytest.fail.Exception) as excinfo:
-        host.test_contract_matching_feature_names_match()
-    message = str(excinfo.value)
-    assert "offender_one" in message
-    assert "offender_two" in message
-    assert "a__derived" not in message
-
-
-def test_contract_matching_name_rejected_by_value_error_fails() -> None:
-    host = _full_host(matching_feature_names=["bad__derived"])
-    with pytest.raises(pytest.fail.Exception, match="bad__derived"):
-        host.test_contract_matching_feature_names_match()
-
-
-def test_contract_offending_non_matching_name_is_listed() -> None:
-    host = _full_host(non_matching_feature_names=["plain", "x__derived", Feature("y__derived", Options())])
-    with pytest.raises(pytest.fail.Exception) as excinfo:
-        host.test_contract_non_matching_feature_names_do_not_match()
-    message = str(excinfo.value)
-    assert "x__derived" in message
-    assert "y__derived" in message
-    assert "plain" not in message
-
-
-def test_contract_value_error_counts_as_non_match() -> None:
-    host = _full_host(non_matching_feature_names=["bad__derived"])
-    host.test_contract_non_matching_feature_names_do_not_match()
-
-
-def test_contract_empty_non_matching_names_is_an_explicit_none() -> None:
-    _full_host(non_matching_feature_names=[]).test_contract_non_matching_feature_names_do_not_match()
-
-
-def test_contract_wrong_input_expectation_fails_with_name_expected_and_actual() -> None:
-    host = _full_host(expected_input_features={"a__derived": {"zzz"}})
-    with pytest.raises(pytest.fail.Exception) as excinfo:
-        host.test_contract_input_features()
-    message = str(excinfo.value)
-    assert "a__derived" in message
-    assert "zzz" in message
-    assert "'a'" in message
-
-
-def test_contract_missing_input_expectation_fails() -> None:
-    host = _full_host(expected_input_features={})
-    with pytest.raises(pytest.fail.Exception, match="a__derived"):
-        host.test_contract_input_features()
-
-
-def test_contract_none_expectation_fails_when_group_has_inputs() -> None:
-    host = _full_host(expected_input_features={"a__derived": None})
-    with pytest.raises(pytest.fail.Exception, match="a__derived"):
-        host.test_contract_input_features()
-
-
-def test_contract_input_features_accept_str_items() -> None:
-    _full_host(feature_group_class=_StrInputGroup).test_contract_input_features()
-
-
-def test_contract_not_implemented_error_counts_as_root_group() -> None:
-    host = _full_host(
-        feature_group_class=_RootGroup,
-        matching_feature_names=["_RootGroup"],
-        non_matching_feature_names=["plain"],
-        expected_input_features={"_RootGroup": None},
-    )
-    host.test_contract_matching_feature_names_match()
-    host.test_contract_non_matching_feature_names_do_not_match()
-    host.test_contract_input_features()
-
-
-def test_contract_root_group_fails_when_inputs_are_expected() -> None:
-    host = _full_host(
-        feature_group_class=_RootGroup,
-        matching_feature_names=["_RootGroup"],
-        expected_input_features={"_RootGroup": {"a"}},
-    )
-    with pytest.raises(pytest.fail.Exception, match="_RootGroup"):
-        host.test_contract_input_features()
-
-
 class _EmptySetGroup(_RootGroup):
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature]:
         return set()
 
 
-def test_contract_empty_input_set_counts_as_root_group() -> None:
-    host = _full_host(
-        feature_group_class=_EmptySetGroup,
-        matching_feature_names=["_EmptySetGroup"],
-        expected_input_features={"_EmptySetGroup": None},
-    )
-    host.test_contract_input_features()
+_M_CLASS = "test_contract_feature_group_class_is_a_feature_group"
+_M_RULE = "test_contract_compute_framework_rule"
+_M_MATCH = "test_contract_matching_feature_names_match"
+_M_NON_MATCH = "test_contract_non_matching_feature_names_do_not_match"
+_M_INPUTS = "test_contract_input_features"
+
+_FAIL_CASES: list[Any] = [
+    *[pytest.param({a: None}, m, (f"_Host.{a}",), (), id=f"unset_{a}") for a, m in _UNSET_CASES],
+    pytest.param(
+        {"feature_group_class": dict},
+        _M_CLASS,
+        ("_Host.feature_group_class",),
+        (),
+        id="feature_group_class_must_be_a_feature_group",
+    ),
+    pytest.param(
+        {"expected_compute_frameworks": {ComputeFramework}},
+        _M_RULE,
+        ("_Host.expected_compute_frameworks",),
+        (),
+        id="missing_rule_without_sentinel_fails",
+    ),
+    pytest.param(
+        {"feature_group_class": _FrameworkGroup},
+        _M_RULE,
+        ("_Host.expected_compute_frameworks",),
+        (),
+        id="sentinel_fails_when_the_group_declares_a_rule",
+    ),
+    pytest.param(
+        {"feature_group_class": _FrameworkGroup, "expected_compute_frameworks": {FeatureGroup}},
+        _M_RULE,
+        ("_Host.expected_compute_frameworks",),
+        (),
+        id="wrong_rule_fails",
+    ),
+    pytest.param(
+        {"matching_feature_names": []},
+        _M_MATCH,
+        ("_Host.matching_feature_names",),
+        (),
+        id="matching_names_must_not_be_empty",
+    ),
+    pytest.param(
+        {"matching_feature_names": ["a__derived", "offender_one", Feature("offender_two", Options())]},
+        _M_MATCH,
+        ("offender_one", "offender_two"),
+        ("a__derived",),
+        id="offending_matching_name_is_listed",
+    ),
+    pytest.param(
+        {"matching_feature_names": ["bad__derived"]},
+        _M_MATCH,
+        ("bad__derived",),
+        (),
+        id="matching_name_rejected_by_value_error_fails",
+    ),
+    pytest.param(
+        {"non_matching_feature_names": ["plain", "x__derived", Feature("y__derived", Options())]},
+        _M_NON_MATCH,
+        ("x__derived", "y__derived"),
+        ("plain",),
+        id="offending_non_matching_name_is_listed",
+    ),
+    pytest.param(
+        {"expected_input_features": {"a__derived": {"zzz"}}},
+        _M_INPUTS,
+        ("a__derived", "zzz", "'a'"),
+        (),
+        id="wrong_input_expectation_fails_with_name_expected_and_actual",
+    ),
+    pytest.param({"expected_input_features": {}}, _M_INPUTS, ("a__derived",), (), id="missing_input_expectation_fails"),
+    pytest.param(
+        {"expected_input_features": {"a__derived": None}},
+        _M_INPUTS,
+        ("a__derived",),
+        (),
+        id="none_expectation_fails_when_group_has_inputs",
+    ),
+    pytest.param(
+        {
+            "feature_group_class": _RootGroup,
+            "matching_feature_names": ["_RootGroup"],
+            "expected_input_features": {"_RootGroup": {"a"}},
+        },
+        _M_INPUTS,
+        ("_RootGroup",),
+        (),
+        id="root_group_fails_when_inputs_are_expected",
+    ),
+]
+
+
+@pytest.mark.parametrize(("overrides", "method", "present", "absent"), _FAIL_CASES)
+def test_contract_failure_messages(
+    overrides: dict[str, Any], method: str, present: tuple[str, ...], absent: tuple[str, ...]
+) -> None:
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        getattr(_full_host(**overrides), method)()
+    message = str(excinfo.value)
+    for text in present:
+        assert text in message
+    for text in absent:
+        assert text not in message
+
+
+_ALL_FIVE = (_M_CLASS, _M_RULE, _M_MATCH, _M_NON_MATCH, _M_INPUTS)
+
+_PASS_CASES: list[Any] = [
+    pytest.param({}, _ALL_FIVE, id="fully_declared_toy_passes_all_five"),
+    pytest.param(
+        {"feature_group_class": _FrameworkGroup, "expected_compute_frameworks": {ComputeFramework}},
+        (_M_RULE,),
+        id="matching_rule_passes",
+    ),
+    pytest.param(
+        {"non_matching_feature_names": ["bad__derived"]}, (_M_NON_MATCH,), id="value_error_counts_as_non_match"
+    ),
+    pytest.param(
+        {"non_matching_feature_names": []}, (_M_NON_MATCH,), id="empty_non_matching_names_is_an_explicit_none"
+    ),
+    pytest.param({"feature_group_class": _StrInputGroup}, (_M_INPUTS,), id="input_features_accept_str_items"),
+    pytest.param(
+        {
+            "feature_group_class": _RootGroup,
+            "matching_feature_names": ["_RootGroup"],
+            "non_matching_feature_names": ["plain"],
+            "expected_input_features": {"_RootGroup": None},
+        },
+        (_M_MATCH, _M_NON_MATCH, _M_INPUTS),
+        id="not_implemented_error_counts_as_root_group",
+    ),
+    pytest.param(
+        {
+            "feature_group_class": _EmptySetGroup,
+            "matching_feature_names": ["_EmptySetGroup"],
+            "expected_input_features": {"_EmptySetGroup": None},
+        },
+        (_M_INPUTS,),
+        id="empty_input_set_counts_as_root_group",
+    ),
+]
+
+
+@pytest.mark.parametrize(("overrides", "methods"), _PASS_CASES)
+def test_contract_passes(overrides: dict[str, Any], methods: tuple[str, ...]) -> None:
+    host = _full_host(**overrides)
+    for method in methods:
+        getattr(host, method)()
 
 
 def test_contract_matcher_receives_feature_name_objects() -> None:
