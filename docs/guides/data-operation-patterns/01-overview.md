@@ -14,7 +14,7 @@ Data operations are feature groups that transform existing columns using declara
 
 | Category | Location | Row behavior | Examples |
 |---|---|---|---|
-| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime, time bucketization, ffill, ema, sessionization |
+| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime, time bucketization, ffill, ema, sessionization, lookup |
 | Aggregation | `aggregation/` | Reduces to one row per group | sum, avg, count, min, max, std, var, median, mode, nunique, first, last |
 | Row-changing | `row_changing/` | Output row count differs from input | resample (collapse events onto a regular time grid) |
 | String | `string/` | Row-preserving, element-wise on strings | upper, lower, trim, length, reverse |
@@ -43,6 +43,7 @@ Every data operation encodes its parameters directly in the feature name. The pr
 | Time bucketization | `{col}__{op}_{n}_{unit}` | `ts__floor_1_day`, `ts__ceil_15_minute` |
 | Forward fill | `{col}__ffill` | `price__ffill` (with `order_by` / `partition_by` in Options) |
 | EMA | `{col}__ema_{span}` | `price__ema_10` (with `order_by` / `partition_by` in Options) |
+| Key lookup | `{col}__lookup` | `product_code__lookup` (with `lookup_mapping` in Options) |
 | Resample | `{col}__resample_{n}_{unit}_{agg}` | `value__resample_1_hour_mean` (with `time_column` in Options) |
 | String | `{col}__{str_op}` | `name__upper`, `text__length` |
 

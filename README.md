@@ -71,6 +71,7 @@ The OTel and OpenLineage extenders now ship only through `mloda-community[otel]`
 | `mloda-community-ffill` | `{col}__ffill` (forward fill across time gaps, per partition) | [forward fill](docs/guides/data-operation-patterns/12-ffill-by-time.md) |
 | `mloda-community-ema` | `{col}__ema_10` (exponential moving average, per partition) | [EMA](docs/guides/data-operation-patterns/13-ema.md) |
 | `mloda-community-sessionization` | `{ts}__sessionize_30_minute` (gap-threshold session id) | [sessionization](docs/guides/data-operation-patterns/15-sessionization.md) |
+| `mloda-community-lookup` | `{col}__lookup` (replace keys with mapped values, with an `on_unmatched` policy) | [key lookup](docs/guides/data-operation-patterns/17-lookup.md) |
 | `mloda-community-resample` | `{col}__resample_1_hour_mean` (events onto a regular time grid) | [resample](docs/guides/data-operation-patterns/14-resample.md) |
 
 Options such as `partition_by` and `order_by`, plus the shared contracts, are in the [data operation patterns](docs/guides/data-operation-patterns/index.md). Also published: `mloda-community-data-operations` (the shared base classes), `mloda-community-binary-model` (the mixin for binary-backed FeatureGroups) and the example packages `mloda-community-example` and `mloda-community-example-a`. `config/packages.toml` is the source of truth for the package list.

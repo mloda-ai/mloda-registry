@@ -115,7 +115,7 @@ Q26: Does it declare another feature group's feature (source, connector) in inpu
 Q27: Several interchangeable backends for one feature (e.g. BM25 vs. FAISS)?
     YES → See 28-backend-families
 
-Q28: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization)?
+Q28: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization, key lookup)?
     YES → See Data Operation Patterns below
 
 Q29: Ready to test your implementation?
@@ -193,6 +193,7 @@ Built-in feature groups that transform existing columns: row-preserving analytic
 | 14 | `14-resample.md` | Collapse events onto a regular time grid |
 | 15 | `15-sessionization.md` | Gap-threshold session id |
 | 16 | `16-return-data-type-rule.md` | Fail-fast return-type contract |
+| 17 | `17-lookup.md` | Key lookup with an unmatched-key policy and a mapping hook |
 
 See also `framework-support-matrix.md` (op x framework support) and `known-divergences.md` (audited framework divergences).
 
