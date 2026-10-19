@@ -359,7 +359,6 @@ class AuditExtender(Extender):
         self._segment_max_age = segment_max_age
         self.seal_failures = 0
         self._plan_refusals: set[str] = set()
-        self._structure_hashes: dict[str, str] = {}
         self._classifications: dict[str, dict[uuid.UUID, str]] = {}
         self._pickle_drop_warning = WarnOncePerInstance()
         if fail_closed:
@@ -386,12 +385,10 @@ class AuditExtender(Extender):
             flush()
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...]) -> None:
-        """Caches the plan's structure_hash for the run's records. With fail_closed, refuses a run whose
+        """With fail_closed, refuses a run whose
         RunContext lacks a required identity: one deny record, then IdentityRequiredError. Overriding this also
         lets core run a session whose identity changed since prepare. With a classification policy, also refuses a run
         requesting data above the caller's clearance; a copy whose unpicklable policy was dropped refuses every run."""
-        if run.run_id is not None and plan.structure_hash is not None:
-            self._structure_hashes[run.run_id] = plan.structure_hash
         if not self.fail_closed:
             return
         missing = self._missing_identity(run)
@@ -514,7 +511,6 @@ class AuditExtender(Extender):
         try:
             self._auto_seal(run.run_id)
         finally:
-            self._structure_hashes.pop(run.run_id, None)
             self._classifications.pop(run.run_id, None)
 
     def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
@@ -699,7 +695,6 @@ class AuditExtender(Extender):
         state["_previous_signers"] = ()
         state["_head_anchor"] = None
         state["_seal_failure_policy"] = "log"
-        state["_structure_hashes"] = dict(self._structure_hashes)
         state["_classifications"] = {run_id: dict(levels) for run_id, levels in self._classifications.items()}
         if not is_picklable(self._classification):
             state["_classification"] = None
@@ -903,7 +898,7 @@ class AuditExtender(Extender):
             "host": _hostname(),
             "worker_index": worker_index,
             "step_run_id": step_run,
-            "structure_hash": self._structure_hashes.get(run_id) if run_id is not None else None,
+            "structure_hash": identity.structure_hash,
             "trace_id": trace[0],
             "span_id": trace[1],
             "deny_reason": deny_reason or (("missing_" + "_and_".join(missing)) if missing else None),

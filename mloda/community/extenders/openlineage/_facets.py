@@ -33,6 +33,7 @@ class MlodaDeclaredDatasetFacet(DatasetFacet):
 class MlodaPlanRunFacet(RunFacet):
     planId: str = attr.field()
     structureHash: str | None = attr.field(default=None)
+    origin: str | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:

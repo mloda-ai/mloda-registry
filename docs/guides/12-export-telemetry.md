@@ -222,7 +222,7 @@ OpenLineageExtender(use_sdk_defaults=True)
 
 Each line is one event. Per run:
 
-- **Root run** (job `mloda.run_all`, runId = `mloda.run.id`): `mlodaPlan` (plan id, structure hash) and `processingEngine` (`name: mloda`, the mloda version, and the `mloda-community-openlineage` version as `openlineageAdapterVersion`).
+- **Root run** (job `mloda.run_all`, runId = `mloda.run.id`): `mlodaPlan` (plan id, structure hash, origin) and `processingEngine` (`name: mloda`, the mloda version, and the `mloda-community-openlineage` version as `openlineageAdapterVersion`). The job name stays `mloda.run_all` whatever the origin.
 - **Each calculate step** (job = feature group): `mlodaStep` (`featureGroupVersion`, `pluginVersion`, `computeFramework`; a field core does not know is omitted) and `parent` (the root run).
 - **Inputs:** loaded datasets with `dataSource` (core's data-access identity) and the step's declared input features.
 - **COMPLETE outputs:** one per feature, with `schema` and, when the compute framework can count the result's rows (not for lazy frames), `outputStatistics.rowCount`. The count is the step's, repeated on every output of a multi-output step, so never sum it across outputs.

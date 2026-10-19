@@ -399,7 +399,7 @@ class OpenLineageExtender(Extender):
             from mloda.community.extenders.openlineage._facets import MlodaPlanRunFacet
 
             facets["mlodaPlan"] = MlodaPlanRunFacet(
-                planId=plan.plan_id, structureHash=plan.structure_hash, producer=self.producer
+                planId=plan.plan_id, structureHash=plan.structure_hash, origin=plan.origin, producer=self.producer
             )
         if self._parent is not None:
             namespace, name, parent_run_id = self._parent

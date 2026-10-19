@@ -268,6 +268,15 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
 # Caps keys per prefix (declared and result) so the SDK's attribute limit can't evict core attributes.
 _MAX_DECLARED_KEYS = 32
 
+_PREFLIGHT_ORIGINS = ("explain", "diagnose")
+
+
+def _plan_attributes(plan: PlanContext) -> dict[str, str]:
+    attributes = {"mloda.plan.id": plan.plan_id}
+    if plan.origin is not None:
+        attributes["mloda.plan.origin"] = plan.origin
+    return attributes
+
 
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
@@ -282,7 +291,7 @@ class OtelExtender(Extender):
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
-    plan. Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
+    plan, never for a failed explain or diagnose (their plan spans, plan scope only, end UNSET, not ERROR). Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
     by `mloda.operation.name`, not by name. Without a known root, spans fall back to the carrier or run_id trace.
     classification_undeclared (default None, off) adds the effective `mloda.data.classification` to calculate spans."""
 
@@ -327,12 +336,14 @@ class OtelExtender(Extender):
     def on_plan_start(self, plan: PlanContext) -> None:
         if self.trace_scope != "plan":
             return
-        span = self._tracer().start_span("mloda.plan", attributes={"mloda.plan.id": plan.plan_id})
+        span = self._tracer().start_span("mloda.plan", attributes=_plan_attributes(plan))
         span_context = span.get_span_context()
         if not span_context.is_valid:
             return
         with self._lock:
             self._plan_spans[plan.plan_id] = span
+            if plan.origin in _PREFLIGHT_ORIGINS:
+                return
             self._plan_ints[plan.plan_id] = _ints(span_context)
             self._plan_ints.move_to_end(plan.plan_id)
             while len(self._plan_ints) > _MAX_PLAN_SPANS:
@@ -340,19 +351,18 @@ class OtelExtender(Extender):
 
     def on_plan_complete(self, plan: PlanContext, outcome: LifecycleOutcome) -> None:
         failed = outcome.status == "failed"
+        preflight = plan.origin in _PREFLIGHT_ORIGINS
         with self._lock:
             span = self._plan_spans.pop(plan.plan_id, None)
             if outcome.status != "succeeded":
                 self._plan_ints.pop(plan.plan_id, None)
-        if span is None and failed and self.trace_scope == "run":
+        if span is None and failed and self.trace_scope == "run" and not preflight:
             start_ns = (plan.created_at - _EPOCH) // timedelta(microseconds=1) * 1000
-            span = self._tracer().start_span(
-                "mloda.plan", attributes={"mloda.plan.id": plan.plan_id}, start_time=start_ns
-            )
+            span = self._tracer().start_span("mloda.plan", attributes=_plan_attributes(plan), start_time=start_ns)
         if span is not None:
             if plan.structure_hash is not None:
                 span.set_attribute("mloda.plan.structure_hash", plan.structure_hash)
-            _end_with_outcome(span, outcome, status_attribute=None)
+            _end_with_outcome(span, outcome, status_attribute=None, error_on_failure=not preflight)
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: Any) -> None:
         run_id = run.run_id
@@ -364,6 +374,8 @@ class OtelExtender(Extender):
             attributes["mloda.plan.id"] = plan.plan_id
         if plan.structure_hash is not None:
             attributes["mloda.plan.structure_hash"] = plan.structure_hash
+        if plan.origin is not None:
+            attributes["mloda.plan.origin"] = plan.origin
         caller = _carrier_or_active_span_context(run.carrier)
         with self._lock:
             plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None
@@ -550,13 +562,16 @@ def _mark_exception(span: Span, exc: BaseException) -> None:
     span.set_attribute(key, name)
 
 
-def _end_with_outcome(span: Span, outcome: LifecycleOutcome, status_attribute: str | None) -> None:
+def _end_with_outcome(
+    span: Span, outcome: LifecycleOutcome, status_attribute: str | None, error_on_failure: bool = True
+) -> None:
     if status_attribute is not None:
         span.set_attribute(status_attribute, outcome.status)
-    if outcome.status == "failed":
+    failed = outcome.status == "failed"
+    if failed and error_on_failure:
         span.set_status(Status(StatusCode.ERROR))
     key = outcome_attribute_key(outcome.status)
-    if key is not None and outcome.error_type is not None:
+    if key is not None and (error_on_failure or not failed) and outcome.error_type is not None:
         span.set_attribute(key, outcome.error_type)
     span.end()
 
