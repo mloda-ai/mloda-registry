@@ -19,10 +19,9 @@ ALL_COMPUTE_FRAMEWORKS = _AllComputeFrameworks()
 
 
 class FeatureGroupTestBase:
-    """Base class for testing FeatureGroup implementations.
+    """Base class for testing FeatureGroups: declare the attributes below and the ``test_contract_*`` tests check them.
 
-    Declare the class attributes below in a ``Test*`` subclass; the inherited ``test_contract_*`` tests check them.
-    ``expected_input_features`` is keyed by name, so two matching entries sharing a name share one expectation.
+    ``expected_input_features`` is keyed by name, so matching entries that share a name share one expectation.
     """
 
     feature_group_class: ClassVar[type[FeatureGroup] | None] = None

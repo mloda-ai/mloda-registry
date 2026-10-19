@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import shutil
-import subprocess
+import subprocess  # nosec
 import sys
 import tarfile
 import zipfile
@@ -250,7 +250,7 @@ def _make_cold_project(root: Path, extra: dict[str, str] | None = None) -> Path:
 def test_toy_sibling_module_works_once_the_plugin_is_imported(tmp_path: Path) -> None:
     project = _make_cold_project(tmp_path)
     code = "import acme.feature_groups.plugin, acme.feature_groups.needs_sibling"
-    result = subprocess.run([sys.executable, "-c", code], cwd=project, capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", code], cwd=project, capture_output=True, text=True)  # nosec
 
     assert result.returncode == 0, result.stderr
 

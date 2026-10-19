@@ -32,7 +32,7 @@ def test_matching():
     assert PandasDataFrame in PandasOnlyFeature.compute_framework_rule()
 ```
 
-`FeatureGroupTestBase` (from `mloda.testing.base`) checks matching, `input_features()` and `compute_framework_rule()` from declared attributes. An unset attribute fails, and a group without a `compute_framework_rule()` must opt in with `ALL_COMPUTE_FRAMEWORKS`:
+`FeatureGroupTestBase` checks matching, `input_features()` and `compute_framework_rule()` from declared attributes. Unset attributes fail; a group without a `compute_framework_rule()` must set `ALL_COMPUTE_FRAMEWORKS`:
 
 ```python
 from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS, FeatureGroupTestBase
@@ -58,7 +58,6 @@ def test_calculate_feature():
     df = pd.DataFrame({"input": [1, 2, 3]})
     features = build_feature_set(ScaledFeature, "input__scaled")
 
-    # name_of_one_feature is a str, so calculate_feature reads features.name_of_one_feature directly
     result = ScaledFeature.calculate_feature(df, features)
     assert len(result) == 3
     assert result.min() >= 0 and result.max() <= 1
@@ -191,7 +190,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 
 `get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
 
-`mloda.testing.packaging` checks the two ways a plugin breaks outside the source tree:
+`mloda.testing.packaging` checks that a built plugin is complete and importable:
 
 ```python
 from pathlib import Path
@@ -209,7 +208,7 @@ def test_every_module_imports_cold() -> None:
     assert_cold_imports(PROJECT, "acme")
 ```
 
-`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs `uv build` on a temp copy of the project, so your tree stays clean.
+`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs `uv build` on a temp copy, so your tree stays clean.
 
 ## Testing by Pattern
 
