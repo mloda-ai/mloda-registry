@@ -286,7 +286,7 @@ def test_contract_matching_feature_names_returns_the_output_contract_feature() -
     assert feature.options.get("k") == "v"
 
 
-def test_contract_frameworks_fail_without_a_framework_mixin() -> None:
-    for call in ("compute_framework_class", "contract_expected_compute_frameworks"):
-        with pytest.raises(pytest.fail.Exception, match="contract_expected_compute_frameworks"):
-            getattr(_StubDataOpsTestBase(), call)()
+@pytest.mark.parametrize("call", ["compute_framework_class", "contract_expected_compute_frameworks"])
+def test_contract_frameworks_fail_without_a_framework_mixin(call: str) -> None:
+    with pytest.raises(pytest.fail.Exception, match="contract_expected_compute_frameworks"):
+        getattr(_StubDataOpsTestBase(), call)()

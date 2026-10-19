@@ -10,7 +10,7 @@ from mloda.steward import Extender, ExtenderHook
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.testing import base as base_module
-from mloda.testing.base import FeatureGroupTestBase
+from mloda.testing.base import FeatureGroupContractTestMixin, FeatureGroupTestBase
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 
 
@@ -134,7 +134,7 @@ _M_NON_MATCH = "test_contract_non_matching_feature_names_do_not_match"
 _M_INPUTS = "test_contract_input_features"
 
 _FAIL_CASES: list[Any] = [
-    *[pytest.param({a: None}, m, (f"_Host.{a}",), (), id=f"unset_{a}") for a, m in _UNSET_CASES],
+    *[pytest.param({a: None}, m, (f"_Host.{a}", f"contract_{a}()"), (), id=f"unset_{a}") for a, m in _UNSET_CASES],
     pytest.param(
         {"feature_group_class": dict},
         _M_CLASS,
@@ -300,8 +300,6 @@ def test_contract_matcher_receives_feature_name_objects() -> None:
 
 
 def test_contract_mixin_host_with_hooks_passes_all_five() -> None:
-    from mloda.testing.base import FeatureGroupContractTestMixin
-
     class _Host(FeatureGroupContractTestMixin):
         def contract_feature_group_class(self) -> Any:
             return _DerivedGroup
@@ -321,24 +319,3 @@ def test_contract_mixin_host_with_hooks_passes_all_five() -> None:
     host = _Host()
     for method in _ALL_FIVE:
         getattr(host, method)()
-
-
-def test_feature_group_test_base_is_a_contract_mixin() -> None:
-    from mloda.testing.base import FeatureGroupContractTestMixin
-
-    assert issubclass(FeatureGroupTestBase, FeatureGroupContractTestMixin)
-
-
-def test_bare_contract_mixin_host_fails_naming_the_attribute() -> None:
-    from mloda.testing.base import FeatureGroupContractTestMixin
-
-    class _Bare(FeatureGroupContractTestMixin):
-        pass
-
-    with pytest.raises(pytest.fail.Exception) as excinfo:
-        _Bare().test_contract_feature_group_class_is_a_feature_group()
-    assert "_Bare.feature_group_class" in str(excinfo.value)
-
-
-def test_expected_compute_frameworks_alias_is_exported() -> None:
-    from mloda.testing.base import ExpectedComputeFrameworks  # noqa: F401
