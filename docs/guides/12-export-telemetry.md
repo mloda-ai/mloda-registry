@@ -86,7 +86,7 @@ sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_
 
 ### Metrics from MULTIPROCESSING workers
 
-Each `MULTIPROCESSING` worker exports from its own process under a random `service.instance.id`, so each worker gets its own short series and the queries above return 0 or nothing under either temporality. To aggregate across workers, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, in the environment the workers inherit) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
+By default each `MULTIPROCESSING` worker exports from its own process under a random `service.instance.id`, so each worker gets its own short series and the queries above return 0 or nothing under either temporality. To aggregate across workers, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the parent's environment, so the parent and its workers both export deltas) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
 
 ```yaml
 processors:
@@ -107,9 +107,9 @@ service:
       processors: [transform/mloda_workers, delta_to_cumulative, batch]
 ```
 
-- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-worker values are gone and point times are the Collector's arrival times.
-- The restamp keeps concurrent workers' deltas from being dropped as out of order; `otelcol_deltatocumulative_datapoints` with an `error` label counts any that still are.
-- One Collector instance must receive all of the pipeline's metrics. Its state is in memory, so a restart reads as a counter reset. `delta_to_cumulative` is alpha.
+- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-worker values are gone and point times are the Collector's arrival times. Only counters and histograms (all four mloda metrics) merge correctly; keep gauges and up-down counters under another service.
+- The restamp stops most out-of-order drops between concurrent workers; the Collector's own `deltatocumulative` datapoints counter, with an `error` attribute, counts the rest.
+- One Collector instance must receive all of the pipeline's metrics: a central gateway, not a sidecar per pod (with several replicas, put a `loadbalancing` exporter with `routing_key: service` in front). Its state is in memory, so a restart reads as a counter reset, and `delta_to_cumulative` drops a series idle longer than `max_stale` (default 5m): set it, and the `prometheus` exporter's `metric_expiration`, above the longest gap between runs. `delta_to_cumulative` is alpha.
 
 ## Export through a Collector
 
