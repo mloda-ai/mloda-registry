@@ -2152,7 +2152,7 @@ class TestOtelExtenderDeclaredAttributes:
 class TestOtelExtenderResultAttributes:
     """mloda.result.<key> attributes from HookContext.result_attributes, read after the wrapped call."""
 
-    @pytest.mark.parametrize("chain", ["direct", "otel-outer"])
+    @pytest.mark.parametrize("chain", _DECLARED_ATTRIBUTES_CHAINS)
     def test_result_attributes_set_on_calculate_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], chain: str
     ) -> None:
@@ -2161,7 +2161,7 @@ class TestOtelExtenderResultAttributes:
         context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
 
         with context.activate():
-            call(instrument(context, _Target.publishing_calculate_feature), None, FeatureSet())
+            call(instrument(context, _target(chain, _Target.publishing_calculate_feature)), None, FeatureSet())
 
         assert single_span_attributes(exporter)["mloda.result.rows_checked"] == 3
         if counting is not None:
@@ -2228,7 +2228,7 @@ class TestOtelExtenderResultAttributes:
         def broken(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("recording boom")
 
-        monkeypatch.setattr(otel_extender_module, "_set_result_attributes", broken, raising=False)
+        monkeypatch.setattr(otel_extender_module, "_set_result_attributes", broken)
         otel = OtelExtender(tracer_provider=provider)
         context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
 
@@ -2242,6 +2242,50 @@ class TestOtelExtenderResultAttributes:
         span = exporter.get_finished_spans()[0]
         assert span.status.status_code == StatusCode.ERROR
         assert str((span.attributes or {}).get("error.type")).endswith("RuntimeError")
+
+    def test_result_string_values_are_scrubbed_of_credentials(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        original = "loaded from postgresql://user:hunter2@host/db"  # nosec
+
+        def publishing(data: Any, features: FeatureSet) -> Any:
+            HookContext.publish_result_attributes({"source": original})
+            return "calculated"
+
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        with context.activate():
+            otel(instrument(context, publishing), None, FeatureSet())
+
+        recorded = single_span_attributes(exporter)["mloda.result.source"]
+        assert "hunter2" not in recorded
+        assert recorded == scrub_credentials(original)[: otel_extender_module._CONTENT_PREVIEW_MAX_LEN]
+
+    def test_recording_failure_never_masks_a_successful_call(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        provider, exporter = otel_capture
+
+        def broken(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("recording boom")
+
+        monkeypatch.setattr(otel_extender_module, "_set_result_attributes", broken)
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        with context.activate():
+            with caplog.at_level(logging.WARNING):
+                result = otel(instrument(context, _Target.calculate_feature), None, FeatureSet())
+
+        assert result == "calculated"
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("post-call instrumentation failed" in m for m in warnings), warnings
+        assert exporter.get_finished_spans()[0].status.status_code != StatusCode.ERROR
 
 
 def _declaring_feature_group(

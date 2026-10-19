@@ -659,7 +659,9 @@ def _set_join_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.join.asof.tolerance_seconds", tolerance.total_seconds())
 
 
-def _set_scalar_attributes(span: Span, attributes: Mapping[str, Any] | None, prefix: str) -> None:
+def _set_scalar_attributes(
+    span: Span, attributes: Mapping[str, Any] | None, prefix: str, *, scrub: bool = False
+) -> None:
     """<prefix>.<key> attributes from a context attribute mapping, through the shared filter."""
     if not span.is_recording() or not attributes:
         return
@@ -668,7 +670,7 @@ def _set_scalar_attributes(span: Span, attributes: Mapping[str, Any] | None, pre
         if count >= _MAX_DECLARED_KEYS:
             break
         if isinstance(value, str):
-            value = value[:_CONTENT_PREVIEW_MAX_LEN]
+            value = (scrub_credentials(value) if scrub else value)[:_CONTENT_PREVIEW_MAX_LEN]
         span.set_attribute(f"{prefix}.{key}", value)
         count += 1
 
@@ -677,7 +679,7 @@ def _set_result_attributes(span: Span, context: HookContext | None) -> None:
     """mloda.result.<key> attributes from the context's result_attributes, read after the call."""
     if context is None or context.hook not in DECLARABLE_HOOKS:
         return
-    _set_scalar_attributes(span, context.result_attributes, "mloda.result")
+    _set_scalar_attributes(span, context.result_attributes, "mloda.result", scrub=True)
 
 
 def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:
