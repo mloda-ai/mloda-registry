@@ -99,6 +99,17 @@ class NutsMappingHook:
         return dict(HOOK_REASONS)
 
 
+class EmptyMappingHook:
+    """Mixin for an invalid hook: resolves an empty mapping, which must raise ``ValueError``."""
+
+    MAPPING_FROM_OPTION = False
+    PREFIX_PATTERN = r".*__emptymap$"
+
+    @classmethod
+    def resolve_mapping(cls, feature: Feature) -> dict[str, str]:
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Expected values (literals)
 # ---------------------------------------------------------------------------
@@ -162,6 +173,11 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     @classmethod
     def hook_implementation_class(cls) -> Any:
         """The module-level ``NutsMappingHook`` subclass for this framework, or None to skip hook tests."""
+        return None
+
+    @classmethod
+    def invalid_hook_implementation_class(cls) -> Any:
+        """The module-level ``EmptyMappingHook`` subclass for this framework, or None to skip."""
         return None
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -287,6 +303,26 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             assert self.get_row_count(result) == 0
             assert self.extract_column(result, "product_code__lookup") == []
 
+    # -- Backend robustness (values passed as data, not code) -----------------
+
+    def test_int_output_with_nulls_stays_integer(self) -> None:
+        col = self.extract_column(self._run("product_code__lookup", STR_TO_INT_MAP, "null"), "product_code__lookup")
+        assert col == [1, 2, 1, None, None, None, None]
+        assert all(type(v) is int for v in col if v is not None), f"expected ints, got {col!r}"
+
+    def test_quote_and_semicolon_round_trip_exactly(self) -> None:
+        key, value = "O'Brien; DROP", 'it\'s; "x" -- done'
+        table = self.create_test_data(pa.table({"k": pa.array([key, "plain", None, key], type=pa.string())}))
+        result = self._run("k__lookup", {key: value, "plain": "p"}, "raise", data=table)
+        assert self.extract_column(result, "k__lookup") == [value, "p", None, value]
+
+    def test_mapping_larger_than_sql_bound_variable_limit(self) -> None:
+        size = 40000
+        mapping = {i: i + 1 for i in range(size)}
+        table = self.create_test_data(pa.table({"k": pa.array([0, 7, None, size - 1], type=pa.int64())}))
+        result = self._run("k__lookup", mapping, "raise", data=table)
+        assert self.extract_column(result, "k__lookup") == [1, 8, None, size]
+
     # -- Option-based configuration -----------------------------------------
 
     def test_option_based_lookup(self) -> None:
@@ -399,6 +435,14 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         result = hook.calculate_feature(self.test_data, fs)
         col = self.extract_column(result, f"product_code__{HOOK_SUFFIX}")
         assert_values_with_nulls(col, NULL_STR_PARTIAL)
+
+    def test_invalid_hook_mapping_raises_value_error(self) -> None:
+        hook = self.invalid_hook_implementation_class()
+        if hook is None:
+            pytest.skip("no invalid hook subclass declared for this framework")
+        fs = make_feature_set("product_code__emptymap", on_unmatched="null")
+        with pytest.raises(ValueError):
+            hook.calculate_feature(self.test_data, fs)
 
     def test_hook_reasons_in_error(self) -> None:
         hook = self._hook()

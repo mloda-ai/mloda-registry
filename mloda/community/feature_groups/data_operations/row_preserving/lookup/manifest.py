@@ -14,6 +14,11 @@ from mloda.community.feature_groups.data_operations.manifest_utils import load_p
 FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
     __package__ or __name__.rpartition(".")[0],
     [
+        ("duckdb_lookup", "DuckdbLookup"),
+        ("pandas_lookup", "PandasLookup"),
+        ("polars_lazy_lookup", "PolarsLazyLookup"),
         ("pyarrow_lookup", "PyArrowLookup"),
+        ("python_dict_lookup", "PythonDictLookup"),
+        ("sqlite_lookup", "SqliteLookup"),
     ],
 )
