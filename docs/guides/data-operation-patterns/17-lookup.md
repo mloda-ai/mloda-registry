@@ -47,7 +47,8 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 - **Unmatched.** A non-null source value that is not a key. Policy `raise` (default) raises `LookupUnmatchedError`, `null` outputs null, `keep` passes the source value through.
 - **`keep` needs key type == value type** (str to str, or int to int). Otherwise `ValueError` is raised before dispatch. The output type is then the value type.
 - **Invalid mapping.** An empty mapping, mixed key types or mixed value types does not match as a generic feature. A mapping from a plugin hook raises `ValueError` at compute time.
-- **Pandas and nulls.** Pandas stores an int column with nulls as float64. A float64 source whose non-null values are all integral counts as int keys. A float64 source with fractional values is rejected like any other non-int, non-str source.
+- **Pandas and nulls.** Pandas cannot tell an int column with nulls from a float64 column; see [the pandas entry](known-divergences.md#pandas-classes-float64-sources-as-int-keys).
+- **Unsupported sources.** A `uint64` source column (or `UBIGINT`/`HUGEINT` in DuckDB) is rejected with `ValueError` on every backend, because it cannot be compared at int64 width. Int keys outside the source width never match.
 
 ## LookupUnmatchedError
 

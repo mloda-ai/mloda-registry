@@ -409,6 +409,29 @@ regression_test:
 - **How**: Each framework's `nan_divergent_agg_types()` hook pins its diverging agg types instead of the policy value in the shared `NanPolicyTestMixin.test_mixin_nan_policy` test: Pandas pins `{"mode", "sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}` for aggregation/window_aggregation, `{"sum", "mean", "count", "min", "max"}` for resample, `{"sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}` for scalar_aggregate, and `{"sum", "avg", "count", "std", "var"}` for frame_aggregate; SQLite pins `{"sum", "avg", "count"}` for aggregation/window_aggregation/scalar_aggregate/frame_aggregate.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
 
+### Pandas classes float64 sources as int keys
+
+<!-- machine-checked
+operation: lookup
+framework: pandas
+condition: a float64 source with only finite integral values within int64 counts as int keys, and an all-null float64 source skips the key-family check, unlike the typed backends
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_float64_with_integral_values_accepted_as_int_keys
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_non_integral_float64_rejected_for_int_keys
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_float64_with_inf_not_classed_int
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_all_null_float64_column_skips_key_family_check
+-->
+
+- **Operations**: `lookup`.
+- **Where it lives**: `_source_family` and `_compute_lookup` in `mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py`.
+- **Reference behavior**: PyArrow keys on the column type: a float column is never an int-key source, and an all-null float column with str keys raises `ValueError`.
+- **Native pandas behavior**: Pandas stores an int column with nulls as float64, so the type alone cannot tell it from a float column.
+- **Mitigation kind**: Accepted divergence.
+- **How**: A float64 source whose non-null values are all finite, integral and within int64 counts as int keys; integers above 2**53 lose precision before the lookup. Fractional values and inf are rejected. An all-null float64 source skips the key-family check and yields all nulls. The python_dict backend also skips the check for an all-null column (it has no dtype); no test pins that behavior.
+- **Regression signal**: The four `TestPandasDivergences` tests pin each branch; widening or narrowing the int classification fails them.
+
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 
 <!-- machine-checked

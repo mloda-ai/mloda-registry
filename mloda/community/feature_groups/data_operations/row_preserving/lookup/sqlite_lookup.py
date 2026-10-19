@@ -58,14 +58,14 @@ class SqliteLookup(LookupFeatureGroup):
         map_table = f"_lookup_map_{uuid.uuid4().hex}"
         out_table = f"_lookup_out_{uuid.uuid4().hex}"
         rn = pick_helper_column_name(taken=set(original_cols) | {feature_name})
-        tagged = data.with_row_number(rn, order_by=["rowid"])
-
         q_map = quote_ident(map_table)
         q_source = quote_ident(source_col)
-        join_sql = f"FROM {quote_ident(tagged.table_name)} AS s LEFT JOIN {q_map} AS m ON s.{q_source} = m.k"  # nosec
 
         conn.execute(f"CREATE TEMP TABLE {q_map} (k {_affinity(key_type)} PRIMARY KEY, v {_affinity(value_type)})")
+        tagged = None
         try:
+            tagged = data.with_row_number(rn, order_by=["rowid"])
+            join_sql = f"FROM {quote_ident(tagged.table_name)} AS s LEFT JOIN {q_map} AS m ON s.{q_source} = m.k"  # nosec
             conn.executemany(f"INSERT INTO {q_map} VALUES (?, ?)", list(mapping.items()))  # nosec
 
             if policy == "raise":
@@ -86,5 +86,6 @@ class SqliteLookup(LookupFeatureGroup):
             )
         finally:
             conn.execute(f"DROP TABLE IF EXISTS {q_map}")
-            tagged.drop()
+            if tagged is not None:
+                tagged.drop()
         return SqliteRelation(conn, out_table, _types=[*original_types, value_type])

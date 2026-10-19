@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
@@ -21,12 +22,19 @@ _VALUE_DTYPES: dict[str, str] = {"str": "object", "int": "Int64", "float": "floa
 
 def _source_family(series: pd.Series) -> str:
     dtype = series.dtype
+    if str(dtype).lower() == "uint64":
+        return "other"
     if pd.api.types.is_integer_dtype(dtype):
         return "int"
-    # Nulls turn an int column into float64; integral values still count as int.
-    if pd.api.types.is_float_dtype(dtype) and bool((series.dropna() % 1 == 0).all()):
-        return "int"
-    if pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype):
+    # Nulls turn an int column into float64; integral finite values within int64 still count as int.
+    if pd.api.types.is_float_dtype(dtype):
+        values = series.dropna()
+        integral = bool(np.isfinite(values).all()) and bool((values % 1 == 0).all())
+        return "int" if integral and bool((values.abs() < 2**63).all()) else "other"
+    if pd.api.types.is_object_dtype(dtype):
+        inferred = pd.api.types.infer_dtype(series, skipna=True)
+        return {"string": "str", "empty": "str", "integer": "int"}.get(inferred, "other")
+    if pd.api.types.is_string_dtype(dtype):
         return "str"
     return "other"
 
@@ -50,7 +58,8 @@ class PandasLookup(LookupFeatureGroup):
     ) -> pd.DataFrame:
         source = data[source_col]
         family = _source_family(source)
-        assert_key_family(feature_name, source_col, mapping, family)
+        if not (source.isna().all() and pd.api.types.is_float_dtype(source.dtype)):
+            assert_key_family(feature_name, source_col, mapping, family)
         if family == "int":
             source = source.astype("Int64")
 

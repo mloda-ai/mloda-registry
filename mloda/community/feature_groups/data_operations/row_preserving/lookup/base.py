@@ -36,7 +36,9 @@ from mloda.provider import (
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
     assert_source_columns_present,
+    is_op_token,
     op_token_value,
     option_value,
 )
@@ -98,6 +100,14 @@ def _key_family(key: object) -> str | None:
     return family if family in ("str", "int") else None
 
 
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
+
+
+def _outside_int64(value: object) -> bool:
+    return _value_family(value) == "int" and not _INT64_MIN <= value <= _INT64_MAX  # type: ignore[operator]
+
+
 def mapping_problem(mapping: object) -> str | None:
     """Why ``mapping`` is not a usable lookup mapping, or None when it is valid."""
     if not isinstance(mapping, Mapping):
@@ -110,6 +120,10 @@ def mapping_problem(mapping: object) -> str | None:
     value_families = {_value_family(value) for value in mapping.values()}
     if len(value_families) != 1 or None in value_families:
         return "values must be non-null and all one type (str, int, float or bool)"
+    if any(isinstance(value, float) and value != value for value in mapping.values()):
+        return "values must not be NaN"
+    if any(_outside_int64(item) for item in (*mapping, *mapping.values())):
+        return "int keys and values must fit in int64"
     return None
 
 
@@ -184,6 +198,8 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             strict=True,
             allowed_values=ON_UNMATCHED_POLICIES,
             default="raise",
+            match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
     }
 

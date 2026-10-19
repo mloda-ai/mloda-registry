@@ -17,6 +17,7 @@ Fixture (``id`` is the row-order witness)::
 
 from __future__ import annotations
 
+import datetime
 from typing import Any, NamedTuple
 
 import pyarrow as pa
@@ -396,6 +397,89 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         with pytest.raises(ValueError, match=source) as excinfo:
             self._run(feature_name, mapping, policy)
         assert not isinstance(excinfo.value, LookupUnmatchedError)
+
+    @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
+    @pytest.mark.parametrize(
+        ("column", "mapping"),
+        [
+            pytest.param(
+                pa.array([datetime.date(2020, 1, 1), None, datetime.date(2020, 1, 2)], type=pa.date32()),
+                PARTIAL_STR_MAP,
+                id="date_source_str_keys",
+            ),
+            pytest.param(
+                pa.array([True, None, False], type=pa.bool_()), PARTIAL_STR_MAP, id="bool_with_nulls_str_keys"
+            ),
+            pytest.param(
+                pa.array([True, None, False], type=pa.bool_()), PARTIAL_INT_MAP, id="bool_with_nulls_int_keys"
+            ),
+        ],
+    )
+    def test_non_key_source_dtype_raises(self, column: Any, mapping: dict[Any, Any], policy: str) -> None:
+        table = self.create_test_data(pa.table({"v": column}))
+        with pytest.raises(ValueError, match="'v'") as excinfo:
+            self._run("v__lookup", mapping, policy, data=table)
+        assert not isinstance(excinfo.value, LookupUnmatchedError)
+
+    # -- Integer width and range ----------------------------------------------
+
+    @pytest.mark.parametrize("policy", ["null", "keep"])
+    @pytest.mark.parametrize(
+        ("pa_type", "mapping", "values", "null_expected", "keep_expected"),
+        [
+            pytest.param(
+                pa.int32(),
+                {1: 10, 2**40: 20},
+                [1, 5, None],
+                [10, None, None],
+                [10, 5, None],
+                id="int32_key_above_width",
+            ),
+            pytest.param(
+                pa.int8(),
+                {1: 10, -(2**40): 20},
+                [1, -5, None],
+                [10, None, None],
+                [10, -5, None],
+                id="int8_key_below_width",
+            ),
+            pytest.param(
+                pa.uint8(), {1: 10, -1: 20}, [1, 5, None], [10, None, None], [10, 5, None], id="uint8_negative_key"
+            ),
+        ],
+    )
+    def test_int_key_outside_source_width(
+        self,
+        pa_type: pa.DataType,
+        mapping: dict[Any, Any],
+        values: list[Any],
+        null_expected: list[Any],
+        keep_expected: list[Any],
+        policy: str,
+    ) -> None:
+        table = self.create_test_data(pa.table({"v": pa.array(values, type=pa_type)}))
+        col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
+        assert_values_with_nulls(col, null_expected if policy == "null" else keep_expected, nan_is_null=True)
+
+    def test_int_key_outside_source_width_still_matches_in_range_key_under_raise(self) -> None:
+        table = self.create_test_data(pa.table({"v": pa.array([1, 2, None], type=pa.int32())}))
+        with pytest.raises(LookupUnmatchedError) as excinfo:
+            self._run("v__lookup", {1: 10, 2**40: 20}, "raise", data=table)
+        err = excinfo.value
+        assert (err.unmatched_rows, err.distinct_keys, err.sample) == (1, 1, (2,))
+
+    def test_uint64_above_int64_is_rejected_or_exact(self) -> None:
+        big = 2**63 + 5
+        try:
+            table = self.create_test_data(pa.table({"v": pa.array([1, big, None], type=pa.uint64())}))
+        except OverflowError:
+            pytest.skip("framework cannot hold uint64 values above int64")
+        try:
+            result = self._run("v__lookup", {1: 10}, "keep", data=table)
+        except ValueError:
+            return
+        col = self.extract_column(result, "v__lookup")
+        assert [None if v is None else int(v) for v in col] == [10, big, None]
 
     # -- Hook path --------------------------------------------------------------
 

@@ -19,7 +19,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 def _source_family(dtype: pl.DataType) -> str:
     if dtype == pl.String:
         return "str"
-    if dtype.is_integer():
+    # UInt64 cannot be compared at Int64 width.
+    if dtype.is_integer() and dtype != pl.UInt64:
         return "int"
     return "other"
 
@@ -44,10 +45,12 @@ class PolarsLazyLookup(LookupFeatureGroup):
         source_dtype = data.collect_schema()[source_col]
         assert_key_family(feature_name, source_col, mapping, _source_family(source_dtype))
 
-        keys = pl.Series(list(mapping.keys()), dtype=source_dtype)
         values = pl.Series(list(mapping.values()))
         source = pl.col(source_col)
-        mapped = source.replace_strict(keys, values, default=None, return_dtype=values.dtype)
+        # Compare ints at Int64 width so keys outside the source width never match.
+        probe = source.cast(pl.Int64) if source_dtype.is_integer() else source
+        keys = pl.Series(list(mapping.keys()), dtype=pl.Int64 if source_dtype.is_integer() else source_dtype)
+        mapped = probe.replace_strict(keys, values, default=None, return_dtype=values.dtype)
         # Mapped values are never null, so a null result on a non-null source is an unmatched key.
         unmatched = source.is_not_null() & mapped.is_null()
 

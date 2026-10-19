@@ -20,7 +20,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 def _source_family(arrow_type: pa.DataType) -> str:
     if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
         return "str"
-    if pa.types.is_integer(arrow_type):
+    # uint64 cannot be compared at int64 width.
+    if pa.types.is_integer(arrow_type) and not pa.types.is_uint64(arrow_type):
         return "int"
     return "other"
 
@@ -45,9 +46,11 @@ class PyArrowLookup(LookupFeatureGroup):
         source = data.column(source_col)
         assert_key_family(feature_name, source_col, mapping, _source_family(source.type))
 
-        keys = pa.array(list(mapping.keys()), type=source.type)
         values = pa.array(list(mapping.values()))
-        index = pc.index_in(source, value_set=keys)
+        # Compare ints at int64 width so keys outside the source width never match.
+        probe = source.cast(pa.int64()) if pa.types.is_integer(source.type) else source
+        keys = pa.array(list(mapping.keys()), type=probe.type)
+        index = pc.index_in(probe, value_set=keys)
         mapped = pc.take(values, index)
         unmatched = pc.and_(pc.is_valid(source), pc.is_null(index))
 

@@ -13,6 +13,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupUnmatchedError,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     FULL_STR_MAP,
     PARTIAL_INT_MAP,
@@ -40,6 +42,15 @@ class _FailingHookLookup(NutsMappingHook, PyArrowLookup):
     @classmethod
     def resolve_mapping(cls, feature: Any) -> dict[Any, Any]:
         raise OSError("mapping file unreadable")
+
+
+_UNSAFE_MAPPINGS: list[Any] = [
+    pytest.param({"a": float("nan"), "b": 1.0}, id="nan_value"),
+    pytest.param({2**63: "x"}, id="int_key_above_int64"),
+    pytest.param({-(2**63) - 1: "x"}, id="int_key_below_int64"),
+    pytest.param({1: 2**63}, id="int_value_above_int64"),
+    pytest.param({1: -(2**63) - 1}, id="int_value_below_int64"),
+]
 
 
 def _opts(**context: Any) -> Options:
@@ -107,6 +118,7 @@ class TestMatchRules:
             pytest.param({"a": True, "b": 1}, id="mixed_value_families_bool_int"),
             pytest.param({"a": None}, id="null_value"),
             pytest.param({"a": object()}, id="unsupported_value"),
+            *_UNSAFE_MAPPINGS,
         ],
     )
     def test_invalid_mappings_rejected(self, mapping: Any) -> None:
@@ -198,6 +210,14 @@ class TestReturnDataTypeRule:
         feature = Feature("x__lookup", options=_opts(lookup_mapping={"a": "x", "b": 1}))
         assert PyArrowLookup.return_data_type_rule(feature) is None
 
+    @pytest.mark.parametrize("mapping", _UNSAFE_MAPPINGS)
+    def test_unsafe_mapping_returns_none(self, mapping: dict[Any, Any]) -> None:
+        assert PyArrowLookup.return_data_type_rule(Feature("x__lookup", options=_opts(lookup_mapping=mapping))) is None
+
+    def test_int64_bounds_accepted(self) -> None:
+        mapping = {-(2**63): 2**63 - 1, 2**63 - 1: -(2**63)}
+        assert PyArrowLookup.match_feature_group_criteria("x__lookup", _opts(lookup_mapping=mapping))
+
     def test_hook_mapping_typed(self) -> None:
         assert _HookLookup.return_data_type_rule(Feature("x__nuts2024", options=Options())) == DataType.STRING
 
@@ -208,3 +228,32 @@ class TestReturnDataTypeRule:
     def test_hook_io_error_propagates(self) -> None:
         with pytest.raises(OSError):
             _FailingHookLookup.return_data_type_rule(Feature("x__failing", options=Options()))
+
+
+class TestOnUnmatchedArity(ScalarArityTestBase):
+    """``on_unmatched`` is a scalar key: a multi-element container must not match."""
+
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return LookupFeatureGroup
+
+    @classmethod
+    def match_class(cls) -> Any:
+        return PyArrowLookup
+
+    @classmethod
+    def base_context(cls) -> dict[str, Any]:
+        return {"in_features": "product_code", "lookup_mapping": PARTIAL_STR_MAP}
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        return [TokenCase("on_unmatched", "null", "keep")]
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [LookupFeatureGroup._extract_policy(Feature("my_result", options=options))]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        result = PyArrowLookup.calculate_feature(create_lookup_arrow_table(), feature_set_for("my_result", options))
+        return extract_column(result, "my_result")

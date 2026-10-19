@@ -18,9 +18,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     build_unmatched_error,
 )
 
-_INT_TYPES = frozenset(
-    {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT"}
-)
+# UBIGINT, HUGEINT and UHUGEINT cannot be compared at int64 width and fall to "other".
+_INT_TYPES = frozenset({"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER"})
 
 
 def _source_family(duckdb_type: str) -> str:
