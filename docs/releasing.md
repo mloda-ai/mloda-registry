@@ -9,7 +9,7 @@ Manual only, via GitHub Actions -> Release -> Run workflow. Nothing releases on 
 ## Flow
 
 ```text
-workflow_dispatch → semantic-release → PyPI publish
+workflow_dispatch → verify-backend-extras → semantic-release → PyPI publish
 ```
 
 1. **Version bump**: semantic-release analyzes commits and updates `config/shared.toml`.
@@ -31,7 +31,9 @@ a no-op; the version now comes from the workflow env.
 
 ## Post-release verification
 
-Verification is not part of the release. It runs in a separate workflow,
+The `verify-backend-extras` tox env gates the release: a read-only job builds the data-operations
+leaves locally and installs one clean venv per backend extra before semantic-release runs. The
+rest of the verification is not part of the release. It runs in a separate workflow,
 `.github/workflows/verify-published.yaml` ("Weekly Package Verification"), on a
 Monday cron plus manual dispatch, so a fresh release stays unverified until the next
 run. To check a release immediately, dispatch that workflow.

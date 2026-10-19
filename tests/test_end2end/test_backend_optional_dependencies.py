@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import importlib.metadata
 import re
 from pathlib import Path
@@ -13,26 +12,15 @@ from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
+from tests.script_loader import load_script
 from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
-_DATA_OPERATIONS_REL = "mloda/community/feature_groups/data_operations"
+_script = load_script("verify_backend_extras", _REPO_ROOT / "scripts" / "verify_backend_extras.py")
 
 # Extras that never name a compute framework, so they're excluded from the backend comparison.
 _NON_FRAMEWORK_EXTRAS = frozenset({"all", "dev"})
-
-# Backend module prefixes used by data_operations manifests. Order matters only once a shorter
-# prefix (e.g. a future bare "polars_") could otherwise swallow one of these; keep the longer,
-# more specific prefixes first so that stays true.
-_BACKEND_PREFIXES = [
-    ("polars_lazy_", "polars"),
-    ("python_dict_", "python_dict"),
-    ("pyarrow_", "pyarrow"),
-    ("duckdb_", "duckdb"),
-    ("pandas_", "pandas"),
-    ("sqlite_", "sqlite"),
-]
 
 # Backends whose extra depends on exactly their own pip package.
 _PACKAGED_BACKENDS = {"pyarrow", "polars", "pandas"}
@@ -90,55 +78,7 @@ def _packages() -> dict[str, dict[str, Any]]:
     return packages
 
 
-def _leaf_packages() -> list[tuple[str, dict[str, Any]]]:
-    """data_operations packages with their own manifest.py (excludes the shared base package)."""
-    leaves: list[tuple[str, dict[str, Any]]] = []
-    for name, entry in _packages().items():
-        path = entry.get("path", "")
-        if path != _DATA_OPERATIONS_REL and not path.startswith(_DATA_OPERATIONS_REL + "/"):
-            continue
-        if (_REPO_ROOT / path / "manifest.py").is_file():
-            leaves.append((name, entry))
-    return leaves
-
-
-def _backend_for_module(module_name: str) -> str:
-    for prefix, backend in _BACKEND_PREFIXES:
-        if module_name.startswith(prefix):
-            return backend
-    raise AssertionError(f"unrecognized backend module name {module_name!r}, add its prefix to _BACKEND_PREFIXES")
-
-
-def _specs_arg(call: ast.Call, manifest_path: Path) -> ast.expr:
-    """The specs argument of a load_plugin_classes(package, specs) call, positional or keyword."""
-    if len(call.args) >= 2:
-        return call.args[1]
-    for keyword in call.keywords:
-        if keyword.arg == "specs":
-            return keyword.value
-    raise AssertionError(f"{manifest_path}: load_plugin_classes call has no recognizable specs argument")
-
-
-def _registered_backends(manifest_path: Path) -> set[str]:
-    """Backend extras keys a manifest.py registers, read from its load_plugin_classes specs."""
-    tree = ast.parse(manifest_path.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_plugin_classes":
-            specs = _specs_arg(node, manifest_path)
-            assert isinstance(specs, ast.List), f"{manifest_path}: load_plugin_classes specs must be a list literal"
-            modules: list[str] = []
-            for elt in specs.elts:
-                assert isinstance(elt, ast.Tuple), f"{manifest_path}: each spec must be a (module, class) tuple"
-                submodule = elt.elts[0]
-                assert isinstance(submodule, ast.Constant) and isinstance(submodule.value, str), (
-                    f"{manifest_path}: each spec's module name must be a string literal"
-                )
-                modules.append(submodule.value)
-            return {_backend_for_module(m) for m in modules}
-    raise AssertionError(f"{manifest_path}: no load_plugin_classes(...) call found")
-
-
-_LEAF_PACKAGES = _leaf_packages()
+_LEAF_PACKAGES = _script.leaf_packages(_packages())
 assert _LEAF_PACKAGES, "no data_operations leaf packages found under config/packages.toml; guard is vacuous"
 _CORE_POLARS_REQUIREMENT = _core_extra_requirement("polars")
 _CORE_PYARROW_REQUIREMENT = _core_extra_requirement("pyarrow")
@@ -151,7 +91,8 @@ assert "duckdb" in {req.name for req in _CORE_MIRRORED_REQUIREMENTS["duckdb"]}, 
 
 @pytest.mark.parametrize("package_name,entry", _LEAF_PACKAGES, ids=[name for name, _ in _LEAF_PACKAGES])
 def test_leaf_package_extras_match_registered_backends(package_name: str, entry: dict[str, Any]) -> None:
-    backends = _registered_backends(_REPO_ROOT / entry["path"] / "manifest.py")
+    specs = _script.manifest_specs(_REPO_ROOT / entry["path"] / "manifest.py")
+    backends = {_script.backend_for_module(module) for module, _ in specs}
     actual = entry.get("optional_dependencies", {})
 
     declared = set(actual) - _NON_FRAMEWORK_EXTRAS

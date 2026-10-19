@@ -8,8 +8,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Separate and read-only: third-party PyPI code runs here, never in the job holding the write token.
+  verify_backend_extras:
+    name: Verify backend extras
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.verified_sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install uv and tox
+        run: |
+          python -m pip install uv==0.12.9
+          uv tool install tox --with tox-uv
+
+      - name: Capture verified commit SHA
+        id: verified_sha
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Verify backend extras
+        run: tox -e verify-backend-extras
+        timeout-minutes: 20
+
   github_release:
     name: GitHub Release
+    needs: verify_backend_extras
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -23,6 +58,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: main
+
+      - name: Check main is still the verified commit
+        env:
+          VERIFIED_SHA: ${{ needs.verify_backend_extras.outputs.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$VERIFIED_SHA" ]; then
+            echo "::error ::main moved since verify_backend_extras ran; rerun the release"
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
