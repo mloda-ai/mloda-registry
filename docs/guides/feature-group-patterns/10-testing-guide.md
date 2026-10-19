@@ -208,7 +208,7 @@ def test_every_module_imports_cold() -> None:
     assert_cold_imports(PROJECT, "acme")
 ```
 
-`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs `uv build` on a temp copy, so your tree stays clean.
+`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs on a temp copy, so your tree stays clean, and `uv` must be installed.
 
 ## Testing by Pattern
 

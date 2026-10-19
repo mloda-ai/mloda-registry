@@ -258,3 +258,33 @@ def test_contract_root_group_fails_when_inputs_are_expected() -> None:
     )
     with pytest.raises(pytest.fail.Exception, match="_RootGroup"):
         host.test_contract_input_features()
+
+
+class _EmptySetGroup(_RootGroup):
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature]:
+        return set()
+
+
+def test_contract_empty_input_set_counts_as_root_group() -> None:
+    host = _full_host(
+        feature_group_class=_EmptySetGroup,
+        matching_feature_names=["_EmptySetGroup"],
+        expected_input_features={"_EmptySetGroup": None},
+    )
+    host.test_contract_input_features()
+
+
+def test_contract_matcher_receives_feature_name_objects() -> None:
+    seen: list[type] = []
+
+    class _Recording(_DerivedGroup):
+        @classmethod
+        def match_feature_group_criteria(
+            cls, feature_name: FeatureName | str, options: Options, data_access_collection: Any = None
+        ) -> bool:
+            seen.append(type(feature_name))
+            return str(feature_name).endswith("__derived")
+
+    _full_host(feature_group_class=_Recording).test_contract_matching_feature_names_match()
+
+    assert seen == [FeatureName]

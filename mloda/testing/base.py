@@ -49,7 +49,7 @@ class FeatureGroupTestBase:
     def _matches(self, item: str | Feature) -> bool:
         name, options = self._name_and_options(item)
         try:
-            return bool(self._group().match_feature_group_criteria(name, options))
+            return bool(self._group().match_feature_group_criteria(FeatureName(name), options))
         except ValueError:
             return False
 
@@ -99,7 +99,7 @@ class FeatureGroupTestBase:
                 returned = group().input_features(options, FeatureName(name))
             except NotImplementedError:
                 returned = None
-            actual = None if returned is None else {str(getattr(f, "name", f)) for f in returned}
+            actual = None if not returned else {str(getattr(f, "name", f)) for f in returned}
             if actual != expected:
                 problems.append(f"{name}: expected {expected!r}, got {actual!r}")
         if problems:

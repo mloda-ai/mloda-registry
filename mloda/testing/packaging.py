@@ -4,30 +4,35 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess as subprocess  # nosec  # explicit re-export: tests stub ``packaging.subprocess.run``
+import subprocess  # nosec
 import sys
 import tarfile
 import tempfile
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 _SKIP_DIRS = {"tests", "test"}
 _SKIP_FILES = {"conftest.py", "__main__.py"}
-_COPY_IGNORE = shutil.ignore_patterns(
-    "build",
-    "dist",
-    "*.egg-info",
-    ".venv",
-    "venv",
-    ".git",
-    ".tox",
-    "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-)
+_ROOT_ONLY_IGNORE = {"build", "dist", ".venv", "venv", ".git", ".tox"}
+_ANY_DEPTH_IGNORE = shutil.ignore_patterns("__pycache__", "*.egg-info", "*_cache")
+
+
+def _copy_ignore(project_dir: Path) -> Callable[[str, list[str]], set[str]]:
+    """Ignore callable: build artifacts only at the project root, caches at any depth."""
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        ignored = set(_ANY_DEPTH_IGNORE(directory, names))
+        if Path(directory) == project_dir:
+            ignored |= _ROOT_ONLY_IGNORE.intersection(names)
+        return ignored
+
+    return ignore
+
+
+def _normalize_exclude(exclude: Iterable[str]) -> tuple[str, ...]:
+    return (exclude,) if isinstance(exclude, str) else tuple(exclude)
 
 
 def _source_root(project_dir: Path, package: str) -> Path:
@@ -46,9 +51,10 @@ def _is_excluded(name: str, exclude: Iterable[str]) -> bool:
 def _discover_modules(project_dir: Path, package: str, exclude: Iterable[str]) -> tuple[Path, list[str]]:
     root = _source_root(project_dir, package)
     names: set[str] = set()
-    for path in (root / Path(*package.split("."))).rglob("*.py"):
+    package_dir = root / Path(*package.split("."))
+    for path in package_dir.rglob("*.py"):
         rel = path.relative_to(root)
-        if any(part in _SKIP_DIRS for part in rel.parts[:-1]):
+        if any(part in _SKIP_DIRS for part in path.relative_to(package_dir).parts[:-1]):
             continue
         if path.name in _SKIP_FILES or path.name.startswith("test_"):
             continue
@@ -56,7 +62,10 @@ def _discover_modules(project_dir: Path, package: str, exclude: Iterable[str]) -
         if parts[-1] == "__init__":
             parts.pop()
         names.add(".".join(parts))
-    return root, sorted(n for n in names if not _is_excluded(n, exclude))
+    modules = sorted(n for n in names if not _is_excluded(n, exclude))
+    if not modules:
+        raise AssertionError(f"no modules were found for package {package!r} in {project_dir}")
+    return root, modules
 
 
 def _modules_in(paths: Iterable[str]) -> set[str]:
@@ -87,27 +96,41 @@ def _find_uv() -> str:
 
 
 def assert_distributions_complete(
-    project_dir: Path, package: str, *, exclude: Iterable[str] = (), build_args: Iterable[str] = ()
+    project_dir: Path,
+    package: str,
+    *,
+    exclude: Iterable[str] = (),
+    build_args: Iterable[str] = (),
+    timeout: float = 600,
 ) -> None:
-    """Build the wheel and sdist from a temp copy and assert both contain every module of ``package``."""
+    """Build the wheel and sdist from a temp copy and assert both contain every module of ``package``.
+
+    The wheel is built from the sdist and ``.git`` is not copied, so VCS-derived versions are not available.
+    """
     project_dir = Path(project_dir)
+    exclude = _normalize_exclude(exclude)
     _, modules = _discover_modules(project_dir, package, exclude)
     with tempfile.TemporaryDirectory() as tmp:
         copy_dir = Path(tmp) / "project"
         out_dir = Path(tmp) / "dist"
-        shutil.copytree(project_dir, copy_dir, ignore=_COPY_IGNORE)
-        cmd = [_find_uv(), "build", "--out-dir", str(out_dir), str(copy_dir), *build_args]
-        result = subprocess.run(cmd, capture_output=True, text=True)  # nosec B603
+        shutil.copytree(project_dir, copy_dir, ignore=_copy_ignore(project_dir))
+        cmd = [_find_uv(), "build", "--python", sys.executable, "--out-dir", str(out_dir), str(copy_dir), *build_args]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # nosec B603
+        except subprocess.TimeoutExpired:
+            raise AssertionError(f"uv build timed out after {timeout}s") from None
         if result.returncode != 0:
             raise AssertionError(f"uv build failed ({result.returncode}):\n{result.stderr}")
 
         found: dict[str, set[str]] = {}
         for wheel in out_dir.glob("*.whl"):
             with zipfile.ZipFile(wheel) as zf:
-                found["wheel"] = _modules_in(zf.namelist())
+                found.setdefault("wheel", set()).update(_modules_in(zf.namelist()))
         for sdist in out_dir.glob("*.tar.gz"):
             with tarfile.open(sdist) as tf:
-                found["sdist"] = _modules_in(n.split("/", 1)[1] for n in tf.getnames() if "/" in n)
+                found.setdefault("sdist", set()).update(
+                    _modules_in(n.split("/", 1)[1] for n in tf.getnames() if "/" in n)
+                )
 
     problems = []
     for kind in ("wheel", "sdist"):
@@ -126,7 +149,12 @@ def _cold_import(module: str, root: Path, timeout: float) -> str | None:
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(root), env.get("PYTHONPATH", "")) if p)
     try:
         result = subprocess.run(  # nosec B603
-            [sys.executable, "-c", f"import {module}"], capture_output=True, text=True, timeout=timeout, env=env
+            [sys.executable, "-c", "import importlib, sys; importlib.import_module(sys.argv[1])", module],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            cwd=root,
         )
     except subprocess.TimeoutExpired:
         return f"timed out after {timeout}s"
@@ -138,7 +166,7 @@ def _cold_import(module: str, root: Path, timeout: float) -> str | None:
 
 def assert_cold_imports(project_dir: Path, package: str, *, exclude: Iterable[str] = (), timeout: float = 60) -> None:
     """Assert every module of ``package`` imports in a fresh interpreter."""
-    root, modules = _discover_modules(Path(project_dir), package, exclude)
+    root, modules = _discover_modules(Path(project_dir), package, _normalize_exclude(exclude))
     with ThreadPoolExecutor(max_workers=min(4, len(modules) or 1)) as pool:
         results = list(pool.map(lambda m: (m, _cold_import(m, root, timeout)), modules))
     failures = sorted((m, err) for m, err in results if err is not None)

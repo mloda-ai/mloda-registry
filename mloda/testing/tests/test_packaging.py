@@ -65,11 +65,15 @@ class _Build:
         self.wheel_files: list[str] = list(_FULL_MODULE_FILES)
         self.sdist_files: list[str] = list(_FULL_MODULE_FILES)
         self.src_layout = False
+        self.extra_wheel_files: list[str] | None = None
         self.returncode = 0
         self.stderr = ""
+        self.raises: BaseException | None = None
 
     def __call__(self, cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.cmd = [str(part) for part in cmd]
+        if self.raises is not None:
+            raise self.raises
         out_index = self.cmd.index("--out-dir")
         out_dir = Path(self.cmd[out_index + 1])
         self.copy_dir = Path(self.cmd[out_index + 2])
@@ -80,6 +84,8 @@ class _Build:
             out_dir.mkdir(parents=True, exist_ok=True)
             prefix = "acme-0.1.0/src/" if self.src_layout else "acme-0.1.0/"
             _write_wheel(out_dir / "acme-0.1.0-py3-none-any.whl", self.wheel_files)
+            if self.extra_wheel_files is not None:
+                _write_wheel(out_dir / "acme-0.1.0-cp3-none-any.whl", self.extra_wheel_files)
             _write_sdist(out_dir / "acme-0.1.0.tar.gz", [prefix + f for f in self.sdist_files])
         return subprocess.CompletedProcess(self.cmd, self.returncode, stdout="", stderr=self.stderr)
 
@@ -87,7 +93,8 @@ class _Build:
 @pytest.fixture
 def build(monkeypatch: pytest.MonkeyPatch) -> _Build:
     fake = _Build()
-    monkeypatch.setattr(packaging.subprocess, "run", fake)
+    monkeypatch.setattr(packaging, "_find_uv", lambda: "/fake/uv")
+    monkeypatch.setattr("mloda.testing.packaging.subprocess.run", fake)
     return fake
 
 
@@ -229,6 +236,89 @@ def test_unknown_package_dir_raises_value_error(tmp_path: Path, build: _Build) -
         assert_cold_imports(project, "nope")
 
 
+@pytest.mark.parametrize("name", ["build", "dist", "venv"])
+def test_subpackage_named_like_a_build_dir_is_copied_and_required(tmp_path: Path, build: _Build, name: str) -> None:
+    project = _make_project(tmp_path, [*_FULL_MODULE_FILES, f"acme/{name}/__init__.py"])
+
+    assert f"acme.{name}" in _failure(project)
+    assert f"acme/{name}" in build.copy_files
+
+
+def test_cache_dirs_are_excluded_from_the_copy_at_any_depth(tmp_path: Path, build: _Build) -> None:
+    project = _make_project(tmp_path)
+    for junk in ("acme/sub/__pycache__/x.pyc", "acme/sub/acme.egg-info/PKG-INFO", "acme/sub/my_cache/f"):
+        _write(project / junk)
+
+    assert_distributions_complete(project, "acme")
+
+    assert not [p for p in build.copy_files if "__pycache__" in p or "egg-info" in p or "_cache" in p]
+
+
+def test_exclude_generator_applies_to_every_module(tmp_path: Path, build: _Build) -> None:
+    optional = ["acme/optional/__init__.py", "acme/optional/mod.py"]
+    project = _make_project(tmp_path, [*_FULL_MODULE_FILES, *optional])
+
+    assert_distributions_complete(project, "acme", exclude=(x for x in ["acme.optional"]))
+
+
+def test_exclude_bare_str_is_one_name(tmp_path: Path, build: _Build) -> None:
+    project = _make_project(tmp_path, [*_FULL_MODULE_FILES, "acme/optional/__init__.py"])
+
+    assert_distributions_complete(project, "acme", exclude="acme.optional")
+
+
+def test_timeout_is_reported_as_assertion_error(tmp_path: Path, build: _Build) -> None:
+    build.raises = subprocess.TimeoutExpired(["uv"], 1)
+    project = _make_project(tmp_path)
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_distributions_complete(project, "acme", timeout=1)
+
+    assert "timed out" in str(excinfo.value).lower() or "timeout" in str(excinfo.value).lower()
+
+
+def test_build_command_pins_the_current_interpreter(tmp_path: Path, build: _Build) -> None:
+    assert_distributions_complete(_make_project(tmp_path), "acme")
+
+    assert build.cmd[build.cmd.index("--python") + 1] == sys.executable
+
+
+def test_modules_in_any_wheel_count_as_present(tmp_path: Path, build: _Build) -> None:
+    build.wheel_files = [f for f in _FULL_MODULE_FILES if f not in _MISSING_CORE]
+    build.extra_wheel_files = _MISSING_CORE
+
+    assert_distributions_complete(_make_project(tmp_path), "acme")
+
+
+def test_package_without_python_files_raises(tmp_path: Path, build: _Build) -> None:
+    project = _make_project(tmp_path, ["acme/data.txt"])
+
+    with pytest.raises(AssertionError):
+        assert_distributions_complete(project, "acme")
+    with pytest.raises(AssertionError):
+        assert_cold_imports(project, "acme")
+
+
+def test_package_named_tests_still_requires_its_modules(tmp_path: Path, build: _Build) -> None:
+    files = ["tests/__init__.py", "tests/core.py"]
+    project = _make_project(tmp_path, files)
+    build.wheel_files = ["tests/__init__.py"]
+    build.sdist_files = files
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_distributions_complete(project, "tests")
+
+    assert "tests.core" in str(excinfo.value)
+
+
+def test_cold_import_package_named_tests_checks_its_modules(tmp_path: Path) -> None:
+    project = _write(tmp_path / "tests/__init__.py").parent.parent
+    _write(project / "tests/core.py", "raise RuntimeError('boom')\n")
+
+    with pytest.raises(AssertionError, match="tests.core"):
+        assert_cold_imports(project, "tests")
+
+
 # --------------------------------------------------------------------------------------
 # assert_cold_imports (real subprocesses)
 # --------------------------------------------------------------------------------------
@@ -292,6 +382,35 @@ def test_cold_import_timeout_is_reported(tmp_path: Path) -> None:
     assert "acme.slow" in message
     assert "timeout" in message.lower() or "timed out" in message.lower()
     assert "acme.clean" not in message
+
+
+def test_cold_import_exclude_generator_applies_to_every_module(tmp_path: Path) -> None:
+    project = _make_cold_project(tmp_path)
+
+    assert_cold_imports(project, "acme", exclude=(x for x in ["acme.feature_groups.needs_sibling"]))
+
+
+def test_cold_import_exclude_bare_str_is_one_name(tmp_path: Path) -> None:
+    project = _make_cold_project(tmp_path)
+
+    assert_cold_imports(project, "acme", exclude="acme.feature_groups.needs_sibling")
+
+
+def test_cold_import_module_name_is_not_interpolated_into_code(tmp_path: Path) -> None:
+    project = _make_cold_project(tmp_path, {"acme/v-0001.py": "X = 1\n"})
+    (project / "acme/feature_groups/needs_sibling.py").unlink()
+
+    assert_cold_imports(project, "acme")
+
+
+def test_cold_import_ignores_a_shadow_package_in_the_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _make_cold_project(tmp_path / "real")
+    (project / "acme/feature_groups/needs_sibling.py").unlink()
+    shadow = tmp_path / "shadow"
+    _write(shadow / "acme/__init__.py", "raise RuntimeError('shadow')\n")
+    monkeypatch.chdir(shadow)
+
+    assert_cold_imports(project, "acme")
 
 
 # --------------------------------------------------------------------------------------
