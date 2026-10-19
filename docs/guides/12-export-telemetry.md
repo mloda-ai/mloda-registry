@@ -307,7 +307,7 @@ service:
 
 ### Jobs and CronJobs
 
-A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes. Each run is a new pod and process, so aggregate its metrics as in [Metrics from short-lived processes](#metrics-from-short-lived-processes): send them to the central gateway that runs the merge, never merge in a sidecar, and under the Operator set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the Instrumentation's `python.env`.
+A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes. Each run is a new pod and process, so aggregate its metrics as in [Metrics from short-lived processes](#metrics-from-short-lived-processes): send them to the central gateway that runs the merge (not a sidecar), and under the Operator set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the Instrumentation's `python.env`.
 
 ### Serverless
 
