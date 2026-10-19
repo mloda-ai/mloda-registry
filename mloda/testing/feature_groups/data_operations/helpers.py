@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureGroup, FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -108,9 +108,13 @@ def make_feature_set(
     partition_by: list[str] | None = None,
     order_by: str | None = None,
     mask: tuple[Any, ...] | list[tuple[Any, ...]] | None = None,
+    *,
+    feature_group: type[FeatureGroup] | None = None,
     **extra_context: Any,
 ) -> FeatureSet:
     """Build a FeatureSet with optional partition_by, order_by, mask, and extra context.
+
+    The group's declared option defaults are materialized, so ``feature_group`` is not usable as a context key.
 
     Any additional keyword arguments are merged into the same Options context dict
     used by the explicit ``partition_by`` / ``order_by`` / ``mask`` arguments,
@@ -126,14 +130,18 @@ def make_feature_set(
     if mask is not None:
         context["mask"] = mask
     feature = Feature(feature_name, options=Options(context=context))
-    return build_feature_set(None, feature)
+    return build_feature_set(feature_group, feature)
 
 
-def feature_set_for(feature_name: str, options: Options) -> FeatureSet:
+def feature_set_for(
+    feature_name: str, options: Options, *, feature_group: type[FeatureGroup] | None = None
+) -> FeatureSet:
     """Build a FeatureSet holding one feature that carries ``options`` verbatim.
+
+    The group's declared option defaults are materialized.
 
     ``make_feature_set`` assembles the Options from keyword arguments; this one takes an
     Options that has already been assembled, which is the shape ``compute_values`` in the
     scalar-arity harness hands to a family.
     """
-    return build_feature_set(None, Feature(feature_name, options=options))
+    return build_feature_set(feature_group, Feature(feature_name, options=options))

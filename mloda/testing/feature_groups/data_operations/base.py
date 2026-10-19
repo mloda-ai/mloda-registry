@@ -183,7 +183,14 @@ class DataOpsTestBase(ABC):
         """
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by, **extra_context)
+        # One shared set is valid because PROPERTY_MAPPING lives on the base both classes inherit.
+        fs = make_feature_set(
+            feature_name,
+            partition_by=partition_by,
+            order_by=order_by,
+            feature_group=self.implementation_class(),
+            **extra_context,
+        )
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 

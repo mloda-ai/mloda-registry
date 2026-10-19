@@ -29,7 +29,7 @@ These properties make PyArrow a reasonable ground truth. It is not faster than t
 ```python
 # self.test_data is the framework-native test fixture
 # self._arrow_table is the same data as a PyArrow table
-fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by)
+fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by, feature_group=self.implementation_class())
 result = self.implementation_class().calculate_feature(self.test_data, fs)
 ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 

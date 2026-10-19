@@ -1,11 +1,13 @@
 """Tests for the shared ``DataOpsTestBase`` helpers."""
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, ClassVar
 
 import pyarrow as pa
 import pytest
 
+from mloda.provider import FeatureGroup, property_spec
+from mloda.user import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -194,14 +196,19 @@ def test_operation_base_has_no_setup_method_override_and_declares_source_arrow_t
 # -- DataOpsTestBase._compare_with_reference extra context ------------------
 
 
-class _RecordingImpl:
-    """Implementation/reference stand-in that records the Options context it receives."""
+class _RecordingImpl(FeatureGroup):
+    """Implementation/reference stand-in that records the Options it receives."""
+
+    PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {"factor": property_spec("Scale factor", default=2)}
 
     seen: list[dict[str, Any]] = []
+    seen_factor: list[Any] = []
 
     @classmethod
     def calculate_feature(cls, data: Any, features: Any) -> Any:
-        cls.seen.append(dict(next(iter(features.features)).options.context))
+        options = next(iter(features.features)).options
+        cls.seen.append({k: v for k, v in options.context.items() if k != "factor"})
+        cls.seen_factor.append(options.get("factor"))
         return pa.table({"f": [1]})
 
 
@@ -225,3 +232,28 @@ def test_compare_with_reference_forwards_extra_context_to_both_calls() -> None:
     stub._compare_with_reference("f", partition_by=["g"], lookup_mapping={"a": "b"}, on_unmatched="null")
     expected = {"partition_by": ["g"], "lookup_mapping": {"a": "b"}, "on_unmatched": "null"}
     assert _RecordingImpl.seen == [expected, expected]
+
+
+def test_compare_with_reference_materializes_defaults_for_both_calls() -> None:
+    _RecordingImpl.seen_factor = []
+    stub = _CompareStub()
+    stub.setup_method()
+    stub._compare_with_reference("f")
+    assert _RecordingImpl.seen_factor == [2, 2]
+
+
+# -- helpers feature_group keyword -------------------------------------------
+
+
+def test_make_feature_set_with_feature_group_carries_its_default() -> None:
+    with_group = helpers.make_feature_set("f", feature_group=_RecordingImpl)
+    assert next(iter(with_group.features)).options.get("factor") == 2
+    without = helpers.make_feature_set("f")
+    assert next(iter(without.features)).options.get("factor") is None
+
+
+def test_feature_set_for_with_feature_group_carries_its_default() -> None:
+    with_group = helpers.feature_set_for("f", Options(), feature_group=_RecordingImpl)
+    assert next(iter(with_group.features)).options.get("factor") == 2
+    without = helpers.feature_set_for("f", Options())
+    assert next(iter(without.features)).options.get("factor") is None
