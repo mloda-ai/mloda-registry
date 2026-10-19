@@ -84,6 +84,33 @@ sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_
   / sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count[5m]))
 ```
 
+### Metrics from MULTIPROCESSING workers
+
+Each `MULTIPROCESSING` worker exports from its own process under a random `service.instance.id`, so every worker gets its own short series and the queries above return 0 or nothing, with cumulative or delta temporality. To aggregate across workers, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, in the environment the workers inherit) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
+
+```yaml
+processors:
+  transform/mloda_workers:
+    metric_statements:
+      - context: resource
+        statements:
+          - delete_key(resource.attributes, "service.instance.id") where resource.attributes["service.name"] == "my-pipeline"
+      - context: datapoint
+        statements:
+          # any fixed time before the first point
+          - set(datapoint.start_time, Time("2026-01-01T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")) where resource.attributes["service.name"] == "my-pipeline"
+          - set(datapoint.time, Now()) where resource.attributes["service.name"] == "my-pipeline"
+  delta_to_cumulative: {}
+service:
+  pipelines:
+    metrics:
+      processors: [transform/mloda_workers, delta_to_cumulative, batch]
+```
+
+- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-worker values are gone and point times are the Collector's arrival times.
+- The restamp keeps concurrent workers' deltas from being dropped as out of order; `otelcol_deltatocumulative_datapoints` with an `error` label counts any that still are.
+- One Collector instance must receive all of the pipeline's metrics. Its state is in memory, so a restart reads as a counter reset. `delta_to_cumulative` is alpha.
+
 ## Export through a Collector
 
 Send OTLP to an OpenTelemetry Collector (gRPC 4317, HTTP 4318) and let the Collector fan out to your backends. Endpoint, TLS and auth are standard OTLP exporter settings, not mloda settings:
@@ -286,7 +313,7 @@ Lambda freezes the process after the handler returns and Cloud Run throttles its
 
 - **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
 - **Flush on worker exit:** core calls each extender's `close()` when a worker exits, within `graceful_shutdown_timeout` (default 2s, shared by the worker's extenders). With a `BatchSpanProcessor`, raise it together with the extender's `close_timeout` attribute (default 1s, e.g. `extender.close_timeout = 5.0`) so the batch drains. Details in [Pickle Compatibility](11-create-extender.md#pickle-compatibility).
-- **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. A worker usually lives for one run and exports once, from `close()`, as its own process (recent SDKs give each a random `service.instance.id`), so its cumulative series carry a single sample that `rate()` cannot use. Export with delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`) to a backend that sums deltas across processes.
+- **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. Each worker exports as its own process; to aggregate across workers see [Metrics from MULTIPROCESSING workers](#metrics-from-multiprocessing-workers).
 - **Continue a trace from another process:** pass a W3C trace-context `carrier` to `run_all`, `stream_all`, `run` or `stream_run`. The run's root span becomes its child (with `trace_scope="plan"` the plan span stays the parent and the carrier becomes a span link). `inject_carrier()` from `mloda.community.extenders.otel.otel_multiprocessing` builds one from the current context without baggage. `env_carrier()` builds one from `TRACEPARENT`/`TRACESTATE` (see [Run under an orchestrator](#run-under-an-orchestrator)).
 - **`THREADING`:** nothing extra; steps find their run's root span by run id.
 - **asyncio:** the active span and `verified_context` are context variables. `asyncio.to_thread(...)` copies them; `loop.run_in_executor(...)` does not, so use `loop.run_in_executor(None, contextvars.copy_context().run, fn)`.
