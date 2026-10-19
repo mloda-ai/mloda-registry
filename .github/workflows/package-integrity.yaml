@@ -25,6 +25,8 @@ jobs:
         uv tool install tox --with tox-uv
     - name: Check generated files are up-to-date
       run: tox -e check-generated
+    - name: Check classifiers against trove-classifiers
+      run: tox -e check-classifiers
     - name: Verify all packages build
       run: tox -e verify-builds
     - name: Verify packages build at the declared setuptools floor
