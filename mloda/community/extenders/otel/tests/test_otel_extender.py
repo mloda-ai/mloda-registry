@@ -103,6 +103,13 @@ def ambient_provider(monkeypatch: pytest.MonkeyPatch) -> AmbientProvider:
     return patch_ambient_provider(monkeypatch, "opentelemetry.trace.get_tracer_provider", trace.ProxyTracerProvider())
 
 
+class _Halt(BaseException):
+    """An interrupt: a BaseException that is not an Exception."""
+
+
+_HALT_TYPE = f"{_Halt.__module__}.{_Halt.__qualname__}"
+
+
 class _FloatSubclass(float):
     """Stand-in for float subclasses such as numpy.float64."""
 
@@ -1361,39 +1368,24 @@ class TestOtelExtenderPreCallInstrumentationFailure:
     try/except around func; since the span is started with set_status_on_exception=False, only the
     explicit except block marks a span ERROR, so a pre-call failure must still leave the span ERROR."""
 
-    def test_pre_call_instrumentation_failure_marks_span_error_and_propagates(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from mloda.community.extenders.otel import otel_extender as otel_extender_module
-
-        def broken_set_context_attributes(span: Any, context: Any) -> None:
-            raise RuntimeError("attrs boom")
-
-        monkeypatch.setattr(otel_extender_module, "_set_context_attributes", broken_set_context_attributes)
-
-        provider, exporter = otel_capture
-        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
-        otel = OtelExtender(tracer_provider=provider)
-
-        with context.activate():
-            with pytest.raises(RuntimeError, match="attrs boom"):
-                otel(lambda: None)
-
-        spans = exporter.get_finished_spans()
-        assert len(spans) == 1, spans
-        assert spans[0].status.status_code == StatusCode.ERROR
-
-    def test_pre_call_interrupt_ends_span_unset_with_cancel_type_and_logs_nothing(
+    @pytest.mark.parametrize(
+        ("failure", "status", "attribute"),
+        [
+            pytest.param(RuntimeError, StatusCode.ERROR, "error.type", id="exception"),
+            pytest.param(_Halt, StatusCode.UNSET, "mloda.cancel.type", id="interrupt"),
+        ],
+    )
+    def test_pre_call_instrumentation_failure_marks_span_and_propagates(
         self,
         otel_capture: tuple[TracerProvider, InMemorySpanExporter],
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
+        failure: type[BaseException],
+        status: StatusCode,
+        attribute: str,
     ) -> None:
-        class _Halt(BaseException):
-            pass
-
         def broken_set_context_attributes(span: Any, context: Any) -> None:
-            raise _Halt("attrs halt")
+            raise failure("attrs boom")
 
         monkeypatch.setattr(otel_extender_module, "_set_context_attributes", broken_set_context_attributes)
 
@@ -1403,13 +1395,15 @@ class TestOtelExtenderPreCallInstrumentationFailure:
 
         with context.activate():
             with caplog.at_level(logging.WARNING):
-                with pytest.raises(_Halt):
+                with pytest.raises(failure, match="attrs boom"):
                     otel(lambda: None)
 
-        span = single_span(exporter)
-        assert span.status.status_code == StatusCode.UNSET
-        assert (span.attributes or {})["mloda.cancel.type"] == f"{_Halt.__module__}.{_Halt.__qualname__}"
-        assert "error.type" not in (span.attributes or {})
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        assert spans[0].status.status_code == status
+        attributes = spans[0].attributes or {}
+        assert attributes[attribute] == f"{failure.__module__}.{failure.__qualname__}"
+        assert ({"error.type", "mloda.cancel.type"} - {attribute}).isdisjoint(attributes)
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
@@ -2800,31 +2794,22 @@ class TestOtelExtenderRunScopeFullRuns:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        group = failing_feature_group("mloda_testing_otel_root_halt")
-
-        class _Halt(BaseException):
-            pass
-
-        def halt(data: Any, features: Any) -> Any:
-            raise _Halt("halt")
-
-        group.calculate_feature = staticmethod(halt)  # type: ignore[method-assign]
+        group = failing_feature_group("mloda_testing_otel_root_halt", failure=_Halt)
 
         with pytest.raises(BaseException) as raised:
             run_failing_feature(group, OtelExtender(tracer_provider=provider))
         assert not isinstance(raised.value, Exception)
 
-        halt_type = f"{_Halt.__module__}.{_Halt.__qualname__}"
         spans = exporter.get_finished_spans()
         step = next(span for span in spans if span.name not in ("mloda.run", "mloda.plan"))
         assert step.status.status_code == StatusCode.UNSET
-        assert (step.attributes or {})["mloda.cancel.type"] == halt_type
+        assert (step.attributes or {})["mloda.cancel.type"] == _HALT_TYPE
         assert "error.type" not in (step.attributes or {})
         root = assert_well_formed_trace(spans)
         assert root.name == "mloda.run"
         assert root.status.status_code != StatusCode.ERROR
         assert (root.attributes or {})["mloda.run.status"] == "cancelled"
-        assert (root.attributes or {})["mloda.cancel.type"] == halt_type
+        assert (root.attributes or {})["mloda.cancel.type"] == _HALT_TYPE
         assert "error.type" not in (root.attributes or {})
 
     def test_caller_active_span_is_the_parent_of_the_root(
