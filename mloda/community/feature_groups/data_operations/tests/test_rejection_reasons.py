@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from mloda.provider import PropertySpec
 from mloda.user import Options
 
@@ -128,11 +129,18 @@ class TestRejectionReasonHookNeverRaises:
 class TestFrameAggregateNamePathReportsNothing:
     """frame_aggregate parses size and unit from the name, so its name path has nothing to report."""
 
-    def test_rolling_name_skips_option_driven_required_when(self) -> None:
+    def test_rolling_name_skips_option_driven_required_when(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The name supplies size and unit, so a frame_type option cannot demand them: the match holds silently."""
+        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
         assert PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)
         assert PandasFrameAggregate._strict_validation_rejection_reason("sales__sum_rolling_3", options) is None
+
+    def test_rolling_name_with_contradicting_frame_type_raises(self) -> None:
+        """Without the downgrade, the contradicting frame_type is rejected by name agreement."""
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
+        with pytest.raises(ValueError, match="frame_type"):
+            PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)
 
 
 class TestEveryGuardedSpecDeclaresExpected:

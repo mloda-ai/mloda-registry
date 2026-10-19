@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from typing import Any
 
@@ -212,16 +213,23 @@ class TestRejectionReporting:
         assert reason is None
 
 
-class TestForwardedPercentileMismatch:
-    """A group-forwarded ``percentile`` that contradicts the name-parsed value is rejected, not silently ignored."""
+class TestPercentileNameAgreement:
+    """A ``percentile`` (forwarded or own) that contradicts the name-parsed value is rejected, not silently ignored."""
 
-    def test_mismatched_forwarded_percentile_raises(self) -> None:
-        consumer_options = Options(group={"percentile": 0.75})
+    @pytest.mark.parametrize("path", ["group", "context"])
+    def test_mismatched_forwarded_percentile_raises(self, path: str) -> None:
         child_options = Options(context={"partition_by": ["region"]})
-        child_options.inherit_from(consumer_options)
+        if path == "group":
+            child_options.inherit_from(Options(group={"percentile": 0.75}))
+        else:
+            child_options.inherit_from(
+                Options(context={"percentile": 0.75}), inherit_context_keys=frozenset({"percentile"})
+            )
+        assert ("percentile" in child_options.inherited_context_keys) == (path == "context")
 
-        with pytest.raises(ValueError, match="percentile"):
+        with pytest.raises(ValueError, match="percentile") as exc_info:
             PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
+        assert "was forwarded from a consumer" in str(exc_info.value)
 
     def test_matching_forwarded_percentile_is_accepted(self) -> None:
         consumer_options = Options(group={"percentile": 0.5})
@@ -239,20 +247,65 @@ class TestForwardedPercentileMismatch:
         result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p100_percentile", child_options, None)
         assert result is True
 
-    def test_mismatched_percentile_env_downgrade_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
-        consumer_options = Options(group={"percentile": 0.75})
+    @pytest.mark.parametrize("path", ["group", "context"])
+    def test_matching_forwarded_tuple_percentile_is_accepted(self, path: str) -> None:
         child_options = Options(context={"partition_by": ["region"]})
-        child_options.inherit_from(consumer_options)
+        if path == "group":
+            child_options.inherit_from(Options(group={"percentile": (0.5,)}))
+        else:
+            child_options.inherit_from(
+                Options(context={"percentile": (0.5,)}), inherit_context_keys=frozenset({"percentile"})
+            )
 
         result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
         assert result is True
 
-    def test_locally_set_contradictory_percentile_is_not_flagged(self) -> None:
-        options = Options(context={"percentile": 0.75, "partition_by": ["region"]})
+    @pytest.mark.parametrize("placement", ["group", "context"])
+    def test_own_contradictory_percentile_raises(self, placement: str) -> None:
+        if placement == "group":
+            options = Options(group={"percentile": 0.75}, context={"partition_by": ["region"]})
+        else:
+            options = Options(context={"percentile": 0.75, "partition_by": ["region"]})
 
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
+        with pytest.raises(
+            ValueError,
+            match=r"option 'percentile' is float 0\.75, but the feature name encodes '0\.5'\. The name is authoritative",
+        ):
+            PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
+
+    @pytest.mark.parametrize(
+        ("feature_name", "percentile"),
+        [
+            ("value_int__p50_percentile", 0.5),
+            ("value_int__p50_percentile", (0.5,)),
+            ("value_int__p100_percentile", 1),
+            ("value_int__p100_percentile", (1,)),
+        ],
+    )
+    @pytest.mark.parametrize("placement", ["group", "context"])
+    def test_own_matching_percentile_is_accepted(self, placement: str, feature_name: str, percentile: Any) -> None:
+        if placement == "group":
+            options = Options(group={"percentile": percentile}, context={"partition_by": ["region"]})
+        else:
+            options = Options(context={"percentile": percentile, "partition_by": ["region"]})
+
+        assert PercentileFeatureGroup.match_feature_group_criteria(feature_name, options, None) is True
+
+    @pytest.mark.parametrize("origin", ["forwarded", "own"])
+    def test_mismatched_percentile_env_downgrade_is_accepted(
+        self, origin: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
+        options = Options(context={"partition_by": ["region"]})
+        if origin == "forwarded":
+            options.inherit_from(Options(group={"percentile": 0.75}))
+        else:
+            options = Options(context={"percentile": 0.75, "partition_by": ["region"]})
+
+        with caplog.at_level(logging.WARNING):
+            result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
         assert result is True
+        assert any(r.levelno == logging.WARNING and "percentile" in r.getMessage() for r in caplog.records)
 
     def test_config_based_feature_ignores_unrelated_forwarded_percentile(self) -> None:
         consumer_options = Options(group={"percentile": 0.75})

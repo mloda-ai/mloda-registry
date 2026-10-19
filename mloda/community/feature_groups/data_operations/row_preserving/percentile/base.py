@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
-import os
 from typing import Any
 
-from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
@@ -26,8 +23,6 @@ from mloda.community.feature_groups.data_operations.base import (
     scalar_number_value,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
-
-logger = logging.getLogger(__name__)
 
 
 def _unit_percentile(value: object) -> float | None:
@@ -96,7 +91,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
     PARTITION_BY = "partition_by"
 
     PROPERTY_MAPPING = {
-        # deferred_binding stays True: see _validate_forwarded_percentile_mismatch for why.
+        # deferred_binding stays True: see _validate_percentile_name_agreement for why.
         PERCENTILE: property_spec(
             "Percentile value (float between 0.0 and 1.0)",
             strict=True,
@@ -140,7 +135,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend mixin matching with forwarded-percentile protection and partition_by validation.
+        """Extend mixin matching with name-agreement protection and partition_by validation.
 
         The mixin handles:
         - Pattern and config matching via PROPERTY_MAPPING
@@ -148,7 +143,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         - MIN/MAX_IN_FEATURES enforcement
 
         We add:
-        - forwarded-value vs. name-parsed-value protection for ``percentile``
+        - own/forwarded value vs. name-parsed value agreement for ``percentile``
         - percentile range validation for config-based features (0.0-1.0)
         - partition_by type validation (must be a list of strings)
         """
@@ -161,7 +156,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
             return False
 
         if name_matched:
-            cls._validate_forwarded_percentile_mismatch(feature_name, options, resolved_percentile)
+            cls._validate_percentile_name_agreement(feature_name, options, resolved_percentile)
 
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):
@@ -174,33 +169,14 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         return True
 
     @classmethod
-    def _validate_forwarded_percentile_mismatch(
-        cls, feature_name: Any, options: Any, resolved_percentile: float
-    ) -> None:
-        """Reject a forwarded ``percentile`` that contradicts the name-parsed value.
-
-        PREFIX_PATTERN captures a "pN" percent token, while ``percentile`` is a 0.0-1.0 fraction, so
-        the two can't share a name binding the way bucket_op / rank_type / offset_type do; this
-        compares the shared float value directly instead.
-        """
-        if cls.PERCENTILE not in (options.inherited_group_keys or ()):
+    def _validate_percentile_name_agreement(cls, feature_name: Any, options: Any, resolved_percentile: float) -> None:
+        """Reject an own or forwarded ``percentile`` that contradicts the name-parsed value."""
+        declared = options.get(cls.PERCENTILE)
+        if declared is None or _unit_percentile(declared) == resolved_percentile:
             return
-        forwarded = options.get(cls.PERCENTILE)
-        forwarded_value = _unit_percentile(forwarded)
-        if forwarded_value is None or forwarded_value == resolved_percentile:
-            return
-        message = (
-            f"Feature '{feature_name}': option '{cls.PERCENTILE}' was forwarded from a consumer with value "
-            f"'{forwarded}', but the feature name parses to percentile {resolved_percentile}. The name-parsed "
-            f"value takes precedence, so the forwarded value would be silently ignored. Carve the key out with "
-            f"forward_group_exclude={{'{cls.PERCENTILE}'}} on the child in the consumer's input_features, or use "
-            f"an allowlist / forward_group=False. Set MLODA_ALLOW_FORWARDED_NAME_MISMATCH=1 to downgrade this "
-            f"error to a warning."
-        )
-        if os.environ.get("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "").lower() in ("1", "true"):
-            logger.warning(message)
-            return
-        raise escalate_match_abort(ValueError(message))
+        bindings = {cls.PERCENTILE: str(resolved_percentile)}
+        cls._validate_forwarded_name_mismatch(feature_name, bindings, options)
+        cls._validate_name_agreement(feature_name, bindings, None, options)
 
     @classmethod
     def _resolve_percentile(cls, feature_name: Any, options: Any) -> tuple[float | None, bool]:

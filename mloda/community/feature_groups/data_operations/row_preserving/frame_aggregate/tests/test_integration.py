@@ -9,7 +9,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -120,6 +120,21 @@ class TestFrameAggregateIntegration(MaskIntegrationTestMixin, DataOpsIntegration
     @classmethod
     def mask_integration_unmasked_expected(cls) -> list[Any]:
         return [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
+
+    def test_own_contradictory_frame_size_raises_name_agreement_error(self) -> None:
+        """The error is escalated: a contained match error would surface as FeatureResolutionError."""
+        feature = Feature(
+            "value_int__sum_rolling_3",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int", "frame_size": 5}),
+        )
+
+        with pytest.raises(ValueError, match=r"option 'frame_size' is int 5, but the feature name encodes '3'") as exc:
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[self.compute_framework_class()],
+                plugin_collector=self._plugin_collector(),
+            )
+        assert not isinstance(exc.value, FeatureResolutionError)
 
 
 class TestFrameAggregateMultiFeature:
