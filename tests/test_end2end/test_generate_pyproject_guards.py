@@ -385,6 +385,17 @@ def test_dependency_closure_follows_dependencies_only() -> None:
     assert gen.dependency_closure(packages["a"], packages) == {"b", "c_c"}
 
 
+def test_dependency_closure_terminates_on_a_cycle() -> None:
+    packages = {"a": {"dependencies": ["b"]}, "b": {"dependencies": ["a"]}}
+    assert gen.dependency_closure(packages["a"], packages) == {"a", "b"}
+
+
+def test_dependency_closure_skips_names_not_in_all_packages(monkeypatch: pytest.MonkeyPatch) -> None:
+    packages = {"a": {"dependencies": ["b"]}, "b": {"dependencies": []}}
+    monkeypatch.setattr(gen, "sibling_dependency_names", lambda deps, all_packages: ["b", "mloda.foo"])
+    assert gen.dependency_closure(packages["a"], packages) == {"b"}
+
+
 @pytest.mark.parametrize(
     ("pkg_name", "expected"),
     [
@@ -402,7 +413,7 @@ def test_has_typed_ancestor_on_synthetic_packages(pkg_name: str, expected: bool)
         "sibling": {"path": "a/bc", "dependencies": ["typed"]},
         "extra-only": {"path": "a/b/d", "dependencies": [], "optional_dependencies": {"x": ["typed"]}},
     }
-    assert gen.has_typed_ancestor(pkg_name, packages[pkg_name], packages) is expected
+    assert gen.has_typed_ancestor(packages[pkg_name], packages) is expected
 
 
 def _leaf_config(path: str) -> dict[str, Any]:

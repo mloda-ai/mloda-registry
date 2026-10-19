@@ -284,12 +284,14 @@ def dependency_closure(pkg_config: dict[str, Any], all_packages: dict[str, dict[
         name = pending.pop()
         if name in seen:
             continue
+        if name not in all_packages:
+            continue
         seen.add(name)
         pending.extend(sibling_dependency_names(list(all_packages[name].get("dependencies", [])), all_packages))
     return seen
 
 
-def has_typed_ancestor(pkg_name: str, pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> bool:
+def has_typed_ancestor(pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> bool:
     """True if a ``py_typed`` package in itself plus its closure sits at or above this package's path."""
     path = pkg_config["path"]
     candidates = [pkg_config] + [all_packages[name] for name in dependency_closure(pkg_config, all_packages)]
@@ -671,7 +673,7 @@ def generate_pyproject(
         lines.append(f"keywords = {to_toml_list(keywords)}")
 
     classifiers = list(shared["project"].get("classifiers", []))
-    if has_typed_ancestor(pkg_name, pkg_config, all_packages) and "Typing :: Typed" not in classifiers:
+    if has_typed_ancestor(pkg_config, all_packages) and "Typing :: Typed" not in classifiers:
         classifiers.append("Typing :: Typed")
     if classifiers:
         lines.append(f"classifiers = {to_toml_list(classifiers)}")

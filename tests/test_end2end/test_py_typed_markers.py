@@ -175,8 +175,11 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
         project = loads_toml(content)["project"]
         classifiers = project.get("classifiers", [])
         keywords = project.get("keywords", [])
-        if pkg_name in flagged:
-            assert "Typing :: Typed" in classifiers, f"{pkg_name}: classifiers {classifiers!r}"
+        expected_typed = gen.has_typed_ancestor(pkg_config, all_packages)
+        assert ("Typing :: Typed" in classifiers) == expected_typed, (
+            f"{pkg_name}: 'Typing :: Typed' classifier present={'Typing :: Typed' in classifiers}, "
+            f"but has_typed_ancestor is {expected_typed}; classifiers {classifiers!r}"
+        )
         shared_keywords = shared["project"]["keywords"]
         assert keywords[: len(shared_keywords)] == shared_keywords, f"{pkg_name}: keywords {keywords!r}"
         missing = [c for c in shared["project"]["classifiers"] if c not in classifiers]
@@ -187,7 +190,7 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
 def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> None:
     """Every published distribution needs a py.typed at or above its path, from itself or a dependency."""
     packages = _packages()
-    assert gen.has_typed_ancestor(pkg_name, packages[pkg_name], packages), (
+    assert gen.has_typed_ancestor(packages[pkg_name], packages), (
         f"{pkg_name} ({packages[pkg_name]['path']}) ships untyped: none of its own or dependency-reachable "
         f"packages carries a py.typed at or above that path. It needs either 'py_typed = true' plus a committed "
         f"{packages[pkg_name]['path']}/py.typed, or a dependency on a package that already ships an ancestor marker."
@@ -216,6 +219,7 @@ def test_every_published_distribution_is_classified_typed(pkg_name: str) -> None
         "mloda-enterprise-audit",
         "mloda-enterprise-lineage",
         "mloda-enterprise-binary-example",
+        "mloda-enterprise-anonymizer",
     ],
 )
 def test_unpublished_package_without_typed_ancestor_is_not_classified_typed(pkg_name: str) -> None:

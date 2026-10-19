@@ -203,7 +203,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
-With named captures, `_resolve_operation(feature, key)` returns the capture for any captured key, not just the discriminator; a positional pattern returns its first captured group whatever the key. See [Chained Features](03-chained-features.md) for the fallback rules.
+With named captures, `_resolve_operation(feature, key)` returns the capture for any captured key, not just the discriminator; a positional pattern returns its first group whatever the key. See [Chained Features](03-chained-features.md) for the fallback rules.
 
 ### Why Unique Keys?
 
