@@ -15,6 +15,7 @@ amount    = [100.0, None, 250.0, 75.0, 300.0, 0.0, 150.0, None, 50.0, 200.0, 125
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -98,6 +99,14 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int&amount__add_point")
+
+    # -- FeatureGroupContractTestMixin configuration ---------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int&amount", "value_int&amount__bogus_point"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int&amount__add_point": {"value_int", "amount"}}
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
 

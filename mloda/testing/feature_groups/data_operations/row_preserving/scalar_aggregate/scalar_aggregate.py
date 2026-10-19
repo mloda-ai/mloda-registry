@@ -12,6 +12,7 @@ Non-null values: [10, -5, 0, 20, 50, 30, 60, 15, 15, 40, -10] (11 values)
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -101,6 +102,14 @@ class ScalarAggregateTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_scalar")
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__sum_window", "value_int__bogus_scalar"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__sum_scalar": {"value_int"}}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

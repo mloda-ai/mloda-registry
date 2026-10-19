@@ -12,6 +12,7 @@ value_int = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -58,6 +59,14 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__add_constant", constant=5)
+
+    # -- FeatureGroupContractTestMixin configuration ---------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__add_point", "value_int__bogus_constant"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__add_constant": {"value_int"}}
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
 

@@ -12,12 +12,13 @@ Group compositions (ordered by value_int, nulls last):
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Options
+from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -69,6 +70,14 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__row_number_ranked", "value_int__bogus_1_offset"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__lag_1_offset": {"value_int", "region"}}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

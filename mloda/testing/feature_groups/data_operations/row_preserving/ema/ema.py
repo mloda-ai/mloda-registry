@@ -70,6 +70,7 @@ UNIQUE so SQL backends get a deterministic whole-table sort::
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -236,6 +237,14 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
 
     def output_contract_feature_set(self) -> FeatureSet:
         return self._ema_feature_set(2)
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value", "value__ffill", "value__ema_fast"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value__ema_2": {"value", "region", "ts"}}
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 

@@ -13,6 +13,7 @@ small set of abstract methods. This follows the same pattern as
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -280,6 +281,14 @@ class FrameAggregateTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__sum_scalar", "value_int__sum_bogus_3"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__sum_rolling_3": {"value_int", "region"}}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
@@ -1179,7 +1188,7 @@ class FrameAggregateTestBase(
         backend = self.implementation_class()
         if not backend.match_feature_group_criteria(feature_name, options):
             pytest.skip(f"{feature_name} not supported by this framework")
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        framework = self.compute_framework_class()
         if not backend.supports_compute_framework(feature_name, options, framework):
             pytest.skip(f"{feature_name} not supported by this framework")
 

@@ -17,11 +17,13 @@ the abstract adapter methods from ``DataOpsTestBase``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
+from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -98,6 +100,14 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__lag_1_offset", "value_int__bogus_ranked"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__row_number_ranked": {"value_int", "region"}}
 
     ALL_RANK_TYPES = set(RankFeatureGroup.RANK_TYPES) | set(RankFeatureGroup.PARAMETRIC_RANK_FAMILIES)
 

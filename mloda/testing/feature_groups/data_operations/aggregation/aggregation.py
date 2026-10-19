@@ -16,12 +16,13 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Options
+from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -195,6 +196,14 @@ class AggregationTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__max_agg", ["region"])
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__max_window", "value_int__bogus_agg"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__max_agg": {"value_int", "region"}}
 
     def output_contract_expected_row_count(self) -> int:
         # One row per region group (A, B, C, None); the null region is its own group.

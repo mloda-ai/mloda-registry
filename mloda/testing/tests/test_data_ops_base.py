@@ -252,3 +252,41 @@ def test_feature_set_builder_with_feature_group_carries_its_default(build: Any) 
     assert next(iter(with_group.features)).options.get("factor") == 2
     without = build()
     assert next(iter(without.features)).options.get("factor") is None
+
+
+# -- DataOpsTestBase contract hooks -------------------------------------------
+
+
+class _ContractStub(_StubDataOpsTestBase):
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return _RecordingImpl
+
+    @classmethod
+    def compute_framework_class(cls) -> Any:
+        return _RecordingFramework
+
+    def output_contract_feature_set(self) -> Any:
+        return helpers.feature_set_for("f", Options(context={"k": "v"}))
+
+
+class _RecordingFramework:
+    """Stand-in for a ComputeFramework type."""
+
+
+def test_contract_hooks_return_implementation_and_framework() -> None:
+    stub = _ContractStub()
+    assert stub.contract_feature_group_class() is _RecordingImpl
+    assert stub.contract_expected_compute_frameworks() == {_RecordingFramework}
+
+
+def test_contract_matching_feature_names_returns_the_output_contract_feature() -> None:
+    (feature,) = _ContractStub().contract_matching_feature_names()
+    assert str(feature.name) == "f"
+    assert feature.options.get("k") == "v"
+
+
+def test_contract_frameworks_fail_without_a_framework_mixin() -> None:
+    for call in ("compute_framework_class", "contract_expected_compute_frameworks"):
+        with pytest.raises(pytest.fail.Exception, match="contract_expected_compute_frameworks"):
+            getattr(_StubDataOpsTestBase(), call)()

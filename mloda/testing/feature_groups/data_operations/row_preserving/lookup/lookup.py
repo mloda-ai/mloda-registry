@@ -18,6 +18,7 @@ Fixture (``id`` is the row-order witness)::
 from __future__ import annotations
 
 import datetime
+from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple
 
 import pyarrow as pa
@@ -178,6 +179,14 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return make_feature_set(
             "product_code__lookup", lookup_mapping=FULL_STR_MAP, feature_group=self.implementation_class()
         )
+
+    # -- FeatureGroupContractTestMixin configuration ---------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["product_code", "product_code__trim", "product_code__lookup_extra"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"product_code__lookup": {"product_code"}}
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 

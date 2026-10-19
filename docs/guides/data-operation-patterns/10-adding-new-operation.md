@@ -247,6 +247,7 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 - [ ] Mask tests wired if the op consumes values that benefit from conditional inclusion.
 - [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden when the op changes the row count).
 - [ ] `InputValidationTestMixin` wired with `input_validation_cases()` covering every kind.
+- [ ] `DataOpsTestBase` runs the feature group contract (`FeatureGroupContractTestMixin`), so the new base declares `contract_non_matching_feature_names()` and `contract_expected_input_features()`; the framework adapter mixin provides `compute_framework_class()`.
 
 ---
 

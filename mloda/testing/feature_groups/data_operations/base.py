@@ -25,6 +25,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from mloda.testing.base import FeatureGroupContractTestMixin
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 
@@ -39,7 +40,7 @@ _SUPPORTED_SET_ATTRS: tuple[str, ...] = (
 )
 
 
-class DataOpsTestBase(ABC):
+class DataOpsTestBase(FeatureGroupContractTestMixin, ABC):
     """Abstract base class shared by all data-operations test suites.
 
     Subclasses must implement the 5 adapter methods below (or inherit them
@@ -71,6 +72,23 @@ class DataOpsTestBase(ABC):
     @abstractmethod
     def get_expected_type(self) -> Any:
         """Return the expected Python type of the framework result."""
+
+    def compute_framework_class(self) -> Any:
+        """Return the framework's ComputeFramework class; framework adapter mixins override this."""
+        pytest.fail(
+            f"{type(self).__name__}: mix in a framework adapter mixin or override contract_expected_compute_frameworks()"
+        )
+
+    # -- Contract hooks ----------------------------------------------------------
+
+    def contract_feature_group_class(self) -> Any:
+        return self.implementation_class()
+
+    def contract_expected_compute_frameworks(self) -> Any:
+        return {self.compute_framework_class()}
+
+    def contract_matching_feature_names(self) -> Any:
+        return [next(iter(self.output_contract_feature_set().features))]  # type: ignore[attr-defined]
 
     # -- Reference implementation (for cross-framework comparison) --------------------
 

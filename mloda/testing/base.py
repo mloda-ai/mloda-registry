@@ -17,27 +17,45 @@ class _AllComputeFrameworks:
 
 ALL_COMPUTE_FRAMEWORKS = _AllComputeFrameworks()
 
+ExpectedComputeFrameworks = set[type[ComputeFramework]] | _AllComputeFrameworks
 
-class FeatureGroupTestBase:
-    """Base class for testing FeatureGroups: declare the attributes below and the ``test_contract_*`` tests check them.
+
+class FeatureGroupContractTestMixin:
+    """The ``test_contract_*`` tests; they read the ``contract_*()`` instance-method hooks, which default to the ClassVars.
 
     ``expected_input_features`` is keyed by name, so matching entries that share a name share one expectation.
     """
 
     feature_group_class: ClassVar[type[FeatureGroup] | None] = None
-    expected_compute_frameworks: ClassVar[set[type[ComputeFramework]] | _AllComputeFrameworks | None] = None
+    expected_compute_frameworks: ClassVar[ExpectedComputeFrameworks | None] = None
     matching_feature_names: ClassVar[Sequence[str | Feature] | None] = None
     non_matching_feature_names: ClassVar[Sequence[str | Feature] | None] = None
     expected_input_features: ClassVar[Mapping[str, set[str] | None] | None] = None
 
-    def _unset(self, attr: str) -> Any:
+    def _unset(self, attr: str, hook: str | None = None) -> Any:
         value = getattr(type(self), attr)
         if value is None:
-            pytest.fail(f"{type(self).__name__}.{attr} is not set")
+            pytest.fail(f"{type(self).__name__}.{attr} is not set (or override {hook or 'contract_' + attr}())")
         return value
 
+    def contract_feature_group_class(self) -> Any:
+        return self._unset("feature_group_class")
+
+    def contract_expected_compute_frameworks(self) -> ExpectedComputeFrameworks:
+        frameworks: ExpectedComputeFrameworks = self._unset("expected_compute_frameworks")
+        return frameworks
+
+    def contract_matching_feature_names(self) -> Any:
+        return self._unset("matching_feature_names")
+
+    def contract_non_matching_feature_names(self) -> Any:
+        return self._unset("non_matching_feature_names")
+
+    def contract_expected_input_features(self) -> Any:
+        return self._unset("expected_input_features")
+
     def _group(self) -> type[FeatureGroup]:
-        group: type[FeatureGroup] = self._unset("feature_group_class")
+        group: type[FeatureGroup] = self.contract_feature_group_class()
         return group
 
     @staticmethod
@@ -54,12 +72,12 @@ class FeatureGroupTestBase:
             return False
 
     def test_contract_feature_group_class_is_a_feature_group(self) -> None:
-        group = self._unset("feature_group_class")
+        group = self.contract_feature_group_class()
         if not (isinstance(group, type) and issubclass(group, FeatureGroup)):
             pytest.fail(f"{type(self).__name__}.feature_group_class must be a FeatureGroup subclass, got {group!r}")
 
     def test_contract_compute_framework_rule(self) -> None:
-        expected = self._unset("expected_compute_frameworks")
+        expected = self.contract_expected_compute_frameworks()
         actual = self._group().compute_framework_rule()
         label = f"{type(self).__name__}.expected_compute_frameworks"
         if expected is ALL_COMPUTE_FRAMEWORKS:
@@ -71,7 +89,7 @@ class FeatureGroupTestBase:
             pytest.fail(f"{label} is {expected!r} but the rule returns {actual!r}")
 
     def test_contract_matching_feature_names_match(self) -> None:
-        names = self._unset("matching_feature_names")
+        names = self.contract_matching_feature_names()
         if len(names) == 0:
             pytest.fail(f"{type(self).__name__}.matching_feature_names must not be empty")
         offenders = [self._name_and_options(n)[0] for n in names if not self._matches(n)]
@@ -79,14 +97,14 @@ class FeatureGroupTestBase:
             pytest.fail(f"{type(self).__name__}: names that do not match {self._group().__name__}: {offenders}")
 
     def test_contract_non_matching_feature_names_do_not_match(self) -> None:
-        names = self._unset("non_matching_feature_names")
+        names = self.contract_non_matching_feature_names()
         offenders = [self._name_and_options(n)[0] for n in names if self._matches(n)]
         if offenders:
             pytest.fail(f"{type(self).__name__}: names that unexpectedly match {self._group().__name__}: {offenders}")
 
     def test_contract_input_features(self) -> None:
-        names = self._unset("matching_feature_names")
-        expectations = self._unset("expected_input_features")
+        names = self.contract_matching_feature_names()
+        expectations = self.contract_expected_input_features()
         group = self._group()
         problems: list[str] = []
         for item in names:
@@ -104,3 +122,7 @@ class FeatureGroupTestBase:
                 problems.append(f"{name}: expected {expected!r}, got {actual!r}")
         if problems:
             pytest.fail("input_features mismatch: " + "; ".join(problems))
+
+
+class FeatureGroupTestBase(FeatureGroupContractTestMixin):
+    """Base class for testing FeatureGroups: declare the ClassVars and the ``test_contract_*`` tests check them."""

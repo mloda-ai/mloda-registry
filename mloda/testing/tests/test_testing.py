@@ -292,3 +292,53 @@ def test_contract_matcher_receives_feature_name_objects() -> None:
     _full_host(feature_group_class=_Recording).test_contract_matching_feature_names_match()
 
     assert seen == [FeatureName]
+
+
+# -------------------------------------------------------------------------------------------
+# FeatureGroupContractTestMixin self-tests
+# -------------------------------------------------------------------------------------------
+
+
+def test_contract_mixin_host_with_hooks_passes_all_five() -> None:
+    from mloda.testing.base import FeatureGroupContractTestMixin
+
+    class _Host(FeatureGroupContractTestMixin):
+        def contract_feature_group_class(self) -> Any:
+            return _DerivedGroup
+
+        def contract_expected_compute_frameworks(self) -> Any:
+            return _all_cfw()
+
+        def contract_matching_feature_names(self) -> Any:
+            return ["a__derived"]
+
+        def contract_non_matching_feature_names(self) -> Any:
+            return ["plain"]
+
+        def contract_expected_input_features(self) -> Any:
+            return {"a__derived": {"a"}}
+
+    host = _Host()
+    for method in _ALL_FIVE:
+        getattr(host, method)()
+
+
+def test_feature_group_test_base_is_a_contract_mixin() -> None:
+    from mloda.testing.base import FeatureGroupContractTestMixin
+
+    assert issubclass(FeatureGroupTestBase, FeatureGroupContractTestMixin)
+
+
+def test_bare_contract_mixin_host_fails_naming_the_attribute() -> None:
+    from mloda.testing.base import FeatureGroupContractTestMixin
+
+    class _Bare(FeatureGroupContractTestMixin):
+        pass
+
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        _Bare().test_contract_feature_group_class_is_a_feature_group()
+    assert "_Bare.feature_group_class" in str(excinfo.value)
+
+
+def test_expected_compute_frameworks_alias_is_exported() -> None:
+    from mloda.testing.base import ExpectedComputeFrameworks  # noqa: F401

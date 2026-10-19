@@ -46,6 +46,17 @@ class TestScaledFeature(FeatureGroupTestBase):
     expected_input_features = {"price__scaled": {"price"}}  # None for a root group
 ```
 
+The checks live in `FeatureGroupContractTestMixin`; `FeatureGroupTestBase` is that mixin alone. Mix it into an existing test class and supply the values through `contract_*()` instance-method hooks instead of ClassVars:
+
+```python
+from mloda.testing.base import FeatureGroupContractTestMixin
+
+
+class TestScaled(FeatureGroupContractTestMixin):
+    def contract_feature_group_class(self):
+        return ScaledFeature
+```
+
 ## Level 2: Framework Test Example
 
 ```python

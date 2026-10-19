@@ -33,6 +33,7 @@ Fixture row layout::
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -230,6 +231,14 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__floor_1_day")
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["timestamp", "timestamp__year", "timestamp__floor_1_decade"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"timestamp__floor_1_day": {"timestamp"}}
 
     ALL_OPS = {"floor", "ceil", "round"}
 

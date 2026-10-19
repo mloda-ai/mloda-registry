@@ -56,6 +56,7 @@ partitions ``region`` A / B)::
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -285,6 +286,14 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     def output_contract_feature_set(self) -> FeatureSet:
         return self._resample_fs("value__resample_1_hour_mean", ["region"])
+
+    # -- FeatureGroupContractTestMixin configuration ---------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value", "value__resample_1_hour", "value__resample_1_fortnight_mean"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value__resample_1_hour_mean": {"value", "region", "ts"}}
 
     def output_contract_expected_row_count(self) -> int:
         # One row per region and hour bucket.

@@ -2,6 +2,17 @@
 
 from mloda.community.feature_groups.example.community_example_feature_group import CommunityExampleFeatureGroup
 from mloda.community.feature_groups.example.example_a import ExampleAFeatureGroup
+from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS, FeatureGroupTestBase
+
+
+class TestExampleAFeatureGroupContract(FeatureGroupTestBase):
+    """Contract check for ExampleAFeatureGroup (the parent's name must not match the subclass)."""
+
+    feature_group_class = ExampleAFeatureGroup
+    expected_compute_frameworks = ALL_COMPUTE_FRAMEWORKS
+    matching_feature_names = [ExampleAFeatureGroup.get_class_name()]
+    non_matching_feature_names = [CommunityExampleFeatureGroup.get_class_name(), "unrelated_feature"]
+    expected_input_features = {ExampleAFeatureGroup.get_class_name(): None}
 
 
 def test_example_a_extends_base() -> None:

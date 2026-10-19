@@ -9,6 +9,7 @@ Uses PERCENTILE_CONT with linear interpolation.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -75,6 +76,14 @@ class PercentileTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__p50_percentile", ["region"])
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__p50_rank", "value_int__pfifty_percentile"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__p50_percentile": {"value_int", "region"}}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

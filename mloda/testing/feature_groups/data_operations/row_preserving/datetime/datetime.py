@@ -30,12 +30,14 @@ a few abstract methods.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
+from mloda.user import Feature
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -121,6 +123,14 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__year")
+
+    # -- FeatureGroupContractTestMixin configuration ----------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["timestamp", "timestamp__floor_1_day", "timestamp__decade"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"timestamp__year": {"timestamp"}}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

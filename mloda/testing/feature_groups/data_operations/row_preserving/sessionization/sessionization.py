@@ -66,6 +66,7 @@ SQL backends get a deterministic whole-table sort::
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -168,6 +169,14 @@ class SessionizationTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return self._session_feature_set(30, "minute")
+
+    # -- FeatureGroupContractTestMixin configuration ---------------------------
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["ts", "ts__sessionize_30_fortnight", "ts__ffill"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"ts__sessionize_30_minute": {"ts", "user"}}
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
