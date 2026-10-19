@@ -463,7 +463,7 @@ class AuditExtender(Extender):
     def _reader_refusal(self, context: HookContext) -> tuple[str, str | None] | None:
         """(deny_reason, classification) when the probed reader must be refused, else None."""
         policy = self.classification
-        if self._classification_dropped or policy is None or context.declared_attributes is None:
+        if policy is None or context.declared_attributes is None:
             return "classification_unresolved", None
         try:
             level = context.declared_attributes.get(CLASSIFICATION_KEY)
@@ -745,7 +745,7 @@ class AuditExtender(Extender):
                 ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
                 ExtenderHook.INPUT_DATA_LOAD,
             }
-            return hooks | {ExtenderHook.INPUT_DATA_MATCH} if self._gate_readers else hooks
+            return (hooks | {ExtenderHook.INPUT_DATA_MATCH}) if self._gate_readers else hooks
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -761,6 +761,7 @@ class AuditExtender(Extender):
         start_time = _utc_now()
         trace = trace_ids(context.carrier)
         if self.fail_closed:
+            # A missing identity at INPUT_DATA_MATCH means a hand-built context: core probes inside FEATURE_GROUP_MATCHED.
             missing = self._missing_identity(context)
             if missing:
                 try:
