@@ -2575,7 +2575,7 @@ class TestOtelExtenderRunScopeFullRuns:
         assert root.name == "mloda.run"
         assert root.status.status_code == StatusCode.ERROR
         assert (root.attributes or {}).get("mloda.run.status") == "failed"
-        assert "error.type" in (root.attributes or {})
+        assert (root.attributes or {})["error.type"] == f"{RuntimeError.__module__}.{RuntimeError.__qualname__}"
 
     def test_caller_active_span_is_the_parent_of_the_root(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
