@@ -6,7 +6,7 @@ A 3-level approach to testing feature groups comprehensively.
 **When**: Always test feature groups; use appropriate level for each concern.
 **Why**: Catch bugs early (unit), verify computation (framework), ensure end-to-end works (integration).
 **Where**: `tests/` directory alongside your feature group code.
-**How**: pytest with mock FeatureSets for unit/framework; `mloda.run_all()` for integration.
+**How**: pytest with `FeatureGroupTestBase` for unit and `build_feature_set` for framework tests; `mloda.run_all()` for integration.
 
 ## Testing Levels
 
@@ -32,20 +32,34 @@ def test_matching():
     assert PandasDataFrame in PandasOnlyFeature.compute_framework_rule()
 ```
 
+`FeatureGroupTestBase` (from `mloda.testing.base`) checks matching, `input_features()` and `compute_framework_rule()` from declared attributes. An unset attribute fails, and a group without a `compute_framework_rule()` must opt in with `ALL_COMPUTE_FRAMEWORKS`:
+
+```python
+from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS, FeatureGroupTestBase
+
+
+class TestScaledFeature(FeatureGroupTestBase):
+    feature_group_class = ScaledFeature
+    expected_compute_frameworks = ALL_COMPUTE_FRAMEWORKS  # or {PandasDataFrame}
+    matching_feature_names = ["price__scaled"]
+    non_matching_feature_names = ["price"]
+    expected_input_features = {"price__scaled": {"price"}}  # None for a root group
+```
+
 ## Level 2: Framework Test Example
 
 ```python
 import pandas as pd
 
+from mloda.testing.feature_set import build_feature_set
+
 
 def test_calculate_feature():
     df = pd.DataFrame({"input": [1, 2, 3]})
+    features = build_feature_set(ScaledFeature, "input__scaled")
 
-    class MockFeatures:
-        class name_of_one_feature:
-            name = "input__scaled"
-
-    result = ScaledFeature.calculate_feature(df, MockFeatures())
+    # name_of_one_feature is a str, so calculate_feature reads features.name_of_one_feature directly
+    result = ScaledFeature.calculate_feature(df, features)
     assert len(result) == 3
     assert result.min() >= 0 and result.max() <= 1
 ```
@@ -178,6 +192,8 @@ def test_plugin_import_loads_only_its_groups() -> None:
 `get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
 
 ## Testing by Pattern
+
+`FeatureGroupTestBase` covers the matching, `input_features()` and `compute_framework_rule()` rows of Level 1.
 
 | Pattern | Level 1 Focus | Level 2 Focus |
 |---------|---------------|---------------|

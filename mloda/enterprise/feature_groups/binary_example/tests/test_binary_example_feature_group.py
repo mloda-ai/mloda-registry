@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec, property_spec
+from mloda.provider import ApiInputDataFeature, PropertySpec, property_spec
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -30,6 +30,7 @@ from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.feature_set import build_feature_set
 from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_BINARY_OPERATION
 from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_BINARY_OUTPUT_KEY
 from mloda.testing.tests._second_fake_binary import PLUGIN_ID as SECOND_BINARY_PLUGIN_ID
@@ -51,13 +52,6 @@ def _clear_capability_cache_before_each_test() -> None:
     clear_capability_cache()
 
 
-def _feature_set(*features: Feature) -> FeatureSet:
-    feature_set = FeatureSet()
-    for feature in features:
-        feature_set.add(feature)
-    return feature_set
-
-
 def _hash_feature(name: str, columns: Sequence[str], parameters: dict[str, Any] | None = None) -> Feature:
     context: dict[str, Any] = {"binary_operation": "hash", "binary_input_columns": list(columns)}
     if parameters is not None:
@@ -66,25 +60,24 @@ def _hash_feature(name: str, columns: Sequence[str], parameters: dict[str, Any] 
 
 
 # -------------------------------------------------------------------------------------------
-# 0. FeatureGroupTestBase smoke check (mirrors the sibling enterprise example)
+# 0. FeatureGroupTestBase contract check
 # -------------------------------------------------------------------------------------------
 
 
-class TestBinaryExampleFeatureGroupClassSet(FeatureGroupTestBase):
+class TestBinaryExampleFeatureGroupContract(FeatureGroupTestBase):
     feature_group_class = BinaryExampleFeatureGroup
-
-    def test_feature_group_class_set(self) -> None:
-        assert self.feature_group_class is BinaryExampleFeatureGroup
+    expected_compute_frameworks = {PyArrowTable}
+    matching_feature_names = [_hash_feature("hashed", ["col_a", "col_b"])]
+    non_matching_feature_names = [
+        Feature("hashed", Options()),
+        _hash_feature("col_a", ["col_a", "col_b"]),
+    ]
+    expected_input_features = {"hashed": {"col_a", "col_b"}}
 
 
 # -------------------------------------------------------------------------------------------
 # 1. Level 1: compute framework rule, PROPERTY_MAPPING, matching, input_features, manifest
 # -------------------------------------------------------------------------------------------
-
-
-class TestComputeFrameworkRule:
-    def test_restricted_to_pyarrow_table(self) -> None:
-        assert BinaryExampleFeatureGroup.compute_framework_rule() == {PyArrowTable}
 
 
 class TestPropertyMapping:
@@ -222,7 +215,9 @@ class TestCalculateFeature:
     def test_hash_matches_the_reference_algorithm(self) -> None:
         rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta", "gamma"], "col_b": ["x", "y", "z"]}
         table = pa.table({**rows, "other": [1, 2, 3]})
-        result = StubExample.calculate_feature(table, _feature_set(_hash_feature("hashed", ["col_a", "col_b"])))
+        result = StubExample.calculate_feature(
+            table, build_feature_set(StubExample, _hash_feature("hashed", ["col_a", "col_b"]))
+        )
 
         expected = compute_expected_hash_column(rows, ["col_a", "col_b"], None)
         assert result.column("hashed").to_pylist() == expected
@@ -233,8 +228,12 @@ class TestCalculateFeature:
         rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta"], "col_b": ["x", "y"]}
         table = pa.table(rows)
 
-        forward = StubExample.calculate_feature(table, _feature_set(_hash_feature("hashed", ["col_a", "col_b"])))
-        reversed_ = StubExample.calculate_feature(table, _feature_set(_hash_feature("hashed", ["col_b", "col_a"])))
+        forward = StubExample.calculate_feature(
+            table, build_feature_set(StubExample, _hash_feature("hashed", ["col_a", "col_b"]))
+        )
+        reversed_ = StubExample.calculate_feature(
+            table, build_feature_set(StubExample, _hash_feature("hashed", ["col_b", "col_a"]))
+        )
 
         assert forward.column("hashed").to_pylist() == compute_expected_hash_column(rows, ["col_a", "col_b"], None)
         assert reversed_.column("hashed").to_pylist() == compute_expected_hash_column(rows, ["col_b", "col_a"], None)
@@ -244,7 +243,7 @@ class TestCalculateFeature:
         rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta"]}
         table = pa.table(rows)
         feature = _hash_feature("hashed", ["col_a"], parameters={"key": "k"})
-        result = StubExample.calculate_feature(table, _feature_set(feature))
+        result = StubExample.calculate_feature(table, build_feature_set(StubExample, feature))
         expected = compute_expected_hash_column(rows, ["col_a"], "k")
         assert result.column("hashed").to_pylist() == expected
 
@@ -253,7 +252,7 @@ class TestCalculateFeature:
         table = pa.table(rows)
         feature_a = _hash_feature("hash_a", ["col_a"])
         feature_b = _hash_feature("hash_b", ["col_b"])
-        result = StubExample.calculate_feature(table, _feature_set(feature_a, feature_b))
+        result = StubExample.calculate_feature(table, build_feature_set(StubExample, feature_a, feature_b))
 
         assert result.column("hash_a").to_pylist() == compute_expected_hash_column(rows, ["col_a"], None)
         assert result.column("hash_b").to_pylist() == compute_expected_hash_column(rows, ["col_b"], None)
@@ -273,7 +272,7 @@ class TestCalculateFeature:
             _hash_feature("hash_b", ["col_a"], parameters={"key": "k"}),
             _hash_feature("hash_c", ["col_a"], parameters={"key": "other"}),
         ]
-        result = StubExample.calculate_feature(table, _feature_set(*features))
+        result = StubExample.calculate_feature(table, build_feature_set(StubExample, *features))
 
         assert len(runs) == 2
         assert result.column("hash_a").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "k")
@@ -282,7 +281,7 @@ class TestCalculateFeature:
 
     def test_reused_run_still_rejects_a_name_colliding_with_an_existing_column(self) -> None:
         table = pa.table({"col_a": ["alpha", "beta"], "hash_b": [1, 2]})
-        feature_set = _feature_set()
+        feature_set = build_feature_set(StubExample)
         # Ordered so hash_a runs fresh and hash_b is the reuser.
         feature_set.features = cast(
             "set[Feature]", [_hash_feature("hash_a", ["col_a"]), _hash_feature("hash_b", ["col_a"])]
@@ -315,7 +314,7 @@ class TestCalculateFeatureReadsOperationFromOptions:
         table = pa.table(rows)
         context = {"binary_operation": SECOND_BINARY_OPERATION, "binary_input_columns": ["col_a"]}
         feature = Feature("frobnicated", Options(context=context))
-        result = FrobnicateExample.calculate_feature(table, _feature_set(feature))
+        result = FrobnicateExample.calculate_feature(table, build_feature_set(FrobnicateExample, feature))
         expected = [str(value) for value in compute_expected_hash_column(rows, ["col_a"], None)]
         assert result.column("frobnicated").to_pylist() == expected
 
@@ -325,7 +324,7 @@ class TestCalculateFeatureRejections:
         table = pa.table({"col_a": ["alpha"]})
         feature = _hash_feature("hashed", ["col_a"])
         with pytest.raises(BinaryUnavailableError, match="example_binary"):
-            BinaryExampleFeatureGroup.calculate_feature(table, _feature_set(feature))
+            BinaryExampleFeatureGroup.calculate_feature(table, build_feature_set(BinaryExampleFeatureGroup, feature))
 
     def test_no_license_raises_license_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
@@ -337,7 +336,7 @@ class TestCalculateFeatureRejections:
         table = pa.table({"col_a": ["alpha"]})
         feature = _hash_feature("hashed", ["col_a"])
         with pytest.raises(LicenseMissingError):
-            _NoLicenseExample.calculate_feature(table, _feature_set(feature))
+            _NoLicenseExample.calculate_feature(table, build_feature_set(_NoLicenseExample, feature))
 
 
 # -------------------------------------------------------------------------------------------

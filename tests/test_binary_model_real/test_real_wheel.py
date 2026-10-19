@@ -29,7 +29,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiInputDataFeature, FeatureSet
+from mloda.provider import ApiInputDataFeature, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -42,6 +42,7 @@ from mloda.testing.binary_model.conformance import run_binary
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.hmac_sha256_reference import KNOWN_ANSWER_KEY, compute_expected_hmac_sha256_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.feature_set import build_feature_set
 from tests.test_binary_model_real.probe_classification import (
     UNKNOWN_TEST_KEY_MESSAGE,
     probe_accepts_test_key,
@@ -142,11 +143,9 @@ def real_case(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -
     return _RealCase(case, binary_path, case.production_class.BINARY_PLUGIN_ID, accepts_test_key)
 
 
-def _single_feature(case: _Case) -> tuple[Feature, FeatureSet]:
+def _single_feature(case: _Case, feature_group: type[FeatureGroup]) -> tuple[Feature, FeatureSet]:
     feature = case.make_feature()
-    feature_set = FeatureSet()
-    feature_set.add(feature)
-    return feature, feature_set
+    return feature, build_feature_set(feature_group, feature)
 
 
 # -------------------------------------------------------------------------------------------
@@ -175,7 +174,7 @@ def test_no_license_raises_license_missing(real_case: _RealCase, monkeypatch: py
     monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
     case = real_case.case
     table = pa.table({case.source_column: ["alpha"]})
-    _, feature_set = _single_feature(case)
+    _, feature_set = _single_feature(case, case.production_class)
     with pytest.raises(LicenseMissingError):
         case.production_class.calculate_feature(table, feature_set)
 
@@ -186,7 +185,7 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
     case = real_case.case
     rows: dict[str, list[str]] = {case.source_column: ["alpha", "beta"]}
     table = pa.table(rows)
-    _, feature_set = _single_feature(case)
+    _, feature_set = _single_feature(case, case.test_license_class)
     if real_case.accepts_test_key():
         result = case.test_license_class.calculate_feature(table, feature_set)
         assert result.column(case.column).to_pylist() == case.expected(rows)
@@ -202,7 +201,7 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
 
 def _run_end_to_end(case: _Case, feature_class: type[BinaryExampleFeatureGroup] | type[AnonymizerFeatureGroup]) -> None:
     rows: dict[str, list[str]] = {case.source_column: ["alpha", "beta", "gamma"]}
-    feature, _ = _single_feature(case)
+    feature, _ = _single_feature(case, feature_class)
     results = mloda.run_all(
         [feature],
         compute_frameworks=[PyArrowTable],

@@ -21,6 +21,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_set import build_feature_set
 
 
 def canonical_table_empty() -> pa.Table:
@@ -125,9 +126,7 @@ def make_feature_set(
     if mask is not None:
         context["mask"] = mask
     feature = Feature(feature_name, options=Options(context=context))
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
+    return build_feature_set(None, feature)
 
 
 def feature_set_for(feature_name: str, options: Options) -> FeatureSet:
@@ -137,6 +136,4 @@ def feature_set_for(feature_name: str, options: Options) -> FeatureSet:
     Options that has already been assembled, which is the shape ``compute_values`` in the
     scalar-arity harness hands to a family.
     """
-    fs = FeatureSet()
-    fs.add(Feature(feature_name, options=options))
-    return fs
+    return build_feature_set(None, Feature(feature_name, options=options))
