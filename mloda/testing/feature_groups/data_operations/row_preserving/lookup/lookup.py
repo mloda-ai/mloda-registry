@@ -1,20 +1,6 @@
 """Shared test base, dedicated fixture, and expected values for key-lookup tests.
 
-``lookup`` replaces each non-null source value with the value its key maps to in a
-caller-supplied (or plugin-resolved) mapping. The operation is ROW-PRESERVING: the
-result has the same rows in the same order as the input, with one new
-``{col}__lookup`` column appended.
-
-``on_unmatched`` decides what happens to a non-null source value that is not a key:
-
-- ``raise`` (default): ``LookupUnmatchedError`` naming the feature, row and distinct counts.
-- ``null``: the output is null.
-- ``keep``: the source value passes through (only when key family == value family).
-
-Null source values stay null under every policy and are never counted as unmatched.
-
-Expected values are pinned as literals so the PyArrow reference is checked against
-the spec, not only against itself.
+Expected values are pinned as literals so the PyArrow reference is checked against the spec.
 
 Fixture (``id`` is the row-order witness)::
 
@@ -83,10 +69,7 @@ HOOK_REASONS: dict[str, str] = {"C300": "discontinued"}
 
 
 class NutsMappingHook:
-    """Mixin for the hook path: a plugin declares its own name pattern and mapping.
-
-    Combine with a framework class, e.g. ``class PyArrowNutsLookup(NutsMappingHook, PyArrowLookup): pass``.
-    """
+    """Hook-path mixin: combine with a framework class, e.g. ``class X(NutsMappingHook, PyArrowLookup)``."""
 
     MAPPING_FROM_OPTION = False
     PREFIX_PATTERN = rf".*__{HOOK_SUFFIX}$"
@@ -163,11 +146,7 @@ VALUE_CASES: list[Any] = [
 
 
 class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
-    """Abstract base class for key-lookup framework tests.
-
-    lookup has no op vocabulary, so there is no ``supported_*`` set: every backend
-    handles every policy natively or rejects the input with ``ValueError``.
-    """
+    """Abstract base class for key-lookup framework tests."""
 
     # -- Hook path configuration -------------------------------------------------
 

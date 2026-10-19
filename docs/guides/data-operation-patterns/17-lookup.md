@@ -4,9 +4,9 @@ Key lookup replaces each source value with the value its key maps to in a mappin
 
 **What**: `LookupFeatureGroup` accepts feature names of the form `{col}__lookup`. It reads `lookup_mapping` and an optional `on_unmatched` policy from `Options(context=...)`, and emits a new `{col}__lookup` column.
 **When**: You have a coded column and a key-to-value table, and want the translated value on every row.
-**Why**: The hard parts are the same on every backend: what happens to a key the mapping does not know, how nulls behave, and what the output type is. This operation fixes those rules once.
+**Why**: Unmatched keys, nulls and the output type behave the same on every backend.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/lookup/`.
-**How**: The name carries only the op; the mapping and policy come from Options. Each backend joins or maps natively and keeps the original row order.
+**How**: The name carries only the op; the mapping and policy come from Options.
 
 ---
 
@@ -94,7 +94,7 @@ class PyArrowNutsLookup(NutsMapping, PyArrowLookup):
     pass
 ```
 
-One one-line subclass per framework (`PyArrowLookup`, `PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) reuses the same mapping class.
+Add one such subclass per framework (`PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) to reuse the mapping class.
 
 `resolve_mapping` also runs at planning time, because the default `return_data_type_rule` reads the value type from the mapping. Cache an expensive load, or override `return_data_type_rule` to return the type without resolving. I/O errors in the hook propagate, per the [fail-fast contract](16-return-data-type-rule.md).
 
@@ -118,5 +118,4 @@ SQL backends bind the mapping as data and never interpolate it into the query te
 ## Related
 
 - [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input.
-- [Reference implementation pattern](03-reference-implementation.md) - PyArrow is the reference.
 - [`return_data_type_rule` failure handling](16-return-data-type-rule.md) - Why the hook's planning-time call must not hide errors.

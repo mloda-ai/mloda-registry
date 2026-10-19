@@ -1,9 +1,4 @@
-"""Entry-point manifest for mloda-community-lookup.
-
-Lists the concrete FeatureGroup classes that mloda discovers via the
-``mloda.feature_groups`` entry point. Backends whose optional framework is not
-installed are skipped so the rest still register.
-"""
+"""Entry-point manifest for mloda-community-lookup."""
 
 from __future__ import annotations
 

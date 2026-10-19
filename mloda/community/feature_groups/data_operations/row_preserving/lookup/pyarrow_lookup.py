@@ -26,11 +26,7 @@ def _source_family(arrow_type: pa.DataType) -> str:
 
 
 class PyArrowLookup(LookupFeatureGroup):
-    """PyArrow backend; also the cross-framework reference implementation.
-
-    ``pc.index_in`` finds each source value's position among the mapping keys and
-    ``take`` gathers the mapped values; a null index marks an unmatched or null key.
-    """
+    """PyArrow backend; also the cross-framework reference implementation."""
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
