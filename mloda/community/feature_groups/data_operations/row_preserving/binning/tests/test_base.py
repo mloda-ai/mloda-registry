@@ -193,13 +193,18 @@ class TestReturnDataTypeRule:
 class TestNBinsNameAgreement:
     """An ``n_bins`` (forwarded or own) that contradicts the name-parsed value is rejected, not silently ignored."""
 
-    def test_mismatched_forwarded_n_bins_raises(self) -> None:
-        consumer_options = Options(group={"n_bins": 10})
+    @pytest.mark.parametrize("path", ["group", "context"])
+    def test_mismatched_forwarded_n_bins_raises(self, path: str) -> None:
         child_options = Options()
-        child_options.inherit_from(consumer_options)
+        if path == "group":
+            child_options.inherit_from(Options(group={"n_bins": 10}))
+        else:
+            child_options.inherit_from(Options(context={"n_bins": 10}), inherit_context_keys=frozenset({"n_bins"}))
+        assert ("n_bins" in child_options.inherited_context_keys) == (path == "context")
 
-        with pytest.raises(ValueError, match="n_bins"):
+        with pytest.raises(ValueError, match="n_bins") as exc_info:
             BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", child_options, None)
+        assert "was forwarded from a consumer" in str(exc_info.value)
 
     def test_matching_forwarded_n_bins_is_accepted(self) -> None:
         consumer_options = Options(group={"n_bins": 5})
