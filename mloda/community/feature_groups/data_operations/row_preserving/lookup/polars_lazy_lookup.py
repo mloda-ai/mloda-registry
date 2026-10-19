@@ -43,7 +43,7 @@ class PolarsLazyLookup(LookupFeatureGroup):
         reasons: Mapping[Any, str],
     ) -> pl.LazyFrame:
         source_dtype = data.collect_schema()[source_col]
-        assert_key_family(feature_name, source_col, mapping, _source_family(source_dtype))
+        assert_key_family(feature_name, source_col, mapping, _source_family(source_dtype), str(source_dtype))
 
         values = pl.Series(list(mapping.values()))
         source = pl.col(source_col)

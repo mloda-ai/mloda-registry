@@ -44,7 +44,7 @@ class PyArrowLookup(LookupFeatureGroup):
         reasons: Mapping[Any, str],
     ) -> pa.Table:
         source = data.column(source_col)
-        assert_key_family(feature_name, source_col, mapping, _source_family(source.type))
+        assert_key_family(feature_name, source_col, mapping, _source_family(source.type), str(source.type))
 
         values = pa.array(list(mapping.values()))
         # Compare ints at int64 width so keys outside the source width never match.

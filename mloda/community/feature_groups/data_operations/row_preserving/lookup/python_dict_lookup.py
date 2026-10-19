@@ -47,7 +47,8 @@ class PythonDictLookup(LookupFeatureGroup):
         source = data[source_col]
         family = _source_family(source)
         if family is not None:
-            assert_key_family(feature_name, source_col, mapping, family)
+            types = ", ".join(sorted({type(v).__name__ for v in source if v is not None}))
+            assert_key_family(feature_name, source_col, mapping, family, types)
 
         unmatched = [v for v in source if v is not None and v not in mapping]
         if unmatched and policy == "raise":

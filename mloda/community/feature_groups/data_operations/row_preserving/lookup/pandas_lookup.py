@@ -59,7 +59,7 @@ class PandasLookup(LookupFeatureGroup):
         source = data[source_col]
         family = _source_family(source)
         if not (source.isna().all() and pd.api.types.is_float_dtype(source.dtype)):
-            assert_key_family(feature_name, source_col, mapping, family)
+            assert_key_family(feature_name, source_col, mapping, family, str(source.dtype))
         if family == "int":
             source = source.astype("Int64")
 

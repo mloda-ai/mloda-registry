@@ -48,7 +48,8 @@ class DuckdbLookup(LookupFeatureGroup):
         policy: str,
         reasons: Mapping[Any, str],
     ) -> DuckdbRelation:
-        assert_key_family(feature_name, source_col, mapping, _source_family(column_types(data)[source_col]))
+        source_type = column_types(data)[source_col]
+        assert_key_family(feature_name, source_col, mapping, _source_family(source_type), str(source_type))
 
         original_cols = list(data.columns)
         taken = set(original_cols) | {feature_name}

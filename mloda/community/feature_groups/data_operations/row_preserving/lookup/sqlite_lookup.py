@@ -50,7 +50,7 @@ class SqliteLookup(LookupFeatureGroup):
         original_cols = list(data.columns)
         original_types = list(data.types)
         source_type = original_types[original_cols.index(source_col)]
-        assert_key_family(feature_name, source_col, mapping, _source_family(source_type))
+        assert_key_family(feature_name, source_col, mapping, _source_family(source_type), str(source_type))
 
         conn = data.connection
         key_type = pa.array(list(mapping.keys())).type
