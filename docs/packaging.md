@@ -49,6 +49,9 @@ is Dependabot-managed.
 version = "0.4.0"
 requires-python = ">=3.10,<3.15"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
+keywords = ["mloda", "mloda-plugin"]
+# No License classifier: the SPDX license string is emitted.
+classifiers = ["Intended Audience :: Developers", "Operating System :: OS Independent"]
 
 [defaults]
 license = "Apache-2.0"
@@ -56,12 +59,15 @@ core_dependency = "mloda>=0.11.0,<0.12.0"
 optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 ```
 
+Keywords are the shared base followed by each package's own, deduplicated. Classifiers are the shared ones, plus `Typing :: Typed` for `py_typed` packages. There is no `License ::` classifier because the SPDX `license` is emitted.
+
 ### packages.toml
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
+| `keywords` | No | PyPI search terms appended to the shared base; an unpublished package's terms reach PyPI only through its bundle, so name them there too |
 | `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean. It governs the released set, and also wheel contents: a bundle must own (name in its own `dependencies` or a non-dev extra) every published package nested under its path, and ships only the unpublished rest |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor, `"<sibling>>={version}"` for a sibling package (`"<sibling>~={version}"` when built on its private seams), or, for a package nested under an `entry_point_bundle`'s own path, `"<sibling>=={version}"` to own it (see [Sibling dependency floors](#sibling-dependency-floors)). The generator defaults it to empty rather than failing, but every package declares it |
 | `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order; an `entry_point_bundle` cannot use it and names each package it owns instead, through a non-dev extra the same as through `dependencies`. A test-only third-party dependency goes in `dev` here; see [Add a test-only dependency](#add-a-test-only-dependency) |

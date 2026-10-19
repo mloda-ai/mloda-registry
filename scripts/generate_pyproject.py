@@ -635,6 +635,16 @@ def generate_pyproject(
     ]
     lines.append(f"authors = [{', '.join(author_strs)}]")
 
+    keywords = list(dict.fromkeys([*shared["project"].get("keywords", []), *pkg_config.get("keywords", [])]))
+    if keywords:
+        lines.append(f"keywords = {to_toml_list(keywords)}")
+
+    classifiers = list(shared["project"].get("classifiers", []))
+    if pkg_config.get("py_typed") and "Typing :: Typed" not in classifiers:
+        classifiers.append("Typing :: Typed")
+    if classifiers:
+        lines.append(f"classifiers = {to_toml_list(classifiers)}")
+
     lines.append(f"dependencies = {to_toml_list(deps)}")
 
     lines.append(f"requires-python = {quote_toml_basic_string(shared['project']['requires-python'])}")

@@ -80,6 +80,8 @@ def test_generate_quotes_all_configured_toml_string_values() -> None:
             "authors": [{"name": special, "email": special}],
             "requires-python": special,
             "urls": {"Homepage": special},
+            "keywords": [special, "shared-kw"],
+            "classifiers": [special],
         },
         "defaults": {"license": special, "optional_dependencies": {"default-extra": [special]}},
     }
@@ -90,6 +92,7 @@ def test_generate_quotes_all_configured_toml_string_values() -> None:
         "optional_dependencies": {"package-extra": [special]},
         "entry_point_groups": ["mloda.feature_groups"],
         "py_typed": True,
+        "keywords": ["pkg-kw", special],
     }
 
     generated = gen.generate_pyproject(special, pkg_config, shared, {special: pkg_config})
@@ -108,6 +111,8 @@ def test_generate_quotes_all_configured_toml_string_values() -> None:
         "optional-dependencies": {"default-extra": [special], "package-extra": [special]},
         "urls": {"Homepage": special},
         "entry-points": {"mloda.feature_groups": {special: entry_point_target}},
+        "keywords": [special, "shared-kw", "pkg-kw"],
+        "classifiers": [special, "Typing :: Typed"],
     }
     assert parsed["tool"]["setuptools"] == {
         "package-dir": {"": "../.."},

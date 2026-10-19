@@ -5,6 +5,7 @@ license metadata: per-package SPDX string, ``license-files``, and the committed 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,28 @@ def test_build_floor_covers_the_emitted_license_form() -> None:
         f"{_PEP639_SETUPTOOLS} on. Run 'tox -e verify-build-floor': that env "
         "builds at the declared floor and is what proves it, this assertion only guards the declaration."
     )
+
+
+def test_shared_classifiers_carry_no_license_classifier() -> None:
+    """A License classifier next to the SPDX license string is rejected by setuptools 77+."""
+    classifiers = _SHARED["project"].get("classifiers", [])
+    assert classifiers, "config/shared.toml [project].classifiers must be non-empty"
+    offending = [c for c in classifiers if c.startswith("License ::")]
+    assert not offending, f"{offending!r}: the SPDX license string is emitted and setuptools 77+ rejects both together"
+
+
+def test_shared_python_classifiers_match_requires_python() -> None:
+    """The Python 3.X classifiers cover exactly the minors allowed by requires-python."""
+    spec = _SHARED["project"]["requires-python"]
+    match = re.fullmatch(r"\s*>=\s*3\.(\d+)\s*,\s*<\s*3\.(\d+)\s*", spec)
+    assert match, f"requires-python {spec!r} must have the shape '>=3.A,<3.B'"
+    expected = [f"Programming Language :: Python :: 3.{minor}" for minor in range(int(match[1]), int(match[2]))]
+    actual = [
+        c
+        for c in _SHARED["project"].get("classifiers", [])
+        if re.fullmatch(r"Programming Language :: Python :: 3\.\d+", c)
+    ]
+    assert sorted(actual) == sorted(expected), f"classifiers {actual!r} do not match requires-python {spec!r}"
 
 
 def test_package_directories_carry_byte_equal_license_copies() -> None:

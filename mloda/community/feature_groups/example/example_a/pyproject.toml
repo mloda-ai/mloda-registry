@@ -12,6 +12,8 @@ description = "Example A FeatureGroup extending community example base"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
+keywords = ["mloda", "mloda-plugin"]
+classifiers = ["Intended Audience :: Developers", "Intended Audience :: Science/Research", "Operating System :: OS Independent", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only", "Programming Language :: Python :: 3.10", "Programming Language :: Python :: 3.11", "Programming Language :: Python :: 3.12", "Programming Language :: Python :: 3.13", "Programming Language :: Python :: 3.14", "Topic :: Scientific/Engineering :: Artificial Intelligence", "Topic :: Software Development :: Libraries :: Python Modules"]
 dependencies = ["mloda-community-example>=0.9.0"]
 requires-python = ">=3.10,<3.15"
 

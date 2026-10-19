@@ -7,6 +7,7 @@
 
 [packages.mloda-registry]
 description = "Plugin discovery and search for mloda"
+keywords = ["plugin-registry", "plugin-discovery"]
 dependencies = ["{core_dependency}"]
 path = "mloda/registry"
 published = true
@@ -38,6 +39,7 @@ py_typed = true
 
 [packages.mloda-community-binary-model]
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"
+keywords = ["binary-model", "arrow-ipc", "pyarrow"]
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/binary_model"
 published = true
@@ -46,6 +48,7 @@ optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binar
 
 [packages.mloda-enterprise-binary-example]
 description = "Example enterprise FeatureGroup backed by a licensed binary model"
+keywords = ["binary-model"]
 # Sibling floor policy: docs/packaging.md#sibling-dependency-floors
 dependencies = ["mloda-community-binary-model>={version}"]
 path = "mloda/enterprise/feature_groups/binary_example"
@@ -55,6 +58,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-enterprise-anonymizer]
 description = "Enterprise FeatureGroup that pseudonymizes a column via the licensed anonymizer binary"
+keywords = ["anonymization", "pii", "pseudonymization"]
 dependencies = ["mloda-community-binary-model>={version}"]
 path = "mloda/enterprise/feature_groups/anonymizer"
 # The wheel is an optional extra, never a hard dependency; the bundle re-exports it as mloda-enterprise[anonymizer].
@@ -71,6 +75,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-otel]
 description = "OpenTelemetry spans and metrics, metadata-only by default, for mloda pipelines"
+keywords = ["opentelemetry", "tracing", "metrics", "observability"]
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/otel"
 published = true
@@ -80,6 +85,7 @@ py_typed = true
 
 [packages.mloda-community-openlineage]
 description = "OpenLineage RunEvents with schema, data-source and parent-run facets, for mloda pipelines"
+keywords = ["openlineage", "lineage", "data-lineage"]
 dependencies = ["{core_dependency}", "openlineage-python>=1.36,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/openlineage"
 published = true
@@ -89,6 +95,7 @@ py_typed = true
 
 [packages.mloda-enterprise-audit]
 description = "Tenant-scoped audit records with an identity presence gate for mloda pipelines"
+keywords = ["audit", "compliance"]
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
 path = "mloda/enterprise/extenders/audit"
 optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "cryptography>=42", "opentelemetry-api>=1.37,<2"] }
@@ -96,6 +103,7 @@ entry_point_groups = ["mloda.extenders"]
 
 [packages.mloda-enterprise-lineage]
 description = "OpenLineage column lineage, masking, validator outcome and structure hash facets for mloda pipelines"
+keywords = ["openlineage", "column-lineage"]
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
 path = "mloda/enterprise/extenders/lineage"
 optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "mloda-community-openlineage~={version}", "opentelemetry-sdk>=1.30,<2"] }
@@ -106,6 +114,7 @@ entry_point_groups = ["mloda.extenders"]
 
 [packages.mloda-community-data-operations]
 description = "Shared base classes for data operation feature groups"
+keywords = ["feature-engineering", "data-operations"]
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/data_operations"
 published = true
@@ -114,6 +123,7 @@ py_typed = true
 
 [packages.mloda-community-aggregation]
 description = "Aggregation feature group (reduce, partition_by, one row per group)"
+keywords = ["aggregation", "group-by"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/aggregation"
 published = true
@@ -122,6 +132,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-rank]
 description = "Rank feature group (row_number, rank, dense_rank, percent_rank, ntile, row-preserving)"
+keywords = ["rank", "window-functions"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/rank"
 published = true
@@ -130,6 +141,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-offset]
 description = "Offset feature group (lag, lead, diff, pct_change, first_value, last_value, row-preserving)"
+keywords = ["lag", "lead", "window-functions"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/offset"
 published = true
@@ -138,6 +150,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-window-aggregation]
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
+keywords = ["window-functions", "aggregation"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation"
 published = true
@@ -146,6 +159,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-frame-aggregate]
 description = "Frame aggregate feature group (rolling, cumulative, expanding, time window, row-preserving)"
+keywords = ["rolling-window", "window-functions"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate"
 published = true
@@ -154,6 +168,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-aggregate]
 description = "Scalar aggregate feature group (single-column global aggregate broadcast)"
+keywords = ["aggregation"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate"
 published = true
@@ -162,6 +177,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-arithmetic]
 description = "Scalar arithmetic feature group (element-wise column op constant: add, subtract, multiply, divide)"
+keywords = ["arithmetic"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic"
 published = true
@@ -170,6 +186,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-point-arithmetic]
 description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
+keywords = ["arithmetic"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic"
 published = true
@@ -178,6 +195,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-datetime]
 description = "Datetime extraction feature group (element-wise, row-preserving)"
+keywords = ["datetime", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/datetime"
 published = true
@@ -186,6 +204,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-string]
 description = "String operation feature group (element-wise, row-preserving)"
+keywords = ["string-operations", "text"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/string"
 published = true
@@ -194,6 +213,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-binning]
 description = "Binning feature group (equal-width, quantile, row-preserving)"
+keywords = ["binning", "discretization"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/binning"
 published = true
@@ -202,6 +222,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-percentile]
 description = "Percentile feature group (PERCENTILE_CONT, partition_by, row-preserving)"
+keywords = ["percentile", "quantile"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/percentile"
 published = true
@@ -210,6 +231,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-time-bucketization]
 description = "Time bucketization feature group (floor, ceil, round a timestamp to a bucket interval, row-preserving)"
+keywords = ["time-bucketing", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization"
 published = true
@@ -218,6 +240,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ffill]
 description = "Forward-fill feature group (ffill a value column across time gaps, per partition, ordered by time, row-preserving)"
+keywords = ["forward-fill", "imputation", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ffill"
 published = true
@@ -226,6 +249,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ema]
 description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars/python_dict only, no pyarrow/duckdb/sqlite backend)"
+keywords = ["exponential-moving-average", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ema"
 published = true
@@ -234,6 +258,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-sessionization]
 description = "Sessionization feature group (gap-threshold session id on an ordered timestamp, per partition, row-preserving)"
+keywords = ["sessionization", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/sessionization"
 published = true
@@ -242,6 +267,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-resample]
 description = "Resample feature group (collapse events onto a regular time grid: floor to bucket, group, aggregate; one row per non-empty bucket, row-changing)"
+keywords = ["resampling", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_changing/resample"
 published = true
@@ -256,6 +282,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community]
 description = "All community plugins for mloda"
+keywords = ["feature-engineering", "data-operations", "opentelemetry", "openlineage"]
 dependencies = [
     "{core_dependency}",
     "mloda-community-extenders-shared=={version}",
@@ -289,6 +316,7 @@ py_typed = true
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (production use needs a license agreement: https://mloda.ai/enterprise)"
+keywords = ["anonymization", "pii", "audit", "column-lineage"]
 # Mixin floor: the binary FeatureGroups (example, anonymizer) subclass the binary-model mixin, and a manifest
 # import that fails on a missing mloda.community module aborts plugin discovery. It is `>=`, not `~=`, because
 # they use only its public names, which includes subclassing it (docs/packaging.md#sibling-dependency-floors).
@@ -305,6 +333,7 @@ py_typed = true
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
+keywords = ["testing", "pytest"]
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow"]
 path = "mloda/testing"
 published = true

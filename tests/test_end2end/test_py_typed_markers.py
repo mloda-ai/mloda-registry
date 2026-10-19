@@ -177,6 +177,14 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
             f"{pkg_name}: package-data table present={'package-data' in table}, "
             f"but py_typed is {pkg_config.get('py_typed')!r}"
         )
+        project = loads_toml(content)["project"]
+        classifiers = project.get("classifiers", [])
+        keywords = project.get("keywords", [])
+        assert ("Typing :: Typed" in classifiers) == (pkg_name in flagged), f"{pkg_name}: classifiers {classifiers!r}"
+        shared_keywords = shared["project"]["keywords"]
+        assert keywords[: len(shared_keywords)] == shared_keywords, f"{pkg_name}: keywords {keywords!r}"
+        missing = [c for c in shared["project"]["classifiers"] if c not in classifiers]
+        assert not missing, f"{pkg_name}: classifiers lack shared entries {missing!r}"
 
 
 @pytest.mark.parametrize("pkg_name", _published_packages())
