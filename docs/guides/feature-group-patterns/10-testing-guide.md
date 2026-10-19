@@ -191,6 +191,26 @@ def test_plugin_import_loads_only_its_groups() -> None:
 
 `get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
 
+`mloda.testing.packaging` checks the two ways a plugin breaks outside the source tree:
+
+```python
+from pathlib import Path
+
+from mloda.testing.packaging import assert_cold_imports, assert_distributions_complete
+
+PROJECT = Path(__file__).parents[1]
+
+
+def test_distributions_contain_every_module() -> None:
+    assert_distributions_complete(PROJECT, "acme")
+
+
+def test_every_module_imports_cold() -> None:
+    assert_cold_imports(PROJECT, "acme")
+```
+
+`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs `uv build` on a temp copy of the project, so your tree stays clean.
+
 ## Testing by Pattern
 
 `FeatureGroupTestBase` covers the matching, `input_features()` and `compute_framework_rule()` rows of Level 1.
