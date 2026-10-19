@@ -77,6 +77,11 @@ def _assert_no_duplicate_table_columns(table: pa.Table) -> None:
 
 
 def _assert_input_columns(input_columns: Sequence[str], table: pa.Table) -> None:
+    if isinstance(input_columns, (str, bytes)):
+        raise BinaryUsageError(
+            f"input_columns must be a sequence of column names, not a bare string; "
+            f"pass a list such as [{str(input_columns)!r}]"
+        )
     if not input_columns:
         raise BinaryUsageError("input_columns must name at least one column")
     if len(set(input_columns)) != len(input_columns):
