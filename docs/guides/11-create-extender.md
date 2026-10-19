@@ -250,7 +250,7 @@ Audit records are `record_version` 2. Beyond the identity fields they carry:
 
 - `decision` is the policy outcome (`allow` or `deny`); `enforced` is `true` only on a `fail_closed` refusal record (match, `INPUT_DATA_MATCH`, `RUN_START` or calculate), so a deny that merely records a missing identity is told apart from a refusal that stopped the run.
 - `compliant` is true only when no required identity is missing and the principal is non-blank. A default config without a `principal` in `required_identity` therefore records `compliant: false` whenever no principal is in scope.
-- `status` is `success`, `error` or `cancelled` (not core's `succeeded`/`failed`). An interrupted step (a `BaseException` that is not an `Exception`, e.g. `KeyboardInterrupt`) is `cancelled` with `cancel_type` (`module.qualname`) and a null `error_type`; `cancel_type` is null otherwise. Logs written before this release record interrupts as `error`.
+- `status` is `success`, `error` or `cancelled` (not core's `succeeded`/`failed`). An interrupted step (a `BaseException` that is not an `Exception`, e.g. `KeyboardInterrupt`) is `cancelled` with `cancel_type` (`module.qualname`) and a null `error_type`. Older logs record interrupts as `error`.
 - `phase` is `"plan"` for the match hooks (`FEATURE_GROUP_MATCHED`, `INPUT_DATA_MATCH`) and `"run"` otherwise.
 - `input_feature_edges` (`{feature: sorted input names}`, or null) next to `input_features`.
 - `host` (the process hostname), `worker_index` and `start_time` (UTC ISO, taken before the wrapped call; equal to `event_time` on refusal and `RUN_START` records).

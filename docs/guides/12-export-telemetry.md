@@ -241,7 +241,7 @@ Notes:
   print(diff_run_events(runs[-2], runs[-1]))
   ```
 
-  It compares the structure hash, mloda version, outcome and, per step, the versions, compute framework, input features, loaded datasets, output schema, row count and outcome. Durations are listed as informational and never count as changes. Identities are shown as recorded. Steps are keyed by feature group and feature names; runs that requested different features are reported as not comparable.
+  It compares the structure hash, mloda version, outcome and, per step, the versions, compute framework, input features, loaded datasets, output schema, row count and outcome. Durations are listed as informational and never count as changes. Data-access identities appear as the events record them. Steps are keyed by feature group and feature names; runs that requested different features are reported as not comparable.
 - The events do not show how the plan is wired; keep a [plan lock](feature-group-patterns/10-testing-guide.md) next to the record for that.
 
 ## Traces and lineage
