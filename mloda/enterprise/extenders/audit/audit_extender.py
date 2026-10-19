@@ -761,7 +761,7 @@ class AuditExtender(Extender):
         start_time = _utc_now()
         trace = trace_ids(context.carrier)
         if self.fail_closed:
-            # A missing identity at INPUT_DATA_MATCH means a hand-built context: core probes inside FEATURE_GROUP_MATCHED.
+            # At INPUT_DATA_MATCH only a hand-built context gets here: core checks the same identity at match first.
             missing = self._missing_identity(context)
             if missing:
                 try:

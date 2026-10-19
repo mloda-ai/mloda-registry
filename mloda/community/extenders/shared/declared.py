@@ -14,7 +14,7 @@ def declared_scalars(declared: Mapping[str, Any] | None) -> dict[str, str | int 
     """A fresh dict of the str, bool, int and finite float declarations, types unchanged."""
     if declared is None:
         return {}
-    # Core filters on dispatch, but a hand-built HookContext is not validated and json.dumps(allow_nan=False) raises.
+    # Core's filter is internal and skips a hand-built HookContext, whose NaN json.dumps(allow_nan=False) rejects.
     return {
         key: value
         for key, value in declared.items()
