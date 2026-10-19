@@ -255,15 +255,14 @@ def _root_events(events: list[RunEvent]) -> list[RunEvent]:
     return [event for event in events if event.job.name == ROOT_JOB_NAME]
 
 
-def _mloda_plan_field(event: RunEvent, name: str) -> Any:
-    payload = json.loads(Serde.to_json(event))
-    return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get(name)
-
-
 def _run_facet(event: RunEvent, name: str) -> dict[str, Any] | None:
     payload = json.loads(Serde.to_json(event))
     facet: dict[str, Any] | None = ((payload.get("run") or {}).get("facets") or {}).get(name)
     return facet
+
+
+def _mloda_plan_field(event: RunEvent, name: str) -> Any:
+    return (_run_facet(event, "mlodaPlan") or {}).get(name)
 
 
 class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
@@ -814,7 +813,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             assert engine is not None
             assert engine["name"] == "mloda"
             assert engine["version"] == importlib.metadata.version("mloda")
-            assert engine["_producer"] == json.loads(Serde.to_json(event))["producer"]
+            assert engine["_producer"] == event.producer
 
     def test_openlineage_failing_run_all_emits_a_parent_run_fail(self) -> None:
         client, transport = make_recording_client()

@@ -1983,9 +1983,13 @@ def _plan(structure_hash: str | None = None) -> PlanContext:
     )
 
 
-def _plan_facet(event: Any) -> dict[str, Any]:
-    facet: dict[str, Any] = json.loads(Serde.to_json(event))["run"]["facets"]["mlodaPlan"]
+def _run_facet(event: Any, name: str) -> dict[str, Any]:
+    facet: dict[str, Any] = json.loads(Serde.to_json(event))["run"]["facets"][name]
     return facet
+
+
+def _plan_facet(event: Any) -> dict[str, Any]:
+    return _run_facet(event, "mlodaPlan")
 
 
 class TestOpenLineageExtenderParentRun:
@@ -2074,12 +2078,17 @@ class TestOpenLineageExtenderParentRun:
         assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
 
     @pytest.mark.parametrize(
-        ("missing", "adapter_version"),
-        [(None, importlib.metadata.version("mloda-community-openlineage")), ("mloda-community-openlineage", None)],
+        ("missing", "has_facet", "adapter_version"),
+        [
+            (None, True, importlib.metadata.version("mloda-community-openlineage")),
+            ("mloda-community-openlineage", True, None),
+            ("mloda", False, None),
+        ],
     )
     def test_root_events_carry_the_processing_engine_facet(
         self,
         missing: str | None,
+        has_facet: bool,
         adapter_version: str | None,
         monkeypatch: pytest.MonkeyPatch,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
@@ -2101,33 +2110,14 @@ class TestOpenLineageExtenderParentRun:
 
         assert len(transport.events) == 2
         for event in transport.events:
-            engine = json.loads(Serde.to_json(event))["run"]["facets"]["processingEngine"]
+            if not has_facet:
+                assert "processingEngine" not in json.loads(Serde.to_json(event))["run"]["facets"]
+                continue
+            engine = _run_facet(event, "processingEngine")
             assert engine["name"] == "mloda"
             assert engine["version"] == real_version("mloda")
             assert engine.get("openlineageAdapterVersion") == adapter_version
             assert engine["_producer"] == extender.producer
-
-    def test_root_events_omit_the_processing_engine_facet_without_the_mloda_distribution(
-        self, monkeypatch: pytest.MonkeyPatch, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        real_version = importlib.metadata.version
-
-        def version(name: str) -> str:
-            if name == "mloda":
-                raise importlib.metadata.PackageNotFoundError(name)
-            return real_version(name)
-
-        monkeypatch.setattr(importlib.metadata, "version", version)
-        extender = OpenLineageExtender(client=client)
-        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
-
-        extender.on_run_start(run, _plan(), ())
-        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
-
-        assert len(transport.events) == 2
-        for event in transport.events:
-            assert "processingEngine" not in json.loads(Serde.to_json(event))["run"]["facets"]
 
     def test_run_complete_without_an_emitted_start_emits_nothing(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
