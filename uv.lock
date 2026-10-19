@@ -869,8 +869,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -945,8 +945,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1055,8 +1055,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1213,8 +1213,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1382,7 +1382,7 @@ requires-dist = [
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "openlineage-python", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
-    { name = "pyarrow", marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -1410,7 +1410,7 @@ requires-dist = [
     { name = "mloda-community-extenders-shared", specifier = ">=0.9.0" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
-    { name = "pyarrow", marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -1503,8 +1503,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1597,8 +1597,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1647,8 +1647,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1697,8 +1697,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1747,8 +1747,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1797,8 +1797,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1847,8 +1847,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1897,8 +1897,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -2173,7 +2173,7 @@ requires-dist = [
     { name = "mloda-community-binary-model", marker = "extra == 'binary-model'", editable = "mloda/community/feature_groups/binary_model" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
-    { name = "pyarrow" },
+    { name = "pyarrow", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'binary-model'", specifier = ">=25" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },

@@ -18,7 +18,7 @@ dependencies = ["mloda>=0.16.0,<0.17.0", "openlineage-python>=1.36,<2", "mloda-c
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
-dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow", "opentelemetry-sdk>=1.30,<2"]
+dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow>=14.0.1", "opentelemetry-sdk>=1.30,<2"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

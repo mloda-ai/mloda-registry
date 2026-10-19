@@ -55,13 +55,13 @@ def _min_version(specifier: SpecifierSet) -> Version:
     raise AssertionError(f"specifier {specifier} has no '>=' floor to compare")
 
 
-def _core_polars_requirement() -> Requirement:
-    """Mloda core's own 'polars' extra requirement, read from installed distribution metadata."""
+def _core_extra_requirement(name: str) -> Requirement:
+    """Mloda core's own '<name>' extra requirement on <name>, read from installed distribution metadata."""
     for dep in importlib.metadata.requires("mloda") or []:
         req = Requirement(dep)
-        if req.name == "polars" and req.marker is not None and req.marker.evaluate({"extra": "polars"}):
+        if req.name == name and req.marker is not None and req.marker.evaluate({"extra": name}):
             return req
-    raise AssertionError("mloda core does not declare a 'polars' extra requirement on polars; guard is vacuous")
+    raise AssertionError(f"mloda core does not declare a '{name}' extra requirement on {name}; guard is vacuous")
 
 
 def _packages() -> dict[str, dict[str, Any]]:
@@ -120,7 +120,8 @@ def _registered_backends(manifest_path: Path) -> set[str]:
 
 _LEAF_PACKAGES = _leaf_packages()
 assert _LEAF_PACKAGES, "no data_operations leaf packages found under config/packages.toml; guard is vacuous"
-_CORE_POLARS_REQUIREMENT = _core_polars_requirement()
+_CORE_POLARS_REQUIREMENT = _core_extra_requirement("polars")
+_CORE_PYARROW_REQUIREMENT = _core_extra_requirement("pyarrow")
 
 
 @pytest.mark.parametrize("package_name,entry", _LEAF_PACKAGES, ids=[name for name, _ in _LEAF_PACKAGES])
@@ -154,6 +155,14 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
                 source = f"override for {package_name}" if override else "mloda core's polars extra floor"
                 assert specifier == expected, (
                     f"{package_name}: polars extra must require {expected} ({source}), got {specifier}"
+                )
+        if backend == "pyarrow":
+            expected = _CORE_PYARROW_REQUIREMENT.specifier
+            for dep in deps:
+                specifier = Requirement(dep).specifier
+                assert specifier == expected, (
+                    f"{package_name}: pyarrow extra must require {expected} (mloda core's pyarrow extra floor), "
+                    f"got {specifier}"
                 )
 
     expected_all = {dep for backend in backends & _PACKAGED_BACKENDS for dep in actual[backend]}
