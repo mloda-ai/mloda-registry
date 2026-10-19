@@ -9,7 +9,6 @@ from tests.script_loader import load_script
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
 chk = load_script("check_classifiers", _SCRIPTS / "check_classifiers.py")
-gen = load_script("generate_pyproject", _SCRIPTS / "generate_pyproject.py")
 
 
 def test_unknown_classifier_is_reported_with_package_and_value() -> None:
@@ -26,7 +25,7 @@ def test_all_known_classifiers_yield_no_errors() -> None:
 
 
 def test_generated_classifiers_cover_shared_and_generator_added() -> None:
-    shared, packages_config = gen.load_configs()
+    shared, packages_config = chk.gen.load_configs()
     packages = packages_config["packages"]
     result = chk.generated_classifiers(shared, packages)
     assert set(result) == set(packages)

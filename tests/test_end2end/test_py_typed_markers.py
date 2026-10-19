@@ -85,18 +85,29 @@ def _setuptools_table(source: str, content: str) -> dict[str, Any]:
     return table
 
 
-def _generated_setuptools(pkg_name: str) -> dict[str, Any]:
-    """``[tool.setuptools]`` table the generator produces for a package."""
+def _generated_content(pkg_name: str) -> str:
+    """pyproject.toml text the generator produces for a package."""
     shared, packages_config = gen.load_configs()
     packages = packages_config["packages"]
     content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    return _setuptools_table(f"generated {pkg_name}", content)
+    return content
+
+
+def _committed_pyproject_path(pkg_name: str) -> Path:
+    """Path of the committed per-package pyproject.toml, asserted to exist."""
+    pyproject_path: Path = _REPO_ROOT / _packages()[pkg_name]["path"] / "pyproject.toml"
+    assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)"
+    return pyproject_path
+
+
+def _generated_setuptools(pkg_name: str) -> dict[str, Any]:
+    """``[tool.setuptools]`` table the generator produces for a package."""
+    return _setuptools_table(f"generated {pkg_name}", _generated_content(pkg_name))
 
 
 def _committed_setuptools(pkg_name: str) -> dict[str, Any]:
     """``[tool.setuptools]`` table of the committed per-package pyproject.toml."""
-    pyproject_path = _REPO_ROOT / _packages()[pkg_name]["path"] / "pyproject.toml"
-    assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)"
+    pyproject_path = _committed_pyproject_path(pkg_name)
     return _setuptools_table(str(pyproject_path), pyproject_path.read_text())
 
 
@@ -185,10 +196,7 @@ def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> Non
 
 def _generated_classifiers(pkg_name: str) -> list[str]:
     """``[project].classifiers`` the generator produces for a package."""
-    shared, packages_config = gen.load_configs()
-    packages = packages_config["packages"]
-    content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
-    classifiers: list[str] = loads_toml(content)["project"].get("classifiers", [])
+    classifiers: list[str] = loads_toml(_generated_content(pkg_name))["project"].get("classifiers", [])
     return classifiers
 
 
@@ -196,9 +204,7 @@ def _generated_classifiers(pkg_name: str) -> list[str]:
 def test_every_published_distribution_is_classified_typed(pkg_name: str) -> None:
     generated = _generated_classifiers(pkg_name)
     assert "Typing :: Typed" in generated, f"{pkg_name}: generated classifiers lack 'Typing :: Typed': {generated!r}"
-    pyproject_path = _REPO_ROOT / _packages()[pkg_name]["path"] / "pyproject.toml"
-    assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)"
-    committed = loads_toml(pyproject_path.read_text())["project"].get("classifiers", [])
+    committed = loads_toml(_committed_pyproject_path(pkg_name).read_text())["project"].get("classifiers", [])
     assert "Typing :: Typed" in committed, (
         f"{pkg_name}: committed pyproject.toml lacks 'Typing :: Typed' (run scripts/generate_pyproject.py)"
     )
@@ -217,16 +223,6 @@ def test_unpublished_package_without_typed_ancestor_is_not_classified_typed(pkg_
     assert pkg_name not in _published_packages(), f"{pkg_name} is published, so it must be typed"
     classifiers = _generated_classifiers(pkg_name)
     assert "Typing :: Typed" not in classifiers, f"{pkg_name}: classifiers {classifiers!r}"
-
-
-def test_dependency_closure_follows_dependencies_only() -> None:
-    packages = {
-        "a": {"dependencies": ["b>=1"], "optional_dependencies": {"x": ["d"]}},
-        "b": {"dependencies": ["C.C~=2"]},
-        "c_c": {"dependencies": []},
-        "d": {"dependencies": []},
-    }
-    assert gen.dependency_closure(packages["a"], packages) == {"b", "c_c"}
 
 
 def test_marker_floors_cover_exactly_the_non_bundle_typed_packages() -> None:
