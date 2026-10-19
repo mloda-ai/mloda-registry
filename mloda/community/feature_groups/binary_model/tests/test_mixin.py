@@ -756,6 +756,12 @@ class TestUpFrontValidationBeforeAnySpawn:
         [
             pytest.param(pa.table({"col_a": ["alpha"]}), [], {"result": "col_a_hash"}, id="empty_input_columns"),
             pytest.param(
+                pa.table({"col_a": ["alpha"], "c": ["x"], "o": ["y"], "l": ["z"], "_": ["w"], "a": ["v"]}),
+                "col_a",
+                {"result": "col_a_hash"},
+                id="bare_string_input_columns",
+            ),
+            pytest.param(
                 pa.table({"col_a": ["alpha"]}),
                 ["col_a", "col_a"],
                 {"result": "col_a_hash"},
