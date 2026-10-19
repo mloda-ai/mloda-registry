@@ -38,8 +38,8 @@ class ClassificationPolicy:
             raise TypeError(
                 f"ClassificationPolicy exempt_readers must be an iterable of reader classes, got {self.exempt_readers!r}"
             ) from None
-        if not all(isinstance(e, type) and issubclass(e, BaseInputData) for e in entries):
-            raise TypeError(f"ClassificationPolicy exempt_readers must hold BaseInputData classes, got {entries!r}")
+        if not all(isinstance(e, type) and issubclass(e, BaseInputData) and e.is_final_reader() for e in entries):
+            raise TypeError(f"ClassificationPolicy exempt_readers must hold final reader classes, got {entries!r}")
         object.__setattr__(self, "exempt_readers", frozenset(entries))
         if entries and not self.gate_readers:
             raise ValueError("ClassificationPolicy exempt_readers requires gate_readers=True")

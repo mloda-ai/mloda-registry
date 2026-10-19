@@ -51,6 +51,7 @@ from mloda.user import (
     mloda,
 )
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.input_data.read_file import ReadFile
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 from mloda_plugins.feature_group.input_data.read_files.parquet import ParquetReader
@@ -330,7 +331,11 @@ def _clear_pii(tenant: str | None, principal: str | None) -> str:
 
 
 class _CsvReaderSubclass(CsvReader):
-    """A subclass of an exempt reader: exemption is by exact class, so it is still gated."""
+    """Not a final reader, so core never discovers it; exemption is by exact class."""
+
+    @classmethod
+    def _final_reader_requires(cls) -> tuple[str, ...]:
+        return ()
 
 
 def _classified(
@@ -1060,8 +1065,26 @@ class TestAuditExtenderConstruction:
 
     @pytest.mark.parametrize(
         "value",
-        [["CsvReader"], "CsvReader", [object()], [CsvReader()], [MlodaTestingClassCsvMasked], [42]],
-        ids=["str_entry", "bare_str", "object_instance", "reader_instance", "feature_group_class", "int"],
+        [
+            ["CsvReader"],
+            "CsvReader",
+            [object()],
+            [CsvReader()],
+            [MlodaTestingClassCsvMasked],
+            [42],
+            [ReadFile],
+            [BaseInputData],
+        ],
+        ids=[
+            "str_entry",
+            "bare_str",
+            "object_instance",
+            "reader_instance",
+            "feature_group_class",
+            "int",
+            "family_base",
+            "base_input_data",
+        ],
     )
     def test_a_classification_policy_with_a_bad_exempt_readers_entry_raises(self, value: Any) -> None:
         with pytest.raises(TypeError):
@@ -1095,24 +1118,33 @@ class TestAuditExtenderConstruction:
     def test_the_reader_hook_is_not_wrapped_without_a_classification_policy(self) -> None:
         assert ExtenderHook.INPUT_DATA_MATCH not in AuditExtender(sink=InMemoryAuditSink(), fail_closed=True).wraps()
 
-    @pytest.mark.parametrize("gate_readers", [True, False])
-    def test_a_pickled_classified_gate_keeps_its_wrapped_hooks(self, gate_readers: bool) -> None:
+    @pytest.mark.parametrize(
+        ("gate_readers", "exempt_readers", "picklable"),
+        [
+            (True, frozenset(), True),
+            (False, frozenset(), True),
+            (True, frozenset({CsvReader}), True),
+            (True, frozenset(), False),
+            (False, frozenset(), False),
+        ],
+        ids=["gated", "gate_readers_off", "exempt_reader", "dropped_policy_gated", "dropped_policy_gate_readers_off"],
+    )
+    def test_a_pickled_classified_gate_keeps_its_wrapped_hooks(
+        self, gate_readers: bool, exempt_readers: frozenset[type], picklable: bool
+    ) -> None:
+        clearance = _clear_pii if picklable else (lambda tenant, principal: "pii")
         policy = ClassificationPolicy(
-            clearance=lambda tenant, principal: "pii", undeclared="public", gate_readers=gate_readers
+            clearance=clearance, undeclared="public", gate_readers=gate_readers, exempt_readers=exempt_readers
         )
-        extender = _classified(InMemoryAuditSink(), classification=policy)
-
-        assert pickle.loads(pickle.dumps(extender)).wraps() == extender.wraps()  # nosec
-
-    def test_a_pickled_classified_gate_keeps_its_wrapped_hooks_and_exempt_readers(self) -> None:
-        policy = ClassificationPolicy(clearance=_clear_pii, undeclared="public", exempt_readers=frozenset({CsvReader}))
         extender = _classified(InMemoryAuditSink(), classification=policy)
 
         copy_ = pickle.loads(pickle.dumps(extender))  # nosec
 
         assert copy_.wraps() == extender.wraps()
-        assert copy_.classification is not None
-        assert copy_.classification.exempt_readers == frozenset({CsvReader})
+        if picklable:
+            assert copy_.classification == extender.classification
+        else:
+            assert copy_.classification is None
 
     def test_a_classification_policy_is_frozen(self) -> None:
         policy = ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="public")
@@ -2470,32 +2502,29 @@ class TestAuditExtenderClassificationGate:
             "classification_unresolved",
         ]
 
-    def test_another_refused_reader_in_one_plan_writes_its_own_deny_record(self) -> None:
+    @pytest.mark.parametrize(
+        ("exempt_readers", "readers"),
+        [
+            (frozenset(), (CsvReader, ParquetReader)),
+            (frozenset({CsvReader}), (_CsvReaderSubclass, ParquetReader)),
+        ],
+        ids=["no_exemption", "csv_exempt"],
+    )
+    def test_another_refused_reader_in_one_plan_writes_its_own_deny_record(
+        self, exempt_readers: frozenset[type], readers: tuple[type, ...]
+    ) -> None:
         sink = InMemoryAuditSink()
-        extender = _classified(sink, "internal")
-
-        for reader in (CsvReader, ParquetReader):
-            with _reader_probe(reader_class=reader).activate():
-                with pytest.raises(ClassificationDeniedError):
-                    extender(_CountingCall())
-
-        assert [r["reader_class"] for r in sink.records] == [_qualname(CsvReader), _qualname(ParquetReader)]
-
-    def test_a_reader_other_than_the_exempt_one_is_still_refused_with_its_own_deny_record(self) -> None:
-        sink = InMemoryAuditSink()
-        policy = ClassificationPolicy(
-            clearance=_clear_internal, undeclared="public", exempt_readers=frozenset({CsvReader})
-        )
+        policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", exempt_readers=exempt_readers)
         extender = _classified(sink, classification=policy)
 
-        for reader in (_CsvReaderSubclass, ParquetReader):
+        for reader in readers:
             call = _CountingCall()
             with _reader_probe(reader_class=reader).activate():
                 with pytest.raises(ClassificationDeniedError):
                     extender(call)
             assert call.calls == 0
 
-        assert [r["reader_class"] for r in sink.records] == [_qualname(_CsvReaderSubclass), _qualname(ParquetReader)]
+        assert [r["reader_class"] for r in sink.records] == [_qualname(reader) for reader in readers]
 
     def test_the_refusal_message_names_no_level_or_identity(self) -> None:
         extender = _classified(InMemoryAuditSink(), "internal")
@@ -5013,7 +5042,7 @@ class TestAuditExtenderClassificationRunAll:
         [(False, frozenset()), (True, frozenset({CsvReader}))],
         ids=["gate_readers_off", "exempt_reader"],
     )
-    def test_without_gate_readers_or_with_an_exempt_reader_a_reader_above_the_clearance_falls_back_to_the_run_start_refusal(
+    def test_an_ungated_or_exempt_reader_above_the_clearance_falls_back_to_the_run_start_refusal(
         self,
         gate_readers: bool,
         exempt_readers: frozenset[type[BaseInputData]],

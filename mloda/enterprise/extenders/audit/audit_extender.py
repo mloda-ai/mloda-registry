@@ -221,7 +221,7 @@ class AuditExtender(Extender):
     principal identity and a policy_version) refuses a run requesting data above the caller's clearance, and
     (gate_readers, default True) at plan time a reader declaring a level above it: one deny record (per plan, reader,
     reason and feature set) with hook INPUT_DATA_MATCH and reader_class, and
-    ClassificationDeniedError on every probe. Core contains that error (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it."""
+    ClassificationDeniedError on every probe (exempt_readers reader classes skip this plan-time gate; the run-start check still applies). Core contains that error (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it."""
 
     def __init__(
         self,
