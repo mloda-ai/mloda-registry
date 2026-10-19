@@ -70,6 +70,48 @@ def _connection_matches(cls, conn: Any) -> bool:
 
 Planning ranks frameworks by this value (`NONE` first) after any explicit `compute_frameworks` order, and skips a `REQUIRED` framework for an unpinned feature without a matching connection when another framework fits. That skip checks only the feature's options (keyed by the FeatureGroup's class name), not `data_access_collection`, so pin such features with `compute_frameworks`. A connection-needing framework left at `NONE` ranks next to Pandas, so unpinned runs can land on it and fail for lack of a connection.
 
+## Declare the Result Type
+
+A connection-backed framework usually materializes its final selection into an in-memory type, so it declares that type and keeps a native selection for runs that ask for its own type (DuckDB and SQLite do this):
+
+```python
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+
+def select_data_by_column_names(
+    self,
+    data: Any,
+    selected_feature_names: Sequence[FeatureName],
+    column_ordering: str | None = None,
+    request_feature_order: list[str] | None = None,
+) -> Any:
+    return self.select_native_data_by_column_names(
+        data, selected_feature_names, column_ordering, request_feature_order
+    ).to_arrow_table()
+
+
+@classmethod
+def result_framework(cls) -> type[ComputeFramework]:
+    return PyArrowTable
+
+
+def select_native_data_by_column_names(
+    self,
+    data: Any,
+    selected_feature_names: Sequence[FeatureName],
+    column_ordering: str | None = None,
+    request_feature_order: list[str] | None = None,
+) -> Any:
+    column_names = set(data.columns)
+    _selected = self.identify_naming_convention(
+        selected_feature_names, column_names, ordering=column_ordering, request_feature_order=request_feature_order
+    )
+    return data.select(*list(_selected))  # Stays a lazy relation
+```
+
+- `result_framework()`: override when `select_data_by_column_names` returns another framework's type; the default is the framework itself. Plan steps and plan-lock records use it to name the result framework.
+- `select_native_data_by_column_names()`: called instead of `select_data_by_column_names` when the framework's own type is the run's `output_framework`. The default delegates to `select_data_by_column_names`; if you override one, override the other to match.
+
 ## Usage
 
 Pass connections via `data_access_collection`. The engine picks the connection your `_connection_matches()` accepts at setup and calls `set_framework_connection_object()` on the framework for you:
