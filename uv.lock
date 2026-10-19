@@ -1307,8 +1307,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]

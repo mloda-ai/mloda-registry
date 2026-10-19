@@ -280,7 +280,7 @@ keywords = ["lookup", "mapping", "code-lists"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/lookup"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 # --- Bundles ---
