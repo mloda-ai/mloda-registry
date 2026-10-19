@@ -831,7 +831,7 @@ class AuditExtender(Extender):
         try:
             raise ClassificationDeniedError(f"AuditExtender refused the reader: {what}")
         except ClassificationDeniedError as refusal:
-            # Unguarded on purpose, as in __call__: a sink failure must propagate (core contains it, like the refusal).
+            # Unguarded on purpose: a sink failure propagates (core contains it at this hook).
             self.sink.write(
                 self._build_record(
                     context,
