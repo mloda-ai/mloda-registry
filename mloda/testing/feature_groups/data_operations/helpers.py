@@ -114,7 +114,7 @@ def make_feature_set(
 ) -> FeatureSet:
     """Build a FeatureSet with optional partition_by, order_by, mask, and extra context.
 
-    The group's declared option defaults are materialized, so ``feature_group`` is not usable as a context key.
+    ``feature_group``'s declared option defaults are materialized; the name is reserved, not a context key.
 
     Any additional keyword arguments are merged into the same Options context dict
     used by the explicit ``partition_by`` / ``order_by`` / ``mask`` arguments,
@@ -138,7 +138,7 @@ def feature_set_for(
 ) -> FeatureSet:
     """Build a FeatureSet holding one feature that carries ``options`` verbatim.
 
-    The group's declared option defaults are materialized.
+    ``feature_group``'s declared option defaults are materialized.
 
     ``make_feature_set`` assembles the Options from keyword arguments; this one takes an
     Options that has already been assembled, which is the shape ``compute_values`` in the
