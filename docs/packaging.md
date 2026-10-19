@@ -59,7 +59,7 @@ core_dependency = "mloda>=0.11.0,<0.12.0"
 optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 ```
 
-Keywords are the shared base followed by each package's own, deduplicated. Classifiers are the shared ones, plus `Typing :: Typed` for `py_typed` packages. There is no `License ::` classifier because the SPDX `license` is emitted.
+Keywords are the shared base followed by each package's own, deduplicated. Classifiers are the shared ones, plus `Typing :: Typed` for `py_typed` packages and for packages whose path sits under a `py_typed` package they depend on (directly or transitively, extras excluded). There is no `License ::` classifier because the SPDX `license` is emitted.
 
 ### packages.toml
 

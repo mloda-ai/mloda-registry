@@ -4,7 +4,6 @@ portions that ``discover_packages`` misses."""
 
 from __future__ import annotations
 
-import re
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -76,21 +75,6 @@ def _published_packages() -> list[str]:
         f"config/packages.toml lost the published flag on bundles {sorted(set(_BUNDLES) - set(names))}"
     )
     return names
-
-
-def _dependency_closure(pkg_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured packages transitively reachable through ``dependencies``, extras excluded."""
-    seen: set[str] = set()
-    queue = [pkg_name]
-    while queue:
-        node = queue.pop()
-        for dep in packages.get(node, {}).get("dependencies", []):
-            match = re.match(r"[A-Za-z0-9._-]+", dep.strip())
-            name = re.sub(r"[-_.]+", "-", match.group(0)).lower() if match else ""
-            if name in packages and name not in seen:
-                seen.add(name)
-                queue.append(name)
-    return seen
 
 
 def _setuptools_table(source: str, content: str) -> dict[str, Any]:
@@ -180,7 +164,8 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
         project = loads_toml(content)["project"]
         classifiers = project.get("classifiers", [])
         keywords = project.get("keywords", [])
-        assert ("Typing :: Typed" in classifiers) == (pkg_name in flagged), f"{pkg_name}: classifiers {classifiers!r}"
+        if pkg_name in flagged:
+            assert "Typing :: Typed" in classifiers, f"{pkg_name}: classifiers {classifiers!r}"
         shared_keywords = shared["project"]["keywords"]
         assert keywords[: len(shared_keywords)] == shared_keywords, f"{pkg_name}: keywords {keywords!r}"
         missing = [c for c in shared["project"]["classifiers"] if c not in classifiers]
@@ -190,23 +175,58 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
 @pytest.mark.parametrize("pkg_name", _published_packages())
 def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> None:
     """Every published distribution needs a py.typed at or above its path, from itself or a dependency."""
-    # test_package_data_is_emitted_only_for_flagged_packages pins the flagged set, so a newly published
-    # package can ship untyped without failing it.
     packages = _packages()
-    pkg_path: str = packages[pkg_name]["path"]
-    reachable = {pkg_name} | _dependency_closure(pkg_name, packages)
-    typed = {name: cfg["path"] for name, cfg in packages.items() if cfg.get("py_typed")}
-
-    covering = [
-        name
-        for name, typed_path in typed.items()
-        if name in reachable and (pkg_path == typed_path or pkg_path.startswith(typed_path + "/"))
-    ]
-    assert covering, (
-        f"{pkg_name} ({pkg_path}) ships untyped: none of its own or dependency-reachable packages carries a "
-        f"py.typed at or above that path. It needs either 'py_typed = true' plus a committed "
-        f"{pkg_path}/py.typed, or a dependency on a package that already ships an ancestor marker."
+    assert gen.has_typed_ancestor(pkg_name, packages[pkg_name], packages), (
+        f"{pkg_name} ({packages[pkg_name]['path']}) ships untyped: none of its own or dependency-reachable "
+        f"packages carries a py.typed at or above that path. It needs either 'py_typed = true' plus a committed "
+        f"{packages[pkg_name]['path']}/py.typed, or a dependency on a package that already ships an ancestor marker."
     )
+
+
+def _generated_classifiers(pkg_name: str) -> list[str]:
+    """``[project].classifiers`` the generator produces for a package."""
+    shared, packages_config = gen.load_configs()
+    packages = packages_config["packages"]
+    content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
+    classifiers: list[str] = loads_toml(content)["project"].get("classifiers", [])
+    return classifiers
+
+
+@pytest.mark.parametrize("pkg_name", _published_packages())
+def test_every_published_distribution_is_classified_typed(pkg_name: str) -> None:
+    generated = _generated_classifiers(pkg_name)
+    assert "Typing :: Typed" in generated, f"{pkg_name}: generated classifiers lack 'Typing :: Typed': {generated!r}"
+    pyproject_path = _REPO_ROOT / _packages()[pkg_name]["path"] / "pyproject.toml"
+    assert pyproject_path.exists(), f"{pyproject_path} is missing (run scripts/generate_pyproject.py)"
+    committed = loads_toml(pyproject_path.read_text())["project"].get("classifiers", [])
+    assert "Typing :: Typed" in committed, (
+        f"{pkg_name}: committed pyproject.toml lacks 'Typing :: Typed' (run scripts/generate_pyproject.py)"
+    )
+
+
+@pytest.mark.parametrize(
+    "pkg_name",
+    [
+        "mloda-enterprise-audit",
+        "mloda-enterprise-lineage",
+        "mloda-enterprise-binary-example",
+    ],
+)
+def test_unpublished_package_without_typed_ancestor_is_not_classified_typed(pkg_name: str) -> None:
+    """Under a typed path without depending on its owner, or depending on a typed package that is no ancestor."""
+    assert pkg_name not in _published_packages(), f"{pkg_name} is published, so it must be typed"
+    classifiers = _generated_classifiers(pkg_name)
+    assert "Typing :: Typed" not in classifiers, f"{pkg_name}: classifiers {classifiers!r}"
+
+
+def test_dependency_closure_follows_dependencies_only() -> None:
+    packages = {
+        "a": {"dependencies": ["b>=1"], "optional_dependencies": {"x": ["d"]}},
+        "b": {"dependencies": ["C.C~=2"]},
+        "c_c": {"dependencies": []},
+        "d": {"dependencies": []},
+    }
+    assert gen.dependency_closure(packages["a"], packages) == {"b", "c_c"}
 
 
 def test_marker_floors_cover_exactly_the_non_bundle_typed_packages() -> None:
