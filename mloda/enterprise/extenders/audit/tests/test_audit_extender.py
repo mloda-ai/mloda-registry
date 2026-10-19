@@ -169,6 +169,7 @@ _EXPECTED_RECORD_KEYS = {
     "duration_seconds",
     "status",
     "error_type",
+    "cancel_type",
     "data_access_identity",
     "data_access_format",
     "data_access_identity_is_fallback",
@@ -1510,7 +1511,21 @@ class TestAuditExtenderRecord:
             if value and value.strip():
                 assert value not in message
 
-    def test_wrapped_failure_records_error_status_and_propagates(self) -> None:
+    @pytest.mark.parametrize(
+        ("exc_type", "expected_status", "expected_error_type", "expected_cancel_type"),
+        [
+            (RuntimeError, "error", "builtins.RuntimeError", None),
+            (KeyboardInterrupt, "cancelled", None, "builtins.KeyboardInterrupt"),
+            (SystemExit, "cancelled", None, "builtins.SystemExit"),
+        ],
+    )
+    def test_wrapped_failure_records_status_and_propagates(
+        self,
+        exc_type: type[BaseException],
+        expected_status: str,
+        expected_error_type: str | None,
+        expected_cancel_type: str | None,
+    ) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
         calls = 0
@@ -1519,16 +1534,18 @@ class TestAuditExtenderRecord:
         def func() -> None:
             nonlocal calls
             calls += 1
-            raise RuntimeError(f"inner boom: {marker}")
+            raise exc_type(f"inner boom: {marker}")
 
         with make_hook_context(tenant_id="tenant-1").activate():
-            with pytest.raises(RuntimeError, match="inner boom"):
+            with pytest.raises(exc_type):
                 extender(func)
 
         assert calls == 1
+        assert len(sink.records) == 1
         record = sink.records[0]
-        assert record["status"] == "error"
-        assert record["error_type"] == "builtins.RuntimeError"
+        assert record["status"] == expected_status
+        assert record["error_type"] == expected_error_type
+        assert record["cancel_type"] == expected_cancel_type
         assert record["policy_version"] == extender.policy_version
         assert marker not in json.dumps(record)
 
@@ -1542,22 +1559,6 @@ class TestAuditExtenderRecord:
         record = sink.records[0]
         assert record["status"] == "success"
         assert record["error_type"] is None
-
-    def test_keyboard_interrupt_records_error_and_propagates(self) -> None:
-        sink = InMemoryAuditSink()
-        extender = AuditExtender(sink=sink)
-
-        def func() -> None:
-            raise KeyboardInterrupt()
-
-        with make_hook_context(tenant_id="tenant-1").activate():
-            with pytest.raises(KeyboardInterrupt):
-                extender(func)
-
-        assert len(sink.records) == 1
-        record = sink.records[0]
-        assert record["status"] == "error"
-        assert record["error_type"] == "builtins.KeyboardInterrupt"
 
     def test_wrapped_failure_and_sink_failure_propagates_original_and_logs_warning(
         self, caplog: pytest.LogCaptureFixture

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from mloda.steward import ExtenderHook
 
+from mloda.community.extenders.shared.exception_type import qualified_type_name
+
 TRACER_NAME = "mloda_community_otel"
 
 OPERATION_NAMES: dict[ExtenderHook, str] = {
@@ -24,7 +26,7 @@ CANCEL_TYPE_KEY = "mloda.cancel.type"
 def exception_attribute(exc: BaseException) -> tuple[str, str]:
     """(key, module.qualname): an interrupt (BaseException, not Exception) is mloda.cancel.type, else error.type."""
     key = ERROR_TYPE_KEY if isinstance(exc, Exception) else CANCEL_TYPE_KEY
-    return key, f"{type(exc).__module__}.{type(exc).__qualname__}"
+    return key, qualified_type_name(exc)
 
 
 def outcome_attribute_key(status: str) -> str | None:

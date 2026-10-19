@@ -30,6 +30,7 @@ import mloda.enterprise.extenders.audit as audit_package
 import mloda.enterprise.extenders.audit.audit_extender as audit_extender_module
 import mloda.enterprise.extenders.audit.otel_log_sink as otel_log_sink_module
 import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
+from mloda.community.extenders.shared.exception_type import qualified_type_name
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     IdentityRequiredError,
@@ -351,7 +352,7 @@ class TestRunManifestPublicApi:
     def test_recorded_exceptions_keep_their_error_type_and_pickle(self, name: str) -> None:
         cls = getattr(run_manifest_module, name)
         assert cls.__qualname__ == name
-        assert audit_extender_module._error_type(cls("x")) == f"{_FACADE_MODULE}.{name}"
+        assert qualified_type_name(cls("x")) == f"{_FACADE_MODULE}.{name}"
         restored = pickle.loads(pickle.dumps(cls("x")))  # nosec
         assert type(restored) is cls
         assert str(restored) == "x"

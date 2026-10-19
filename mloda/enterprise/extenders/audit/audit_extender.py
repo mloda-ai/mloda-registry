@@ -29,6 +29,7 @@ from mloda.steward import (
 from mloda.community.extenders.shared import is_picklable, termination
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, LEVELS, feature_classifications
 from mloda.community.extenders.shared.declared import readable_declared, same_scalar
+from mloda.community.extenders.shared.exception_type import qualified_type_name
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
@@ -169,10 +170,6 @@ class IdentityRequiredError(RuntimeError):
     """Raised by AuditExtender(fail_closed=True) when a required identity is missing."""
 
 
-def _error_type(exc: BaseException) -> str:
-    return f"{type(exc).__module__}.{type(exc).__qualname__}"
-
-
 def _gate_fingerprint(fail_closed: bool, required_identity: tuple[str, ...]) -> str:
     gate = {"fail_closed": fail_closed, "required_identity": sorted(required_identity)}
     return hashlib.sha256(json.dumps(gate, sort_keys=True).encode("utf-8")).hexdigest()[:12]
@@ -187,6 +184,7 @@ class AuditExtender(Extender):
     before the wrapped call, also at FEATURE_GROUP_MATCHED, and runs outermost (priority 0). fail_closed=True
     declares core's never_fall_back, so raise_on_error has no effect on it: the refusal, and a sink
     failure on the refusal path or after a successful call, always propagate. fail_closed is read-only.
+    An interrupted step (not an Exception) records status "cancelled" and cancel_type.
     Records also list the distinct data loads the call attempted, as four index-aligned identity, format,
     identity-is-fallback and declared-attributes lists ([] for none; {} for a load that declared none, null when
     core could not read the declaration, values that are not portable JSON numbers dropped; a load without an
@@ -508,7 +506,7 @@ class AuditExtender(Extender):
                     per_call,
                     [],
                     "error",
-                    _error_type(refusal),
+                    qualified_type_name(refusal),
                     phase="run",
                     enforced=True,
                     start_time=None,
@@ -769,7 +767,7 @@ class AuditExtender(Extender):
                             func,
                             [],
                             status="error",
-                            error_type=_error_type(refusal),
+                            error_type=qualified_type_name(refusal),
                             start_time=None,
                             trace=trace,
                         )
@@ -790,8 +788,16 @@ class AuditExtender(Extender):
             with _open_calculates.open(self, loads):
                 result = func(*args, **kwargs)
         except BaseException as exc:
+            interrupted = not isinstance(exc, Exception)
             record = self._build_record(
-                context, func, loads, status="error", error_type=_error_type(exc), start_time=start_time, trace=trace
+                context,
+                func,
+                loads,
+                status="cancelled" if interrupted else "error",
+                error_type=None if interrupted else qualified_type_name(exc),
+                cancel_type=qualified_type_name(exc) if interrupted else None,
+                start_time=start_time,
+                trace=trace,
             )
             try:
                 self.sink.write(record)
@@ -843,7 +849,7 @@ class AuditExtender(Extender):
                         func,
                         [],
                         status="error",
-                        error_type=_error_type(refusal),
+                        error_type=qualified_type_name(refusal),
                         start_time=None,
                         trace=trace,
                         deny_reason=deny_reason,
@@ -883,6 +889,7 @@ class AuditExtender(Extender):
         *,
         status: str | None,
         error_type: str | None,
+        cancel_type: str | None = None,
         start_time: str | None,
         trace: tuple[str | None, str | None],
         deny_reason: str | None = None,
@@ -914,6 +921,7 @@ class AuditExtender(Extender):
             loads,
             status,
             error_type,
+            cancel_type=cancel_type,
             phase="plan" if matched else "run",
             enforced=self.fail_closed and bool(deny_reason or self._missing_identity(context)),
             start_time=start_time,
@@ -953,6 +961,7 @@ class AuditExtender(Extender):
         status: str | None,
         error_type: str | None,
         *,
+        cancel_type: str | None = None,
         phase: str,
         enforced: bool,
         start_time: str | None,
@@ -992,6 +1001,7 @@ class AuditExtender(Extender):
             **per_call,
             "status": status,
             "error_type": error_type,
+            "cancel_type": cancel_type,
             "data_access_identity": [identity for identity, _, _, _ in loads],
             "data_access_format": [fmt for _, fmt, _, _ in loads],
             "data_access_identity_is_fallback": [flag for _, _, flag, _ in loads],

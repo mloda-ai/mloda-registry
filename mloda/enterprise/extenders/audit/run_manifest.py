@@ -128,7 +128,7 @@ from mloda.enterprise.extenders.audit._signers import HmacSha256Signer as HmacSh
 from mloda.enterprise.extenders.audit._signers import ManifestSigner as ManifestSigner
 from mloda.enterprise.extenders.audit._signers import _signer_map
 
-# _error_type records the module of these exceptions in audit records, and tracebacks print it.
+# qualified_type_name records the module of these exceptions in audit records, and tracebacks print it.
 for _public in (
     KeyAlreadyCurrentError,
     ManifestVerificationError,

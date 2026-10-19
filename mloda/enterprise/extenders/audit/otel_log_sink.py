@@ -33,6 +33,7 @@ _STR_ATTRIBUTES = {
     "project_id": "mloda.project.id",
     "feature_group_class": "mloda.feature_group.name",
     "error_type": "error.type",
+    "cancel_type": "mloda.cancel.type",
     "phase": "mloda.audit.phase",
     "step_run_id": "mloda.step.run_id",
     "classification": "mloda.audit.classification",
