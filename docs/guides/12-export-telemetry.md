@@ -86,7 +86,7 @@ sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_
 
 ### Metrics from MULTIPROCESSING workers
 
-Each `MULTIPROCESSING` worker exports from its own process under a random `service.instance.id`, so every worker gets its own short series and the queries above return 0 or nothing, with cumulative or delta temporality. To aggregate across workers, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, in the environment the workers inherit) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
+Each `MULTIPROCESSING` worker exports from its own process under a random `service.instance.id`, so each worker gets its own short series and the queries above return 0 or nothing under either temporality. To aggregate across workers, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, in the environment the workers inherit) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
 
 ```yaml
 processors:
