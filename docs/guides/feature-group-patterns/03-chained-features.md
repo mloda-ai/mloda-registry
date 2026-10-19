@@ -33,7 +33,8 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
     Config-based: `Options(context={"imputation_method": "mean", "in_features": "income"})`
     """
 
-    PREFIX_PATTERN = r".*__([\w]+)_imputed$"
+    # The group name binds the capture to the PROPERTY_MAPPING key of the same name.
+    PREFIX_PATTERN = r".*__(?P<imputation_method>[\w]+)_imputed$"
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
@@ -43,6 +44,7 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
     PROPERTY_MAPPING = {
         "imputation_method": property_spec(
             "Imputation method",
+            strict=True,  # reject values outside allowed_values
             allowed_values={
                 "mean": "Impute with mean",
                 "median": "Impute with median",
