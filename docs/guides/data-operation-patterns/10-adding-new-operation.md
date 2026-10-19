@@ -192,7 +192,7 @@ class TestPandasYourOp(PandasTestMixin, YourOpTestBase):
 
 No test method bodies. Everything is inherited. If the framework cannot do one op, override `supported_ops` to return the subset; `_skip_if_unsupported` handles the skip.
 
-`PandasTestMixin` stores an int column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`.
+`PandasTestMixin` stores an int column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints.
 
 ---
 

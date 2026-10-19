@@ -109,8 +109,8 @@ def select_native_data_by_column_names(
     return data.select(*list(_selected))  # Stays a lazy relation
 ```
 
-- `result_framework()`: override when `select_data_by_column_names` returns another framework's type; the default is the framework itself. Plan steps and plan-lock records use it to name the result framework.
-- `select_native_data_by_column_names()`: called instead of `select_data_by_column_names` when the framework's own type is the run's `output_framework`. The default delegates to `select_data_by_column_names`; if you override one, override the other to match.
+- `result_framework()`: override when `select_data_by_column_names` returns another framework's type; the default is the framework itself. When no `output_framework` is set, plan steps and plan-lock records use it to name the result framework.
+- `select_native_data_by_column_names()`: called instead of `select_data_by_column_names` when the result data is already the `output_framework`'s data type. The default delegates to `select_data_by_column_names`; if you override one, override the other to match.
 
 ## Usage
 

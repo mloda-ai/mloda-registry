@@ -57,8 +57,8 @@ def transform(self, data: Any, feature_names: set[str]) -> Any:
 
 Two result hooks sit next to `select_data_by_column_names`:
 
-- `result_framework()` names the framework whose data type `select_data_by_column_names` returns. The default is the framework itself; override it when the selection materializes into another framework's type, as lazy Polars does (`PolarsDataFrame`). Plan steps and plan-lock records use it to name the result framework.
-- `select_native_data_by_column_names()` returns the selection in the framework's own type and is called instead when that type is the run's `output_framework`. The default delegates to `select_data_by_column_names`. If you override `select_data_by_column_names`, override this one to match.
+- `result_framework()` names the framework whose data type `select_data_by_column_names` returns. The default is the framework itself; override it when the selection materializes into another framework's type, as lazy Polars does (`PolarsDataFrame`). When no `output_framework` is set, plan steps and plan-lock records use it to name the result framework.
+- `select_native_data_by_column_names()` is called instead of `select_data_by_column_names` when the result data is already the `output_framework`'s data type. The default delegates, so it returns whatever `select_data_by_column_names` returns (lazy Polars keeps the default and collects). Override it to return the lazy frame (`data.select(...)` without `.collect()`) when a run should get your lazy type back.
 
 ## Real Implementations
 
