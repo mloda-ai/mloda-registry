@@ -34,8 +34,11 @@ _BACKEND_PREFIXES = [
     ("sqlite_", "sqlite"),
 ]
 
-# Backends needing their own pip package; python_dict and sqlite are always available.
-_PACKAGED_BACKENDS = {"pyarrow", "duckdb", "polars", "pandas"}
+# Backends whose extra depends on exactly their own pip package.
+_PACKAGED_BACKENDS = {"pyarrow", "polars", "pandas"}
+
+# Backends whose extra must mirror mloda core's same-named extra exactly (duckdb and sqlite need pyarrow too).
+_CORE_MIRRORED_BACKENDS = {"duckdb", "sqlite"}
 
 # Per-package polars floors above mloda core's, where a leaf needs a newer polars than core requires.
 # frame-aggregate: time-window rolling_*_by rejects null values below polars 1.38.
@@ -55,11 +58,28 @@ def _min_version(specifier: SpecifierSet) -> Version:
     raise AssertionError(f"specifier {specifier} has no '>=' floor to compare")
 
 
-def _core_extra_requirement(name: str) -> Requirement:
-    """Mloda core's own '<name>' extra requirement on <name>, read from installed distribution metadata."""
+def _core_extra_requirements(extra: str) -> set[str]:
+    """Mloda core's requirements for its '<extra>' extra, from installed metadata, marker cleared."""
+    selected: set[str] = set()
     for dep in importlib.metadata.requires("mloda") or []:
         req = Requirement(dep)
-        if req.name == name and req.marker is not None and req.marker.evaluate({"extra": name}):
+        if req.marker is None or not req.marker.evaluate({"extra": extra}):
+            continue
+        assert str(req.marker) == f'extra == "{extra}"', (
+            f"mloda core requirement {dep!r} has a marker beyond the '{extra}' extra; extend this helper"
+        )
+        req.marker = None
+        selected.add(str(req))
+    if not selected:
+        raise AssertionError(f"mloda core declares no requirements for its '{extra}' extra; guard is vacuous")
+    return selected
+
+
+def _core_extra_requirement(name: str) -> Requirement:
+    """Mloda core's own '<name>' extra requirement on <name>, read from installed distribution metadata."""
+    for dep in _core_extra_requirements(name):
+        req = Requirement(dep)
+        if req.name == name:
             return req
     raise AssertionError(f"mloda core does not declare a '{name}' extra requirement on {name}; guard is vacuous")
 
@@ -122,6 +142,7 @@ _LEAF_PACKAGES = _leaf_packages()
 assert _LEAF_PACKAGES, "no data_operations leaf packages found under config/packages.toml; guard is vacuous"
 _CORE_POLARS_REQUIREMENT = _core_extra_requirement("polars")
 _CORE_PYARROW_REQUIREMENT = _core_extra_requirement("pyarrow")
+_CORE_MIRRORED_REQUIREMENTS = {backend: _core_extra_requirements(backend) for backend in _CORE_MIRRORED_BACKENDS}
 
 
 @pytest.mark.parametrize("package_name,entry", _LEAF_PACKAGES, ids=[name for name, _ in _LEAF_PACKAGES])
@@ -134,8 +155,16 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
         f"{package_name}: config/packages.toml declares extras {sorted(declared)} "
         f"but the manifest registers backends {sorted(backends)}"
     )
-    for backend in backends - _PACKAGED_BACKENDS:
+    # Only python_dict remains: it needs no pip package.
+    for backend in backends - _PACKAGED_BACKENDS - _CORE_MIRRORED_BACKENDS:
         assert actual[backend] == [], f"{package_name}: {backend} needs no pip package, its extra must be []"
+    for backend in backends & _CORE_MIRRORED_BACKENDS:
+        deps = actual[backend]
+        assert deps, f"{package_name}: {backend} extra must not be empty"
+        assert {str(Requirement(dep)) for dep in deps} == _CORE_MIRRORED_REQUIREMENTS[backend], (
+            f"{package_name}: {backend} extra must mirror mloda core's '{backend}' extra "
+            f"{sorted(_CORE_MIRRORED_REQUIREMENTS[backend])}, got {deps!r}"
+        )
     for backend in backends & _PACKAGED_BACKENDS:
         deps = actual[backend]
         assert deps, f"{package_name}: {backend} extra must not be empty"
@@ -165,5 +194,5 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
                     f"got {specifier}"
                 )
 
-    expected_all = {dep for backend in backends & _PACKAGED_BACKENDS for dep in actual[backend]}
-    assert set(actual.get("all", [])) == expected_all, f"{package_name}: 'all' extra must match its packaged backends"
+    expected_all = {dep for backend in backends for dep in actual[backend]}
+    assert set(actual.get("all", [])) == expected_all, f"{package_name}: 'all' extra must match its backends' deps"

@@ -847,6 +847,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -856,6 +857,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -870,7 +874,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -923,6 +929,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -932,6 +939,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -946,7 +956,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1033,6 +1045,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1042,6 +1055,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1056,7 +1072,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1191,6 +1209,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1200,6 +1219,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1214,7 +1236,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1233,6 +1257,7 @@ all = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
+    { name = "pyarrow" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -1240,6 +1265,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1247,6 +1273,9 @@ pandas = [
 ]
 polars = [
     { name = "polars" },
+]
+sqlite = [
+    { name = "pyarrow" },
 ]
 
 [package.metadata]
@@ -1259,6 +1288,9 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.2" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.38" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.38" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1285,6 +1317,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1294,6 +1327,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1308,7 +1344,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1327,6 +1365,7 @@ all = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
+    { name = "pyarrow" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -1334,6 +1373,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1341,6 +1381,9 @@ pandas = [
 ]
 polars = [
     { name = "polars" },
+]
+sqlite = [
+    { name = "pyarrow" },
 ]
 
 [package.metadata]
@@ -1353,6 +1396,9 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1429,6 +1475,7 @@ all = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
+    { name = "pyarrow" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -1436,6 +1483,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1455,6 +1503,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1481,6 +1531,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1490,6 +1541,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1504,7 +1558,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1523,6 +1579,7 @@ all = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
+    { name = "pyarrow" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -1530,6 +1587,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1537,6 +1595,9 @@ pandas = [
 ]
 polars = [
     { name = "polars" },
+]
+sqlite = [
+    { name = "pyarrow" },
 ]
 
 [package.metadata]
@@ -1549,6 +1610,9 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1575,6 +1639,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1598,6 +1663,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1625,6 +1691,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1634,6 +1701,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1648,7 +1718,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1675,6 +1747,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1684,6 +1757,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1698,7 +1774,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1725,6 +1803,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1734,6 +1813,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1748,7 +1830,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1775,6 +1859,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1784,6 +1869,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1798,7 +1886,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1825,6 +1915,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1834,6 +1925,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1848,7 +1942,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
@@ -1875,6 +1971,7 @@ dev = [
 ]
 duckdb = [
     { name = "duckdb" },
+    { name = "pyarrow" },
 ]
 pandas = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1884,6 +1981,9 @@ polars = [
     { name = "polars" },
 ]
 pyarrow = [
+    { name = "pyarrow" },
+]
+sqlite = [
     { name = "pyarrow" },
 ]
 
@@ -1898,7 +1998,9 @@ requires-dist = [
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
