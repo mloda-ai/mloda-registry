@@ -19,7 +19,7 @@ Stateful frameworks require a connection or session object to operate.
 
 ## What's Different
 
-Only this method is added:
+Compared with Category 1, a stateful framework implements `set_framework_connection_object()` and checks the connection in `transform()`. It also declares `connection_requirement()` and `_connection_matches()`, covered in the next section. First, the connection setter:
 
 ```python
 def set_framework_connection_object(self, framework_connection_object: Any | None = None) -> None:
@@ -35,7 +35,7 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
         #     self.framework_connection_object = library.connect()
 ```
 
-And `transform()` must check the connection:
+Then `transform()` must check the connection:
 
 ```python
 def transform(self, data: Any, feature_names: set[str]) -> Any:
