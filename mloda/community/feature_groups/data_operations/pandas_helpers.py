@@ -148,3 +148,15 @@ def compute_mode_winners(
     # tripping the pandas 2.x FutureWarning / pandas 3.0 dtype reconciliation.
     winners[source_col] = winners[source_col].astype(object)
     return winners
+
+
+def nulls_last_rank_key(col: Any, ascending: bool = True) -> Any:
+    """Return an int64 order-preserving key for *col* that ranks nulls last for the given direction.
+
+    pandas 2 ranks nullable Int64 nulls first, ignoring na_option; integer codes avoid that exactly.
+    """
+    codes, _ = pd.factorize(col, sort=True)
+    codes = pd.Series(codes, index=col.index)
+    if not ascending:
+        return codes
+    return codes.where(codes >= 0, codes.max() + 1)

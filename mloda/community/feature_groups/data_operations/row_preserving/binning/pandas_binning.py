@@ -49,7 +49,8 @@ class PandasBinning(BinningFeatureGroup):
             data[feature_name] = result
         elif op == "qbin":
             n = non_null_mask.sum()
-            rank = col.rank(method="first", na_option="keep") - 1
+            # rank non-null rows only: pandas 2 ranks nullable Int64 nulls first
+            rank = col[non_null_mask].rank(method="first").reindex(col.index) - 1
             result = (rank * n_bins // n).astype("Int64")
             data[feature_name] = result
         else:

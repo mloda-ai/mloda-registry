@@ -6,7 +6,10 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
-from mloda.community.feature_groups.data_operations.pandas_helpers import null_safe_groupby
+from mloda.community.feature_groups.data_operations.pandas_helpers import (
+    null_safe_groupby,
+    nulls_last_rank_key,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -33,6 +36,10 @@ class PandasRank(RankFeatureGroup):
         rank_type: str,
     ) -> pd.DataFrame:
         data = data.copy()
+        original = data
+        if pd.api.types.is_extension_array_dtype(data[order_by]):
+            data = data.copy()
+            data[order_by] = nulls_last_rank_key(data[order_by], ascending=not rank_type.startswith("top_"))
 
         if rank_type in _PANDAS_RANK_METHODS:
             method = _PANDAS_RANK_METHODS[rank_type]
@@ -70,4 +77,6 @@ class PandasRank(RankFeatureGroup):
         else:
             raise ValueError(f"Unsupported rank type: {rank_type}")
 
+        if original is not data:
+            data[order_by] = original[order_by]
         return data
