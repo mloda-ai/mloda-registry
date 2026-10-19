@@ -460,7 +460,11 @@ class AuditExtender(Extender):
     def _reader_refusal(self, context: HookContext) -> tuple[str, str | None] | None:
         """(deny_reason, classification) when the probed reader must be refused, else None."""
         policy = self.classification
-        if policy is None or context.declared_attributes is None:
+        if policy is None:
+            return "classification_unresolved", None
+        if context.reader_class in policy.exempt_readers:
+            return None
+        if context.declared_attributes is None:
             return "classification_unresolved", None
         try:
             level = context.declared_attributes.get(CLASSIFICATION_KEY)

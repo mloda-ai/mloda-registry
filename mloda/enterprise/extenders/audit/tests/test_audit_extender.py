@@ -329,6 +329,10 @@ def _clear_pii(tenant: str | None, principal: str | None) -> str:
     return "pii"
 
 
+class _CsvReaderSubclass(CsvReader):
+    """A subclass of an exempt reader: exemption is by exact class, so it is still gated."""
+
+
 def _classified(
     sink: Any, clearance: Callable[[str | None, str | None], str | None] | str | None = "pii", **kwargs: Any
 ) -> AuditExtender:
@@ -1042,6 +1046,35 @@ class TestAuditExtenderConstruction:
         policy = ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="public")
 
         assert policy.gate_readers is True
+        assert policy.exempt_readers == frozenset()
+
+    def test_a_classification_policy_normalizes_exempt_readers_to_a_frozenset(self) -> None:
+        policy = ClassificationPolicy(
+            clearance=lambda tenant, principal: "pii",
+            undeclared="public",
+            exempt_readers=[CsvReader],  # type: ignore[arg-type]
+        )
+
+        assert policy.exempt_readers == frozenset({CsvReader})
+        assert isinstance(policy.exempt_readers, frozenset)
+
+    @pytest.mark.parametrize(
+        "value",
+        [["CsvReader"], "CsvReader", [object()], [CsvReader()], [MlodaTestingClassCsvMasked], [42]],
+        ids=["str_entry", "bare_str", "object_instance", "reader_instance", "feature_group_class", "int"],
+    )
+    def test_a_classification_policy_with_a_bad_exempt_readers_entry_raises(self, value: Any) -> None:
+        with pytest.raises(TypeError):
+            ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="public", exempt_readers=value)
+
+    def test_a_classification_policy_with_exempt_readers_and_gate_readers_off_raises(self) -> None:
+        with pytest.raises(ValueError):
+            ClassificationPolicy(
+                clearance=lambda tenant, principal: "pii",
+                undeclared="public",
+                gate_readers=False,
+                exempt_readers=frozenset({CsvReader}),
+            )
 
     @pytest.mark.parametrize("value", ["yes", 1, None], ids=["str", "int", "none"])
     def test_a_classification_policy_with_a_non_bool_gate_readers_raises(self, value: Any) -> None:
@@ -1070,6 +1103,16 @@ class TestAuditExtenderConstruction:
         extender = _classified(InMemoryAuditSink(), classification=policy)
 
         assert pickle.loads(pickle.dumps(extender)).wraps() == extender.wraps()  # nosec
+
+    def test_a_pickled_classified_gate_keeps_its_wrapped_hooks_and_exempt_readers(self) -> None:
+        policy = ClassificationPolicy(clearance=_clear_pii, undeclared="public", exempt_readers=frozenset({CsvReader}))
+        extender = _classified(InMemoryAuditSink(), classification=policy)
+
+        copy_ = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy_.wraps() == extender.wraps()
+        assert copy_.classification is not None
+        assert copy_.classification.exempt_readers == frozenset({CsvReader})
 
     def test_a_classification_policy_is_frozen(self) -> None:
         policy = ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="public")
@@ -2438,6 +2481,22 @@ class TestAuditExtenderClassificationGate:
 
         assert [r["reader_class"] for r in sink.records] == [_qualname(CsvReader), _qualname(ParquetReader)]
 
+    def test_a_reader_other_than_the_exempt_one_is_still_refused_with_its_own_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        policy = ClassificationPolicy(
+            clearance=_clear_internal, undeclared="public", exempt_readers=frozenset({CsvReader})
+        )
+        extender = _classified(sink, classification=policy)
+
+        for reader in (_CsvReaderSubclass, ParquetReader):
+            call = _CountingCall()
+            with _reader_probe(reader_class=reader).activate():
+                with pytest.raises(ClassificationDeniedError):
+                    extender(call)
+            assert call.calls == 0
+
+        assert [r["reader_class"] for r in sink.records] == [_qualname(_CsvReaderSubclass), _qualname(ParquetReader)]
+
     def test_the_refusal_message_names_no_level_or_identity(self) -> None:
         extender = _classified(InMemoryAuditSink(), "internal")
 
@@ -2457,6 +2516,27 @@ class TestAuditExtenderClassificationGate:
         call = _CountingCall()
 
         with _reader_probe(declared_attributes={CLASSIFICATION_KEY: declared}).activate():
+            assert extender(call) == 42
+
+        assert call.calls == 1
+        assert sink.records == []
+
+    @pytest.mark.parametrize(
+        "declared",
+        [{CLASSIFICATION_KEY: "pii"}, None],
+        ids=["declared_pii", "declaration_unreadable"],
+    )
+    def test_an_exempt_reader_above_the_clearance_runs_its_probe_and_writes_nothing(
+        self, declared: dict[str, Any] | None
+    ) -> None:
+        sink = InMemoryAuditSink()
+        policy = ClassificationPolicy(
+            clearance=_clear_internal, undeclared="public", exempt_readers=frozenset({CsvReader})
+        )
+        extender = _classified(sink, classification=policy)
+        call = _CountingCall()
+
+        with _reader_probe(declared_attributes=declared).activate():
             assert extender(call) == 42
 
         assert call.calls == 1
@@ -2517,6 +2597,22 @@ class TestAuditExtenderClassificationGate:
         call = _CountingCall()
 
         with _reader_probe(declared_attributes={CLASSIFICATION_KEY: "public"}).activate():
+            with pytest.raises(ClassificationDeniedError):
+                duplicated(call)
+
+        assert call.calls == 0
+        assert [r["deny_reason"] for r in cast(InMemoryAuditSink, duplicated.sink).records] == [
+            "classification_unresolved"
+        ]
+
+    def test_a_copy_with_a_dropped_policy_refuses_an_exempt_reader_as_unresolved(self) -> None:
+        policy = ClassificationPolicy(
+            clearance=lambda tenant, principal: "pii", undeclared="public", exempt_readers=frozenset({CsvReader})
+        )
+        duplicated = pickle.loads(pickle.dumps(_classified(InMemoryAuditSink(), classification=policy)))  # nosec
+        call = _CountingCall()
+
+        with _reader_probe(declared_attributes={CLASSIFICATION_KEY: "pii"}).activate():
             with pytest.raises(ClassificationDeniedError):
                 duplicated(call)
 
@@ -4861,8 +4957,9 @@ class TestAuditExtenderClassificationRunAll:
             ("RUN_START", "classification_above_clearance", "carol")
         ]
 
+    @pytest.mark.parametrize("exempt_readers", [frozenset(), frozenset({ParquetReader})], ids=["none", "other_reader"])
     def test_a_reader_declared_above_the_clearance_is_refused_at_plan_time_before_its_probe(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, exempt_readers: frozenset[type[BaseInputData]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _declare_csv_level(monkeypatch, "pii")
         probes: list[list[str]] = []
@@ -4877,7 +4974,15 @@ class TestAuditExtenderClassificationRunAll:
 
         with verified_context(tenant_id="t", principal="svc"):
             with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
-                run_csv_feature(tmp_path, _classified(sink, "internal"))
+                run_csv_feature(
+                    tmp_path,
+                    _classified(
+                        sink,
+                        classification=ClassificationPolicy(
+                            clearance=_clear_internal, undeclared="public", exempt_readers=exempt_readers
+                        ),
+                    ),
+                )
 
         assert probes == []
         assert len(sink.records) == 1
@@ -4903,12 +5008,23 @@ class TestAuditExtenderClassificationRunAll:
         assert {r["classification"] for r in sink.records} == {"pii"}
         assert {r["reader_class"] for r in sink.records} == {None}
 
-    def test_without_gate_readers_a_reader_above_the_clearance_falls_back_to_the_run_start_refusal(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("gate_readers", "exempt_readers"),
+        [(False, frozenset()), (True, frozenset({CsvReader}))],
+        ids=["gate_readers_off", "exempt_reader"],
+    )
+    def test_without_gate_readers_or_with_an_exempt_reader_a_reader_above_the_clearance_falls_back_to_the_run_start_refusal(
+        self,
+        gate_readers: bool,
+        exempt_readers: frozenset[type[BaseInputData]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _declare_csv_level(monkeypatch, "pii")
         sink = InMemoryAuditSink()
-        policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", gate_readers=False)
+        policy = ClassificationPolicy(
+            clearance=_clear_internal, undeclared="public", gate_readers=gate_readers, exempt_readers=exempt_readers
+        )
 
         with verified_context(tenant_id="t", principal="svc"):
             with pytest.raises(ClassificationDeniedError):
@@ -4945,14 +5061,25 @@ class TestAuditExtenderClassificationRunAll:
             ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["beta"]),
         ]
 
-    @pytest.mark.parametrize(("gate_readers", "allowed"), [(False, True), (True, False)])
-    def test_a_masked_derivative_of_a_reader_declared_pii_source_needs_gate_readers_off(
-        self, gate_readers: bool, allowed: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("gate_readers", "exempt_readers", "allowed"),
+        [(False, frozenset(), True), (True, frozenset(), False), (True, frozenset({CsvReader}), True)],
+        ids=["gate_readers_off", "gated", "exempt_reader"],
+    )
+    def test_a_masked_derivative_of_a_reader_declared_pii_source_needs_gate_readers_off_or_an_exempt_reader(
+        self,
+        gate_readers: bool,
+        exempt_readers: frozenset[type[BaseInputData]],
+        allowed: bool,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _declare_csv_level(monkeypatch, "pii")
         path = write_csv(tmp_path)
         sink = InMemoryAuditSink()
-        policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", gate_readers=gate_readers)
+        policy = ClassificationPolicy(
+            clearance=_clear_internal, undeclared="public", gate_readers=gate_readers, exempt_readers=exempt_readers
+        )
         feature = Feature(_CSV_MASKED, options={_CSV_PATH_OPTION: str(path)})
 
         def run() -> Any:
