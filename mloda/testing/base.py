@@ -21,7 +21,7 @@ ExpectedComputeFrameworks = set[type[ComputeFramework]] | _AllComputeFrameworks
 
 
 class FeatureGroupContractTestMixin:
-    """The ``test_contract_*`` tests; they read the ``contract_*()`` instance-method hooks, which default to the ClassVars.
+    """Contract tests that read the ``contract_*()`` hooks, which default to the ClassVars.
 
     ``expected_input_features`` is keyed by name, so matching entries that share a name share one expectation.
     """

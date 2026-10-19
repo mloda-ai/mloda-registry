@@ -6,8 +6,6 @@ from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS, FeatureGroupTestBase
 
 
 class TestExampleAFeatureGroupContract(FeatureGroupTestBase):
-    """Contract check for ExampleAFeatureGroup (the parent's name must not match the subclass)."""
-
     feature_group_class = ExampleAFeatureGroup
     expected_compute_frameworks = ALL_COMPUTE_FRAMEWORKS
     matching_feature_names = [ExampleAFeatureGroup.get_class_name()]
