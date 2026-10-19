@@ -189,7 +189,7 @@ class AuditExtender(Extender):
     failure on the refusal path or after a successful call, always propagate. fail_closed is read-only.
     Records also list the distinct data loads the call attempted, as four index-aligned identity, format,
     identity-is-fallback and declared-attributes lists ([] for none; {} for a load that declared none, null when
-    core could not read the declaration, non-finite floats and big ints already dropped by core; a load without an
+    core could not read the declaration, values that are not portable JSON numbers dropped; a load without an
     identity is omitted). The feature group's own declaration is feature_group_declared_attributes (same
     rule, null on match and RUN_START records). The identity is core's
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell

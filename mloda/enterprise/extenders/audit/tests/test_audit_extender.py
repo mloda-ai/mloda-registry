@@ -1761,6 +1761,7 @@ class TestAuditExtenderRecordV2:
         [
             pytest.param({}, {}, id="empty"),
             pytest.param(None, None, id="unreadable"),
+            pytest.param({"license": "a", "scale": float("nan")}, {"license": "a"}, id="non_finite_float"),
             pytest.param(
                 {"text": "x", "flag": True, "count": 1, "scale": 0.5},
                 {"text": "x", "flag": True, "count": 1, "scale": 0.5},
@@ -1768,7 +1769,7 @@ class TestAuditExtenderRecordV2:
             ),
         ],
     )
-    def test_a_calculate_record_carries_the_group_declaration(
+    def test_a_calculate_record_carries_the_filtered_group_declaration(
         self, declared: dict[str, Any] | None, expected: dict[str, Any] | None
     ) -> None:
         record = _calculate_record(declared_attributes=declared)
@@ -4088,6 +4089,22 @@ class TestAuditExtenderDataAccess:
         assert [type(entry["open"]) for entry in recorded if "open" in entry] == [
             type(entry["open"]) for entry in declarations if "open" in entry
         ]
+
+    @pytest.mark.parametrize("dropped", [float("nan"), 10**5000], ids=["nan", "oversized_int"])
+    def test_unrecordable_declared_value_is_dropped_and_the_record_is_written_to_an_ndjson_sink(
+        self, tmp_path: Path, dropped: float
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+
+        def body() -> None:
+            _load(extender, _BUCKET_KEY, "CsvReader", declared={"license": "a", "scale": dropped})
+
+        _calculate(extender, body)
+
+        records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        assert len(records) == 1
+        assert records[0]["data_access_declared_attributes"] == [{"license": "a"}]
 
     def test_hand_built_context_without_the_flag_records_none(self) -> None:
         record = _record_for_loads([(_BUCKET_KEY, "CsvReader")])

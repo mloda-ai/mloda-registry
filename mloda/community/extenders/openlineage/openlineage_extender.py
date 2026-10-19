@@ -215,7 +215,7 @@ class OpenLineageExtender(Extender):
     own OtelExtender span is current; priority is 110 so OtelExtender wraps outside. Any fallback load of a name
     (core's data_access_identity_is_fallback) marks its dataset with an mlodaDataAccess facet (identityIsFallback
     true), so consumers can tell a placeholder from a dataset. A load's declared attributes (core's
-    declared_attributes, non-finite floats and big ints already dropped by core) ride on its input dataset as an
+    declared_attributes, values that are not portable JSON numbers dropped) ride on its input dataset as an
     mlodaDeclared facet (present, possibly empty, whenever core read the declaration), and the calculate
     context's declaration rides on every COMPLETE output dataset; a key that loads of one dataset declare
     differently moves from attributes to the facet's conflicts. After a transport failure (connection, timeout,

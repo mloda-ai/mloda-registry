@@ -24,6 +24,23 @@ def test_declared_scalars_keeps_scalars_with_their_types() -> None:
 
 
 @pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf"), [1], {"a": 1}, None, object(), 2**63, -(2**63) - 1, 10**5000],
+    ids=["nan", "inf", "neg_inf", "list", "dict", "none", "object", "above_int64", "below_int64", "huge_int"],
+)
+def test_declared_scalars_drops_non_finite_floats_non_scalars_and_ints_outside_int64(value: Any) -> None:
+    assert declared_scalars({"keep": "k", "drop": value}) == {"keep": "k"}
+
+
+@pytest.mark.parametrize("value", [2**63 - 1, -(2**63)], ids=["int64_max", "int64_min"])
+def test_declared_scalars_keeps_the_int64_bounds(value: int) -> None:
+    result = declared_scalars({"n": value})
+
+    assert result == {"n": value}
+    assert type(result["n"]) is int
+
+
+@pytest.mark.parametrize(
     ("left", "right", "expected"),
     [
         (1, 1, True),
@@ -51,10 +68,12 @@ def test_declared_scalars_returns_a_fresh_plain_dict() -> None:
     [
         pytest.param(None, None, id="unreadable"),
         pytest.param({}, {}, id="empty"),
-        pytest.param({"keep": "k", "n": 1}, {"keep": "k", "n": 1}, id="scalars"),
+        pytest.param(
+            {"keep": "k", "n": 1, "bad": float("nan"), "nested": {"a": 1}}, {"keep": "k", "n": 1}, id="filtered"
+        ),
     ],
 )
-def test_readable_declared_is_none_when_unreadable_else_a_plain_copy(
+def test_readable_declared_is_none_when_unreadable_else_the_filtered_scalars(
     declared: Mapping[str, Any] | None, expected: dict[str, Any] | None
 ) -> None:
     result = readable_declared(declared)

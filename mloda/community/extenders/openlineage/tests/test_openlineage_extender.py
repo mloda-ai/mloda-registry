@@ -2839,6 +2839,18 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             }
             assert facets["mlodaDeclared"]["_producer"] == extender.producer
 
+    def test_non_finite_declared_float_in_a_hand_built_context_is_dropped_and_the_event_is_strict_json(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        def reject(constant: str) -> None:
+            raise AssertionError(f"non-finite constant {constant} in the event")
+
+        _, transport = ol_capture
+        _, payload = self._declared_payload(ol_capture, [{"license": "a", "scale": float("nan")}])
+
+        json.loads(Serde.to_json(transport.events[1]), parse_constant=reject)
+        assert payload["inputs"][0]["facets"]["mlodaDeclared"]["attributes"] == {"license": "a"}
+
     def test_non_finite_declared_float_is_dropped_by_core_and_the_event_is_strict_json(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
@@ -4200,12 +4212,13 @@ class TestOpenLineageExtenderSubclassSeams:
     @pytest.mark.parametrize(
         ("declared", "expected"),
         [
+            ({"license": "a", "scale": float("nan")}, {"license": "a"}),
             ({"n": 2**63 - 1, "flag": True, "ratio": 0.5}, {"n": 2**63 - 1, "flag": True, "ratio": 0.5}),
             ({}, {}),
         ],
-        ids=["types_preserved", "empty"],
+        ids=["non_finite_float", "types_preserved", "empty"],
     )
-    def test_output_datasets_carry_the_group_declaration(
+    def test_output_datasets_carry_the_filtered_group_declaration(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         declared: dict[str, Any],
