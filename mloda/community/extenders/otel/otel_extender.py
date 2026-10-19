@@ -272,7 +272,9 @@ _PREFLIGHT_ORIGINS = ("explain", "diagnose")
 
 
 def _plan_attributes(plan: PlanContext) -> dict[str, str]:
-    attributes = {"mloda.plan.id": plan.plan_id}
+    attributes: dict[str, str] = {}
+    if plan.plan_id is not None:
+        attributes["mloda.plan.id"] = plan.plan_id
     if plan.origin is not None:
         attributes["mloda.plan.origin"] = plan.origin
     return attributes
@@ -370,13 +372,9 @@ class OtelExtender(Extender):
         self._classifications.start(run_id, steps, raise_on_error=self.raise_on_error)
         if run_id is None:
             return
-        attributes: dict[str, str] = {"mloda.run.id": run_id}
-        if plan.plan_id is not None:
-            attributes["mloda.plan.id"] = plan.plan_id
+        attributes: dict[str, str] = {"mloda.run.id": run_id, **_plan_attributes(plan)}
         if plan.structure_hash is not None:
             attributes["mloda.plan.structure_hash"] = plan.structure_hash
-        if plan.origin is not None:
-            attributes["mloda.plan.origin"] = plan.origin
         caller = _carrier_or_active_span_context(run.carrier)
         with self._lock:
             plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None
@@ -569,10 +567,11 @@ def _end_with_outcome(
     if status_attribute is not None:
         span.set_attribute(status_attribute, outcome.status)
     failed = outcome.status == "failed"
-    if failed and error_on_failure:
+    suppress_error = failed and not error_on_failure
+    if failed and not suppress_error:
         span.set_status(Status(StatusCode.ERROR))
     key = outcome_attribute_key(outcome.status)
-    if key is not None and (error_on_failure or not failed) and outcome.error_type is not None:
+    if key is not None and not suppress_error and outcome.error_type is not None:
         span.set_attribute(key, outcome.error_type)
     span.end()
 

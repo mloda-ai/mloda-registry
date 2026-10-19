@@ -1620,19 +1620,26 @@ class TestAuditExtenderStructureHash:
 
         assert copy.sink.records[0]["structure_hash"] == self._CONTEXT_HASH
 
-    @pytest.mark.parametrize("plan_hash", ["p" * 64, None])
-    def test_the_fail_closed_run_start_refusal_record_carries_the_run_context_hash(self, plan_hash: str | None) -> None:
+    @pytest.mark.parametrize(
+        ("plan_hash", "run_hash", "expected"),
+        [
+            ("p" * 64, _CONTEXT_HASH, _CONTEXT_HASH),
+            (None, _CONTEXT_HASH, _CONTEXT_HASH),
+            ("p" * 64, None, None),
+        ],
+    )
+    def test_the_fail_closed_run_start_refusal_record_carries_the_run_context_hash(
+        self, plan_hash: str | None, run_hash: str | None, expected: str | None
+    ) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink, fail_closed=True)
-        run = RunContext(
-            run_id="run-1", plan_id="plan-1", project_id="p", principal="svc", structure_hash=self._CONTEXT_HASH
-        )
+        run = RunContext(run_id="run-1", plan_id="plan-1", project_id="p", principal="svc", structure_hash=run_hash)
 
         with pytest.raises(IdentityRequiredError):
             extender.on_run_start(run, _plan_ctx(plan_hash), ())
 
         assert sink.records[0]["hook"] == "RUN_START"
-        assert sink.records[0]["structure_hash"] == self._CONTEXT_HASH
+        assert sink.records[0]["structure_hash"] == expected
 
 
 class TestAuditExtenderRecordV2:
