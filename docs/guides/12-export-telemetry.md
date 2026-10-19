@@ -84,32 +84,36 @@ sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count{error_
   / sum by (mloda_feature_group_name) (rate(mloda_step_duration_seconds_count[5m]))
 ```
 
-### Metrics from MULTIPROCESSING workers
+### Metrics from short-lived processes
 
-By default each `MULTIPROCESSING` worker exports from its own process under a random `service.instance.id`, so each worker gets its own short series and the queries above return 0 or nothing under either temporality. To aggregate across workers, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the parent's environment, so the parent and its workers both export deltas) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
+`MULTIPROCESSING` workers and Kubernetes Job or CronJob runs each export from their own process with per-process resource attributes (by default a random `service.instance.id`; on Kubernetes also pod, job and node names). Each process then gets its own short series, or with the `prometheus` exporter's defaults the processes overwrite one series, so the queries above return 0, nothing or wrong totals under either temporality. To aggregate, export deltas (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the parent's environment, so the parent and its workers both export deltas) and merge them in the Collector (`transform` and `delta_to_cumulative`, both in `otelcol-contrib`):
 
 ```yaml
 processors:
-  transform/mloda_workers:
+  transform/mloda_merge:
     metric_statements:
       - context: resource
         statements:
-          - delete_key(resource.attributes, "service.instance.id") where resource.attributes["service.name"] == "my-pipeline"
+          # keep only attributes that are the same on every run
+          - keep_keys(resource.attributes, ["service.name", "k8s.namespace.name", "k8s.cronjob.name"]) where resource.attributes["service.name"] == "my-pipeline"
       - context: datapoint
         statements:
           # any fixed time before the first point
           - set(datapoint.start_time, Time("2026-01-01T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")) where resource.attributes["service.name"] == "my-pipeline"
           - set(datapoint.time, Now()) where resource.attributes["service.name"] == "my-pipeline"
-  delta_to_cumulative: {}
+  delta_to_cumulative:
+    max_stale: 2h  # above the longest gap between runs
 service:
   pipelines:
     metrics:
-      processors: [transform/mloda_workers, delta_to_cumulative, batch]
+      processors: [transform/mloda_merge, delta_to_cumulative, batch]
 ```
 
-- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-worker values are gone and point times are the Collector's arrival times. Only counters and histograms (all four mloda metrics) merge correctly; keep gauges and up-down counters under another service.
-- The restamp stops most out-of-order drops between concurrent workers; the Collector's own `deltatocumulative` datapoints counter, with an `error` attribute, counts the rest.
-- One Collector instance must receive all of the pipeline's metrics: a central gateway, not a sidecar per pod (with several replicas, put a `loadbalancing` exporter with `routing_key: service` in front). Its state is in memory, so a restart reads as a counter reset, and `delta_to_cumulative` drops a series idle longer than `max_stale` (default 5m): set it, and the `prometheus` exporter's `metric_expiration`, above the longest gap between runs. `delta_to_cumulative` is alpha.
+- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-process values are gone and point times are the Collector's arrival times. Only counters and histograms (all four mloda metrics) merge correctly; keep gauges and up-down counters under another service.
+- `keep_keys` drops every attribute it does not list. Keep `service.name`, and list each stable attribute you want as a label or that separates pipelines you must not merge (for example `deployment.environment.name`); per-run pod, job and node names cannot be labels on merged series. If `k8sattributes` supplies a listed attribute, run it before the transform.
+- The restamp stops most out-of-order drops between concurrent processes; the Collector's own `deltatocumulative` datapoints counter, with an `error` attribute, counts the rest.
+- One Collector instance must receive all of the pipeline's metrics: a central gateway, not a sidecar per pod (with several replicas, put a `loadbalancing` exporter with `routing_key: service` in front). Its state is in memory, so a restart reads as a counter reset. A series idle longer than `max_stale` restarts at zero and can lose increments, so keep `max_stale`, and the `prometheus` exporter's `metric_expiration`, above the longest gap between runs. `delta_to_cumulative` is alpha.
+- For scheduled runs, query with a range of at least the schedule interval (`increase(...[1d])` for a daily job); a `[5m]` range returns 0 between runs.
 
 ## Export through a Collector
 
@@ -303,7 +307,7 @@ service:
 
 ### Jobs and CronJobs
 
-A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes.
+A Job that finishes exits normally and flushes at exit. `activeDeadlineSeconds` and a CronJob's `concurrencyPolicy: Replace` end it with SIGTERM, so install the handler there too. A Collector sidecar must be a native sidecar (an `initContainer` with `restartPolicy: Always`, Kubernetes 1.29+), else the Job never completes. Each run is a new pod and process, so aggregate its metrics as in [Metrics from short-lived processes](#metrics-from-short-lived-processes): send them to the central gateway that runs the merge, never merge in a sidecar, and under the Operator set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the Instrumentation's `python.env`.
 
 ### Serverless
 
@@ -313,7 +317,7 @@ Lambda freezes the process after the handler returns and Cloud Run throttles its
 
 - **`MULTIPROCESSING`:** each spawned worker needs its own provider. Add `parallelization_modes={ParallelizationMode.MULTIPROCESSING}` and `child_bootstrap=install_tracer_provider` (picklable, from an importable module; call `install_meter_provider` inside it too for metrics) to `run_all`, `stream_all`, `run` or `stream_run`, and use `OtelExtender(use_sdk_defaults=True)` and `OtelMetricsExtender(use_sdk_defaults=True)`. Worker spans join the run's trace on their own. `OpenLineageExtender(use_sdk_defaults=True)` builds its client per worker; an injected client survives only if it pickles.
 - **Flush on worker exit:** core calls each extender's `close()` when a worker exits, within `graceful_shutdown_timeout` (default 2s, shared by the worker's extenders). With a `BatchSpanProcessor`, raise it together with the extender's `close_timeout` attribute (default 1s, e.g. `extender.close_timeout = 5.0`) so the batch drains. Details in [Pickle Compatibility](11-create-extender.md#pickle-compatibility).
-- **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. Each worker exports as its own process; to aggregate across workers see [Metrics from MULTIPROCESSING workers](#metrics-from-multiprocessing-workers).
+- **Metrics in workers:** each extender's `close()` flushes its own provider within its own `close_timeout`, all sharing the worker's `graceful_shutdown_timeout`; raise it together with the close timeouts when several extenders flush. Each worker exports as its own process; to aggregate across workers see [Metrics from short-lived processes](#metrics-from-short-lived-processes).
 - **Continue a trace from another process:** pass a W3C trace-context `carrier` to `run_all`, `stream_all`, `run` or `stream_run`. The run's root span becomes its child (with `trace_scope="plan"` the plan span stays the parent and the carrier becomes a span link). `inject_carrier()` from `mloda.community.extenders.otel.otel_multiprocessing` builds one from the current context without baggage. `env_carrier()` builds one from `TRACEPARENT`/`TRACESTATE` (see [Run under an orchestrator](#run-under-an-orchestrator)).
 - **`THREADING`:** nothing extra; steps find their run's root span by run id.
 - **asyncio:** the active span and `verified_context` are context variables. `asyncio.to_thread(...)` copies them; `loop.run_in_executor(...)` does not, so use `loop.run_in_executor(None, contextvars.copy_context().run, fn)`.
