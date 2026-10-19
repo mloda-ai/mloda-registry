@@ -27,8 +27,8 @@ _VALUE_DTYPES: dict[str, pl.DataType] = {
 def _source_family(dtype: pl.DataType) -> str:
     if dtype == pl.String:
         return "str"
-    # UInt64 cannot be compared at Int64 width.
-    if dtype.is_integer() and dtype != pl.UInt64:
+    # Ints wider than 64 bits and UInt64 cannot be compared at Int64 width.
+    if dtype.is_integer() and dtype not in (pl.UInt64, pl.Int128, pl.UInt128):
         return "int"
     return "other"
 
@@ -66,11 +66,11 @@ class PolarsLazyLookup(LookupFeatureGroup):
         unmatched = source.is_not_null() & mapped.is_null()
 
         if policy == "raise":
-            found = data.filter(unmatched).group_by(source_col).agg(pl.len().alias("__mloda_n")).collect()
+            found = data.filter(unmatched).group_by(source_col).agg(pl.len()).collect()
             if found.height:
-                raise build_unmatched_error(
-                    feature_name, int(found["__mloda_n"].sum()), found[source_col].to_list(), reasons
-                )
+                # pl.len() is the second column, so a source column named like it cannot collide.
+                counts = found.get_column(found.columns[1])
+                raise build_unmatched_error(feature_name, int(counts.sum()), found[source_col].to_list(), reasons)
         elif policy == "keep":
             mapped = pl.when(unmatched).then(source.cast(values.dtype)).otherwise(mapped)
 

@@ -50,4 +50,5 @@ class TestPythonDictLookup(PythonDictTestMixin, LookupTestBase):
         fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="keep")
         with pytest.raises(ValueError, match="'v'") as excinfo:
             PythonDictLookup.calculate_feature({"v": [1, 2**70, None]}, fs)
+        assert "outside int64" in str(excinfo.value)
         assert not isinstance(excinfo.value, LookupUnmatchedError)

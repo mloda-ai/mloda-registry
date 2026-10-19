@@ -24,6 +24,7 @@ Plugins supply their own mapping by setting ``MAPPING_FROM_OPTION = False``, the
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
@@ -79,7 +80,6 @@ class LookupUnmatchedError(ValueError):
         reasons: Mapping[Any, str],
     ) -> None:
         super().__init__(message)
-        self._message = message
         self.feature_name = feature_name
         self.unmatched_rows = unmatched_rows
         self.distinct_keys = distinct_keys
@@ -87,7 +87,7 @@ class LookupUnmatchedError(ValueError):
         self.reasons = reasons
 
     def __reduce__(self) -> tuple[Any, ...]:
-        args = (self._message, self.feature_name, self.unmatched_rows, self.distinct_keys, self.sample, self.reasons)
+        args = (self.args[0], self.feature_name, self.unmatched_rows, self.distinct_keys, self.sample, self.reasons)
         return (type(self), args, self.__dict__)
 
 
@@ -237,7 +237,16 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         super().__init_subclass__(**kwargs)
         if not cls.MAPPING_FROM_OPTION and cls.PREFIX_PATTERN == LookupFeatureGroup.PREFIX_PATTERN:
             raise TypeError(f"{cls.__name__}: MAPPING_FROM_OPTION = False requires its own PREFIX_PATTERN")
-        if not cls.MAPPING_FROM_OPTION:
+        if cls.MAPPING_FROM_OPTION:
+            if LookupFeatureGroup.LOOKUP_MAPPING not in cls.PROPERTY_MAPPING:
+                # A subclass of a hook that flips the flag back needs the option spec again.
+                cls.PROPERTY_MAPPING = {
+                    **cls.PROPERTY_MAPPING,
+                    LookupFeatureGroup.LOOKUP_MAPPING: LookupFeatureGroup.PROPERTY_MAPPING[
+                        LookupFeatureGroup.LOOKUP_MAPPING
+                    ],
+                }
+        else:
             # A hook supplies its own mapping, so the option spec (and its guard) must not apply.
             cls.PROPERTY_MAPPING = {
                 k: v for k, v in cls.PROPERTY_MAPPING.items() if k != LookupFeatureGroup.LOOKUP_MAPPING
@@ -268,7 +277,17 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def _reject_own_mapping_option(cls, feature_name: Any, options: Any) -> None:
         if not cls.resolve_feature_name(feature_name).owned:
             return
-        if options.get(cls.LOOKUP_MAPPING) is None or cls.LOOKUP_MAPPING in (options.inherited_group_keys or ()):
+        if options.get(cls.LOOKUP_MAPPING) is None:
+            return
+        if cls.LOOKUP_MAPPING in (options.inherited_group_keys or ()):
+            return
+        if cls.LOOKUP_MAPPING in (options.inherited_context_keys or ()):
+            return
+        # A generic lookup source owns the group mapping (e.g. ``region__lookup__regions``).
+        if any(
+            re.match(LookupFeatureGroup.PREFIX_PATTERN, source)
+            for source in cls.resolve_feature_name(feature_name).sources
+        ):
             return
         message = (
             f"Feature '{feature_name}': option '{cls.LOOKUP_MAPPING}' is set but {cls.__name__} supplies its own "

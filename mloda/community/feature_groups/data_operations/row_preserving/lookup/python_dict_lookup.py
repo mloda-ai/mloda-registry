@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    key_family,
 )
 
 
@@ -33,6 +34,12 @@ def _source_family(values: list[Any]) -> str | None:
     return families.pop() if len(families) == 1 else "other"
 
 
+def _type_label(value: Any) -> str:
+    if isinstance(value, int) and not isinstance(value, bool) and not -(2**63) <= value < 2**63:
+        return "int (outside int64)"
+    return type(value).__name__
+
+
 class PythonDictLookup(LookupFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -50,8 +57,8 @@ class PythonDictLookup(LookupFeatureGroup):
     ) -> dict[str, list[Any]]:
         source = data[source_col]
         family = _source_family(source)
-        if family is not None:
-            types = ", ".join(sorted({type(v).__name__ for v in source if v is not None}))
+        if family is not None and family != key_family(mapping):
+            types = ", ".join(sorted({_type_label(v) for v in source if v is not None}))
             assert_key_family(feature_name, source_col, mapping, family, types)
 
         if policy == "raise":

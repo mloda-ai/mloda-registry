@@ -37,6 +37,11 @@ class _HookLookup(NutsMappingHook, PyArrowLookup):
     pass
 
 
+class _BackToOption(_HookLookup):
+    MAPPING_FROM_OPTION = True  # type: ignore[misc]
+    PREFIX_PATTERN = r".*__lookup$"
+
+
 class _InvalidMappingHookLookup(NutsMappingHook, PyArrowLookup):
     PREFIX_PATTERN = r".*__badmap$"
 
@@ -64,6 +69,12 @@ _UNSAFE_MAPPINGS: list[Any] = [
 
 def _opts(**context: Any) -> Options:
     return Options(context=context)
+
+
+def _inherited_context_opts(**context: Any) -> Options:
+    options = Options(context=context)
+    options.inherited_context_keys = frozenset(context)
+    return options
 
 
 def _forwarded_opts(**group: Any) -> Options:
@@ -113,11 +124,11 @@ class TestConstants:
             assert_key_family("f__lookup", "v", {"a": "x"}, "int")
 
     def test_key_family_invalid_mapping_raises(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid lookup mapping"):
             key_family({None: "x"})
 
     def test_value_family_invalid_mapping_raises(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid lookup mapping"):
             value_family({"a": None})
 
 
@@ -218,6 +229,19 @@ class TestMatchAbort:
     @pytest.mark.parametrize("mapping", [PARTIAL_STR_MAP, {"a": 1, "b": "x"}], ids=["valid", "invalid"])
     def test_hook_ignores_forwarded_mapping(self, mapping: dict[Any, Any]) -> None:
         assert _HookLookup.match_feature_group_criteria("x__nuts2024", _forwarded_opts(lookup_mapping=mapping))
+
+    @pytest.mark.parametrize("mapping", [PARTIAL_STR_MAP, {"a": 1, "b": "x"}], ids=["valid", "invalid"])
+    def test_hook_ignores_context_inherited_mapping(self, mapping: dict[Any, Any]) -> None:
+        assert _HookLookup.match_feature_group_criteria("x__nuts2024", _inherited_context_opts(lookup_mapping=mapping))
+
+    def test_hook_over_generic_lookup_source_does_not_abort(self) -> None:
+        options = _opts(lookup_mapping=PARTIAL_STR_MAP)
+        assert _HookLookup.match_feature_group_criteria("x__lookup__nuts2024", options)
+
+    def test_subclass_restoring_mapping_option_regains_guard(self) -> None:
+        invalid = _opts(lookup_mapping={"a": 1, "b": "x"}, on_unmatched="keep")
+        assert not _BackToOption.match_feature_group_criteria("x__lookup", invalid)
+        assert _BackToOption.match_feature_group_criteria("x__lookup", _opts(lookup_mapping=PARTIAL_STR_MAP))
 
     def test_hook_config_path_with_mapping_declines(self) -> None:
         options = _opts(in_features="x", lookup_mapping=PARTIAL_STR_MAP)

@@ -46,7 +46,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 - **Value rule.** Values are non-null and all one type: `str`, `int`, `float` or `bool`. The output type follows: `STRING`, `INT64`, `DOUBLE` or `BOOLEAN`.
 - **Null keys.** A null source value stays null under every policy and is never counted as unmatched.
 - **Unmatched.** A non-null source value that is not a key. Policy `raise` (default) raises `LookupUnmatchedError`, `null` outputs null, `keep` passes the source value through.
-- **`keep` needs key type == value type** (str to str, or int to int). Otherwise `ValueError` is raised when the feature is planned (match time), not only at compute. The output type is then the value type.
+- **`keep` needs key type == value type** (str to str, or int to int). Otherwise the generic operation raises `ValueError` when the feature is planned (match time), not only at compute; a hook's `keep` mismatch is reported when the feature is computed. The output type is then the value type.
 - **Invalid mapping.** An empty mapping, mixed key types, bool, float or null keys, mixed or null value types, NaN values, or ints outside int64 are invalid. A generic feature with one does not match. A mapping from a plugin hook raises `ValueError` at compute time.
 - **Pandas and nulls.** Pandas stores an int column with nulls as float64; see [the pandas entry](known-divergences.md#pandas-classes-float64-sources-as-int-keys).
 - **Unsupported sources.** Ints outside int64 in the source (`uint64`, `UBIGINT`/`HUGEINT` in DuckDB, or Python/object ints) raise `ValueError` on every backend. Int keys outside the source width never match.
@@ -99,6 +99,8 @@ class PyArrowNutsLookup(NutsMapping, PyArrowLookup):
 Add one such subclass per framework (`PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) to reuse the mapping class.
 
 A hook rejects a `lookup_mapping` set on its own feature (`ValueError` at planning time). A `lookup_mapping` forwarded from a consumer's group options is ignored, so a generic `__lookup` can sit on top of a hook feature.
+
+A hook over a generic lookup (`{col}__lookup__{hook}`) passes the group `lookup_mapping` to the inner generic feature, and a forwarded `on_unmatched` also configures the hook.
 
 `resolve_mapping` also runs at planning time, because the default `return_data_type_rule` reads the value type from it. Cache an expensive load, or override `return_data_type_rule`. I/O errors in the hook propagate, per the [fail-fast contract](16-return-data-type-rule.md).
 

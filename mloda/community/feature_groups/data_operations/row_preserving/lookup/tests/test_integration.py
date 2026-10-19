@@ -120,6 +120,14 @@ class TestLookupThroughMlodaApi:
         with pytest.raises(ValueError, match="lookup_mapping"):
             self._run(Feature("region__regions", options=options), "region__regions", _RegionHookLookup)
 
+    def test_hook_over_generic_lookup_with_inner_mapping(self) -> None:
+        feature = Feature(
+            "region__lookup__regions",
+            options={"lookup_mapping": {"A": "B", "B": "A", "C": "A"}, "on_unmatched": "null"},
+        )
+        result = self._run(feature, "region__lookup__regions", PyArrowLookup, _RegionHookLookup)
+        assert result.column("region__lookup__regions").to_pylist() == ["Beta"] * 4 + ["Alpha"] * 7 + [None]
+
     def test_generic_lookup_over_hook_with_group_mapping(self) -> None:
         feature = Feature(
             "region__regions__lookup",
