@@ -544,7 +544,6 @@ def _carrier_or_active_span_context(carrier: Any) -> SpanContext | None:
 
 
 def _mark_exception(span: Span, exc: BaseException) -> None:
-    """An Exception sets ERROR and error.type; an interrupt sets mloda.cancel.type and leaves the status UNSET."""
     if is_interrupt(exc):
         span.set_attribute(CANCEL_TYPE_KEY, exception_type_name(exc))
     else:
