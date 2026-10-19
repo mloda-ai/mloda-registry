@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
@@ -189,8 +190,8 @@ class TestReturnDataTypeRule:
         assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
 
-class TestForwardedNBinsMismatch:
-    """A group-forwarded ``n_bins`` that contradicts the name-parsed value is rejected, not silently ignored."""
+class TestNBinsNameAgreement:
+    """An ``n_bins`` (forwarded or own) that contradicts the name-parsed value is rejected, not silently ignored."""
 
     def test_mismatched_forwarded_n_bins_raises(self) -> None:
         consumer_options = Options(group={"n_bins": 10})
@@ -208,20 +209,38 @@ class TestForwardedNBinsMismatch:
         result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", child_options, None)
         assert result is True
 
-    def test_locally_set_contradictory_n_bins_is_not_flagged(self) -> None:
-        options = Options(context={"n_bins": 10})
+    @pytest.mark.parametrize("feature_name", ["value_int__bin_5", "value_int__qbin_5"])
+    @pytest.mark.parametrize("placement", ["group", "context"])
+    def test_own_contradictory_n_bins_raises(self, placement: str, feature_name: str) -> None:
+        options = Options(group={"n_bins": 10}) if placement == "group" else Options(context={"n_bins": 10})
 
-        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", options, None)
-        assert result is True
+        with pytest.raises(
+            ValueError, match=r"option 'n_bins' is int 10, but the feature name encodes '5'\. The name is authoritative"
+        ):
+            BinningFeatureGroup.match_feature_group_criteria(feature_name, options, None)
 
-    def test_mismatched_n_bins_env_downgrade_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize("n_bins", [5, (5,)])
+    def test_own_matching_n_bins_is_accepted(self, n_bins: Any) -> None:
+        options = Options(group={"n_bins": n_bins})
+
+        assert BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", options, None) is True
+
+    @pytest.mark.parametrize("origin", ["forwarded", "own"])
+    def test_mismatched_n_bins_env_downgrade_is_accepted(
+        self, origin: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
-        consumer_options = Options(group={"n_bins": 10})
-        child_options = Options()
-        child_options.inherit_from(consumer_options)
+        if origin == "forwarded":
+            consumer_options = Options(group={"n_bins": 10})
+            options = Options()
+            options.inherit_from(consumer_options)
+        else:
+            options = Options(group={"n_bins": 10})
 
-        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", child_options, None)
+        with caplog.at_level(logging.WARNING):
+            result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", options, None)
         assert result is True
+        assert any(r.levelno == logging.WARNING and "n_bins" in r.getMessage() for r in caplog.records)
 
 
 class TestBinningMatchValidation(MatchValidationTestBase):
