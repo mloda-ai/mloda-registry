@@ -252,7 +252,7 @@ Audit records are `record_version` 2. Beyond the identity fields they carry:
 - `input_feature_edges` (`{feature: sorted input names}`, or null) next to `input_features`.
 - `host` (the process hostname), `worker_index` and `start_time` (UTC ISO, taken before the wrapped call; equal to `event_time` on refusal and `RUN_START` records).
 - `step_run_id`, the deterministic id of the step (see [Run correlation](#run-correlation)); null without a `run_id` and on match and `RUN_START` records.
-- `structure_hash`, the run's `PlanContext.structure_hash` is the hook context's `HookContext.structure_hash` (the `RunContext`'s on the `RUN_START` deny record); null on match records and when the context has none.
+- `structure_hash`, the run's plan fingerprint, read from `HookContext.structure_hash` (`RunContext.structure_hash` on the `RUN_START` deny record); null on match records and when the context has none.
 - `classification`, the level of the call's step on allowed calculate and load records, or the most restrictive offending level on a `classification_above_clearance` deny; null otherwise.
 - `feature_group_declared_attributes`, the feature group's own declaration on calculate records: `{}` when nothing portable survives, null when unreadable and on match and `RUN_START` records (see Declared attributes).
 - `trace_id` and `span_id` (hex), best effort: the active OTel span when the audit call started, else the carrier's trace id with a null `span_id`, else null. They need `opentelemetry-api` and are null without it.

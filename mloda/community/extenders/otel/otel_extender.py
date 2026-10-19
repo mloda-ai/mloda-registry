@@ -291,7 +291,8 @@ class OtelExtender(Extender):
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits a plan span only for a failed
-    plan, never for a failed explain or diagnose (their plan spans, plan scope only, end UNSET, not ERROR). Calculate spans are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
+    plan, never for a failed explain or diagnose (their plan-scope spans do not end in ERROR). Calculate spans
+    are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
     by `mloda.operation.name`, not by name. Without a known root, spans fall back to the carrier or run_id trace.
     classification_undeclared (default None, off) adds the effective `mloda.data.classification` to calculate spans."""
 

@@ -385,10 +385,10 @@ class AuditExtender(Extender):
             flush()
 
     def on_run_start(self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...]) -> None:
-        """With fail_closed, refuses a run whose
-        RunContext lacks a required identity: one deny record, then IdentityRequiredError. Overriding this also
-        lets core run a session whose identity changed since prepare. With a classification policy, also refuses a run
-        requesting data above the caller's clearance; a copy whose unpicklable policy was dropped refuses every run."""
+        """With fail_closed, refuses a run whose RunContext lacks a required identity: one deny record, then
+        IdentityRequiredError. Overriding this also lets core run a session whose identity changed since prepare.
+        With a classification policy, also refuses a run requesting data above the caller's clearance; a copy whose
+        unpicklable policy was dropped refuses every run."""
         if not self.fail_closed:
             return
         missing = self._missing_identity(run)
