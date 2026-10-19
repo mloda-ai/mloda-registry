@@ -39,11 +39,12 @@ Override `match_feature_group_criteria()` for custom logic:
 @classmethod
 def match_feature_group_criteria(
     cls,
-    feature_name: str,
+    feature_name: str | FeatureName,
     options: Options,
     data_access_collection: DataAccessCollection | None = None,
 ) -> bool:
-    return feature_name.endswith("_score")
+    # Keeps the PROPERTY_MAPPING strict-value and match_guard checks an override would otherwise drop.
+    return str(feature_name).endswith("_score") and cls.passes_option_declarations(options)
 ```
 
 **Note:** This only controls MATCHING. It doesn't define discoverable names - users must know to request matching names.
