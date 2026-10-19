@@ -9,7 +9,7 @@ How mloda determines which FeatureGroup handles a requested feature name.
 
 ## How It Works
 
-When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda checks each FeatureGroup's `match_feature_group_criteria()` method. Exactly one must return `True`.
+When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda checks each FeatureGroup's `match_feature_group_criteria()` method. Exactly one must return `True`. Community and enterprise FeatureGroups never accept the same name, since a license does not affect matching; `tests/test_end2end/test_community_enterprise_disjoint_names.py` enforces it.
 
 ---
 
