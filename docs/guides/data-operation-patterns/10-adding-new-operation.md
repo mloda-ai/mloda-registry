@@ -111,8 +111,10 @@ Preserve row order. Preserve NULL. Handle the empty-table case.
 File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`.
 
 ```python
+from collections.abc import Mapping, Sequence
 from typing import Any
 import pytest
+from mloda.user import Feature
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.community.feature_groups.data_operations.{category}.{your_op}.pyarrow_{your_op} import (
     PyArrowYourOp,
@@ -123,6 +125,12 @@ class YourOpTestBase(DataOpsTestBase):
     @classmethod
     def reference_implementation_class(cls) -> Any:
         return PyArrowYourOp
+
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        return ["value_int", "value_int__not_an_op"]
+
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        return {"value_int__op_a": {"value_int"}}
 
     @classmethod
     def supported_ops(cls) -> set[str]:
@@ -247,7 +255,7 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 - [ ] Mask tests wired if the op consumes values that benefit from conditional inclusion.
 - [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden when the op changes the row count).
 - [ ] `InputValidationTestMixin` wired with `input_validation_cases()` covering every kind.
-- [ ] `DataOpsTestBase` runs the feature group contract (`FeatureGroupContractTestMixin`), so the new base declares `contract_non_matching_feature_names()` and `contract_expected_input_features()`; the framework adapter mixin provides `compute_framework_class()`.
+- [ ] `DataOpsTestBase` runs the feature group contract (`FeatureGroupContractTestMixin`), so the new base declares `contract_non_matching_feature_names()` and `contract_expected_input_features()` (the matching names and default options come from `output_contract_feature_set()`); the framework adapter mixin provides `compute_framework_class()`.
 
 ---
 

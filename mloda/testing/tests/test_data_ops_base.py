@@ -6,8 +6,9 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureGroup, property_spec
-from mloda.user import Options
+from mloda.user import Feature, Options
 
+from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -21,6 +22,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
+from mloda.testing.feature_set import build_feature_set
 
 
 class _StubDataOpsTestBase(DataOpsTestBase):
@@ -277,11 +279,13 @@ class _RecordingFramework:
 def test_contract_hooks_return_implementation_and_framework() -> None:
     stub = _ContractStub()
     assert stub.contract_feature_group_class() is _RecordingImpl
-    assert stub.contract_expected_compute_frameworks() == {_RecordingFramework}
+    frameworks: object = stub.contract_expected_compute_frameworks()
+    assert frameworks == {_RecordingFramework}
 
 
 def test_contract_matching_feature_names_returns_the_output_contract_feature() -> None:
     (feature,) = _ContractStub().contract_matching_feature_names()
+    assert isinstance(feature, Feature)
     assert str(feature.name) == "f"
     assert feature.options.get("k") == "v"
 
@@ -290,3 +294,36 @@ def test_contract_matching_feature_names_returns_the_output_contract_feature() -
 def test_contract_frameworks_fail_without_a_framework_mixin(call: str) -> None:
     with pytest.raises(pytest.fail.Exception, match="contract_expected_compute_frameworks"):
         getattr(_StubDataOpsTestBase(), call)()
+
+
+def test_contract_default_options_are_the_output_contract_feature_options() -> None:
+    assert _ContractStub().contract_default_options() == Options(context={"k": "v"})
+
+
+def test_contract_hooks_honor_the_classvars() -> None:
+    class _Declared(_ContractStub):
+        feature_group_class = FeatureGroup
+        expected_compute_frameworks = ALL_COMPUTE_FRAMEWORKS
+        matching_feature_names = ["declared"]
+
+    stub = _Declared()
+    assert stub.contract_feature_group_class() is FeatureGroup
+    assert stub.contract_expected_compute_frameworks() is ALL_COMPUTE_FRAMEWORKS
+    assert stub.contract_matching_feature_names() == ["declared"]
+
+
+def test_contract_matching_feature_names_returns_every_feature_in_name_order() -> None:
+    class _TwoFeatures(_ContractStub):
+        def output_contract_feature_set(self) -> Any:
+            return build_feature_set(None, Feature("b_feat"), Feature("a_feat"))
+
+    features = _TwoFeatures().contract_matching_feature_names()
+    assert all(isinstance(f, Feature) for f in features)
+    names = [str(f.name) for f in features if isinstance(f, Feature)]
+    assert names == ["a_feat", "b_feat"]
+
+
+@pytest.mark.parametrize("hook", ["contract_matching_feature_names", "contract_default_options"])
+def test_contract_hooks_fail_without_an_output_contract(hook: str) -> None:
+    with pytest.raises(pytest.fail.Exception, match="OutputContractTestMixin"):
+        getattr(_StubDataOpsTestBase(), hook)()

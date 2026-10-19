@@ -46,26 +46,30 @@ class TestScaledFeature(FeatureGroupTestBase):
     expected_input_features = {"price__scaled": {"price"}}  # None for a root group
 ```
 
-`FeatureGroupTestBase` is `FeatureGroupContractTestMixin` alone. To add the checks to an existing test class, mix it in and supply each value through its ClassVar or its `contract_*()` hook, for values computed at test time:
+`FeatureGroupTestBase` is `FeatureGroupContractTestMixin` alone. To add the checks to an existing test class, mix it in and supply each value through its ClassVar or its `contract_*()` hook (`contract_default_options()` gives the options used for str names):
 
 ```python
-from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS, FeatureGroupContractTestMixin
+from collections.abc import Mapping, Sequence
+
+from mloda.provider import FeatureGroup
+from mloda.testing.base import ALL_COMPUTE_FRAMEWORKS, ExpectedComputeFrameworks, FeatureGroupContractTestMixin
+from mloda.user import Feature
 
 
 class TestScaled(FeatureGroupContractTestMixin):
-    def contract_feature_group_class(self):
+    def contract_feature_group_class(self) -> type[FeatureGroup]:
         return ScaledFeature
 
-    def contract_expected_compute_frameworks(self):
+    def contract_expected_compute_frameworks(self) -> ExpectedComputeFrameworks:
         return ALL_COMPUTE_FRAMEWORKS
 
-    def contract_matching_feature_names(self):
+    def contract_matching_feature_names(self) -> Sequence[str | Feature]:
         return ["price__scaled"]
 
-    def contract_non_matching_feature_names(self):
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
         return ["price"]
 
-    def contract_expected_input_features(self):
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
         return {"price__scaled": {"price"}}
 ```
 

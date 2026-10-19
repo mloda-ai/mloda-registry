@@ -32,36 +32,42 @@ class FeatureGroupContractTestMixin:
     non_matching_feature_names: ClassVar[Sequence[str | Feature] | None] = None
     expected_input_features: ClassVar[Mapping[str, set[str] | None] | None] = None
 
-    def _unset(self, attr: str, hook: str | None = None) -> Any:
+    def _unset(self, attr: str) -> Any:
         value = getattr(type(self), attr)
         if value is None:
-            pytest.fail(f"{type(self).__name__}.{attr} is not set (or override {hook or 'contract_' + attr}())")
+            pytest.fail(f"{type(self).__name__}.{attr} is not set (or override contract_{attr}())")
         return value
 
-    def contract_feature_group_class(self) -> Any:
-        return self._unset("feature_group_class")
+    def contract_feature_group_class(self) -> type[FeatureGroup]:
+        group: type[FeatureGroup] = self._unset("feature_group_class")
+        return group
 
     def contract_expected_compute_frameworks(self) -> ExpectedComputeFrameworks:
         frameworks: ExpectedComputeFrameworks = self._unset("expected_compute_frameworks")
         return frameworks
 
-    def contract_matching_feature_names(self) -> Any:
-        return self._unset("matching_feature_names")
+    def contract_matching_feature_names(self) -> Sequence[str | Feature]:
+        names: Sequence[str | Feature] = self._unset("matching_feature_names")
+        return names
 
-    def contract_non_matching_feature_names(self) -> Any:
-        return self._unset("non_matching_feature_names")
+    def contract_non_matching_feature_names(self) -> Sequence[str | Feature]:
+        names: Sequence[str | Feature] = self._unset("non_matching_feature_names")
+        return names
 
-    def contract_expected_input_features(self) -> Any:
-        return self._unset("expected_input_features")
+    def contract_expected_input_features(self) -> Mapping[str, set[str] | None]:
+        expected: Mapping[str, set[str] | None] = self._unset("expected_input_features")
+        return expected
+
+    def contract_default_options(self) -> Options:
+        """Options used for str entries in the matching, non-matching and input-features checks."""
+        return Options()
 
     def _group(self) -> type[FeatureGroup]:
-        group: type[FeatureGroup] = self.contract_feature_group_class()
-        return group
+        return self.contract_feature_group_class()
 
-    @staticmethod
-    def _name_and_options(item: str | Feature) -> tuple[str, Options]:
+    def _name_and_options(self, item: str | Feature) -> tuple[str, Options]:
         if isinstance(item, str):
-            return item, Options()
+            return item, self.contract_default_options()
         return str(item.name), item.options
 
     def _matches(self, item: str | Feature) -> bool:

@@ -19,13 +19,16 @@ class and add their own expected values and concrete test methods.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.provider import ComputeFramework, FeatureGroup
+from mloda.user import Feature, Options
 
-from mloda.testing.base import FeatureGroupContractTestMixin
+from mloda.testing.base import ExpectedComputeFrameworks, FeatureGroupContractTestMixin
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 
@@ -73,7 +76,7 @@ class DataOpsTestBase(FeatureGroupContractTestMixin, ABC):
     def get_expected_type(self) -> Any:
         """Return the expected Python type of the framework result."""
 
-    def compute_framework_class(self) -> Any:
+    def compute_framework_class(self) -> type[ComputeFramework]:
         """Return the framework's ComputeFramework class; framework adapter mixins override this."""
         pytest.fail(
             f"{type(self).__name__}: mix in a framework adapter mixin or override contract_expected_compute_frameworks()"
@@ -81,14 +84,31 @@ class DataOpsTestBase(FeatureGroupContractTestMixin, ABC):
 
     # -- Contract hooks ----------------------------------------------------------
 
-    def contract_feature_group_class(self) -> Any:
-        return self.implementation_class()
+    def _output_contract_features(self) -> tuple[Feature, ...]:
+        getter = getattr(self, "output_contract_feature_set", None)
+        if getter is None:
+            pytest.fail(f"{type(self).__name__}: mix in OutputContractTestMixin or override the contract hooks")
+        features: tuple[Feature, ...] = getter().get_sorted_features()
+        return features
 
-    def contract_expected_compute_frameworks(self) -> Any:
+    def contract_feature_group_class(self) -> type[FeatureGroup]:
+        if self.feature_group_class is not None:
+            return self.feature_group_class
+        group: type[FeatureGroup] = self.implementation_class()
+        return group
+
+    def contract_expected_compute_frameworks(self) -> ExpectedComputeFrameworks:
+        if self.expected_compute_frameworks is not None:
+            return self.expected_compute_frameworks
         return {self.compute_framework_class()}
 
-    def contract_matching_feature_names(self) -> Any:
-        return [next(iter(self.output_contract_feature_set().features))]  # type: ignore[attr-defined]
+    def contract_matching_feature_names(self) -> Sequence[str | Feature]:
+        if self.matching_feature_names is not None:
+            return self.matching_feature_names
+        return list(self._output_contract_features())
+
+    def contract_default_options(self) -> Options:
+        return self._output_contract_features()[0].options
 
     # -- Reference implementation (for cross-framework comparison) --------------------
 

@@ -81,6 +81,16 @@ class _StrInputGroup(_DerivedGroup):
         return {str(feature_name).removesuffix("__derived")}
 
 
+class _GatedGroup(_DerivedGroup):
+    """Matches ``x__gated`` only when context option ``k`` is present."""
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls, feature_name: FeatureName | str, options: Options, data_access_collection: Any = None
+    ) -> bool:
+        return str(feature_name) == "x__gated" and options.get("k") is not None
+
+
 class _FrameworkGroup(_DerivedGroup):
     @classmethod
     def compute_framework_rule(cls) -> Any:
@@ -190,6 +200,17 @@ _FAIL_CASES: list[Any] = [
         ("x__derived", "y__derived"),
         ("plain",),
         id="offending_non_matching_name_is_listed",
+    ),
+    pytest.param(
+        {
+            "feature_group_class": _GatedGroup,
+            "non_matching_feature_names": ["plain", "x__gated"],
+            "contract_default_options": lambda self: Options(context={"k": 1}),
+        },
+        _M_NON_MATCH,
+        ("x__gated",),
+        ("plain",),
+        id="default_options_apply_to_str_non_matching_names",
     ),
     pytest.param(
         {"expected_input_features": {"a__derived": {"zzz"}}},
@@ -319,3 +340,7 @@ def test_contract_mixin_host_with_hooks_passes_all_five() -> None:
     host = _Host()
     for method in _ALL_FIVE:
         getattr(host, method)()
+
+
+def test_contract_default_options_default_is_empty() -> None:
+    assert _full_host().contract_default_options() == Options()
