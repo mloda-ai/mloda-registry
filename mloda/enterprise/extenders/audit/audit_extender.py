@@ -219,8 +219,8 @@ class AuditExtender(Extender):
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
     audit_path, manifest_path or the anchor path. classification (a ClassificationPolicy; needs fail_closed, a
     principal identity and a policy_version) refuses a run requesting data above the caller's clearance, and
-    (gate_readers, default True) at plan time a reader declaring a level above it: one deny record (per plan,
-    reader and reason) with hook INPUT_DATA_MATCH and reader_class, and
+    (gate_readers, default True) at plan time a reader declaring a level above it: one deny record (per plan, reader,
+    reason and feature set) with hook INPUT_DATA_MATCH and reader_class, and
     ClassificationDeniedError on every probe. Core contains that error (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it."""
 
     def __init__(
@@ -366,7 +366,7 @@ class AuditExtender(Extender):
         self._segment_max_age = segment_max_age
         self.seal_failures = 0
         self._plan_refusals: set[str] = set()
-        self._reader_denials: dict[str, set[tuple[str, str]]] = {}
+        self._reader_denials: dict[str, set[tuple[str, str, tuple[str, ...]]]] = {}
         self._structure_hashes: dict[str, str] = {}
         self._classifications: dict[str, dict[uuid.UUID, str]] = {}
         self._pickle_drop_warning = WarnOncePerInstance()
@@ -837,7 +837,8 @@ class AuditExtender(Extender):
         except ClassificationDeniedError as refusal:
             seen = self._reader_denials.setdefault(context.plan_id, set()) if context.plan_id is not None else set()
             reader = context.reader_class
-            key = (f"{reader.__module__}.{reader.__qualname__}" if reader is not None else "", deny_reason)
+            name = f"{reader.__module__}.{reader.__qualname__}" if reader is not None else ""
+            key = (name, deny_reason, tuple(sorted(context.feature_names)))
             if key not in seen:
                 # Unguarded on purpose: a sink failure propagates (core contains it at this hook).
                 self.sink.write(

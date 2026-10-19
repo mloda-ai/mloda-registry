@@ -2378,18 +2378,19 @@ class TestAuditExtenderClassificationGate:
         assert record["policy_version"] == _POLICY_VERSION
         assert set(record) == _EXPECTED_RECORD_KEYS
 
-    def test_a_reader_refused_for_several_features_in_one_plan_writes_one_deny_record(self) -> None:
+    def test_a_reader_refused_for_several_features_in_one_plan_writes_one_deny_record_per_feature_set(self) -> None:
         sink = InMemoryAuditSink()
         extender = _classified(sink, "internal")
         call = _CountingCall()
 
-        for feature_names in (("alpha",), ("beta",)):
+        probes = (("alpha",), ("beta",), ("alpha",), ("beta", "alpha"), ("alpha", "beta"))
+        for feature_names in probes:
             with _reader_probe(feature_names=feature_names).activate():
                 with pytest.raises(ClassificationDeniedError):
                     extender(call)
 
         assert call.calls == 0
-        assert [r["feature_names"] for r in sink.records] == [["alpha"]]
+        assert [r["feature_names"] for r in sink.records] == [["alpha"], ["beta"], ["beta", "alpha"]]
 
     def test_the_same_reader_refused_under_another_plan_writes_its_own_deny_record(self) -> None:
         sink = InMemoryAuditSink()
@@ -4908,7 +4909,7 @@ class TestAuditExtenderClassificationRunAll:
         ]
         assert sink.records[0]["feature_names"] == ["alpha"]
 
-    def test_a_refused_reader_in_global_scope_writes_one_deny_record_for_a_run_that_succeeds_via_a_sibling(
+    def test_a_refused_reader_in_global_scope_writes_one_deny_record_per_refused_feature_for_a_run_that_succeeds_via_a_sibling(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
@@ -4929,7 +4930,8 @@ class TestAuditExtenderClassificationRunAll:
 
         assert results
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        assert [(r["hook"], r["reader_class"]) for r in denies] == [("INPUT_DATA_MATCH", _qualname(ParquetReader))]
+        assert {(r["hook"], r["reader_class"]) for r in denies} == {("INPUT_DATA_MATCH", _qualname(ParquetReader))}
+        assert sorted(r["feature_names"] for r in denies) == [["alpha"], ["beta"]]
 
     @pytest.mark.parametrize(("gate_readers", "allowed"), [(False, True), (True, False)])
     def test_a_masked_derivative_of_a_reader_declared_pii_source_needs_gate_readers_off(
