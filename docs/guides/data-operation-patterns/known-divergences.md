@@ -429,7 +429,7 @@ regression_test:
 - **Reference behavior**: PyArrow keys on the column type: a float column is never an int-key source, and an all-null float column with str keys raises `ValueError`.
 - **Native pandas behavior**: Pandas stores an int column with nulls as float64, so the type alone cannot tell it from a float column.
 - **Mitigation kind**: Accepted divergence.
-- **How**: A float64 source whose non-null values are all finite, integral and within int64 counts as int keys; integers above 2**53 lose precision before the lookup. Fractional values and inf are rejected. An all-null float64 source, or an object column with no non-null values, is untyped: it skips the key-family check and yields all nulls.
+- **How**: A float64 source whose non-null values are all finite, integral and within int64 counts as int keys; ints beyond float64 precision are not exact. Fractional values and inf are rejected. An all-null float64 source, or an object column with no non-null values, is untyped: it skips the key-family check and yields all nulls.
 - **Regression signal**: The four `TestPandasDivergences` tests pin each branch; widening or narrowing the int classification fails them.
 
 ### DuckDB reads a null-typed lookup source as INTEGER

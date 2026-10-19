@@ -41,15 +41,15 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 ## Semantics
 
 - **Row-preserving.** Same rows in the same order, one new column appended. The source column is left unchanged.
-- **Key rule.** Keys are all `str` or all `int` (no null, bool or float), matched against the source column type. A mismatch, such as int keys on a string column, raises `ValueError` before the lookup runs. The message names the source column's dtype.
+- **Key rule.** Keys are all `str` or all `int` (no null, bool or float), matched against the source column type. A mismatch, such as int keys on a string column, raises `ValueError` naming the column's dtype.
 - **All-null rule.** A source column with no key type (null-typed, or an all-null column a backend stores without a type) yields an all-null output under every policy. A typed column is still checked. See the divergences for [DuckDB](known-divergences.md#duckdb-reads-a-null-typed-lookup-source-as-integer) (a null column becomes `INTEGER`) and [pandas](known-divergences.md#pandas-treats-a-typed-all-null-int-source-as-untyped) / [python dict](known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped) (a typed all-null column is seen as untyped).
 - **Value rule.** Values are non-null and all one type: `str`, `int`, `float` or `bool`. The output type follows: `STRING`, `INT64`, `DOUBLE` or `BOOLEAN`.
 - **Null keys.** A null source value stays null under every policy and is never counted as unmatched.
 - **Unmatched.** A non-null source value that is not a key. Policy `raise` (default) raises `LookupUnmatchedError`, `null` outputs null, `keep` passes the source value through.
 - **`keep` needs key type == value type** (str to str, or int to int). Otherwise `ValueError` is raised when the feature is planned (match time), not only at compute. The output type is then the value type.
 - **Invalid mapping.** An empty mapping, mixed key types, bool, float or null keys, mixed or null value types, NaN values, or ints outside int64 are invalid. A generic feature with one does not match. A mapping from a plugin hook raises `ValueError` at compute time.
-- **Pandas and nulls.** Pandas cannot tell an int column with nulls from a float64 column; see [the pandas entry](known-divergences.md#pandas-classes-float64-sources-as-int-keys).
-- **Unsupported sources.** A `uint64` source column (or `UBIGINT`/`HUGEINT` in DuckDB) is rejected with `ValueError` on every backend, because it cannot be compared at int64 width. Ints outside int64 in a column (`uint64`, or Python/object ints) are rejected with `ValueError` on every backend. Int keys outside the source width never match.
+- **Pandas and nulls.** Pandas stores an int column with nulls as float64; see [the pandas entry](known-divergences.md#pandas-classes-float64-sources-as-int-keys).
+- **Unsupported sources.** Ints outside int64 in the source (`uint64`, `UBIGINT`/`HUGEINT` in DuckDB, or Python/object ints) raise `ValueError` on every backend. Int keys outside the source width never match.
 
 ## LookupUnmatchedError
 
@@ -67,13 +67,13 @@ A `ValueError` subclass raised by policy `raise`. Attributes:
 product_code__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300', 'D400']
 ```
 
-Messages are pluralized ("1 row, 1 distinct key"). A key with a reason renders as `'C300' (reason text)`. `LookupUnmatchedError` can be pickled and copied.
+A key with a reason renders as `'C300' (reason text)`.
 
 ---
 
 ## Plugin hook subclass
 
-A dict option suits small maps. Large or external tables (a code list, a database table) go through the hook instead of the options.
+Use the hook instead of the option for large or external tables.
 
 | Member | Meaning |
 |---|---|
@@ -100,7 +100,7 @@ Add one such subclass per framework (`PandasLookup`, `PolarsLazyLookup`, `Duckdb
 
 A hook rejects a `lookup_mapping` set on its own feature (`ValueError` at planning time). A `lookup_mapping` forwarded from a consumer's group options is ignored, so a generic `__lookup` can sit on top of a hook feature.
 
-`resolve_mapping` also runs at planning time, because the default `return_data_type_rule` reads the value type from the mapping. Cache an expensive load, or override `return_data_type_rule` to return the type without resolving. I/O errors in the hook propagate, per the [fail-fast contract](16-return-data-type-rule.md).
+`resolve_mapping` also runs at planning time, because the default `return_data_type_rule` reads the value type from it. Cache an expensive load, or override `return_data_type_rule`. I/O errors in the hook propagate, per the [fail-fast contract](16-return-data-type-rule.md).
 
 ---
 

@@ -41,7 +41,7 @@ _STORE_IDS: list[int | None] = [1, 2, 1, 3, None, 4, 3]
 
 
 def create_lookup_arrow_table() -> pa.Table:
-    """The 7-row table used by every lookup test (str key column plus int key column)."""
+    """The table used by every lookup test (str key column plus int key column)."""
     return pa.table(
         {
             "id": pa.array(_IDS, type=pa.int64()),
@@ -196,7 +196,6 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
-        # Lazy import so the testing module imports cleanly before the production code exists.
         from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
             PyArrowLookup,
         )
