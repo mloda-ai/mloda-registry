@@ -156,3 +156,32 @@ class TestIntegrationPluginDiscovery:
     def test_match_rejects_missing_partition_by(self) -> None:
         options = Options(context={"order_by": "value_int"})
         assert not ReferenceRank.match_feature_group_criteria("value_int__row_number_ranked", options)
+
+
+class TestIntegrationGuardRejectionReported:
+    """A guard-rejected order_by must be named in the run_all resolution error."""
+
+    @pytest.mark.parametrize(
+        ("order_by", "match"),
+        [
+            pytest.param(123, r"option 'order_by' must be .*got int 123", id="config_path_mistyped"),
+            pytest.param(["timestamp", "region"], r"option 'order_by' must be exactly one.*got list", id="arity"),
+        ],
+    )
+    def test_guard_rejected_order_by_reported_at_discovery(self, order_by: object, match: str) -> None:
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceRank})
+        options = Options(
+            context={
+                "rank_type": "row_number",
+                "in_features": "value_float",
+                "partition_by": ["region"],
+                "order_by": order_by,
+            }
+        )
+
+        with pytest.raises(ValueError, match=match):
+            mloda.run_all(
+                [Feature("my_result", options=options)],
+                compute_frameworks=[PyArrowTable],
+                plugin_collector=plugin_collector,
+            )

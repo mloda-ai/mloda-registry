@@ -13,6 +13,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
     PyArrowPointArithmetic,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import PandasRank
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
 )
@@ -53,17 +54,24 @@ class TestConfigPathGuardRejectionReported:
     """A config-path match_guard rejection must be named; a non-candidate must stay silent."""
 
     def test_mistyped_order_by_reports_a_reason(self) -> None:
-        """With partition_by present the guard on order_by is the only failure, so it gets named."""
-        options = Options(context={"in_features": "value_float", "order_by": 123, "partition_by": ["region"]})
-        reason = PyArrowFfill._strict_validation_rejection_reason("my_result", options)
+        """With the other options present the guard on order_by is the only failure, so it gets named."""
+        options = Options(
+            context={"rank_type": "row_number", "in_features": "value_float", "order_by": 123, "partition_by": ["g"]}
+        )
+        reason = PandasRank._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
         assert "option 'order_by' must be" in reason
         assert "got int 123" in reason
 
     def test_non_candidate_with_guard_rejected_value_reports_nothing(self) -> None:
-        """No pattern name and no in_features: ffill was never a candidate, so nothing is reported."""
+        """No pattern name and no in_features: rank was never a candidate, so nothing is reported."""
         options = Options(context={"order_by": 123})
-        assert PyArrowFfill._strict_validation_rejection_reason("some_unrelated_feature", options) is None
+        assert PandasRank._strict_validation_rejection_reason("some_unrelated_feature", options) is None
+
+    def test_name_only_group_reports_nothing_for_a_config_name(self) -> None:
+        """ffill is name-only: a config-path feature is not its candidate, so no reason is reported."""
+        options = Options(context={"in_features": "v", "order_by": 123})
+        assert PyArrowFfill._strict_validation_rejection_reason("my_result", options) is None
 
 
 class TestMultiElementArityRejectionReported:
@@ -72,10 +80,15 @@ class TestMultiElementArityRejectionReported:
     def test_multi_element_order_by_reports_an_arity_reason(self) -> None:
         """The verdict stays a non-match; only the reason is added."""
         options = Options(
-            context={"in_features": "value_float", "order_by": ["ts", "region"], "partition_by": ["region"]}
+            context={
+                "rank_type": "row_number",
+                "in_features": "value_float",
+                "order_by": ["ts", "region"],
+                "partition_by": ["region"],
+            }
         )
-        assert PyArrowFfill.match_feature_group_criteria("my_result", options, None) is False
-        reason = PyArrowFfill._strict_validation_rejection_reason("my_result", options)
+        assert PandasRank.match_feature_group_criteria("my_result", options, None) is False
+        reason = PandasRank._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
         assert "option 'order_by' must be" in reason
         assert "exactly one" in reason
@@ -83,8 +96,15 @@ class TestMultiElementArityRejectionReported:
 
     def test_single_element_order_by_reports_nothing(self) -> None:
         """A single-element container is an accepted singleton, so there is nothing to report."""
-        options = Options(context={"in_features": "value_float", "order_by": ["ts"], "partition_by": ["region"]})
-        assert PyArrowFfill._strict_validation_rejection_reason("my_result", options) is None
+        options = Options(
+            context={
+                "rank_type": "row_number",
+                "in_features": "value_float",
+                "order_by": ["ts"],
+                "partition_by": ["region"],
+            }
+        )
+        assert PandasRank._strict_validation_rejection_reason("my_result", options) is None
 
     def test_guard_rejected_container_type_reports_the_guard_not_arity(self) -> None:
         """A guard that rejects the container type itself must be named, not misreported as an arity failure.

@@ -17,10 +17,13 @@ modules.
 
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
 from mloda.user import DataType, Feature, Options
 
-from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin, op_token_value
+from mloda.community.feature_groups.data_operations.base import FRAME_TYPE, KeyColumnInputsMixin, op_token_value
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
@@ -54,6 +57,19 @@ class AggregationFeatureGroupBase(KeyColumnInputsMixin, SubtypeCapabilityHook, F
     #: Aggregation types that produce an integer count. Subclasses override which
     #: agg types declare INT64 via ``return_data_type_rule``.
     _COUNTING_AGG_TYPES: frozenset[str] = frozenset({"count", "nunique"})
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: Any,
+        options: Any,
+        _data_access_collection: Any = None,
+    ) -> bool:
+        """Decline a config-path feature carrying frame_type (frame_aggregate's discriminator)."""
+        name_matched = any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
+        if not name_matched and options.get(FRAME_TYPE) is not None:
+            return False
+        return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:

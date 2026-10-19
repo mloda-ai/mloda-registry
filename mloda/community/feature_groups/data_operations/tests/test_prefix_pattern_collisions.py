@@ -32,6 +32,10 @@ Two complementary checks run here:
 ``test_every_family_is_covered`` guards against a new family ``base.py`` being
 added without a registry entry, so nothing escapes the lint.
 
+``test_no_config_path_collisions`` covers the config path: a name matching no pattern, with a family's
+documented ``config_options``, must be claimed by that family alone (issue 1088). Name-only families
+(ema, ffill, sessionization) carry no ``config_options`` and are asserted to reject a config feature.
+
 The negative tests (``test_find_*_detects_*``) feed planted collisions to the
 detector functions so the guardrail is proven to fire, not merely to pass.
 """
@@ -82,6 +86,8 @@ class FamilySpec:
     # Extra Options context the family needs before its name-based match accepts (e.g. ``lookup_mapping``).
     # Merged over the shared options for this family's names only, so PERMISSIVE_OPTIONS stays config-free.
     options: dict[str, Any] = field(default_factory=dict)
+    # Documented config-path options (``in_features`` etc.); ``None`` for name-only families.
+    config_options: dict[str, Any] | None = None
 
 
 _DO = "mloda.community.feature_groups.data_operations"
@@ -160,6 +166,33 @@ FAMILIES: tuple[FamilySpec, ...] = (
     ),
 )
 
+
+# Documented config-path options per family (name-only families are absent), applied onto FAMILIES.
+_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
+    "aggregation": {"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
+    "binning": {"binning_op": "bin", "n_bins": 5, "in_features": "v"},
+    "datetime": {"datetime_op": "year", "in_features": "v"},
+    "frame_aggregate": {
+        "aggregation_type": "sum",
+        "frame_type": "rolling",
+        "frame_size": 3,
+        "in_features": "v",
+        "partition_by": ["g"],
+        "order_by": "t",
+    },
+    "lookup": {"in_features": "v", "lookup_mapping": {"a": "b"}},
+    "offset": {"offset_type": "first_value", "in_features": "v", "partition_by": ["g"], "order_by": "t"},
+    "percentile": {"percentile": 0.5, "in_features": "v", "partition_by": ["g"]},
+    "point_arithmetic": {"arithmetic_op": "add", "in_features": ("a", "b")},
+    "rank": {"rank_type": "row_number", "in_features": "v", "partition_by": ["g"], "order_by": "t"},
+    "resample": {"in_features": "v", "time_column": "t", "resample_op": "60_minute_mean"},
+    "scalar_aggregate": {"aggregation_type": "sum", "in_features": "v"},
+    "scalar_arithmetic": {"arithmetic_op": "add", "in_features": "v", "constant": 2},
+    "string": {"string_op": "upper", "in_features": "v"},
+    "time_bucketization": {"bucket_op": "floor_30_minute", "in_features": "v"},
+    "window_aggregation": {"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
+}
+FAMILIES = tuple(replace(spec, config_options=_CONFIG_OPTIONS.get(spec.key)) for spec in FAMILIES)
 
 # (owner_key, representative_name, other_key): raw-regex PREFIX_PATTERN overlaps that
 # are known-safe because the other family's ``match_feature_group_criteria`` rejects
@@ -252,6 +285,19 @@ def find_collisions(
             )
             if acceptors != (spec.key,):
                 collisions.append(Collision(name, spec.key, acceptors))
+    return collisions
+
+
+def find_config_collisions(families: tuple[FamilySpec, ...], classes: dict[str, Any]) -> list[Collision]:
+    """Config-path collisions: a nameless feature with a family's ``config_options`` must match only that family."""
+    collisions: list[Collision] = []
+    for spec in families:
+        if spec.config_options is None:
+            continue
+        options = Options(context=dict(spec.config_options))
+        acceptors = tuple(key for key, cls in classes.items() if cls.match_feature_group_criteria("my_result", options))
+        if acceptors != (spec.key,):
+            collisions.append(Collision("my_result", spec.key, acceptors))
     return collisions
 
 
@@ -578,6 +624,57 @@ def test_every_family_module_is_discovered_on_disk() -> None:
     )
 
 
+# --- config-path invariants (issue 1088) ---------------------------------------
+
+# (owner, sorted acceptors): aggregation, window_aggregation and scalar_aggregate share
+# ``aggregation_type`` and need a discriminator option to be told apart.
+# follow-up: TBD
+KNOWN_CONFIG_OVERLAPS: frozenset[tuple[str, tuple[str, ...]]] = frozenset(
+    {
+        ("aggregation", ("aggregation", "scalar_aggregate", "window_aggregation")),
+        ("window_aggregation", ("aggregation", "scalar_aggregate", "window_aggregation")),
+    }
+)
+
+
+def _known(collision: Collision) -> bool:
+    return (collision.owner, tuple(sorted(collision.acceptors))) in KNOWN_CONFIG_OVERLAPS
+
+
+def test_no_config_path_collisions() -> None:
+    collisions = [c for c in find_config_collisions(FAMILIES, _real_classes()) if not _known(c)]
+    assert collisions == [], "Config-path collisions across data-operation families:\n" + "\n".join(
+        f"{c.owner!r} config is accepted by {list(c.acceptors)}" for c in collisions
+    )
+
+
+def test_known_config_overlaps_still_occur() -> None:
+    actual = {(c.owner, tuple(sorted(c.acceptors))) for c in find_config_collisions(FAMILIES, _real_classes())}
+    stale = sorted(KNOWN_CONFIG_OVERLAPS - actual)
+    assert stale == [], f"Stale KNOWN_CONFIG_OVERLAPS entries (overlap no longer occurs): {stale}"
+
+
+def test_frame_aggregate_config_is_claimed_by_frame_aggregate_alone() -> None:
+    spec = next(s for s in FAMILIES if s.key == "frame_aggregate")
+    assert spec.config_options is not None
+    options = Options(context=dict(spec.config_options))
+    acceptors = [k for k, cls in _real_classes().items() if cls.match_feature_group_criteria("my_result", options)]
+    assert acceptors == ["frame_aggregate"]
+
+
+@pytest.mark.parametrize("key", ["ema", "ffill", "sessionization"])
+def test_name_only_families_reject_a_config_feature(key: str) -> None:
+    """Name-only families claim nothing on the config path, even with their old shared options."""
+    cls = _real_classes()[key]
+    options = Options(context={"in_features": "v", "order_by": "t"})
+    assert not cls.match_feature_group_criteria("my_result", options)
+
+
+@pytest.mark.parametrize("key", ["ema", "ffill", "sessionization"])
+def test_name_only_families_have_no_config_options(key: str) -> None:
+    assert next(s for s in FAMILIES if s.key == key).config_options is None
+
+
 # --- negative tests: prove the detectors actually fire ------------------------
 
 
@@ -606,6 +703,15 @@ def test_find_collisions_detects_owner_rejects() -> None:
     collisions = find_collisions(specs, PERMISSIVE_OPTIONS, {"alpha": _AcceptNone})
     assert len(collisions) == 1
     assert collisions[0].kind == "OWNER_REJECTS"
+
+
+def test_find_config_collisions_detects_multi_match() -> None:
+    specs = (FamilySpec("alpha", "m", "C", ("col__op_x",), config_options={"in_features": "v"}),)
+    collisions = find_config_collisions(specs, {"alpha": _AcceptAll, "beta": _AcceptAll})
+    assert len(collisions) == 1
+    assert collisions[0].kind == "MULTI_MATCH"
+    assert set(collisions[0].acceptors) == {"alpha", "beta"}
+    assert find_config_collisions((replace(specs[0], config_options=None),), {"alpha": _AcceptAll}) == []
 
 
 def test_find_pattern_overlaps_detects_planted_overlap() -> None:

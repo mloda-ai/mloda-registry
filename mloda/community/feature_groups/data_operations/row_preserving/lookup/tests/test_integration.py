@@ -120,6 +120,12 @@ class TestLookupThroughMlodaApi:
         with pytest.raises(ValueError, match="lookup_mapping"):
             self._run(Feature("region__regions", options=options), "region__regions", _RegionHookLookup)
 
+    def test_hook_feature_with_own_mapping_option_fails_run_with_generic_lookup_enabled(self) -> None:
+        """The hook's own-mapping error wins over a multiple-match error when the generic class is enabled too."""
+        options = Options(context={"lookup_mapping": _MAPPING})
+        with pytest.raises(ValueError, match="supplies its own mapping"):
+            self._run(Feature("region__regions", options=options), "region__regions", PyArrowLookup, _RegionHookLookup)
+
     def test_hook_over_generic_lookup_with_inner_mapping(self) -> None:
         feature = Feature(
             "region__lookup__regions",

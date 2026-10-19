@@ -47,7 +47,6 @@ order_by presence guard is shared (``assert_key_columns_present``).
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from mloda.provider import (
@@ -61,6 +60,7 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
+    NameOnlyMatchMixin,
     assert_key_columns_present,
     column_ref_value,
     is_column_ref,
@@ -115,7 +115,7 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
@@ -142,18 +142,6 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             expected=COLUMN_REF_EXPECTED,
         ),
     }
-
-    @classmethod
-    def match_feature_group_criteria(
-        cls,
-        feature_name: Any,
-        options: Any,
-        _data_access_collection: Any = None,
-    ) -> bool:
-        """Require a threshold token in the name before claiming a feature."""
-        if not re.match(cls.PREFIX_PATTERN, str(feature_name)):
-            return False
-        return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
 
     # Kept: a config-only feature must raise here, not fall back to in_features as core does.
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

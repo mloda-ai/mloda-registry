@@ -117,12 +117,6 @@ class TestFfillIntegration(DataOpsIntegrationTestBase):
                 id="name_path",
             ),
             pytest.param(
-                "my_result",
-                {"in_features": "value_float", "order_by": 123, "partition_by": ["region"]},
-                r"option 'order_by' must be .*got int 123",
-                id="config_path",
-            ),
-            pytest.param(
                 "value_float__ffill",
                 {"order_by": ["timestamp", "region"]},
                 r"option 'order_by' must be exactly one.*got list",

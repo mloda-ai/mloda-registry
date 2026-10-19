@@ -17,7 +17,7 @@ Options context:
 - ``order_by``: REQUIRED column to sort by (ascending) within each partition.
 - ``partition_by``: OPTIONAL list of columns; default ``[]`` treats the whole
   table as a single partition.
-- ``in_features``: the single source column (when not derivable from the name).
+- ``in_features``: the single source column; must be named in the feature name when given.
 
 Null rules pinned across all backends:
 
@@ -46,6 +46,7 @@ from mloda.user import Feature
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     KeyColumnInputsMixin,
+    NameOnlyMatchMixin,
     always_required,
     assert_key_columns_present,
     assert_source_columns_present,
@@ -54,7 +55,7 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 
-class FfillFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it

@@ -314,5 +314,32 @@ class KeyColumnInputsMixin:
         return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS)
 
 
+class NameOnlyMatchMixin:
+    """Claims a feature only by a prefix-pattern name match; a config-path feature is declined."""
+
+    @classmethod
+    def _name_matches_prefix(cls, feature_name: Any) -> bool:
+        return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())  # type: ignore[attr-defined]
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: Any,
+        options: Any,
+        _data_access_collection: Any = None,
+    ) -> bool:
+        """Decline a name that does not match a prefix pattern, else delegate."""
+        if not cls._name_matches_prefix(feature_name):
+            return False
+        return super().match_feature_group_criteria(feature_name, options, _data_access_collection)  # type: ignore[misc, no-any-return]
+
+    @classmethod
+    def _strict_validation_rejection_reason(cls, feature_name: Any, options: Any) -> str | None:
+        """Report nothing for a name this group never claims, else delegate."""
+        if not cls._name_matches_prefix(feature_name):
+            return None
+        return super()._strict_validation_rejection_reason(feature_name, options)  # type: ignore[misc, no-any-return]
+
+
 # Deprecated alias: released leaves still import this name.
 RejectionReasonMixin = FeatureChainParserMixin

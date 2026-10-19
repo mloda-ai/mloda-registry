@@ -24,7 +24,7 @@ Options context:
 - ``order_by``: REQUIRED column to sort by (ascending) within each partition.
 - ``partition_by``: OPTIONAL list of columns; default ``[]`` treats the whole
   table as a single partition.
-- ``in_features``: the single source column (when not derivable from the name).
+- ``in_features``: the single source column; must be named in the feature name when given.
 
 The ``span`` is passed DIRECTLY to the underlying library (pandas
 ``ewm(span=...)`` / polars ``ewm_mean(span=...)``); backends must NOT
@@ -55,6 +55,7 @@ from mloda.user import Feature
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     KeyColumnInputsMixin,
+    NameOnlyMatchMixin,
     always_required,
     assert_key_columns_present,
     assert_source_columns_present,
@@ -63,7 +64,7 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 
-class EmaFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")

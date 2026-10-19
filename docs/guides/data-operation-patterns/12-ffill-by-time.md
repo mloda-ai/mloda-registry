@@ -20,7 +20,7 @@ value__ffill
 |---|---|---|
 | `order_by` | yes | The time column. Rows are sorted ascending within each partition before the fill. |
 | `partition_by` | no (default `[]`) | Columns that scope the fill. With no partition the whole table is one group. |
-| `in_features` | config form only | The source column (when not using the `{col}__ffill` string form). |
+| `in_features` | no | Must name the source in the `{col}__ffill` name when given. |
 
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda

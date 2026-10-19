@@ -21,7 +21,7 @@ value__ema_3
 |---|---|---|
 | `order_by` | yes | The time column. Rows are sorted ascending within each partition before the recurrence. |
 | `partition_by` | no (default `[]`) | Columns that scope the EMA. Each partition has an independent recurrence. |
-| `in_features` | config form only | The source column (when not using the `{col}__ema_{span}` string form). |
+| `in_features` | no | Must name the source in the `{col}__ema_{span}` name when given. |
 
 `span` maps to the smoothing factor `alpha = 2 / (span + 1)`. The span is passed straight to the underlying library so pandas and polars apply the identical mapping.
 
