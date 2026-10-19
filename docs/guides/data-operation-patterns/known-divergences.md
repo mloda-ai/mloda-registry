@@ -409,6 +409,87 @@ regression_test:
 - **How**: Each framework's `nan_divergent_agg_types()` hook pins its diverging agg types instead of the policy value in the shared `NanPolicyTestMixin.test_mixin_nan_policy` test: Pandas pins `{"mode", "sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}` for aggregation/window_aggregation, `{"sum", "mean", "count", "min", "max"}` for resample, `{"sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}` for scalar_aggregate, and `{"sum", "avg", "count", "std", "var"}` for frame_aggregate; SQLite pins `{"sum", "avg", "count"}` for aggregation/window_aggregation/scalar_aggregate/frame_aggregate.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
 
+### Pandas classes float64 sources as int keys
+
+<!-- machine-checked
+operation: lookup
+framework: pandas
+condition: a float64 source with only finite integral values within int64 counts as int keys, and an all-null float64 source or an object column with no non-null values is treated as untyped and skips the key-family check, unlike the typed backends
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_float64_with_integral_values_accepted_as_int_keys
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_non_integral_float64_rejected_for_int_keys
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_float64_with_inf_not_classed_int
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasDivergences::test_all_null_float64_column_skips_key_family_check
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasLookup::test_untyped_all_null_source
+-->
+
+- **Operations**: `lookup`.
+- **Where it lives**: `_source_family` and `_compute_lookup` in `mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py`.
+- **Reference behavior**: PyArrow keys on the column type: a float column is never an int-key source, and an all-null float column with str keys raises `ValueError`.
+- **Native pandas behavior**: Pandas stores an int column with nulls as float64, so the type alone cannot tell it from a float column. A nullable `Int64` column keeps its type and maps large ints exactly (`TestPandasLookupNullableInt`).
+- **Mitigation kind**: Accepted divergence.
+- **How**: A float64 source whose non-null values are all finite, integral and within int64 counts as int keys; ints beyond float64 precision are not exact. Fractional values and inf are rejected. An all-null float64 source, or an object column with no non-null values, is untyped: it skips the key-family check and yields all nulls.
+- **Regression signal**: The listed tests (four `TestPandasDivergences` plus the inherited `test_untyped_all_null_source` for the object column) pin each branch; widening or narrowing the int classification fails them.
+
+### DuckDB reads a null-typed lookup source as INTEGER
+
+<!-- machine-checked
+operation: lookup
+framework: duckdb
+condition: a null-typed arrow column arrives as INTEGER, so str keys raise the key-type ValueError and int keys yield nulls, unlike PyArrow's all-null output
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/duckdb_lookup.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_duckdb.py::TestDuckdbLookup::test_untyped_all_null_source
+-->
+
+- **Operations**: `lookup`.
+- **Reference behavior**: A null-typed source has no key type and yields an all-null output under every policy.
+- **Native DuckDB behavior**: A null-typed arrow column arrives as `INTEGER`.
+- **Mitigation kind**: Accepted divergence.
+- **How**: Str keys on such a column raise the key-type `ValueError`; int keys yield nulls.
+- **Regression signal**: `test_untyped_all_null_source` pins both branches through `untyped_null_source_becomes_int()`.
+
+### Pandas treats a typed all-null int source as untyped
+
+<!-- machine-checked
+operation: lookup
+framework: pandas
+condition: a typed all-null int64 column arrives as all-NaN float64 and is treated as untyped, so the output is all null instead of the key-type ValueError
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasLookup::test_typed_all_null_source_checks_key_family
+-->
+
+- **Operations**: `lookup`.
+- **Reference behavior**: A typed all-null column is still checked, so str keys on an int64 column raise `ValueError`.
+- **Native pandas behavior**: A typed all-null int64 column arrives as all-NaN float64. A nullable `Int64` all-null column keeps its type and is checked like the reference (`TestPandasLookupNullableInt`).
+- **Mitigation kind**: Accepted divergence.
+- **How**: The column is treated as untyped and yields all nulls.
+- **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output via `typed_null_source_becomes_untyped()`.
+
+### Python dict treats a typed all-null lookup source as untyped
+
+<!-- machine-checked
+operation: lookup
+framework: python_dict
+condition: python dict rows carry no dtype, so a typed all-null column is treated as untyped and yields all nulls instead of the key-type ValueError
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/python_dict_lookup.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_python_dict.py::TestPythonDictLookup::test_typed_all_null_source_checks_key_family
+-->
+
+- **Operations**: `lookup`.
+- **Reference behavior**: A typed all-null column is still checked, so str keys on an int64 column raise `ValueError`.
+- **Native python dict behavior**: Rows carry no dtype.
+- **Mitigation kind**: Accepted divergence.
+- **How**: The column is treated as untyped and yields all nulls.
+- **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output.
+
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 
 <!-- machine-checked

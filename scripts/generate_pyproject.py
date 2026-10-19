@@ -276,6 +276,32 @@ def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]])
     return [name for name, cfg in all_packages.items() if cfg["path"].startswith(prefix)]
 
 
+def dependency_closure(pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Return the configured siblings reachable through runtime ``dependencies`` only, extras excluded."""
+    seen: set[str] = set()
+    pending = sibling_dependency_names(list(pkg_config.get("dependencies", [])), all_packages)
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        if name not in all_packages:
+            continue
+        seen.add(name)
+        pending.extend(sibling_dependency_names(list(all_packages[name].get("dependencies", [])), all_packages))
+    return seen
+
+
+def has_typed_ancestor(pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> bool:
+    """True if a ``py_typed`` package in itself plus its closure sits at or above this package's path."""
+    path = pkg_config["path"]
+    candidates = [pkg_config] + [all_packages[name] for name in dependency_closure(pkg_config, all_packages)]
+    for cfg in candidates:
+        typed_path = cfg.get("path")
+        if cfg.get("py_typed") and typed_path is not None and (path == typed_path or path.startswith(typed_path + "/")):
+            return True
+    return False
+
+
 def bundle_owned_names(pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> list[str]:
     """Nested configured packages an entry_point_bundle owns: named in its own ``dependencies`` or a
     non-dev ``optional_dependencies`` extra (parsed like ``sibling_dependency_names``). The owned
@@ -647,7 +673,7 @@ def generate_pyproject(
         lines.append(f"keywords = {to_toml_list(keywords)}")
 
     classifiers = list(shared["project"].get("classifiers", []))
-    if pkg_config.get("py_typed") and "Typing :: Typed" not in classifiers:
+    if has_typed_ancestor(pkg_config, all_packages) and "Typing :: Typed" not in classifiers:
         classifiers.append("Typing :: Typed")
     if classifiers:
         lines.append(f"classifiers = {to_toml_list(classifiers)}")

@@ -375,6 +375,47 @@ def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
     )
 
 
+def test_dependency_closure_follows_dependencies_only() -> None:
+    packages = {
+        "a": {"dependencies": ["b>=1"], "optional_dependencies": {"x": ["d"]}},
+        "b": {"dependencies": ["C.C~=2"]},
+        "c_c": {"dependencies": []},
+        "d": {"dependencies": []},
+    }
+    assert gen.dependency_closure(packages["a"], packages) == {"b", "c_c"}
+
+
+def test_dependency_closure_terminates_on_a_cycle() -> None:
+    packages = {"a": {"dependencies": ["b"]}, "b": {"dependencies": ["a"]}}
+    assert gen.dependency_closure(packages["a"], packages) == {"a", "b"}
+
+
+def test_dependency_closure_skips_names_not_in_all_packages(monkeypatch: pytest.MonkeyPatch) -> None:
+    packages = {"a": {"dependencies": ["b"]}, "b": {"dependencies": []}}
+    monkeypatch.setattr(gen, "sibling_dependency_names", lambda deps, all_packages: ["b", "mloda.foo"])
+    assert gen.dependency_closure(packages["a"], packages) == {"b"}
+
+
+@pytest.mark.parametrize(
+    ("pkg_name", "expected"),
+    [
+        pytest.param("under", True, id="depends-on-typed-ancestor-path"),
+        pytest.param("sibling", False, id="path-prefix-boundary"),
+        pytest.param("extra-only", False, id="extra-dependency-ignored"),
+        pytest.param("typed", True, id="flagged-itself"),
+    ],
+)
+def test_has_typed_ancestor_on_synthetic_packages(pkg_name: str, expected: bool) -> None:
+    """Typed via own flag or a runtime dependency whose path equals or is an ancestor, on whole segments only."""
+    packages: dict[str, dict[str, Any]] = {
+        "typed": {"path": "a/b", "dependencies": [], "py_typed": True},
+        "under": {"path": "a/b/c", "dependencies": ["typed"]},
+        "sibling": {"path": "a/bc", "dependencies": ["typed"]},
+        "extra-only": {"path": "a/b/d", "dependencies": [], "optional_dependencies": {"x": ["typed"]}},
+    }
+    assert gen.has_typed_ancestor(packages[pkg_name], packages) is expected
+
+
 def _leaf_config(path: str) -> dict[str, Any]:
     """Synthetic non-bundle package config at ``path``."""
     return {"description": "Leaf", "path": path, "dependencies": []}

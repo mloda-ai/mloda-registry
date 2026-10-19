@@ -12,6 +12,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import ResampleTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import EmaTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import FfillTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import LookupTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
 )
@@ -183,8 +184,44 @@ def test_setup_method_uses_overridden_source_arrow_table() -> None:
 
 @pytest.mark.parametrize(
     "cls",
-    [EmaTestBase, FfillTestBase, ResampleTestBase, SessionizationTestBase, TimeBucketizationTestBase],
+    [EmaTestBase, FfillTestBase, LookupTestBase, ResampleTestBase, SessionizationTestBase, TimeBucketizationTestBase],
 )
 def test_operation_base_has_no_setup_method_override_and_declares_source_arrow_table(cls: type) -> None:
     assert "setup_method" not in cls.__dict__
     assert "source_arrow_table" in cls.__dict__
+
+
+# -- DataOpsTestBase._compare_with_reference extra context ------------------
+
+
+class _RecordingImpl:
+    """Implementation/reference stand-in that records the Options context it receives."""
+
+    seen: list[dict[str, Any]] = []
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: Any) -> Any:
+        cls.seen.append(dict(next(iter(features.features)).options.context))
+        return pa.table({"f": [1]})
+
+
+class _CompareStub(_StubDataOpsTestBase):
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return _RecordingImpl
+
+    @classmethod
+    def reference_implementation_class(cls) -> Any:
+        return _RecordingImpl
+
+    def extract_column(self, result: Any, column_name: str) -> list[Any]:
+        return list(result.column(column_name).to_pylist())
+
+
+def test_compare_with_reference_forwards_extra_context_to_both_calls() -> None:
+    _RecordingImpl.seen = []
+    stub = _CompareStub()
+    stub.setup_method()
+    stub._compare_with_reference("f", partition_by=["g"], lookup_mapping={"a": "b"}, on_unmatched="null")
+    expected = {"partition_by": ["g"], "lookup_mapping": {"a": "b"}, "on_unmatched": "null"}
+    assert _RecordingImpl.seen == [expected, expected]

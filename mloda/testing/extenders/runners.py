@@ -293,6 +293,7 @@ class MlodaTestingFailingFeatureGroup(FeatureGroup):
 
     feature_name: str = "mloda_testing_never_requested"
     calls: int = 0
+    failure: type[BaseException] = RuntimeError
 
     @classmethod
     def input_data(cls) -> DataCreator:
@@ -305,17 +306,21 @@ class MlodaTestingFailingFeatureGroup(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         cls.calls += 1
-        raise RuntimeError("inner boom")
+        raise cls.failure("inner boom")
 
 
-def failing_feature_group(feature_name: str) -> type[MlodaTestingFailingFeatureGroup]:
-    """Build a fresh MlodaTestingFailingFeatureGroup subclass per call so parallel tests never share state."""
+def failing_feature_group(
+    feature_name: str, failure: type[BaseException] = RuntimeError
+) -> type[MlodaTestingFailingFeatureGroup]:
+    """Build a fresh MlodaTestingFailingFeatureGroup subclass per call so parallel tests never share state.
+    failure is the exception type calculate_feature raises (an interrupt is any non-Exception BaseException)."""
 
     class MlodaTestingFailing(MlodaTestingFailingFeatureGroup):
         pass
 
     MlodaTestingFailing.feature_name = feature_name
     MlodaTestingFailing.calls = 0
+    MlodaTestingFailing.failure = failure
     return MlodaTestingFailing
 
 

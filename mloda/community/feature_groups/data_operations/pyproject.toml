@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-data-operations"
-version = "0.9.0"
+version = "0.10.0"
 description = "Shared base classes for data operation feature groups"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -19,7 +19,7 @@ requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest>=9.0.3"]
-all = ["mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-window-aggregation", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile", "mloda-community-time-bucketization", "mloda-community-ffill", "mloda-community-ema", "mloda-community-sessionization", "mloda-community-resample"]
+all = ["mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-window-aggregation", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile", "mloda-community-time-bucketization", "mloda-community-ffill", "mloda-community-ema", "mloda-community-sessionization", "mloda-community-resample", "mloda-community-lookup"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

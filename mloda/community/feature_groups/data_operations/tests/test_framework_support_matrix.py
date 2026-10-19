@@ -65,6 +65,7 @@ OPERATIONS: list[str] = [
     "point_arithmetic",
     "time_bucketization",
     "ffill",
+    "lookup",
     "ema",
     "sessionization",
     "window_aggregation",

@@ -267,6 +267,12 @@ _OPERATION_SPECS: tuple[_OperationSpec, ...] = (
         probe=_frame_aggregate_probe,
     ),
     _OperationSpec(
+        name="lookup",
+        package=f"{_PKG}.row_preserving.lookup",
+        base_class="LookupFeatureGroup",
+        subtype_label="op",
+    ),
+    _OperationSpec(
         name="offset",
         package=f"{_PKG}.row_preserving.offset",
         base_class="OffsetFeatureGroup",

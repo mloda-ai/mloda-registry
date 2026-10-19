@@ -21,7 +21,13 @@ from mloda.steward import (
 from opentelemetry import metrics
 from opentelemetry.metrics import Counter, Histogram, MeterProvider
 
-from mloda.community.extenders.otel._constants import DECLARABLE_HOOKS, OPERATION_NAMES, TRACER_NAME
+from mloda.community.extenders.otel._constants import (
+    DECLARABLE_HOOKS,
+    OPERATION_NAMES,
+    TRACER_NAME,
+    exception_attribute,
+    outcome_attribute_key,
+)
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
 
@@ -80,7 +86,10 @@ def instruments_for(provider: MeterProvider, meter_name: str) -> Instruments:
 
 
 def record_step(
-    instruments: Instruments, context: HookContext, seconds: float, error_type: str | None, ok: bool
+    instruments: Instruments,
+    context: HookContext,
+    seconds: float,
+    exc: BaseException | None,
 ) -> None:
     """Step duration always; rows in/out only for calculate and load on success."""
     attributes: dict[str, str] = {"mloda.operation.name": OPERATION_NAMES.get(context.hook, "unknown")}
@@ -88,9 +97,12 @@ def record_step(
         attributes["mloda.feature_group.name"] = context.feature_group_class
     if context.compute_framework_name is not None:
         attributes["mloda.compute_framework.name"] = context.compute_framework_name
-    duration_attributes = attributes if error_type is None else {**attributes, "error.type": error_type}
+    duration_attributes = attributes
+    if exc is not None:
+        key, name = exception_attribute(exc)
+        duration_attributes = {**attributes, key: name}
     instruments.step_duration.record(seconds, duration_attributes)
-    if ok and context.hook in DECLARABLE_HOOKS:
+    if exc is None and context.hook in DECLARABLE_HOOKS:
         if context.rows_in is not None:
             instruments.rows_in.add(context.rows_in, attributes)
         if context.rows_out is not None:
@@ -103,8 +115,9 @@ def record_run(instruments: Instruments, run: RunContext, outcome: LifecycleOutc
     if started_at is None:
         return
     attributes: dict[str, str] = {"mloda.run.status": outcome.status}
-    if outcome.status == "failed" and outcome.error_type is not None:
-        attributes["error.type"] = outcome.error_type
+    key = outcome_attribute_key(outcome.status)
+    if key is not None and outcome.error_type is not None:
+        attributes[key] = outcome.error_type
     seconds = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
     instruments.run_duration.record(seconds, attributes)
 
@@ -179,11 +192,11 @@ class OtelMetricsExtender(Extender):
             result = func(*args, **kwargs)
         except BaseException as exc:
             seconds = time.perf_counter() - started
-            error_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
-            self._record(instruments, lambda i: record_step(i, context, seconds, error_type, ok=False))
+            error = exc
+            self._record(instruments, lambda i: record_step(i, context, seconds, exc=error))
             raise
         seconds = time.perf_counter() - started
-        self._record(instruments, lambda i: record_step(i, context, seconds, None, ok=True))
+        self._record(instruments, lambda i: record_step(i, context, seconds, exc=None))
         return result
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.

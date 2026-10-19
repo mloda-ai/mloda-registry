@@ -25,6 +25,7 @@ EXPECTED_OPERATION_NAMES: list[str] = [
     "ema",
     "ffill",
     "frame_aggregate",
+    "lookup",
     "offset",
     "percentile",
     "point_arithmetic",

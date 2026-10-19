@@ -9,6 +9,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 _CLAUDE_GUIDANCE = _REPO_ROOT / "CLAUDE.md"
 _AGENT_GUIDANCE = _REPO_ROOT / "AGENTS.md"
+_CONTRIBUTING = _REPO_ROOT / "CONTRIBUTING.md"
+_TOX_INI = _REPO_ROOT / "tox.ini"
 _PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
 _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
 _UV_PIN = r"(?<![\w-])uv==(\d+\.\d+\.\d+)"
@@ -64,3 +66,17 @@ def test_relock_guidance_names_the_uv_version_pinned_by_the_release_job() -> Non
 
     doc_versions = set(re.findall(_UV_PIN, _PACKAGING_DOC.read_text(encoding="utf-8")))
     assert doc_versions == pins, f"docs/packaging.md names {doc_versions}: {update_hint}"
+
+
+def test_contributing_lists_the_python_versions_tox_runs() -> None:
+    """CONTRIBUTING.md must list exactly the pythonXY environments defined in tox.ini."""
+    tox = _TOX_INI.read_text(encoding="utf-8")
+    envs = set(re.findall(r"\bpython(3\d+)\b", tox))
+    assert envs, "tox.ini defines no python3XX environment"
+    tox_versions = {f"3.{env[1:]}" for env in envs}
+
+    prerequisite = next(
+        line for line in _CONTRIBUTING.read_text(encoding="utf-8").splitlines() if line.startswith("- Python 3.")
+    )
+    listed = set(re.findall(r"3\.\d+", prerequisite.split("tested on", 1)[1]))
+    assert listed == tox_versions, f"CONTRIBUTING.md lists {sorted(listed)} but tox.ini runs {sorted(tox_versions)}"

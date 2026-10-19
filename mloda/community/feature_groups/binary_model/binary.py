@@ -102,7 +102,10 @@ def _build_argv(
         return [str(path)]
     if isinstance(override, (str, os.PathLike)):
         return [str(override)]
-    return list(override)
+    argv = list(override)
+    if not argv:
+        raise BinaryUnavailableError(f"BINARY_COMMAND_OVERRIDE for plugin_id {plugin_id!r} must not be empty")
+    return argv
 
 
 def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: float | None) -> bytes:

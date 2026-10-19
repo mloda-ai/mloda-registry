@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-from mloda.user import Feature, Options, PluginCollector, mloda
+import pytest
+from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarrow_binning import (
@@ -94,6 +95,18 @@ class TestBinningIntegration(DataOpsIntegrationTestBase):
         options = Options()
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+
+    def test_own_contradictory_n_bins_raises_name_agreement_error(self) -> None:
+        """The error is escalated: a contained match error would surface as FeatureResolutionError."""
+        feature = Feature("value_int__bin_3", options=Options(group={"n_bins": 2}))
+
+        with pytest.raises(ValueError, match=r"option 'n_bins' is int 2, but the feature name encodes '3'") as exc:
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[self.compute_framework_class()],
+                plugin_collector=self._plugin_collector(),
+            )
+        assert not isinstance(exc.value, FeatureResolutionError)
 
 
 class TestIntegrationMultipleFeatures:

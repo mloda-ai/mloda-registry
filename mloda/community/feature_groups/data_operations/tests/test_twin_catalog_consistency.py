@@ -74,6 +74,11 @@ TWIN_SPECS: dict[str, TwinSpec] = {
         base_module=f"{_TESTING}.row_preserving.frame_aggregate.frame_aggregate",
         base_class="FrameAggregateTestBase",
     ),
+    "lookup": TwinSpec(
+        tests_pkg=f"{_COMMUNITY}.row_preserving.lookup.tests",
+        base_module=f"{_TESTING}.row_preserving.lookup.lookup",
+        base_class="LookupTestBase",
+    ),
     "offset": TwinSpec(
         tests_pkg=f"{_COMMUNITY}.row_preserving.offset.tests",
         base_module=f"{_TESTING}.row_preserving.offset.offset",

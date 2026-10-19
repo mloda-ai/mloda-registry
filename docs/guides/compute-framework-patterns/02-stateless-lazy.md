@@ -28,10 +28,23 @@ def extract_column_names(cls, data: Any) -> set[str]:
     return set(data.collect_schema().names())
 
 
-def select_data_by_column_names(self, data, selected_feature_names):
+def select_data_by_column_names(
+    self,
+    data: Any,
+    selected_feature_names: Sequence[FeatureName],
+    column_ordering: str | None = None,
+    request_feature_order: list[str] | None = None,
+) -> Any:
     column_names = set(data.collect_schema().names())
-    _selected = self.identify_naming_convention(selected_feature_names, column_names)
+    _selected = self.identify_naming_convention(
+        selected_feature_names, column_names, ordering=column_ordering, request_feature_order=request_feature_order
+    )
     return data.select(list(_selected)).collect()  # Materialize HERE
+
+
+@classmethod
+def result_framework(cls) -> type[ComputeFramework]:
+    return PolarsDataFrame  # The type select_data_by_column_names returns
 
 
 def transform(self, data: Any, feature_names: set[str]) -> Any:
@@ -41,6 +54,11 @@ def transform(self, data: Any, feature_names: set[str]) -> Any:
         return data.lazy()  # Convert eager to lazy
     raise ValueError(f"Data type {type(data)} not supported")
 ```
+
+Two result hooks sit next to `select_data_by_column_names`:
+
+- `result_framework()` names the framework whose data type `select_data_by_column_names` returns. The default is the framework itself; override it when the selection materializes into another framework's type, as lazy Polars does (`PolarsDataFrame`). When no `output_framework` is set, plan steps and plan-lock records use it to name the result framework.
+- `select_native_data_by_column_names()` is called instead of `select_data_by_column_names` when the result data is already the `output_framework`'s data type. The default delegates, so it returns whatever `select_data_by_column_names` returns (lazy Polars keeps the default and collects). Override it to return the lazy frame (`data.select(...)` without `.collect()`) when a run should get your lazy type back.
 
 ## Real Implementations
 

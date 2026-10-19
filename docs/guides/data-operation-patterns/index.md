@@ -24,5 +24,6 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 14. [Resample](14-resample.md) - Collapse events onto a regular time grid (`{col}__resample_{n}_{unit}_{agg}`); the first `row_changing` operation
 15. [Sessionization](15-sessionization.md) - Assign a gap-threshold session id on an ordered timestamp (`{ts}__sessionize_{n}_{unit}`), per partition (row-preserving)
 16. [`return_data_type_rule` failure handling](16-return-data-type-rule.md) - The fail-fast, post-selection contract: why the type rules no longer catch extraction errors, how binning/resample matching was tightened so a selected feature never raises, and the completeness-test guard (#244 -> #265, core #485/#493)
-17. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
-18. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides
+17. [Key lookup](17-lookup.md) - Replace a key column with mapped values (`{col}__lookup`, `lookup_mapping`, `on_unmatched`), plus a plugin hook for external mapping tables (row-preserving)
+18. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
+19. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides

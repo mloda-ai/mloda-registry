@@ -9,7 +9,7 @@ How mloda determines which FeatureGroup handles a requested feature name.
 
 ## How It Works
 
-When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda checks each FeatureGroup's `match_feature_group_criteria()` method. Exactly one must return `True`.
+When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda checks each FeatureGroup's `match_feature_group_criteria()` method. Exactly one must return `True`. Community and enterprise FeatureGroups never accept the same name, since a license does not affect matching; `tests/test_end2end/test_community_enterprise_disjoint_names.py` enforces it.
 
 ---
 
@@ -203,7 +203,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
-`_resolve_operation` is only correct for the discriminator key (`MY_METHOD` above): it returns `PREFIX_PATTERN`'s first captured group on the string path, not the value for the key passed. See [Chained Features](03-chained-features.md) for how to read a second name-encoded key.
+With named captures, `_resolve_operation(feature, key)` returns the capture for any captured key, not just the discriminator; a positional pattern returns its first group whatever the key. See [Chained Features](03-chained-features.md) for the fallback rules.
 
 ### Why Unique Keys?
 

@@ -79,7 +79,7 @@ keywords = ["opentelemetry", "tracing", "metrics", "observability"]
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/otel"
 published = true
-optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "pyarrow"] }
+optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "pyarrow>=14.0.1"] }
 entry_point_groups = ["mloda.extenders", "mloda.optional_dependencies"]
 py_typed = true
 
@@ -89,7 +89,7 @@ keywords = ["openlineage", "lineage", "data-lineage"]
 dependencies = ["{core_dependency}", "openlineage-python>=1.36,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/openlineage"
 published = true
-optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow", "opentelemetry-sdk>=1.30,<2"] }
+optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow>=14.0.1", "opentelemetry-sdk>=1.30,<2"] }
 entry_point_groups = ["mloda.extenders", "mloda.optional_dependencies"]
 py_typed = true
 
@@ -127,7 +127,7 @@ keywords = ["aggregation", "group-by"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/aggregation"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-rank]
@@ -136,7 +136,7 @@ keywords = ["rank", "window-functions"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/rank"
 published = true
-optional_dependencies = { sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-offset]
@@ -145,7 +145,7 @@ keywords = ["lag", "lead", "window-functions"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/offset"
 published = true
-optional_dependencies = { sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-window-aggregation]
@@ -154,7 +154,7 @@ keywords = ["window-functions", "aggregation"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-frame-aggregate]
@@ -163,7 +163,7 @@ keywords = ["rolling-window", "window-functions"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate"
 published = true
-optional_dependencies = { sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.38"], pandas = ["pandas>=2.2"], all = ["polars>=1.38", "pandas>=2.2", "duckdb"] }
+optional_dependencies = { sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.38"], pandas = ["pandas>=2.2"], all = ["pyarrow>=14.0.1", "polars>=1.38", "pandas>=2.2", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-aggregate]
@@ -172,7 +172,7 @@ keywords = ["aggregation"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-arithmetic]
@@ -181,7 +181,7 @@ keywords = ["arithmetic"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-point-arithmetic]
@@ -190,7 +190,7 @@ keywords = ["arithmetic"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-datetime]
@@ -199,7 +199,7 @@ keywords = ["datetime", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/datetime"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-string]
@@ -208,7 +208,7 @@ keywords = ["string-operations", "text"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/string"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-binning]
@@ -217,7 +217,7 @@ keywords = ["binning", "discretization"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/binning"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-percentile]
@@ -226,7 +226,7 @@ keywords = ["percentile", "quantile"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/percentile"
 published = true
-optional_dependencies = { python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-time-bucketization]
@@ -235,7 +235,7 @@ keywords = ["time-bucketing", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ffill]
@@ -244,7 +244,7 @@ keywords = ["forward-fill", "imputation", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ffill"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ema]
@@ -262,7 +262,7 @@ keywords = ["sessionization", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/sessionization"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-resample]
@@ -271,7 +271,16 @@ keywords = ["resampling", "time-series"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_changing/resample"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
+
+[packages.mloda-community-lookup]
+description = "Key-lookup feature group (replace each key with its mapped value, on_unmatched raise/null/keep, row-preserving)"
+keywords = ["lookup", "mapping", "code-lists"]
+dependencies = ["mloda-community-data-operations>={version}"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/lookup"
+published = true
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 # --- Bundles ---
@@ -307,6 +316,7 @@ dependencies = [
     "mloda-community-ema=={version}",
     "mloda-community-sessionization=={version}",
     "mloda-community-resample=={version}",
+    "mloda-community-lookup=={version}",
 ]
 path = "mloda/community"
 published = true
@@ -334,7 +344,7 @@ py_typed = true
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
 keywords = ["testing", "pytest"]
-dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow"]
+dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow>=14.0.1"]
 path = "mloda/testing"
 published = true
 optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.36,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>={version}"] }

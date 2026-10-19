@@ -52,7 +52,7 @@ Team members install a specific version:
 pip install git+ssh://git@github.com/mycompany/acme-plugins.git@v1.0.0
 ```
 
-## Prerequisites
+## Access for Team Members
 
 - Team members need git SSH access to the private repo
 - For HTTPS, use `git+https://` with appropriate credentials

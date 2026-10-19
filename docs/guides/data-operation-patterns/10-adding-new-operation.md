@@ -8,7 +8,7 @@ End-to-end recipe for introducing a new data operation: base class, framework im
 **Where**: Code in `mloda/community/feature_groups/data_operations/{row_preserving|row_changing}/{your_category}/`, test bases in the same layout under `mloda/testing/feature_groups/data_operations/`.
 **How**: Follow the seven steps below in order; every existing category was built the same way. They live under `mloda/community/feature_groups/data_operations/`, split by row-count preservation:
 
-- `row_preserving/`: `binning`, `datetime`, `ema`, `ffill`, `frame_aggregate`, `offset`, `percentile`, `point_arithmetic`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `sessionization`, `time_bucketization`, `window_aggregation`, `arithmetic` (shared base, not a category)
+- `row_preserving/`: `binning`, `datetime`, `ema`, `ffill`, `frame_aggregate`, `lookup`, `offset`, `percentile`, `point_arithmetic`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `sessionization`, `time_bucketization`, `window_aggregation`, `arithmetic` (shared base, not a category)
 - `row_changing/`: `resample`
 - directly under `data_operations/`: `aggregation`, `string`
 
@@ -191,6 +191,8 @@ class TestPandasYourOp(PandasTestMixin, YourOpTestBase):
 ```
 
 No test method bodies. Everything is inherited. If the framework cannot do one op, override `supported_ops` to return the subset; `_skip_if_unsupported` handles the skip.
+
+`PandasTestMixin` stores an int column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints.
 
 ---
 

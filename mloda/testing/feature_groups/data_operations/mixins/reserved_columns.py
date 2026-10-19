@@ -11,7 +11,8 @@ helper columns are made collision-free at runtime, so a user column of any name
   the FG's actual internal helpers SURVIVE unchanged in input row order. This is
   a real collision regression for row-preserving ops. It is opt-in: it runs only
   when ``reserved_columns_helper_names`` returns a non-empty set (default empty
-  skips), so ops that reduce rows or need extra options are unaffected.
+  skips), so ops that reduce rows are unaffected; ops that need extra options set
+  ``reserved_columns_extra_context``.
 
 Each feature-group test base mixes this in and overrides the abstract
 configuration methods to adapt the generic tests to its specific semantics
@@ -22,6 +23,8 @@ convention for shared mixin tests (see ``MaskTestMixin``).
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import pyarrow as pa
 import pytest
@@ -72,6 +75,11 @@ class ReservedColumnsTestMixin:
         return None
 
     @classmethod
+    def reserved_columns_extra_context(cls) -> dict[str, Any]:
+        """Extra Options context for ops that need more than partition/order keys (default: none)."""
+        return {}
+
+    @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
         """Internal helper column base names to exercise for collision survival.
 
@@ -88,8 +96,8 @@ class ReservedColumnsTestMixin:
         Defaults to an empty set (the survival test is skipped). The test is
         opt-in because it only makes sense for row-preserving ops whose
         FeatureSet is buildable from ``feature_name`` + ``partition_by`` +
-        ``order_by`` alone; ops that reduce rows or require extra options (e.g. a
-        ``constant``) must leave this empty. Override to enable it, e.g.
+        ``order_by`` plus ``reserved_columns_extra_context``; ops that reduce rows
+        must leave this empty. Override to enable it, e.g.
         ``{"__mloda_rn__"}`` (ffill / ema / sessionization / frame_aggregate).
         """
         return set()
@@ -118,6 +126,7 @@ class ReservedColumnsTestMixin:
             self.reserved_columns_feature_name(),
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
+            **self.reserved_columns_extra_context(),
         )
         result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
         assert result is not None
@@ -152,6 +161,7 @@ class ReservedColumnsTestMixin:
             self.reserved_columns_feature_name(),
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
+            **self.reserved_columns_extra_context(),
         )
         result = self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == n  # type: ignore[attr-defined]

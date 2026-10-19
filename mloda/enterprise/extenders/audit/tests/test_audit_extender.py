@@ -1596,8 +1596,8 @@ def _plan_ctx(structure_hash: str | None = _STRUCTURE_HASH) -> PlanContext:
     )
 
 
-def _calculate_in_run(extender: AuditExtender, run_id: str) -> None:
-    with make_hook_context(run_id=run_id, plan_id="plan-1").activate():
+def _calculate_in_run(extender: AuditExtender, run_id: str, structure_hash: str | None = None) -> None:
+    with make_hook_context(run_id=run_id, plan_id="plan-1", structure_hash=structure_hash).activate():
         extender(lambda: None)
 
 
@@ -1670,25 +1670,26 @@ def _calculate_record(**context: Any) -> dict[str, Any]:
 
 
 class TestAuditExtenderStructureHash:
-    def test_a_run_record_carries_the_structure_hash_of_its_run_until_on_run_complete(self) -> None:
+    """The record hash is the hook context's, not one cached from the plan at on_run_start."""
+
+    _CONTEXT_HASH = "c" * 64
+
+    def test_a_record_carries_the_hook_context_hash_not_the_plan_hash(self) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
 
-        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
-        _calculate_in_run(extender, _RUN_UUID)
-        extender.on_run_complete(RunContext(run_id=_RUN_UUID), _SUCCEEDED)
-        _calculate_in_run(extender, _RUN_UUID)
+        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx("p" * 64), ())
+        _calculate_in_run(extender, _RUN_UUID, self._CONTEXT_HASH)
 
-        assert [record["structure_hash"] for record in sink.records] == [_STRUCTURE_HASH, None]
+        assert sink.records[0]["structure_hash"] == self._CONTEXT_HASH
 
-    @pytest.mark.parametrize("setup", ["never_started", "started_without_hash", "plan_time_matched"])
-    def test_a_record_without_a_run_structure_hash_has_none(self, setup: str) -> None:
+    @pytest.mark.parametrize("setup", ["never_started", "started_with_plan_hash", "plan_time_matched"])
+    def test_a_record_without_a_context_structure_hash_has_none(self, setup: str) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
-        if setup == "started_without_hash":
-            extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(None), ())
-        if setup == "plan_time_matched":
+        if setup == "started_with_plan_hash":
             extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
+        if setup == "plan_time_matched":
             with make_hook_context(
                 hook=ExtenderHook.FEATURE_GROUP_MATCHED,
                 feature_group_class=None,
@@ -1702,38 +1703,47 @@ class TestAuditExtenderStructureHash:
 
         assert sink.records[0]["structure_hash"] is None
 
-    def test_concurrent_runs_keep_their_own_hash(self) -> None:
+    def test_concurrent_runs_keep_their_own_context_hash(self) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
         other = str(uuid.uuid4())
 
-        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx("a" * 64), ())
-        extender.on_run_start(RunContext(run_id=other, plan_id="plan-1"), _plan_ctx("b" * 64), ())
-        _calculate_in_run(extender, _RUN_UUID)
-        _calculate_in_run(extender, other)
+        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx("p" * 64), ())
+        extender.on_run_start(RunContext(run_id=other, plan_id="plan-1"), _plan_ctx("p" * 64), ())
+        _calculate_in_run(extender, _RUN_UUID, "a" * 64)
+        _calculate_in_run(extender, other, "b" * 64)
 
         assert [record["structure_hash"] for record in sink.records] == ["a" * 64, "b" * 64]
 
-    def test_a_pickled_copy_still_stamps_the_hash(self) -> None:
+    def test_a_pickled_copy_still_stamps_the_context_hash(self) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
-        extender.on_run_start(RunContext(run_id=_RUN_UUID, plan_id="plan-1"), _plan_ctx(), ())
 
         copy = pickle.loads(pickle.dumps(extender))  # nosec
-        _calculate_in_run(copy, _RUN_UUID)
+        _calculate_in_run(copy, _RUN_UUID, self._CONTEXT_HASH)
 
-        assert copy.sink.records[0]["structure_hash"] == _STRUCTURE_HASH
+        assert copy.sink.records[0]["structure_hash"] == self._CONTEXT_HASH
 
-    def test_the_fail_closed_run_start_refusal_record_carries_the_plan_hash(self) -> None:
+    @pytest.mark.parametrize(
+        ("plan_hash", "run_hash", "expected"),
+        [
+            ("p" * 64, _CONTEXT_HASH, _CONTEXT_HASH),
+            (None, _CONTEXT_HASH, _CONTEXT_HASH),
+            ("p" * 64, None, None),
+        ],
+    )
+    def test_the_fail_closed_run_start_refusal_record_carries_the_run_context_hash(
+        self, plan_hash: str | None, run_hash: str | None, expected: str | None
+    ) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink, fail_closed=True)
-        run = RunContext(run_id="run-1", plan_id="plan-1", project_id="p", principal="svc")
+        run = RunContext(run_id="run-1", plan_id="plan-1", project_id="p", principal="svc", structure_hash=run_hash)
 
         with pytest.raises(IdentityRequiredError):
-            extender.on_run_start(run, _plan_ctx(), ())
+            extender.on_run_start(run, _plan_ctx(plan_hash), ())
 
         assert sink.records[0]["hook"] == "RUN_START"
-        assert sink.records[0]["structure_hash"] == _STRUCTURE_HASH
+        assert sink.records[0]["structure_hash"] == expected
 
 
 class TestAuditExtenderRecordV2:

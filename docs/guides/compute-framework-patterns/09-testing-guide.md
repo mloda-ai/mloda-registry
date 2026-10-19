@@ -301,6 +301,7 @@ class TestMyTransformer:
 ### Framework
 - [ ] `is_available()` returns correct boolean
 - [ ] `expected_data_framework()` returns correct type
+- [ ] `result_framework()` names the framework of the returned frame type
 - [ ] `merge_engine()` returns BaseMergeEngine subclass
 - [ ] `filter_engine()` returns BaseFilterEngine subclass
 - [ ] `mask_engine()` returns BaseMaskEngine subclass

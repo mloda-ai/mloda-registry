@@ -2,7 +2,7 @@
 
 Why the `data_operations` rules no longer wrap op-extraction in a broad `except Exception: return None`, what the fail-fast contract is, and how the decision moved from issue [#244](https://github.com/mloda-ai/mloda-registry/issues/244) to its resolution in [#265](https://github.com/mloda-ai/mloda-registry/issues/265) and mloda core [#485](https://github.com/mloda-ai/mloda/issues/485) / PR [#493](https://github.com/mloda-ai/mloda/pull/493).
 
-**What**: The failure-handling contract for `return_data_type_rule` on the ten `data_operations` base classes that declare a deterministic output type.
+**What**: The failure-handling contract for `return_data_type_rule` on the eleven `data_operations` base classes that declare a deterministic output type.
 **When**: Read this before adding a type rule to a new operation, before adding any defensive catch to one, or before touching the matching/validation of an operation whose rule extracts from the feature.
 **Why**: The rule is a planning-time hint that runs only *after* a feature group is already selected, and mloda core calls it unguarded. The contract is therefore fail-fast: a rule that raises signals a real bug in a committed component and must surface, not be swallowed. This page records that decision and how it superseded the earlier "keep a broad catch" position.
 **Where**: `return_data_type_rule` on the base classes under `mloda/community/feature_groups/data_operations/`, the framework call site `engine.set_data_type` in mloda core, and the cross-cutting guard test `tests/test_return_data_type_rule_invariants.py`.
@@ -30,7 +30,7 @@ There is no `try/except` around that call, by design. Crucially, `return_data_ty
 
 ## The shape: pure extract, then map
 
-Each of the ten rules is a pure extract-then-map, with no catch (here, aggregation):
+Each of the eleven rules is a pure extract-then-map, with no catch (here, aggregation):
 
 ```python
 @classmethod
@@ -56,13 +56,13 @@ Three families were exceptions where a *selected* feature could still reach a ra
 - **resample.** `PREFIX_PATTERN` used `\d+`, so `value__resample_0_hour_mean` matched and `_parse_resample_op` then raised on `n <= 0`; `resample_op` was not a `PROPERTY_MAPPING` key. Fixed at the time by tightening the pattern and adding a `match_guard`. Now uses `FeatureChainParser.parse_feature_name` with a capturing `PREFIX_PATTERN` (`[a-z]+`, not `\w+`, to avoid regex backtracking) plus a `_validate_string_match` override that rejects bad tokens via `_parse_resample_op`, mirroring `time_bucketization`. A selected resample feature still always has `n >= 1`, a known unit/agg, and a parseable token.
 - **frame_aggregate.** The config match branch validated the aggregation and frame options but not `in_features`, so a config feature with no source column was selected and the rule's `_extract_params` then raised from `get_in_features()`. Fixed by requiring `in_features` on the config match branch (name-based features are unaffected, since they encode the source in the name). A selected config frame_aggregate feature now always has a source column.
 
-With those three fixes in place, removing all ten catches keeps the fail-fast contract intact: matched features do not raise, and genuinely broken code does.
+With those three fixes in place, removing all eleven catches keeps the fail-fast contract intact: matched features do not raise, and genuinely broken code does.
 
 ## Guarding against silent regressions
 
 Removing the runtime catch does not weaken observability of the "hidden bug" case; it strengthens it, and the CI guard is unchanged:
 
-- `tests/test_return_data_type_rule_invariants.py::test_completeness` enumerates, for all ten base classes, a representative feature for each deterministic op and asserts the rule returns the expected non-`None` `DataType`. Any extraction regression that would have silently returned `None` now fails CI here.
+- `tests/test_return_data_type_rule_invariants.py::test_completeness` enumerates, for all eleven base classes, a representative feature for each deterministic op and asserts the rule returns the expected non-`None` `DataType`. Any extraction regression that would have silently returned `None` now fails CI here.
 - `test_matching_feature_never_raises` asserts the current contract: for every base class, a **matching** feature makes the rule return `None` or a `DataType` without raising. (This replaces the old `test_invariant_never_raises`, which fed arbitrary unselected garbage straight to the rule and demanded no-raise. That encoded a never-raises-for-anything invariant the framework does not actually need, since the rule only ever sees matched features.)
 - `test_matched_numeric_boundary_never_raises` generalizes the numeric-boundary axis to **every** family via a registry-driven fuzzer: it mutates each family's generated valid names to a zero/non-positive count (`0`, `00`) and asserts anything still matched still types without raising. This covers resample's match-time narrowing (`_validate_string_match`) automatically. `offset`/`rank` emit their numeric forms explicitly since the `>= 1` guard lives in the extractor, not the pattern; `frame_aggregate`'s options-driven case stays explicit in `test_matched_config_boundary_never_raises`.
 

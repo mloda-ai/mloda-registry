@@ -63,7 +63,7 @@ _STEP_DURATION = "mloda.step.duration"
 _ROWS_IN = "mloda.step.rows.in"
 _ROWS_OUT = "mloda.step.rows.out"
 _STEP_ATTRIBUTES = {"mloda.operation.name", "mloda.feature_group.name", "mloda.compute_framework.name"}
-_METRIC_ATTRIBUTE_ALLOWLIST = _STEP_ATTRIBUTES | {"error.type", "mloda.run.status"}
+_METRIC_ATTRIBUTE_ALLOWLIST = _STEP_ATTRIBUTES | {"error.type", "mloda.cancel.type", "mloda.run.status"}
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
 
 
@@ -562,7 +562,9 @@ class TestOtelMetricsExtenderMetrics:
 
         _failing_step(OtelMetricsExtender(meter_provider=provider), _Halt("halt"))
 
-        assert _single_point(reader, _STEP_DURATION).attributes["error.type"] == _failure_type(_Halt)
+        attributes = _single_point(reader, _STEP_DURATION).attributes
+        assert attributes["mloda.cancel.type"] == _failure_type(_Halt)
+        assert "error.type" not in attributes
 
     def test_success_has_no_error_type(self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]) -> None:
         provider, reader = metric_capture
@@ -683,13 +685,21 @@ class TestOtelMetricsExtenderMetrics:
 
         assert 0.05 <= _single_point(reader, _STEP_DURATION).sum < 5
 
-    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
+    @pytest.mark.parametrize(
+        ("status", "error_type"),
+        [
+            ("succeeded", None),
+            ("failed", "ValueError"),
+            ("cancelled", "builtins.SystemExit"),
+            ("cancelled", None),
+        ],
+        ids=["succeeded", "failed", "cancelled", "cancelled_without_type"],
+    )
     def test_run_duration_is_recorded_with_the_run_status(
-        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], status: Any
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], status: Any, error_type: str | None
     ) -> None:
         provider, reader = metric_capture
         started_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=2)
-        error_type = "ValueError" if status == "failed" else None
 
         _complete_run(
             OtelMetricsExtender(meter_provider=provider),
@@ -702,7 +712,7 @@ class TestOtelMetricsExtenderMetrics:
         point = _single_point(reader, _RUN_DURATION)
         expected: dict[str, str] = {"mloda.run.status": status}
         if error_type is not None:
-            expected["error.type"] = error_type
+            expected["mloda.cancel.type" if status == "cancelled" else "error.type"] = error_type
         assert dict(point.attributes) == expected
         assert 2 <= point.sum < 60
 

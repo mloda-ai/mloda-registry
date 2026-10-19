@@ -1985,8 +1985,9 @@ class TestOpenLineageExtenderParentRunFacet:
 _PLAN_ID = "plan-0001"
 
 
-def _plan(structure_hash: str | None = None) -> PlanContext:
+def _plan(structure_hash: str | None = None, origin: Any = None) -> PlanContext:
     return PlanContext(
+        origin=origin,
         plan_id=_PLAN_ID,
         tenant_id=None,
         project_id=None,
@@ -2028,6 +2029,7 @@ class TestOpenLineageExtenderParentRun:
         assert _plan_facet(event)["_producer"] == extender.producer
         assert event.producer == extender.producer
         assert "structureHash" not in _plan_facet(event)
+        assert "origin" not in _plan_facet(event)
 
     def test_run_start_uses_the_custom_namespace_and_root_job_name_and_now_without_started_at(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -2048,9 +2050,9 @@ class TestOpenLineageExtenderParentRun:
             pytest.param("succeeded", None, RunState.COMPLETE, id="succeeded"),
             pytest.param("failed", None, RunState.FAIL, id="failed"),
             pytest.param("cancelled", None, RunState.ABORT, id="cancelled"),
-            pytest.param("failed", "SystemExit", RunState.ABORT, id="failed-system-exit"),
+            pytest.param("failed", "SystemExit", RunState.FAIL, id="failed-system-exit"),
             pytest.param(
-                "failed", "builtins.KeyboardInterrupt", RunState.ABORT, id="failed-qualified-keyboard-interrupt"
+                "cancelled", "builtins.KeyboardInterrupt", RunState.ABORT, id="cancelled-qualified-keyboard-interrupt"
             ),
             pytest.param("failed", "ValueError", RunState.FAIL, id="failed-value-error"),
         ],
@@ -2075,20 +2077,23 @@ class TestOpenLineageExtenderParentRun:
         assert terminal.job.name == "mloda.run_all"
         assert _plan_facet(terminal)["planId"] == _PLAN_ID
         assert "structureHash" not in _plan_facet(terminal)
+        assert "origin" not in _plan_facet(terminal)
 
     @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
-    def test_start_and_terminal_facets_carry_the_structure_hash(
+    def test_start_and_terminal_facets_carry_the_structure_hash_and_origin(
         self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
 
-        extender.on_run_start(run, _plan("h" * 64), ())
+        extender.on_run_start(run, _plan("h" * 64, origin="prepare"), ())
         extender.on_run_complete(run, LifecycleOutcome(status=status))
 
         assert len(transport.events) == 2
         assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
+        assert [_plan_facet(event)["origin"] for event in transport.events] == ["prepare", "prepare"]
+        assert {event.job.name for event in transport.events} == {"mloda.run_all"}
 
     @pytest.mark.parametrize(
         ("broken", "has_facet", "adapter_present"),
@@ -3635,6 +3640,7 @@ class TestOpenLineageExtenderRunAll:
         assert [e["eventType"] for e in root] == ["START", "COMPLETE"]
         assert "processingEngine" in root[0]["run"]["facets"]
         assert "mlodaPlan" in root[0]["run"]["facets"]
+        assert root[0]["run"]["facets"]["mlodaPlan"]["origin"] == "run_all"
         assert steps
         for event in steps:
             assert "mlodaStep" in event["run"]["facets"]
