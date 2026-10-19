@@ -134,6 +134,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
             mask=("category", "equal", "X"),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
@@ -146,6 +147,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
             mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
@@ -158,6 +160,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
             mask=("region", "is_in", ["A", "C"]),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
@@ -170,6 +173,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
             mask=("value_int", "greater_than", 10),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
@@ -182,6 +186,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
             mask=("category", "equal", "Z"),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
@@ -195,6 +200,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
             mask=("no_such_col", "equal", "X"),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         with pytest.raises(ValueError, match="mask column 'no_such_col' is not present"):
             self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
@@ -205,6 +211,7 @@ class MaskTestMixin:
             self.mask_feature_name(),
             self.mask_partition_by(),
             self.mask_order_by(),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
@@ -278,10 +285,18 @@ class MaskTestMixin:
         control_data = self.create_test_data(control_table)  # type: ignore[attr-defined]
 
         fs_actual = make_feature_set(
-            self.mask_feature_name(), self.mask_partition_by(), self.mask_order_by(), mask=mask_spec
+            self.mask_feature_name(),
+            self.mask_partition_by(),
+            self.mask_order_by(),
+            mask=mask_spec,
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         fs_control = make_feature_set(
-            self.mask_feature_name(), self.mask_partition_by(), self.mask_order_by(), mask=control_mask_spec
+            self.mask_feature_name(),
+            self.mask_partition_by(),
+            self.mask_order_by(),
+            mask=control_mask_spec,
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
 
         actual_result = self.implementation_class().calculate_feature(actual_data, fs_actual)  # type: ignore[attr-defined]

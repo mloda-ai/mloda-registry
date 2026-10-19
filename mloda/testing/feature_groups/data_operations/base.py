@@ -183,7 +183,8 @@ class DataOpsTestBase(ABC):
         """
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        # One shared set is valid because PROPERTY_MAPPING lives on the base both classes inherit.
+        # Assumes the implementation and the reference share PROPERTY_MAPPING;
+        # the reference sees the implementation's defaults.
         fs = make_feature_set(
             feature_name,
             partition_by=partition_by,

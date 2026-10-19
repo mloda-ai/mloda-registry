@@ -113,7 +113,8 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         assert case is not None, f"{input_validation_case!r} should not be parametrized when its case is None"
 
         data = self._case_test_data(case)
-        fs = make_feature_set(case.feature_name, **case.context)
+        group = self.implementation_class()  # type: ignore[attr-defined]
+        fs = make_feature_set(case.feature_name, feature_group=group, **case.context)
         with pytest.raises(ValueError, match=case.match):
             self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
 
@@ -127,7 +128,8 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
 
         data = self._case_test_data(case)
         # Empty both the raw option and the resolved value, since some ops read the raw option instead.
-        fs = make_feature_set(case.feature_name, **{**case.context, "in_features": []})
+        group = self.implementation_class()  # type: ignore[attr-defined]
+        fs = make_feature_set(case.feature_name, feature_group=group, **{**case.context, "in_features": []})
         feature = next(iter(fs.features))
         with patch.object(feature.options, "get_in_features", return_value=frozenset()):
             with pytest.raises(ValueError, match=r"requires at least \d+ in_feature"):

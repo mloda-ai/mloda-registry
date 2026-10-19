@@ -568,7 +568,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_hook_output(self) -> None:
         hook = self._hook()
-        fs = make_feature_set(f"product_code__{HOOK_SUFFIX}", on_unmatched="null")
+        fs = make_feature_set(f"product_code__{HOOK_SUFFIX}", feature_group=hook, on_unmatched="null")
         result = hook.calculate_feature(self.test_data, fs)
         col = self.extract_column(result, f"product_code__{HOOK_SUFFIX}")
         assert_values_with_nulls(col, NULL_STR_PARTIAL)
@@ -577,13 +577,14 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         hook = self.invalid_hook_implementation_class()
         if hook is None:
             pytest.skip("no invalid hook subclass declared for this framework")
-        fs = make_feature_set("product_code__emptymap", on_unmatched="null")
+        fs = make_feature_set("product_code__emptymap", feature_group=hook, on_unmatched="null")
         with pytest.raises(ValueError, match="invalid lookup mapping"):
             hook.calculate_feature(self.test_data, fs)
 
     def test_hook_reasons_in_error(self) -> None:
         hook = self._hook()
         name = f"product_code__{HOOK_SUFFIX}"
+        # Deliberately keeps no feature_group so the backend's unset-on_unmatched fallback stays covered.
         with pytest.raises(LookupUnmatchedError) as excinfo:
             hook.calculate_feature(self.test_data, make_feature_set(name))
         err = excinfo.value

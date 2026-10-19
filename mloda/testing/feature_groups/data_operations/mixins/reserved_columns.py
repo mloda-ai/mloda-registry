@@ -127,6 +127,7 @@ class ReservedColumnsTestMixin:
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
             **self.reserved_columns_extra_context(),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
         assert result is not None
@@ -162,6 +163,7 @@ class ReservedColumnsTestMixin:
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
             **self.reserved_columns_extra_context(),
+            feature_group=self.implementation_class(),  # type: ignore[attr-defined]
         )
         result = self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == n  # type: ignore[attr-defined]

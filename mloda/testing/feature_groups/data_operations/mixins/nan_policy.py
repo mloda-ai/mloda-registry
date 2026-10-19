@@ -69,7 +69,8 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
     @classmethod
     def nan_policy_feature_set(cls, feature_name: str) -> FeatureSet:
         """FeatureSet to run for ``feature_name``. Default: partitioned by 'grp'."""
-        return make_feature_set(feature_name, ["grp"], feature_group=cls.implementation_class())  # type: ignore[attr-defined]
+        group = cls.implementation_class()  # type: ignore[attr-defined]
+        return make_feature_set(feature_name, ["grp"], feature_group=group)
 
     def nan_policy_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
         """Skip the case if unsupported. Default: probe ``agg_type`` via ``_skip_if_unsupported``."""

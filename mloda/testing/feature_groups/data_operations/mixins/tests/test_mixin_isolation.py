@@ -26,6 +26,7 @@ from typing import Any, ClassVar, Iterator, cast
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureGroup
 
 import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
@@ -421,7 +422,7 @@ class TestMixinIsolation:
     def test_input_validation_empty_in_features_derived_from_multi_column_case(self) -> None:
         """test_mixin_empty_in_features derives a zero-in_features check from the multi_column case."""
 
-        class _FakeImplementation:
+        class _FakeImplementation(FeatureGroup):
             @staticmethod
             def calculate_feature(data: Any, fs: Any) -> Any:
                 feature = next(iter(fs.features))
@@ -473,7 +474,7 @@ class TestMixinIsolation:
             HostReason().test_mixin_empty_in_features()
 
         # 4. An implementation that never raises must fail the test with pytest.fail.
-        class _NeverRaisingImplementation:
+        class _NeverRaisingImplementation(FeatureGroup):
             @staticmethod
             def calculate_feature(data: Any, fs: Any) -> Any:
                 return data
