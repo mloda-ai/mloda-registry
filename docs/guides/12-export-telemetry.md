@@ -182,7 +182,7 @@ Spans and metrics are metadata only by default; metrics carry a small subset (se
 - **Recorded, review before export:** feature, feature group (also in span names) and compute framework names and versions; plugin versions; row counts; `mloda.data_access.identity` and `mloda.data_access.format` on load spans; `mloda.join.keys` (column names); `mloda.declared.*` (scalars a feature group author declares, also recorded as the `mlodaDeclared` facet and in the audit record); `mloda.data.classification` (with `classification_undeclared`); run, plan and step ids; the worker index. By default the data-access identity is a URI's scheme, host and path, a local path, or mapping keys (never mapping values), but a reader can override `data_access_identity`, and a path can still name a customer, so review custom readers.
 - **Content previews are opt-in:** `OtelExtender(capture_content=True, mask=...)` records a bounded, scrubbed preview of the masked result as `mloda.content.preview`; `capture_content=True` without a `mask` raises. `MLODA_OTEL_TRACE_CONTENT=true` (or `1`) turns capture on for extenders left at the default `capture_content=None`, still only with a `mask`; without one it warns once and records nothing. An explicit `capture_content=False` wins over the env var.
 - **Identity:** `OtelExtender` records no tenant, project or principal. The enterprise `OtelLogAuditSink` pseudonymises only the principal (`user.hash`, only with a `user_hash_key`) and exports `mloda.tenant.id` and `mloda.project.id` as given; see [Verified run context](11-create-extender.md#verified-run-context).
-- **OpenLineage:** events carry job names, input feature names, output schema fields (names and types) and load dataset names (derived from core's data-access identity; the `dataSource` facet carries the identity itself, as on load spans; the `mlodaDeclared` facet carries the scalars a reader declares on input datasets and a feature group declares on output datasets); with `classification_undeclared`, output datasets also carry a `mloda.data.classification` tag; `ownership` facets carry the owner names a feature group declares (`mloda.owner`) and the deployer passes as `dataset_owners`.
+- **OpenLineage:** events carry job names, input feature names, output schema fields (names and types) and load dataset names (derived from core's data-access identity; the `dataSource` facet carries the identity itself, as on load spans; the `mlodaDeclared` facet carries the scalars a reader declares on input datasets and a feature group declares on output datasets); with `classification_undeclared`, output datasets also carry a `mloda.data.classification` tag; `ownership` facets carry the owner names a feature group declares (`mloda.owner`) and the deployer passes as `dataset_owners`; step runs carry the feature group, plugin and compute framework versions (`mlodaStep`), the root run the mloda version (`processingEngine`), and output datasets the step's row count (`outputStatistics`), with no opt-out.
 - **Your application's own logs** are outside these guarantees: a logging bridge to OTel ships whatever your code and libraries log.
 
 The Collector `redaction` processor is a second line of defence. Keep `allow_all_keys: true`, otherwise every `mloda.*` key not listed is dropped:
@@ -200,6 +200,36 @@ It sees what passes through the Collector only; OpenLineage events go straight t
 ## OpenLineage
 
 `OpenLineageExtender(use_sdk_defaults=True)` uses openlineage-python's own configuration, with no vendor code in mloda: `OPENLINEAGE_URL` (plus `OPENLINEAGE_API_KEY`), or `OPENLINEAGE_CONFIG` / `openlineage.yml` / `OPENLINEAGE__TRANSPORT__*` for any openlineage-python transport (`http`, `async_http`, `kafka` with `openlineage-python[kafka]`, cloud transports, `composite`). With nothing configured it falls back to the console transport, which logs every full event at INFO; set `OPENLINEAGE_DISABLED=true` to turn it off. Emission runs on the calculation thread, so prefer `async_http` or a short timeout. See [Sink Resolution](11-create-extender.md#sink-resolution) and [Emitting on the calculation thread](11-create-extender.md#emitting-on-the-calculation-thread).
+
+### Local run record without a backend
+
+To answer "where does this value come from?" or "what changed since the last run?" without Marquez or Tempo, write the events to a local file with openlineage-python's `file` transport:
+
+```yaml
+# openlineage.yml (or point OPENLINEAGE_CONFIG at it)
+transport:
+  type: file
+  log_file_path: runs/openlineage.ndjson
+  append: true
+```
+
+```python
+OpenLineageExtender(use_sdk_defaults=True)
+```
+
+Each line is one event. Per run:
+
+- **Root run** (job `mloda.run_all`, runId = `mloda.run.id`): `mlodaPlan` (plan id, structure hash) and `processingEngine` (`name: mloda`, the mloda version, and the `mloda-community-openlineage` version as `openlineageAdapterVersion`).
+- **Each calculate step** (job = feature group): `mlodaStep` (`featureGroupVersion`, `pluginVersion`, `computeFramework`; a field core does not know is omitted) and `parent` (the root run).
+- **Inputs:** loaded datasets with `dataSource` (core's data-access identity) and the step's declared input features.
+- **COMPLETE outputs:** one per feature, with `schema` and `outputStatistics.rowCount`. The count is the step's, repeated on every output of a multi-output step, so never sum it across outputs.
+
+Notes:
+
+- With `append: true`, runs accumulate in one file; group lines by the root runId (each step's `parent` facet points at it). Set `append` in the YAML file: as an `OPENLINEAGE__TRANSPORT__APPEND` env var it is a string, so even `false` turns it on.
+- Without `append`, every event goes to its own `<log_file_path>-<timestamp>.json` file.
+- Under `MULTIPROCESSING` each worker writes to the same path, and an appended line stays whole only while the event fits one write. Leave `append` off there.
+- For the plan structure itself (which groups, readers and frameworks, and how they are wired), keep a plan lock next to the record: see [plan lock tests](feature-group-patterns/10-testing-guide.md).
 
 ## Traces and lineage
 

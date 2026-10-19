@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import importlib.metadata
 import logging
 import os
 import threading
@@ -38,9 +39,11 @@ from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import (
     datasource_dataset,
+    output_statistics_output_dataset,
     ownership_dataset,
     ownership_job,
     parent_run,
+    processing_engine_run,
     schema_dataset,
     tags_dataset,
 )
@@ -141,6 +144,35 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
         return state
 
 
+def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
+    # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+    from mloda.community.extenders.openlineage._facets import MlodaStepRunFacet
+
+    return {
+        "mlodaStep": MlodaStepRunFacet(
+            featureGroupVersion=context.feature_group_version,
+            pluginVersion=context.plugin_version,
+            computeFramework=context.compute_framework_name,
+            producer=producer,
+        )
+    }
+
+
+def _processing_engine_facet(producer: str) -> processing_engine_run.ProcessingEngineRunFacet | None:
+    """The mloda engine facet, or None when the mloda distribution is not installed."""
+    try:
+        engine_version = importlib.metadata.version("mloda")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    try:
+        adapter_version: str | None = importlib.metadata.version("mloda-community-openlineage")
+    except importlib.metadata.PackageNotFoundError:
+        adapter_version = None
+    return processing_engine_run.ProcessingEngineRunFacet(
+        name="mloda", version=engine_version, openlineageAdapterVersion=adapter_version, producer=producer
+    )
+
+
 def _with_declared(
     facets: dict[str, Any], declared: dict[str, str | int | float | bool], producer: str
 ) -> dict[str, Any]:
@@ -194,7 +226,10 @@ class OpenLineageExtender(Extender):
     OPENLINEAGE_PARENT_ID/OPENLINEAGE_ROOT_PARENT_ID, attach the run to an orchestrator run.
     classification_undeclared (default None, off) tags each COMPLETE output dataset with its effective
     `mloda.data.classification` in a standard `tags` facet. A group's declared `mloda.owner` (comma separated) becomes
-    the calculate job's ownership facet; dataset_owners maps a load's (namespace, name) to its dataset owners."""
+    the calculate job's ownership facet; dataset_owners maps a load's (namespace, name) to its dataset owners.
+    Each calculate run also carries an mlodaStep facet (added outside the _calculate_run_facets seam, so a subclass
+    cannot drop it there), each COMPLETE output an outputStatistics facet when rows_out is known, and the parent run
+    a processingEngine facet."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -373,6 +408,9 @@ class OpenLineageExtender(Extender):
                 root=self._root_object(),
                 producer=self.producer,
             )
+        engine = _processing_engine_facet(self.producer)
+        if engine is not None:
+            facets["processingEngine"] = engine
         return RunEvent(
             eventType=state,
             eventTime=event_time,
@@ -562,6 +600,15 @@ class OpenLineageExtender(Extender):
 
         def build_outputs(inputs: list[InputDataset]) -> list[OutputDataset]:
             fields = _schema_dataset_fields(context.output_schema)
+            output_statistics = (
+                {
+                    "outputStatistics": output_statistics_output_dataset.OutputStatisticsOutputDatasetFacet(
+                        rowCount=context.rows_out, producer=self.producer
+                    )
+                }
+                if context.rows_out is not None
+                else None
+            )
             return [
                 _build_output_dataset(
                     self.dataset_namespace,
@@ -575,6 +622,7 @@ class OpenLineageExtender(Extender):
                         levels.get(name),
                         self.producer,
                     ),
+                    output_statistics,
                 )
                 for name in context.feature_names
             ]
@@ -588,7 +636,7 @@ class OpenLineageExtender(Extender):
                 name=owner_name(context, func),
                 facets=_job_ownership_facets(declared, self.producer),
             ),
-            run_facets=self._calculate_run_facets(context, func, args),
+            run_facets={**self._calculate_run_facets(context, func, args), **_step_facets(context, self.producer)},
             declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)
                 for name in sorted(context.input_features or ())
@@ -785,13 +833,14 @@ def _build_output_dataset(
     fields: list[schema_dataset.SchemaDatasetFacetFields],
     producer: str,
     extra_facets: dict[str, Any],
+    output_facets: dict[str, Any] | None = None,
 ) -> OutputDataset:
     facets: dict[str, Any] = {}
     first_match = next((f for f in fields if f.name == name), None)
     if first_match is not None:
         facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=producer)
     facets.update(extra_facets)
-    return OutputDataset(namespace=namespace, name=name, facets=facets)
+    return OutputDataset(namespace=namespace, name=name, facets=facets, outputFacets=output_facets or {})
 
 
 def _with_classification_tag(facets: dict[str, Any], level: str | None, producer: str) -> dict[str, Any]:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import atexit
 import copy
 import gc
+import importlib.metadata
 import json
 import logging
 import os
@@ -1737,6 +1738,27 @@ class TestOpenLineageExtenderCompleteEvent:
         assert [f.name for f in str_schema.fields] == ["value_str"]
         assert [f.type for f in str_schema.fields] == ["string"]
 
+    @pytest.mark.parametrize("rows_out", [None, 3])
+    def test_output_statistics_facet_carries_rows_out_only_when_known(
+        self, rows_out: int | None, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("value_int", "value_str"), rows_out=rows_out)
+
+        with context.activate():
+            OpenLineageExtender(client=client)(lambda: None)
+
+        outputs = json.loads(Serde.to_json(transport.events[1]))["outputs"]
+        assert [output["name"] for output in outputs] == ["value_int", "value_str"]
+        for output in outputs:
+            statistics = (output.get("outputFacets") or {}).get("outputStatistics")
+            if rows_out is None:
+                assert statistics is None
+            else:
+                assert statistics is not None
+                assert statistics["rowCount"] == rows_out
+                assert statistics["_producer"] == transport.events[1].producer
+
     def test_schema_facet_never_leaks_columns_outside_feature_names(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -2050,6 +2072,62 @@ class TestOpenLineageExtenderParentRun:
 
         assert len(transport.events) == 2
         assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
+
+    @pytest.mark.parametrize(
+        ("missing", "adapter_version"),
+        [(None, importlib.metadata.version("mloda-community-openlineage")), ("mloda-community-openlineage", None)],
+    )
+    def test_root_events_carry_the_processing_engine_facet(
+        self,
+        missing: str | None,
+        adapter_version: str | None,
+        monkeypatch: pytest.MonkeyPatch,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+    ) -> None:
+        client, transport = ol_capture
+        real_version = importlib.metadata.version
+
+        def version(name: str) -> str:
+            if name == missing:
+                raise importlib.metadata.PackageNotFoundError(name)
+            return real_version(name)
+
+        monkeypatch.setattr(importlib.metadata, "version", version)
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert len(transport.events) == 2
+        for event in transport.events:
+            engine = json.loads(Serde.to_json(event))["run"]["facets"]["processingEngine"]
+            assert engine["name"] == "mloda"
+            assert engine["version"] == real_version("mloda")
+            assert engine.get("openlineageAdapterVersion") == adapter_version
+            assert engine["_producer"] == extender.producer
+
+    def test_root_events_omit_the_processing_engine_facet_without_the_mloda_distribution(
+        self, monkeypatch: pytest.MonkeyPatch, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        real_version = importlib.metadata.version
+
+        def version(name: str) -> str:
+            if name == "mloda":
+                raise importlib.metadata.PackageNotFoundError(name)
+            return real_version(name)
+
+        monkeypatch.setattr(importlib.metadata, "version", version)
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+
+        extender.on_run_start(run, _plan(), ())
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert len(transport.events) == 2
+        for event in transport.events:
+            assert "processingEngine" not in json.loads(Serde.to_json(event))["run"]["facets"]
 
     def test_run_complete_without_an_emitted_start_emits_nothing(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -3497,6 +3575,41 @@ class TestOpenLineageExtenderRunAll:
         # yields exactly "int" via the dict-interchange path; a silent regression to the arrow-schema
         # path (e.g. "int64") or to a garbage/empty type must fail loudly, not pass on a loose substring.
         assert schema_types == ["int"]
+
+    def test_documented_file_transport_recipe_writes_a_run_record(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """openlineage.yml with a file transport and use_sdk_defaults=True leaves one run's events as NDJSON."""
+        log_path = tmp_path / "events.ndjson"
+        config_path = tmp_path / "openlineage.yml"
+        config_path.write_text(f"transport:\n  type: file\n  log_file_path: {log_path}\n  append: true\n")
+        monkeypatch.delenv("OPENLINEAGE_DISABLED", raising=False)
+        monkeypatch.delenv("OPENLINEAGE_URL", raising=False)
+        for name in [name for name in os.environ if name.startswith("OPENLINEAGE__")]:
+            monkeypatch.delenv(name)
+        monkeypatch.setenv("OPENLINEAGE_CONFIG", str(config_path))
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        extender = OpenLineageExtender(use_sdk_defaults=True)
+
+        run_two_features(extender)
+        assert extender.close() is True
+
+        events = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        root = [e for e in events if e["job"]["name"] == "mloda.run_all"]
+        steps = [e for e in events if e["job"]["name"] != "mloda.run_all"]
+        assert [e["eventType"] for e in root] == ["START", "COMPLETE"]
+        assert "processingEngine" in root[0]["run"]["facets"]
+        assert "mlodaPlan" in root[0]["run"]["facets"]
+        assert steps
+        for event in steps:
+            assert "mlodaStep" in event["run"]["facets"]
+        completed = [e for e in steps if e["eventType"] == "COMPLETE"]
+        assert completed
+        for event in completed:
+            assert event["outputs"]
+            for output in event["outputs"]:
+                assert isinstance(output["outputFacets"]["outputStatistics"]["rowCount"], int)
 
 
 def _breaker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:

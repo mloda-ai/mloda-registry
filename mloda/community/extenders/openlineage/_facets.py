@@ -40,6 +40,17 @@ class MlodaPlanRunFacet(RunFacet):
 
 
 @attr.define
+class MlodaStepRunFacet(RunFacet):
+    featureGroupVersion: str | None = attr.field(default=None)
+    pluginVersion: str | None = attr.field(default=None)
+    computeFramework: str | None = attr.field(default=None)
+
+    @staticmethod
+    def _get_schema() -> str:
+        return _SCHEMA_URL
+
+
+@attr.define
 class MlodaTraceRunFacet(RunFacet):
     traceId: str = attr.field()
     spanId: str = attr.field()

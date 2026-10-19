@@ -1795,6 +1795,7 @@ class TestLineageFacetsValidationRuns:
         assert validation_events
         for event in validation_events:
             assert "mlodaTrace" not in (event.run.facets or {})
+            assert "mlodaStep" not in (event.run.facets or {})
 
     def test_default_validators_emit_no_validation_run(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.metadata
 import inspect
 import json
 import logging
@@ -257,6 +258,12 @@ def _root_events(events: list[RunEvent]) -> list[RunEvent]:
 def _mloda_plan_field(event: RunEvent, name: str) -> Any:
     payload = json.loads(Serde.to_json(event))
     return ((payload.get("run") or {}).get("facets") or {}).get("mlodaPlan", {}).get(name)
+
+
+def _run_facet(event: RunEvent, name: str) -> dict[str, Any] | None:
+    payload = json.loads(Serde.to_json(event))
+    facet: dict[str, Any] | None = ((payload.get("run") or {}).get("facets") or {}).get(name)
+    return facet
 
 
 class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
@@ -802,6 +809,12 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert _mloda_plan_field(root_events[0], "planId") is not None
         assert _mloda_plan_field(root_events[1], "planId") == _mloda_plan_field(root_events[0], "planId")
         assert not any(_mloda_plan_field(event, "planId") for event in step_events)
+        for event in root_events:
+            engine = _run_facet(event, "processingEngine")
+            assert engine is not None
+            assert engine["name"] == "mloda"
+            assert engine["version"] == importlib.metadata.version("mloda")
+            assert engine["_producer"] == json.loads(Serde.to_json(event))["producer"]
 
     def test_openlineage_failing_run_all_emits_a_parent_run_fail(self) -> None:
         client, transport = make_recording_client()
@@ -864,6 +877,24 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             if event.eventType == RunState.START
         }
         assert step_start_ids == expected
+
+        contexts_by_run_id = {
+            _expected_step_run_id(
+                root_run_id, c.feature_group_class, c.feature_names, c.compute_framework_name, c.step_uuid
+            ): c
+            for c in probe.contexts
+            if c.feature_group_class is not None and c.step_uuid is not None
+        }
+        for event in self.calculate_run_events(transport.events):
+            context = contexts_by_run_id[event.run.runId]
+            step_facet = _run_facet(event, "mlodaStep")
+            assert step_facet is not None, event.eventType
+            assert step_facet["featureGroupVersion"] == context.feature_group_version
+            assert step_facet["computeFramework"] == context.compute_framework_name
+            assert step_facet.get("pluginVersion") == context.plugin_version
+            if event.eventType == RunState.COMPLETE:
+                for output in json.loads(Serde.to_json(event))["outputs"]:
+                    assert output["outputFacets"]["outputStatistics"]["rowCount"] == context.rows_out
 
     def test_openlineage_run_all_reader_backed_feature_reports_input_dataset(self, tmp_path: Path) -> None:
         client, transport = make_recording_client()
@@ -1017,12 +1048,15 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             feature_names=("value_int",),
             output_schema=(("value_int", "int64"),),
             declared_attributes={"mloda.owner": "team:fraud"},
+            rows_out=2,
         ).activate():
             extender(outer_func)
 
         assert transport.events
         complete_outputs = transport.events[-1].outputs or []
         assert any("schema" in (output.facets or {}) for output in complete_outputs) or not self.emits_schema_facets()
+        for output in complete_outputs:
+            assert json.loads(Serde.to_json(output))["outputFacets"]["outputStatistics"]["rowCount"] == 2
         for event in transport.events:
             payload = json.loads(Serde.to_json(event))
             producer = payload["producer"]
@@ -1032,9 +1066,12 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             parent_facet = (payload.get("run") or {}).get("facets") or {}
             if "parent" in parent_facet:
                 facet_groups.append(parent_facet["parent"])
+            assert "mlodaStep" in parent_facet
+            facet_groups.append(parent_facet["mlodaStep"])
             facet_groups.append((payload.get("job") or {}).get("facets") or {})
             facet_groups.extend((dataset.get("facets") or {}) for dataset in payload.get("inputs") or [])
             facet_groups.extend((dataset.get("facets") or {}) for dataset in payload.get("outputs") or [])
+            facet_groups.extend((dataset.get("outputFacets") or {}) for dataset in payload.get("outputs") or [])
             offending = [
                 value
                 for facets in facet_groups
