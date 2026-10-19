@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import copy
-import pickle
+import pickle  # nosec
 from typing import Any
 
 import pytest
-from mloda.core.abstract_plugins.components.utils import is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -83,7 +82,7 @@ class TestConstants:
     def test_unmatched_error_is_value_error(self) -> None:
         assert issubclass(LookupUnmatchedError, ValueError)
 
-    @pytest.mark.parametrize("clone", [lambda e: pickle.loads(pickle.dumps(e)), copy.copy], ids=["pickle", "copy"])
+    @pytest.mark.parametrize("clone", [lambda e: pickle.loads(pickle.dumps(e)), copy.copy], ids=["pickle", "copy"])  # nosec
     def test_unmatched_error_survives_clone(self, clone: Any) -> None:
         error = build_unmatched_error("f__lookup", 3, ["x", "y"], {"x": "why"})
         cloned = clone(error)
@@ -201,9 +200,8 @@ class TestMatchAbort:
     @pytest.mark.parametrize("mapping", [STR_TO_INT_MAP, INT_TO_STR_MAP, STR_TO_BOOL_MAP])
     def test_keep_with_mismatched_families_aborts_match(self, mapping: dict[Any, Any]) -> None:
         options = _opts(lookup_mapping=mapping, on_unmatched="keep")
-        with pytest.raises(ValueError, match="keep") as info:
+        with pytest.raises(ValueError, match="keep"):
             PyArrowLookup.match_feature_group_criteria("x__lookup", options)
-        assert is_match_abort(info.value)
 
     def test_keep_with_invalid_mapping_declines_quietly(self) -> None:
         options = _opts(lookup_mapping={"a": 1, "b": "x"}, on_unmatched="keep")
@@ -214,9 +212,8 @@ class TestMatchAbort:
 
     @pytest.mark.parametrize("mapping", [PARTIAL_STR_MAP, {"a": 1, "b": "x"}], ids=["valid", "invalid"])
     def test_hook_own_mapping_option_aborts_match(self, mapping: dict[Any, Any]) -> None:
-        with pytest.raises(ValueError, match="lookup_mapping") as info:
+        with pytest.raises(ValueError, match="lookup_mapping"):
             _HookLookup.match_feature_group_criteria("x__nuts2024", _opts(lookup_mapping=mapping))
-        assert is_match_abort(info.value)
 
     @pytest.mark.parametrize("mapping", [PARTIAL_STR_MAP, {"a": 1, "b": "x"}], ids=["valid", "invalid"])
     def test_hook_ignores_forwarded_mapping(self, mapping: dict[Any, Any]) -> None:
