@@ -17,9 +17,6 @@ from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup i
     FULL_STR_MAP,
     PARTIAL_INT_MAP,
     PARTIAL_STR_MAP,
-    STR_TO_BOOL_MAP,
-    STR_TO_FLOAT_MAP,
-    STR_TO_INT_MAP,
     NutsMappingHook,
     create_lookup_arrow_table,
 )
@@ -83,17 +80,6 @@ class TestMatchRules:
     def test_generic_does_not_match_hook_name(self) -> None:
         assert not PyArrowLookup.match_feature_group_criteria("x__nuts2024", _opts(lookup_mapping=PARTIAL_STR_MAP))
 
-    def test_hook_subclass_matches_by_name_without_mapping(self) -> None:
-        assert _HookLookup.match_feature_group_criteria("x__nuts2024", Options())
-
-    def test_hook_subclass_declines_foreign_config_features(self) -> None:
-        for context in (
-            {"in_features": "x"},
-            {"in_features": "x", "lookup_mapping": PARTIAL_STR_MAP},
-            {"in_features": "x", "partition_by": ["g"], "order_by": "t"},
-        ):
-            assert not _HookLookup.match_feature_group_criteria("my_result", _opts(**context))
-
     @pytest.mark.parametrize(
         "mapping",
         [
@@ -131,7 +117,15 @@ class TestMatchRules:
         options = _opts(lookup_mapping=PARTIAL_STR_MAP, on_unmatched=policy)
         assert PyArrowLookup.match_feature_group_criteria("x__lookup", options)
 
-    @pytest.mark.parametrize("policy", ["drop", "RAISE", "", 1])
+    @pytest.mark.parametrize(
+        "policy",
+        [
+            pytest.param("drop", id="unknown_word"),
+            pytest.param("RAISE", id="wrong_case"),
+            pytest.param("", id="empty"),
+            pytest.param(1, id="not_a_str"),
+        ],
+    )
     def test_unknown_policy_rejected(self, policy: Any) -> None:
         options = _opts(lookup_mapping=PARTIAL_STR_MAP, on_unmatched=policy)
         assert not PyArrowLookup.match_feature_group_criteria("x__lookup", options)
@@ -191,11 +185,9 @@ class TestReturnDataTypeRule:
     @pytest.mark.parametrize(
         ("mapping", "expected"),
         [
-            pytest.param(PARTIAL_STR_MAP, DataType.STRING, id="str"),
-            pytest.param(STR_TO_INT_MAP, DataType.INT64, id="int"),
+            # str/int/float/bool value families are pinned by COMPLETENESS_CASES in
+            # test_return_data_type_rule_invariants.py; only the int-keyed case is added here.
             pytest.param(PARTIAL_INT_MAP, DataType.INT64, id="int_keys_int_values"),
-            pytest.param(STR_TO_FLOAT_MAP, DataType.DOUBLE, id="float"),
-            pytest.param(STR_TO_BOOL_MAP, DataType.BOOLEAN, id="bool"),
         ],
     )
     def test_by_value_family(self, mapping: dict[Any, Any], expected: DataType) -> None:

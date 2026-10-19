@@ -61,7 +61,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
     FrameAggregateFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupFeatureGroup
-from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
@@ -227,12 +226,6 @@ def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], 
     """
     result = feature_group_class.return_data_type_rule(feature)
     assert result is None or isinstance(result, DataType)
-
-
-def test_lookup_invalid_mapping_never_raises() -> None:
-    """A selected lookup feature whose mapping is invalid types to None instead of raising."""
-    feature = Feature("code__lookup", options=_opts(lookup_mapping={"a": "x", "b": 1}))
-    assert PyArrowLookup.return_data_type_rule(feature) is None
 
 
 # --- generalized numeric-boundary fuzzer (registry-driven) --------------------

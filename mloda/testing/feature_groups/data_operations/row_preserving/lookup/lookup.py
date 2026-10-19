@@ -38,6 +38,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -248,8 +249,6 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return self.implementation_class().calculate_feature(self.test_data if data is None else data, fs)
 
     def _unmatched_error(self, feature_name: str, mapping: dict[Any, Any], policy: str | None = None) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
-
         with pytest.raises(LookupUnmatchedError) as excinfo:
             self._run(feature_name, mapping, policy)
         return excinfo.value
@@ -342,29 +341,48 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_default_policy_is_raise(self) -> None:
         self._unmatched_error("product_code__lookup", PARTIAL_STR_MAP)
 
-    def test_raise_error_attributes_str_keys(self) -> None:
-        err = self._unmatched_error("product_code__lookup", PARTIAL_STR_MAP, "raise")
-        assert err.feature_name == "product_code__lookup"
-        assert err.unmatched_rows == 3
-        assert err.distinct_keys == 2
-        assert err.sample == ("C300", "D400")
+    @pytest.mark.parametrize(
+        ("feature_name", "mapping", "rows", "distinct", "sample", "message"),
+        [
+            pytest.param(
+                "product_code__lookup",
+                PARTIAL_STR_MAP,
+                3,
+                2,
+                ("C300", "D400"),
+                "product_code__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300', 'D400']",
+                id="str_keys",
+            ),
+            pytest.param(
+                "store_id__lookup",
+                PARTIAL_INT_MAP,
+                3,
+                2,
+                (3, 4),
+                "store_id__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: [3, 4]",
+                id="int_keys",
+            ),
+        ],
+    )
+    def test_raise_error_attributes_and_message(
+        self,
+        feature_name: str,
+        mapping: dict[Any, Any],
+        rows: int,
+        distinct: int,
+        sample: tuple[Any, ...],
+        message: str,
+    ) -> None:
+        err = self._unmatched_error(feature_name, mapping, "raise")
+        assert err.feature_name == feature_name
+        assert (err.unmatched_rows, err.distinct_keys, err.sample) == (rows, distinct, sample)
         assert dict(err.reasons) == {}
-
-    def test_raise_message_format(self) -> None:
-        err = self._unmatched_error("product_code__lookup", PARTIAL_STR_MAP, "raise")
-        assert str(err) == "product_code__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300', 'D400']"
-
-    def test_raise_int_keys(self) -> None:
-        err = self._unmatched_error("store_id__lookup", PARTIAL_INT_MAP, "raise")
-        assert (err.unmatched_rows, err.distinct_keys, err.sample) == (3, 2, (3, 4))
-        assert str(err) == "store_id__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: [3, 4]"
+        assert str(err) == message
 
     def test_raise_sample_is_sorted_and_capped_at_ten(self) -> None:
         keys = [f"K{i:02d}" for i in range(12)]
         table = self.create_test_data(pa.table({"k": pa.array(["K11", *keys, None], type=pa.string())}))
         fs = make_feature_set("k__lookup", lookup_mapping={"zzz": "x"}, on_unmatched="raise")
-        from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
-
         with pytest.raises(LookupUnmatchedError) as excinfo:
             self.implementation_class().calculate_feature(table, fs)
         err = excinfo.value
@@ -398,8 +416,6 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         source = feature_name.removesuffix("__lookup")
         with pytest.raises(ValueError, match=source) as excinfo:
             self._run(feature_name, mapping, policy)
-        from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
-
         assert not isinstance(excinfo.value, LookupUnmatchedError)
 
     # -- Hook path --------------------------------------------------------------
@@ -447,8 +463,6 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_hook_reasons_in_error(self) -> None:
         hook = self._hook()
         name = f"product_code__{HOOK_SUFFIX}"
-        from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
-
         with pytest.raises(LookupUnmatchedError) as excinfo:
             hook.calculate_feature(self.test_data, make_feature_set(name))
         err = excinfo.value

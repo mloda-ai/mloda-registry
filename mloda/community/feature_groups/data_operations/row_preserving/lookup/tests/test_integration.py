@@ -86,8 +86,8 @@ class TestLookupIntegration(DataOpsIntegrationTestBase):
 
 
 class TestLookupThroughMlodaApi:
-    def _run(self, feature: Feature, name: str) -> pa.Table:
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowLookup})
+    def _run(self, feature: Feature, name: str, lookup_class: type = PyArrowLookup) -> pa.Table:
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, lookup_class})
         results = mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
         tables = [t for t in results if isinstance(t, pa.Table) and name in t.column_names]
         assert tables, f"No result table with {name} found"
@@ -105,8 +105,5 @@ class TestLookupThroughMlodaApi:
 
     def test_hook_subclass_end_to_end(self) -> None:
         feature = Feature("region__regions", options=Options(context={"on_unmatched": "null"}))
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, _RegionHookLookup})
-        results = mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
-        tables = [t for t in results if isinstance(t, pa.Table) and "region__regions" in t.column_names]
-        assert tables
-        assert tables[0].column("region__regions").to_pylist() == _REGION_NULL
+        result = self._run(feature, "region__regions", _RegionHookLookup)
+        assert result.column("region__regions").to_pylist() == _REGION_NULL
