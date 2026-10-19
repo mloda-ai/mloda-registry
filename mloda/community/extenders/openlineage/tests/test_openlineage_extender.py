@@ -2078,31 +2078,18 @@ class TestOpenLineageExtenderParentRun:
         assert "origin" not in _plan_facet(terminal)
 
     @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
-    def test_start_and_terminal_facets_carry_the_structure_hash(
+    def test_start_and_terminal_facets_carry_the_structure_hash_and_origin(
         self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
 
-        extender.on_run_start(run, _plan("h" * 64), ())
+        extender.on_run_start(run, _plan("h" * 64, origin="prepare"), ())
         extender.on_run_complete(run, LifecycleOutcome(status=status))
 
         assert len(transport.events) == 2
         assert [_plan_facet(event)["structureHash"] for event in transport.events] == ["h" * 64, "h" * 64]
-
-    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
-    def test_start_and_terminal_facets_carry_the_origin(
-        self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
-
-        extender.on_run_start(run, _plan(origin="prepare"), ())
-        extender.on_run_complete(run, LifecycleOutcome(status=status))
-
-        assert len(transport.events) == 2
         assert [_plan_facet(event)["origin"] for event in transport.events] == ["prepare", "prepare"]
         assert {event.job.name for event in transport.events} == {"mloda.run_all"}
 

@@ -2910,27 +2910,22 @@ class TestOtelExtenderRunScopeFullRuns:
             assert assert_well_formed_trace(spans).name == "mloda.run"
         assert len(_named(exporter, "mloda.run")) == 2
 
-    @pytest.mark.parametrize("origin", ["prepare", "explain", "diagnose"])
-    def test_a_failing_plan_leaves_an_error_plan_span_unless_preflight(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], origin: str
-    ) -> None:
-        provider, exporter = otel_capture
-        kwargs: dict[str, Any] = {
+    @staticmethod
+    def _kwargs(provider: TracerProvider) -> dict[str, Any]:
+        return {
             "compute_frameworks": [PyArrowTable],
             "plugin_collector": PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator}),
             "function_extender": {OtelExtender(tracer_provider=provider)},
         }
-        features = ["mloda_testing_otel_unresolvable"]
 
-        if origin == "diagnose":
-            assert mloda.diagnose(features, **kwargs).complete is False
-        else:
-            with pytest.raises(FeatureResolutionError, match="mloda_testing_otel_unresolvable"):
-                getattr(mloda, origin)(features, **kwargs)
+    def test_prepare_failing_on_an_unresolvable_feature_leaves_one_error_plan_span(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
 
-        if origin != "prepare":
-            assert exporter.get_finished_spans() == ()
-            return
+        with pytest.raises(FeatureResolutionError, match="mloda_testing_otel_unresolvable"):
+            mloda.prepare(["mloda_testing_otel_unresolvable"], **self._kwargs(provider))
+
         plan = assert_well_formed_trace(exporter.get_finished_spans())
         assert plan.name == "mloda.plan"
         assert _named(exporter, "mloda.run") == []
@@ -2939,6 +2934,21 @@ class TestOtelExtenderRunScopeFullRuns:
         assert (plan.attributes or {})["error.type"] == (
             f"{FeatureResolutionError.__module__}.{FeatureResolutionError.__qualname__}"
         )
+
+    @pytest.mark.parametrize("preflight", ["explain", "diagnose"])
+    def test_a_failing_explain_or_diagnose_leaves_no_spans(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], preflight: str
+    ) -> None:
+        provider, exporter = otel_capture
+        call = getattr(mloda, preflight)
+        # explain raises on the unresolvable feature; diagnose returns an incomplete diagnosis
+        expectation = pytest.raises(FeatureResolutionError) if preflight == "explain" else contextlib.nullcontext()
+
+        with expectation:
+            result = call(["mloda_testing_otel_unresolvable"], **self._kwargs(provider))
+            assert result.complete is False
+
+        assert exporter.get_finished_spans() == ()
 
 
 class TestOtelExtenderPlanScopeFullRuns:
