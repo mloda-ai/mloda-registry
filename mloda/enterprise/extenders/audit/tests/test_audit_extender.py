@@ -41,10 +41,19 @@ from mloda.steward import (
     RunContext,
     verified_context,
 )
-from mloda.user import Feature, FeatureName, Options, ParallelizationMode, PluginCollector, mloda
+from mloda.user import (
+    DataAccessCollection,
+    Feature,
+    FeatureName,
+    Options,
+    ParallelizationMode,
+    PluginCollector,
+    mloda,
+)
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
+from mloda_plugins.feature_group.input_data.read_files.parquet import ParquetReader
 
 from mloda.community.extenders.shared import termination
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
@@ -1036,7 +1045,7 @@ class TestAuditExtenderConstruction:
 
     @pytest.mark.parametrize("value", ["yes", 1, None], ids=["str", "int", "none"])
     def test_a_classification_policy_with_a_non_bool_gate_readers_raises(self, value: Any) -> None:
-        with pytest.raises((TypeError, ValueError)):
+        with pytest.raises(TypeError):
             ClassificationPolicy(clearance=lambda tenant, principal: "pii", undeclared="public", gate_readers=value)
 
     @pytest.mark.parametrize("gate_readers", [True, False])
@@ -2367,6 +2376,55 @@ class TestAuditExtenderClassificationGate:
         assert record["step_run_id"] is None
         assert record["policy_version"] == _POLICY_VERSION
         assert set(record) == _EXPECTED_RECORD_KEYS
+
+    def test_a_reader_refused_for_several_features_in_one_plan_writes_one_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "internal")
+        call = _CountingCall()
+
+        for feature_names in (("alpha",), ("beta",)):
+            with _reader_probe(feature_names=feature_names).activate():
+                with pytest.raises(ClassificationDeniedError):
+                    extender(call)
+
+        assert call.calls == 0
+        assert [r["feature_names"] for r in sink.records] == [["alpha"]]
+
+    def test_the_same_reader_refused_under_another_plan_writes_its_own_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "internal")
+
+        for plan_id in ("plan-1", "plan-2", "plan-1"):
+            with _reader_probe(plan_id=plan_id).activate():
+                with pytest.raises(ClassificationDeniedError):
+                    extender(_CountingCall())
+
+        assert [r["plan_id"] for r in sink.records] == ["plan-1", "plan-2"]
+
+    def test_the_same_reader_refused_for_another_reason_in_one_plan_writes_its_own_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "internal")
+
+        for declared in ({CLASSIFICATION_KEY: "pii"}, None, {CLASSIFICATION_KEY: "pii"}, None):
+            with _reader_probe(declared_attributes=declared).activate():
+                with pytest.raises(ClassificationDeniedError):
+                    extender(_CountingCall())
+
+        assert [r["deny_reason"] for r in sink.records] == [
+            "classification_above_clearance",
+            "classification_unresolved",
+        ]
+
+    def test_another_refused_reader_in_one_plan_writes_its_own_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = _classified(sink, "internal")
+
+        for reader in (CsvReader, ParquetReader):
+            with _reader_probe(reader_class=reader).activate():
+                with pytest.raises(ClassificationDeniedError):
+                    extender(_CountingCall())
+
+        assert [r["reader_class"] for r in sink.records] == [_qualname(CsvReader), _qualname(ParquetReader)]
 
     def test_the_refusal_message_names_no_level_or_identity(self) -> None:
         extender = _classified(InMemoryAuditSink(), "internal")
@@ -4831,6 +4889,30 @@ class TestAuditExtenderClassificationRunAll:
         assert [(r["hook"], r["deny_reason"]) for r in sink.records] == [
             ("RUN_START", "classification_above_clearance")
         ]
+        assert sink.records[0]["feature_names"] == ["alpha"]
+
+    def test_a_refused_reader_in_global_scope_writes_one_deny_record_for_a_run_that_succeeds_via_a_sibling(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            ParquetReader, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
+        )
+        path = write_csv(tmp_path)
+        sink = InMemoryAuditSink()
+
+        with verified_context(tenant_id="t", principal="svc"):
+            results = mloda.run_all(
+                ["alpha", "beta"],
+                compute_frameworks=[PyArrowTable],
+                plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature}),
+                data_access_collection=DataAccessCollection(files={str(path)}),
+                function_extender={_classified(sink, "internal")},
+                parallelization_modes={ParallelizationMode.SYNC},
+            )
+
+        assert results
+        denies = [r for r in sink.records if r["decision"] == "deny"]
+        assert [(r["hook"], r["reader_class"]) for r in denies] == [("INPUT_DATA_MATCH", _qualname(ParquetReader))]
 
     @pytest.mark.parametrize(("gate_readers", "allowed"), [(False, True), (True, False)])
     def test_a_masked_derivative_of_a_reader_declared_pii_source_needs_gate_readers_off(

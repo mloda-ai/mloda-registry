@@ -25,6 +25,7 @@ _STR_ATTRIBUTES = {
     "deny_reason": "mloda.audit.deny_reason",
     "policy_version": "mloda.audit.policy_version",
     "hook": "mloda.audit.hook",
+    "reader_class": "mloda.audit.reader_class",
     "run_id": "mloda.run.id",
     "plan_id": "mloda.plan.id",
     "structure_hash": "mloda.plan.structure_hash",

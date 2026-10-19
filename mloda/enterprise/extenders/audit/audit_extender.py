@@ -219,9 +219,9 @@ class AuditExtender(Extender):
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
     audit_path, manifest_path or the anchor path. classification (a ClassificationPolicy; needs fail_closed, a
     principal identity and a policy_version) refuses a run requesting data above the caller's clearance, and
-    (gate_readers, default True) at plan time a reader declaring a level above it: one deny record with hook
-    INPUT_DATA_MATCH and reader_class, then ClassificationDeniedError before the probe. Core contains that error
-    (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it."""
+    (gate_readers, default True) at plan time a reader declaring a level above it: one deny record (per plan,
+    reader and reason) with hook INPUT_DATA_MATCH and reader_class, and
+    ClassificationDeniedError on every probe. Core contains that error (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it."""
 
     def __init__(
         self,
@@ -366,6 +366,7 @@ class AuditExtender(Extender):
         self._segment_max_age = segment_max_age
         self.seal_failures = 0
         self._plan_refusals: set[str] = set()
+        self._reader_denials: dict[str, set[tuple[str, str]]] = {}
         self._structure_hashes: dict[str, str] = {}
         self._classifications: dict[str, dict[uuid.UUID, str]] = {}
         self._pickle_drop_warning = WarnOncePerInstance()
@@ -552,6 +553,7 @@ class AuditExtender(Extender):
         seal_failures and logged, not raised."""
         if plan.plan_id in self._plan_refusals:
             self._plan_refusals.discard(plan.plan_id)
+            self._reader_denials.pop(plan.plan_id, None)
             self._auto_seal(plan.plan_id)
 
     def _auto_seal(self, run_id: str) -> None:
@@ -728,6 +730,8 @@ class AuditExtender(Extender):
         state["_head_anchor"] = None
         state["_seal_failure_policy"] = "log"
         state["_structure_hashes"] = dict(self._structure_hashes)
+        state["_plan_refusals"] = set(self._plan_refusals)
+        state["_reader_denials"] = {plan_id: set(keys) for plan_id, keys in self._reader_denials.items()}
         state["_classifications"] = {run_id: dict(levels) for run_id, levels in self._classifications.items()}
         if not is_picklable(self._classification):
             state["_classification"] = None
@@ -831,20 +835,25 @@ class AuditExtender(Extender):
         try:
             raise ClassificationDeniedError(f"AuditExtender refused the reader: {what}")
         except ClassificationDeniedError as refusal:
-            # Unguarded on purpose: a sink failure propagates (core contains it at this hook).
-            self.sink.write(
-                self._build_record(
-                    context,
-                    func,
-                    [],
-                    status="error",
-                    error_type=_error_type(refusal),
-                    start_time=None,
-                    trace=trace,
-                    deny_reason=deny_reason,
-                    classification=level,
+            seen = self._reader_denials.setdefault(context.plan_id, set()) if context.plan_id is not None else set()
+            reader = context.reader_class
+            key = (f"{reader.__module__}.{reader.__qualname__}" if reader is not None else "", deny_reason)
+            if key not in seen:
+                # Unguarded on purpose: a sink failure propagates (core contains it at this hook).
+                self.sink.write(
+                    self._build_record(
+                        context,
+                        func,
+                        [],
+                        status="error",
+                        error_type=_error_type(refusal),
+                        start_time=None,
+                        trace=trace,
+                        deny_reason=deny_reason,
+                        classification=level,
+                    )
                 )
-            )
+                seen.add(key)
             if context.plan_id is not None:
                 self._plan_refusals.add(context.plan_id)
             raise

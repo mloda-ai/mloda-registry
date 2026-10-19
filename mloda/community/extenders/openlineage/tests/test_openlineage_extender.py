@@ -2784,7 +2784,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         declarations: list[dict[str, Any] | None],
         is_fallback: bool | None = None,
-    ) -> tuple[OpenLineageExtender, dict[str, Any], str]:
+    ) -> tuple[OpenLineageExtender, dict[str, Any]]:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
 
@@ -2803,8 +2803,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         with make_hook_context().activate():
             extender(outer_func)
 
-        serialized = Serde.to_json(transport.events[1])
-        return extender, json.loads(serialized), serialized
+        return extender, json.loads(Serde.to_json(transport.events[1]))
 
     @pytest.mark.parametrize(
         ("declared", "expected"),
@@ -2825,7 +2824,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         declared: dict[str, Any] | None,
         expected: dict[str, Any] | None,
     ) -> None:
-        extender, payload, _ = self._declared_payload(ol_capture, [declared])
+        extender, payload = self._declared_payload(ol_capture, [declared])
 
         assert len(payload["inputs"]) == 1
         facets = payload["inputs"][0]["facets"]
@@ -2896,7 +2895,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         expected: dict[str, Any],
         conflicts: list[str],
     ) -> None:
-        _, payload, _ = self._declared_payload(ol_capture, declarations)
+        _, payload = self._declared_payload(ol_capture, declarations)
 
         assert len(payload["inputs"]) == 1
         facet = payload["inputs"][0]["facets"]["mlodaDeclared"]
@@ -2931,7 +2930,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
     def test_declared_attributes_facet_coexists_with_the_fallback_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        _, payload, _ = self._declared_payload(ol_capture, [{"license": "a"}], is_fallback=True)
+        _, payload = self._declared_payload(ol_capture, [{"license": "a"}], is_fallback=True)
 
         facets = payload["inputs"][0]["facets"]
         assert facets["mlodaDataAccess"]["identityIsFallback"] is True
@@ -2940,7 +2939,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
     def test_reader_declared_owner_without_dataset_owners_emits_no_ownership_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        _, payload, _ = self._declared_payload(ol_capture, [{"mloda.owner": "team:x"}])
+        _, payload = self._declared_payload(ol_capture, [{"mloda.owner": "team:x"}])
 
         facets = payload["inputs"][0]["facets"]
         assert "ownership" not in facets

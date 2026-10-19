@@ -42,6 +42,7 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -2089,6 +2090,24 @@ class TestOtelExtenderDeclaredAttributes:
         assert attrs[f"{prefix}.num"] == 3.5
         assert attrs[f"{prefix}.int_max"] == 2**63 - 1
         assert attrs[f"{prefix}.int_min"] == -(2**63)
+
+    def test_a_non_finite_declared_value_from_a_real_reader_is_dropped_and_the_scalar_kept(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        provider, exporter = otel_capture
+        declared = {"license": "a", "scale": float("nan")}
+        monkeypatch.setattr(CsvReader, "declared_attributes", classmethod(lambda cls, features: declared))
+
+        run_csv_feature(tmp_path, OtelExtender(tracer_provider=provider))
+
+        load_spans = [span for span in exporter.get_finished_spans() if span.name == "mloda.load"]
+        assert len(load_spans) == 1
+        attrs = load_spans[0].attributes or {}
+        assert attrs["mloda.declared.license"] == "a"
+        assert "mloda.declared.scale" not in attrs
 
     @pytest.mark.parametrize(("field", "prefix"), _ATTRIBUTE_FIELDS)
     def test_long_declared_string_is_truncated(
