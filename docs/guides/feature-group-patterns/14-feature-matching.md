@@ -203,7 +203,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
-`_resolve_operation` is only correct for the discriminator key (`MY_METHOD` above): it returns `PREFIX_PATTERN`'s first captured group on the string path, not the value for the key passed. See [Chained Features](03-chained-features.md) for how to read a second name-encoded key.
+With named captures, `_resolve_operation(feature, key)` returns the capture for any captured key, not just the discriminator; a positional pattern returns its first captured group whatever the key. See [Chained Features](03-chained-features.md) for the fallback rules.
 
 ### Why Unique Keys?
 
