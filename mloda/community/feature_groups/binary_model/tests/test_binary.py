@@ -79,6 +79,11 @@ class TestResolveBinary:
         with pytest.raises(BinaryUnavailableError):
             binary.resolve_binary("whatever", str(tmp_path / "missing-binary"), env={"PATH": os.defpath}, timeout=10.0)
 
+    @pytest.mark.parametrize("override", [[], ()])
+    def test_empty_override_is_unavailable(self, override: Any) -> None:
+        with pytest.raises(BinaryUnavailableError, match="must not be empty"):
+            binary.resolve_binary(PLUGIN_ID, override, env={"PATH": os.defpath}, timeout=10.0)
+
     def test_override_none_missing_module_is_unavailable(self) -> None:
         with pytest.raises(BinaryUnavailableError) as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
