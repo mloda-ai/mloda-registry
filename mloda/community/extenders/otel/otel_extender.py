@@ -38,12 +38,12 @@ from opentelemetry.trace import (
 )
 
 from mloda.community.extenders.otel._constants import (
-    CANCEL_TYPE_KEY,
     DECLARABLE_HOOKS,
+    ERROR_TYPE_KEY,
     OPERATION_NAMES,
     TRACER_NAME,
-    exception_type_name,
-    is_interrupt,
+    exception_attribute,
+    outcome_attribute_key,
 )
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
@@ -342,7 +342,7 @@ class OtelExtender(Extender):
         failed = outcome.status == "failed"
         with self._lock:
             span = self._plan_spans.pop(plan.plan_id, None)
-            if failed:
+            if outcome.status != "succeeded":
                 self._plan_ints.pop(plan.plan_id, None)
         if span is None and failed and self.trace_scope == "run":
             start_ns = (plan.created_at - _EPOCH) // timedelta(microseconds=1) * 1000
@@ -481,7 +481,7 @@ class OtelExtender(Extender):
                 result = func(*args, **kwargs)
             except BaseException as exc:
                 _mark_exception(span, exc)
-                verb = "cancelled" if is_interrupt(exc) else "failed"
+                verb = "failed" if isinstance(exc, Exception) else "cancelled"
                 logger.warning("%s %s %s: %s", type(self).__name__, span_name, verb, type(exc).__name__)
                 raise
             finally:
@@ -544,11 +544,10 @@ def _carrier_or_active_span_context(carrier: Any) -> SpanContext | None:
 
 
 def _mark_exception(span: Span, exc: BaseException) -> None:
-    if is_interrupt(exc):
-        span.set_attribute(CANCEL_TYPE_KEY, exception_type_name(exc))
-    else:
+    key, name = exception_attribute(exc)
+    if key == ERROR_TYPE_KEY:
         span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute("error.type", exception_type_name(exc))
+    span.set_attribute(key, name)
 
 
 def _end_with_outcome(span: Span, outcome: LifecycleOutcome, status_attribute: str | None) -> None:
@@ -556,10 +555,9 @@ def _end_with_outcome(span: Span, outcome: LifecycleOutcome, status_attribute: s
         span.set_attribute(status_attribute, outcome.status)
     if outcome.status == "failed":
         span.set_status(Status(StatusCode.ERROR))
-        if outcome.error_type is not None:
-            span.set_attribute("error.type", outcome.error_type)
-    elif status_attribute is not None and outcome.status == "cancelled" and outcome.error_type is not None:
-        span.set_attribute(CANCEL_TYPE_KEY, outcome.error_type)
+    key = outcome_attribute_key(outcome.status)
+    if key is not None and outcome.error_type is not None:
+        span.set_attribute(key, outcome.error_type)
     span.end()
 
 

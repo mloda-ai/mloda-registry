@@ -2796,12 +2796,11 @@ class TestOtelExtenderRunScopeFullRuns:
         provider, exporter = otel_capture
         group = failing_feature_group("mloda_testing_otel_root_halt", failure=_Halt)
 
-        with pytest.raises(BaseException) as raised:
+        with pytest.raises(_Halt):
             run_failing_feature(group, OtelExtender(tracer_provider=provider))
-        assert not isinstance(raised.value, Exception)
 
         spans = exporter.get_finished_spans()
-        step = next(span for span in spans if span.name not in ("mloda.run", "mloda.plan"))
+        step = next(span for span in spans if (span.attributes or {}).get("mloda.operation.name") == "calculate")
         assert step.status.status_code == StatusCode.UNSET
         assert (step.attributes or {})["mloda.cancel.type"] == _HALT_TYPE
         assert "error.type" not in (step.attributes or {})
@@ -3236,7 +3235,7 @@ class TestOtelExtenderPlanSpanHooks:
             pytest.param("run", LifecycleOutcome(status="failed", error_type="KeyError"), True, id="run_failed"),
             pytest.param(
                 "plan",
-                LifecycleOutcome(status="cancelled", error_type="builtins.SystemExit"),
+                LifecycleOutcome(status="cancelled", error_type="builtins.KeyboardInterrupt"),
                 False,
                 id="plan_cancelled",
             ),
@@ -3274,7 +3273,11 @@ class TestOtelExtenderPlanSpanHooks:
             assert (span.attributes or {})["error.type"] == "KeyError"
         else:
             assert span.status.status_code != StatusCode.ERROR
-        assert "mloda.cancel.type" not in (span.attributes or {})
+        if outcome.status == "cancelled":
+            assert (span.attributes or {})["mloda.cancel.type"] == "builtins.KeyboardInterrupt"
+            assert "error.type" not in (span.attributes or {})
+        else:
+            assert "mloda.cancel.type" not in (span.attributes or {})
         if trace_scope == "run":
             assert span.start_time == 1767323045678901000
             assert span.parent is None
@@ -3296,17 +3299,19 @@ class TestOtelExtenderPlanSpanHooks:
         assert assert_well_formed_trace(spans).name == "caller"
         assert len(_named(exporter, "mloda.plan")) == 1
 
-    @pytest.mark.parametrize("failed_plan", [False, True], ids=["never_planned", "failed_plan"])
+    @pytest.mark.parametrize(
+        "plan_outcome", [None, "failed", "cancelled"], ids=["never_planned", "failed_plan", "cancelled_plan"]
+    )
     def test_run_with_an_unknown_plan_falls_back_to_run_scope_parenting(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], failed_plan: bool
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], plan_outcome: Any
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, trace_scope="plan")
         run_id = str(uuid.uuid4())
         carrier, carrier_trace_id, carrier_span_id = inject_parent_carrier()
-        if failed_plan:
+        if plan_outcome is not None:
             otel.on_plan_start(_plan("never-planned"))
-            otel.on_plan_complete(_plan("never-planned"), LifecycleOutcome(status="failed", error_type="KeyError"))
+            otel.on_plan_complete(_plan("never-planned"), LifecycleOutcome(status=plan_outcome, error_type="KeyError"))
             exporter.clear()
 
         _start_run(otel, run_id, plan_id="never-planned", carrier=carrier)

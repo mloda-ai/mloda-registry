@@ -212,8 +212,8 @@ def test_sigterm_to_parent_aborts_the_worker_step_only_when_the_worker_installs_
         if spans_path.exists()
         else []
     )
-    calculate_statuses = [r["status"] for r in worker_spans if r["name"].startswith("calculate ")]
     calculate_spans = [r for r in worker_spans if r["name"].startswith("calculate ")]
+    calculate_statuses = [r["status"] for r in calculate_spans]
     if worker_handler:
         assert worker_step == ["START", "ABORT"], events
         assert (tmp_path / f"closed.{worker_pid}.marker").exists(), output

@@ -68,7 +68,7 @@ def install_meter_provider() -> None:
 | `mloda.step.rows.in` | Counter, `{row}` | `mloda.operation.name`, `mloda.feature_group.name`, `mloda.compute_framework.name` |
 | `mloda.step.rows.out` | Counter, `{row}` | same as `mloda.step.rows.in` |
 
-- **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status` or `error.type`. Calls without a hook context are not counted.
+- **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status`, `error.type` or `mloda.cancel.type`. Calls without a hook context are not counted.
 - **`error.type`:** `module.qualname` on runs and steps (as on spans), so a builtin reads `builtins.ValueError`. Before mloda 0.16.0, runs carried the bare class name.
 - **Cancelled:** an interrupt (a `BaseException` that is not an `Exception`, such as `SystemExit` from SIGTERM or `KeyboardInterrupt`) is not a failure: it sets `mloda.cancel.type` (`builtins.SystemExit`) instead of `error.type`, so `error_type!=""` queries leave out runs and steps a rollout or eviction stopped.
 - **Rows:** counted on success only, for calculate (in and out) and load (out). Validate steps record no rows.

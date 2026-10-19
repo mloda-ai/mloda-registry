@@ -685,13 +685,21 @@ class TestOtelMetricsExtenderMetrics:
 
         assert 0.05 <= _single_point(reader, _STEP_DURATION).sum < 5
 
-    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
+    @pytest.mark.parametrize(
+        ("status", "error_type"),
+        [
+            ("succeeded", None),
+            ("failed", "ValueError"),
+            ("cancelled", "builtins.SystemExit"),
+            ("cancelled", None),
+        ],
+        ids=["succeeded", "failed", "cancelled", "cancelled_without_type"],
+    )
     def test_run_duration_is_recorded_with_the_run_status(
-        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], status: Any
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], status: Any, error_type: str | None
     ) -> None:
         provider, reader = metric_capture
         started_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=2)
-        error_type = {"failed": "ValueError", "cancelled": "builtins.SystemExit"}.get(status)
 
         _complete_run(
             OtelMetricsExtender(meter_provider=provider),
