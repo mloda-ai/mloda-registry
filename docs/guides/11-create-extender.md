@@ -496,7 +496,80 @@ A host that must record the raw URI overrides `test_otel_input_data_load_query_s
 
 Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`; `records=True` on either writes one JSON record per span, with ids and attributes, instead of a bare name), `read_span_records` (parses those records back).
 
-A metrics extender hosts `ExtenderContractTestMixin` with `ProviderCloseTestMixin`; `RebuildingMetricCaptureProvider` (`mloda.testing.extenders.otel`) is the picklable meter provider for its `make_real_worker_extender_and_marker`. It writes exported metric names to the marker file only on `force_flush()`, so the extender must flush its provider in `close()`.
+### Metrics extenders
+
+There is no metrics counterpart of `OtelExtenderTestMixin`. A metrics extender hosts `ExtenderContractTestMixin` with `ProviderCloseTestMixin` (mind its `close_timeout` and `sink_noun` requirements above) and implements the sink hooks itself, including `make_injected_and_sdk_defaults_extender`, which every `has_backend_sink()` host needs. Metric helpers in `mloda.testing.extenders.otel`:
+
+- `make_metric_capture`: an SDK `MeterProvider` with an `InMemoryMetricReader`, for `make_extender` and the sink probe
+- `metric_names`: the metric names in collected `MetricsData` (empty for `None`)
+- `meter_provider_resolution_spy`: records the reader behind each ambient `get_meter_provider` resolution; return it from `sink_resolution_spy`
+- `RebuildingMetricCaptureProvider`: picklable provider for `make_real_worker_extender_and_marker`, writes metric names to the marker file only on `force_flush()`, so `close()` must flush
+- `FileMetricExporter`: the marker-file exporter behind it
+
+```python
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from typing import Any
+from unittest.mock import patch
+
+from mloda.steward import Extender
+from opentelemetry.sdk.metrics import MeterProvider
+
+from mloda.testing.extenders.contract import ExtenderContractTestMixin
+from mloda.testing.extenders.flush import ProviderCloseTestMixin
+from mloda.testing.extenders.otel import make_metric_capture, meter_provider_resolution_spy, metric_names
+
+
+class TestMyMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTestMixin):
+    @classmethod
+    def extender_class(cls) -> type[MyMetricsExtender]:
+        return MyMetricsExtender
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> MyMetricsExtender:
+        provider, _ = make_metric_capture()
+        if raise_on_error is None:
+            return MyMetricsExtender(meter_provider=provider)
+        return MyMetricsExtender(meter_provider=provider, raise_on_error=raise_on_error)
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch.object(MeterProvider, "get_meter", side_effect=RuntimeError("boom"))
+
+    @classmethod
+    def raise_on_error_default(cls) -> bool:
+        return False
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return True
+
+    def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        return meter_provider_resolution_spy()
+
+    def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
+        return [name for reader in spy for name in metric_names(reader.get_metrics_data())]
+
+    def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
+        provider, reader = make_metric_capture()
+        return MyMetricsExtender(meter_provider=provider), lambda: metric_names(reader.get_metrics_data())
+
+    def make_injected_and_sdk_defaults_extender(self) -> Extender:
+        provider, _ = make_metric_capture()
+        return MyMetricsExtender(meter_provider=provider, use_sdk_defaults=True)
+
+    @classmethod
+    def sink_noun(cls) -> str | None:
+        return "meter_provider"
+
+    @classmethod
+    def ambient_provider_getter(cls) -> str:
+        return "opentelemetry.metrics.get_meter_provider"
+
+    @classmethod
+    def flushed_signal(cls) -> str:
+        return "metrics"
+```
+
+Optional on top: `sink_probe_expected_content` (a metric the probe must contain, such as `{"mloda.step.duration"}`), `supports_unpicklable_sink_degrade` with `make_unpicklable_sink_extender`, and `supports_real_worker_sink` with `make_real_worker_extender_and_marker`. [`TestOtelMetricsExtenderContract`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/tests/test_otel_metrics_extender.py) is the full host; its `ProviderWarningTestMixin` base is internal to this repo and not part of `mloda-testing`.
 
 ### OpenLineageExtenderTestMixin
 
