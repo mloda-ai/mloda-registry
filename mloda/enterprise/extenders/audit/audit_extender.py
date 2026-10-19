@@ -27,7 +27,7 @@ from mloda.steward import (
 )
 
 from mloda.community.extenders.shared import is_picklable, termination
-from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, LEVELS, _rank, feature_classifications
+from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, LEVELS, feature_classifications
 from mloda.community.extenders.shared.declared import readable_declared, same_scalar
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
@@ -468,7 +468,7 @@ class AuditExtender(Extender):
             level = context.declared_attributes.get(CLASSIFICATION_KEY)
             if level is None:
                 return None
-            declared = _rank(level, "reader")
+            declared = LEVELS.index(level)
             if declared <= self._clearance_rank(policy, context.tenant_id, context.principal):
                 return None
         except Exception:

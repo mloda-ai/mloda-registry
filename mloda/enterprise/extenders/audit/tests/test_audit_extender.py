@@ -79,9 +79,11 @@ from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
     CountingExtender,
     expected_value_int,
+    prepare_csv_feature,
     prepare_value_int,
     run_csv_feature,
     run_value_int,
+    write_csv,
 )
 
 _BOTH_POSTURES = pytest.mark.parametrize("fail_closed", [False, True])
@@ -393,17 +395,6 @@ def _prepare_class_feature(feature: str, *extenders: Extender) -> mloda:
         [feature],
         compute_frameworks=[PyArrowTable],
         plugin_collector=PluginCollector.enabled_feature_groups(_CLASS_GROUPS),
-        function_extender=set(extenders),
-    )
-
-
-def _prepare_csv_feature(directory: Path, *extenders: Extender) -> mloda:
-    path = directory / "data.csv"
-    path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
-    return mloda.prepare(
-        [Feature("alpha", options={CsvReader.__name__: str(path)})],
-        compute_frameworks=[PyArrowTable],
-        plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature}),
         function_extender=set(extenders),
     )
 
@@ -4554,6 +4545,7 @@ class TestAuditExtenderRunAll:
         [
             pytest.param({"license": "dl-de/by-2-0"}, {"license": "dl-de/by-2-0"}, id="portable"),
             pytest.param({"license": "a", "scale": float("nan")}, {"license": "a"}, id="non_finite_float_dropped"),
+            pytest.param({"license": "a", "scale": 2**63}, {"license": "a"}, id="oversized_int_dropped"),
         ],
     )
     def test_run_all_csv_read_with_a_declaring_reader_records_the_declaration(
@@ -4771,7 +4763,7 @@ class TestAuditExtenderClassificationRunAll:
         gate = _classified(sink, lambda tenant, principal: "internal" if principal == "carol" else "pii")
 
         with verified_context(tenant_id="t", principal="alice"):
-            session = _prepare_csv_feature(tmp_path, gate)
+            session = prepare_csv_feature(tmp_path, gate)
         with verified_context(tenant_id="t", principal="bob"):
             session.run()
         with verified_context(tenant_id="t", principal="carol"):
@@ -4845,8 +4837,7 @@ class TestAuditExtenderClassificationRunAll:
         self, gate_readers: bool, allowed: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _declare_csv_level(monkeypatch, "pii")
-        path = tmp_path / "data.csv"
-        path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+        path = write_csv(tmp_path)
         sink = InMemoryAuditSink()
         policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", gate_readers=gate_readers)
         feature = Feature(_CSV_MASKED, options={_CSV_PATH_OPTION: str(path)})

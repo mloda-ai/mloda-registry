@@ -4206,7 +4206,7 @@ class TestOpenLineageExtenderSubclassSeams:
         ],
         ids=["types_preserved", "empty"],
     )
-    def test_output_datasets_carry_the_filtered_group_declaration(
+    def test_output_datasets_carry_the_group_declaration(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         declared: dict[str, Any],
