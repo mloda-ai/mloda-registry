@@ -34,7 +34,7 @@ def _source_family(dtype: pl.DataType) -> str:
 
 
 class PolarsLazyLookup(LookupFeatureGroup):
-    """Polars lazy backend: ``replace_strict`` stays lazy; ``raise`` collects only the unmatched rows."""
+    """Polars lazy backend: ``replace_strict`` stays lazy; ``raise`` evaluates the upstream plan once more to find unmatched keys."""
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -66,9 +66,11 @@ class PolarsLazyLookup(LookupFeatureGroup):
         unmatched = source.is_not_null() & mapped.is_null()
 
         if policy == "raise":
-            keys_found = data.filter(unmatched).select(source).collect().to_series()
-            if keys_found.len():
-                raise build_unmatched_error(feature_name, keys_found.len(), keys_found.unique().to_list(), reasons)
+            found = data.filter(unmatched).group_by(source_col).agg(pl.len().alias("__mloda_n")).collect()
+            if found.height:
+                raise build_unmatched_error(
+                    feature_name, int(found["__mloda_n"].sum()), found[source_col].to_list(), reasons
+                )
         elif policy == "keep":
             mapped = pl.when(unmatched).then(source.cast(values.dtype)).otherwise(mapped)
 

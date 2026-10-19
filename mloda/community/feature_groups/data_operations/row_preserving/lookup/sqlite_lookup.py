@@ -16,6 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    key_family,
     value_family,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
@@ -23,13 +24,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarro
     arrow_source_family,
 )
 
-
-def _affinity(arrow_type: pa.DataType) -> str:
-    if pa.types.is_integer(arrow_type) or pa.types.is_boolean(arrow_type):
-        return "INTEGER"
-    if pa.types.is_floating(arrow_type):
-        return "REAL"
-    return "TEXT"
+_AFFINITIES: dict[str, str] = {"str": "TEXT", "int": "INTEGER", "float": "REAL", "bool": "INTEGER"}
 
 
 class SqliteLookup(LookupFeatureGroup):
@@ -76,15 +71,16 @@ class SqliteLookup(LookupFeatureGroup):
         assert_key_family(feature_name, source_col, mapping, arrow_source_family(source_type), str(source_type))
 
         conn = data.connection
-        key_type = pa.array(list(mapping.keys())).type
-        value_type = pa.array(list(mapping.values())).type
+        key_fam = key_family(mapping)
+        value_fam = value_family(mapping)
+        value_type = ARROW_VALUE_TYPES[value_fam]
         map_table = f"_lookup_map_{uuid.uuid4().hex}"
         out_table = f"_lookup_out_{uuid.uuid4().hex}"
         rn = pick_helper_column_name(taken=set(original_cols) | {feature_name})
         q_map = quote_ident(map_table)
         q_source = quote_ident(source_col)
 
-        conn.execute(f"CREATE TEMP TABLE {q_map} (k {_affinity(key_type)} PRIMARY KEY, v {_affinity(value_type)})")
+        conn.execute(f"CREATE TEMP TABLE {q_map} (k {_AFFINITIES[key_fam]} PRIMARY KEY, v {_AFFINITIES[value_fam]})")
         tagged = None
         try:
             tagged = data.with_row_number(rn, order_by=["rowid"])

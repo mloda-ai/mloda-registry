@@ -54,9 +54,10 @@ class PythonDictLookup(LookupFeatureGroup):
             types = ", ".join(sorted({type(v).__name__ for v in source if v is not None}))
             assert_key_family(feature_name, source_col, mapping, family, types)
 
-        unmatched = [v for v in source if v is not None and v not in mapping]
-        if unmatched and policy == "raise":
-            raise build_unmatched_error(feature_name, len(unmatched), set(unmatched), reasons)
+        if policy == "raise":
+            unmatched = [v for v in source if v is not None and v not in mapping]
+            if unmatched:
+                raise build_unmatched_error(feature_name, len(unmatched), set(unmatched), reasons)
 
         keep = policy == "keep"
         result = dict(data)

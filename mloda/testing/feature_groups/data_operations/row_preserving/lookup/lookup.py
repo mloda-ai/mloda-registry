@@ -471,6 +471,23 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
         assert_values_with_nulls(col, null_expected if policy == "null" else keep_expected, nan_is_null=True)
 
+    def create_int_source(self, values: list[int | None]) -> Any:
+        """Single int64 column ``v``; frameworks whose fixture is lossy for nulls override this."""
+        return self.create_test_data(pa.table({"v": pa.array(values, type=pa.int64())}))
+
+    @pytest.mark.parametrize(
+        ("policy", "mapping", "expected"),
+        [
+            pytest.param("null", {2**60: "lo", 2**60 + 1: "hi"}, ["lo", "hi", None], id="null"),
+            pytest.param("raise", {2**60: "lo", 2**60 + 1: "hi"}, ["lo", "hi", None], id="raise"),
+            pytest.param("keep", {2**60: 1, 2**60 + 1: 2}, [1, 2, None], id="keep"),
+        ],
+    )
+    def test_large_int_keys_map_exactly(self, policy: str, mapping: dict[Any, Any], expected: list[Any]) -> None:
+        table = self.create_int_source([2**60, 2**60 + 1, None])
+        col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
+        assert col == expected
+
     def test_int_key_outside_source_width_still_matches_in_range_key_under_raise(self) -> None:
         table = self.create_test_data(pa.table({"v": pa.array([1, 2, None], type=pa.int32())}))
         with pytest.raises(LookupUnmatchedError) as excinfo:

@@ -41,6 +41,10 @@ class TestPandasLookup(PandasTestMixin, LookupTestBase):
     def typed_null_source_becomes_untyped(cls) -> bool:
         return True
 
+    def create_int_source(self, values: list[int | None]) -> Any:
+        # The arrow fixture turns int64 with nulls into lossy float64, so build nullable Int64 directly.
+        return pd.DataFrame({"v": pd.Series(values, dtype="Int64")})
+
     @classmethod
     def hook_implementation_class(cls) -> Any:
         return PandasNutsLookup
@@ -83,3 +87,25 @@ class TestPandasDivergences:
         fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="null")
         result = PandasLookup.calculate_feature(pd.DataFrame({"v": pd.Series([None, None], dtype=object)}), fs)
         assert result["v__lookup"].isna().tolist() == [True, True]
+
+    def test_object_int_column_with_null_maps_large_keys_exactly(self) -> None:
+        fs = make_feature_set("v__lookup", lookup_mapping={2**60: "lo", 2**60 + 1: "hi"}, on_unmatched="null")
+        source = pd.DataFrame({"v": pd.Series([2**60, 2**60 + 1, None], dtype=object)})
+        result = PandasLookup.calculate_feature(source, fs)
+        values = result["v__lookup"].tolist()
+        assert values[:2] == ["lo", "hi"]
+        assert pd.isna(values[2])
+
+    @pytest.mark.parametrize(
+        ("values", "mapping", "expected_dtype"),
+        [
+            pytest.param(["a", "b", None], {"a": "x", "b": "y"}, "object", id="str"),
+            pytest.param(["a", "b", None], {"a": 1, "b": 2}, "Int64", id="int"),
+            pytest.param(["a", "b", None], {"a": 1.5, "b": 2.5}, "float64", id="float"),
+            pytest.param(["a", "b", None], {"a": True, "b": False}, "boolean", id="bool"),
+        ],
+    )
+    def test_output_dtype_pinned(self, values: list[Any], mapping: dict[Any, Any], expected_dtype: str) -> None:
+        fs = make_feature_set("v__lookup", lookup_mapping=mapping, on_unmatched="null")
+        result = PandasLookup.calculate_feature(pd.DataFrame({"v": values}), fs)
+        assert str(result["v__lookup"].dtype) == expected_dtype

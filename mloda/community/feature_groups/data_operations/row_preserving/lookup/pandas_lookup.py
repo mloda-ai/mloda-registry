@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    key_family,
     value_family,
 )
 
@@ -45,7 +46,7 @@ def _source_family(series: pd.Series) -> str | None:
 
 
 class PandasLookup(LookupFeatureGroup):
-    """Pandas backend: ``Series.map`` gathers values, ``isin`` flags unmatched keys."""
+    """Pandas backend: an exact index lookup gathers values and flags unmatched keys."""
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -71,8 +72,12 @@ class PandasLookup(LookupFeatureGroup):
         if family == "int":
             source = source.astype("Int64")
 
-        mapped = source.map(dict(mapping), na_action="ignore").astype(_VALUE_DTYPES[value_family(mapping)])
-        unmatched = source.notna() & ~source.isin(list(mapping))
+        # Index gather keeps ints exact (Series.map round-trips nullable ints through float64).
+        key_index = pd.Index(list(mapping), dtype="Int64" if key_family(mapping) == "int" else None)
+        indexer = key_index.get_indexer(source.array)
+        values = pd.array(list(mapping.values()), dtype=_VALUE_DTYPES[value_family(mapping)])
+        mapped = pd.Series(values.take(indexer, allow_fill=True), index=data.index).astype(values.dtype)
+        unmatched = source.notna() & pd.Series(indexer == -1, index=data.index)
 
         if policy == "raise":
             rows = int(unmatched.sum())

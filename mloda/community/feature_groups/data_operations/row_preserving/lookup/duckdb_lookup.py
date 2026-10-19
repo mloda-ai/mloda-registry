@@ -16,7 +16,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     assert_key_family,
     build_unmatched_error,
+    value_family,
 )
+
+# keep needs key family == value family, so only str and int occur.
+_VALUE_SQL_TYPES: dict[str, str] = {"str": "VARCHAR", "int": "BIGINT"}
 
 # UBIGINT, HUGEINT and UHUGEINT cannot be compared at int64 width and fall to "other".
 _INT_TYPES = frozenset({"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER"})
@@ -71,20 +75,15 @@ class DuckdbLookup(LookupFeatureGroup):
 
         if policy == "raise":
             unmatched = joined.filter(f"{quoted_source} IS NOT NULL AND {quoted_val} IS NULL")
-            rows = len(unmatched)
-            if rows:
-                distinct_rel = unmatched.aggregate(quoted_source, quoted_source)
-                distinct = distinct_rel.to_arrow_table().column(0).to_pylist()
-                raise build_unmatched_error(feature_name, rows, distinct, reasons)
+            found = unmatched.aggregate(f"{quoted_source}, COUNT(*)", quoted_source).to_arrow_table()
+            if found.num_rows:
+                counts = found.column(1).to_pylist()
+                raise build_unmatched_error(feature_name, sum(counts), found.column(0).to_pylist(), reasons)
 
         # keep: unmatched non-null sources fall through; mapped values are never null.
         result_expr = quoted_val
         if policy == "keep":
-            result_expr = f"COALESCE({quoted_val}, CAST({quoted_source} AS {_value_sql_type(mapping)}))"
+            result_expr = f"COALESCE({quoted_val}, CAST({quoted_source} AS {_VALUE_SQL_TYPES[value_family(mapping)]}))"
         ordered = joined.order(quote_ident(rn))
         keep_cols = ", ".join(quote_ident(c) for c in original_cols)
         return ordered.project(f"{keep_cols}, {result_expr} AS {quote_ident(feature_name)}")
-
-
-def _value_sql_type(mapping: Mapping[Any, Any]) -> str:
-    return "VARCHAR" if isinstance(next(iter(mapping.values())), str) else "BIGINT"
