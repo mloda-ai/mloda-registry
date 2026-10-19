@@ -78,10 +78,11 @@ Keywords are the shared base followed by each package's own, deduplicated. Class
 | `py_typed` | No | `true` adds the dotted path to `packages` (what ships the marker) and emits `[tool.setuptools.package-data]` for it. Requires a committed `<path>/py.typed`. Mutually exclusive with `workspace_deps` |
 
 For a `data_operations` leaf package, `optional_dependencies` must declare exactly the backend
-extras its `manifest.py` registers, no more and no less. Its `pyarrow` and `polars` extras must use core's own
-floors, and its `duckdb` and `sqlite` extras must mirror core's same-named extras exactly (both pull in
-`pyarrow`): `tests/test_end2end/test_backend_optional_dependencies.py` derives the expected set from each
-manifest, reads core's extras from its installed metadata, and fails the build on drift. A leaf may raise its `polars` floor above core's only through
+extras its `manifest.py` registers, no more and no less. Its `pyarrow` and `polars` extras must use
+core's own floors, and its `duckdb` and `sqlite` extras must mirror core's same-named extras exactly
+(both pull in `pyarrow`): `tests/test_end2end/test_backend_optional_dependencies.py` derives the
+expected set from each manifest, reads core's extras from its installed metadata, and fails the
+build on drift. A leaf may raise its `polars` floor above core's only through
 `_POLARS_FLOOR_OVERRIDES` in that same test (today `mloda-community-frame-aggregate`, `>=1.38`,
 because its time window's `rolling_*_by` rejects null values on older polars).
 

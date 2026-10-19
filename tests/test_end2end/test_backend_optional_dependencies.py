@@ -155,7 +155,6 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
         f"{package_name}: config/packages.toml declares extras {sorted(declared)} "
         f"but the manifest registers backends {sorted(backends)}"
     )
-    # Only python_dict remains: it needs no pip package.
     for backend in backends - _PACKAGED_BACKENDS - _CORE_MIRRORED_BACKENDS:
         assert actual[backend] == [], f"{package_name}: {backend} needs no pip package, its extra must be []"
     for backend in backends & _CORE_MIRRORED_BACKENDS:
