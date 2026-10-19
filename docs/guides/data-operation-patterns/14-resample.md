@@ -82,7 +82,7 @@ The result has one row per occupied hour per symbol, not one row per input event
 
 ## Chained names
 
-A chained name writes the child inline: `value__resample_1_hour_mean__resample_1_day_max` builds `value__resample_1_hour_mean` as its own input feature. Context options stay local, so the child never receives `time_column` and fails resolution, with the missing key named in the error. List the key in `propagate_context_keys` to push it to that child (one hop; for a longer chain use `cascade_context_keys` (mloda 0.16.0+), or group options, which forward down the whole chain but affect feature hashing and splitting).
+A chained name writes the child inline: `value__resample_1_hour_mean__resample_1_day_max` builds `value__resample_1_hour_mean` as its own input feature. Context options stay local, so the child never receives `time_column` and fails resolution, with the missing key named in the error. List the key in `propagate_context_keys` to push it to that child (one hop; for a longer chain use `cascade_context_keys` (mloda 0.16.0+) or group options; both split features into separate feature sets per value at every level, and group options also change feature hashing).
 
 ```python
 Feature(

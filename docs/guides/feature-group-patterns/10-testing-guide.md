@@ -136,7 +136,7 @@ def test_recipe_plan_matches_lock() -> None:
     check_plan_lock(plan, LOCK)
 ```
 
-`check_plan_lock` never writes: it raises `PlanLockMismatchError` with a diff when the plan drifts, or with the content to write when the lock is missing. Regenerate with `UPDATE_PLAN_LOCKS=1 pytest ...` (the test's own switch, not an mloda setting), review the diff and commit the lock file. The lock records each feature group, reader and framework by `module:qualname`, so moving a class or upgrading mloda can change it too; they must live in an importable module, since `write_plan_lock` refuses classes defined in `__main__`.
+`check_plan_lock` never writes: it raises `PlanLockMismatchError` with a diff when the plan drifts, or with the content to write when the lock is missing. Regenerate with `UPDATE_PLAN_LOCKS=1 pytest ...` (the test's own switch, not an mloda setting), review the diff and commit the lock file. The lock records each feature group, reader and framework by `module:qualname`, so moving a class or upgrading mloda can change it too (mloda 0.16.0 moved the lock format to 5, adding input wiring and join keys, so rewrite each lock once after upgrading); they must live in an importable module, since `write_plan_lock` refuses classes defined in `__main__`.
 
 ## Testing What an Import Loads
 

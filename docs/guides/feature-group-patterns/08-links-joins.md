@@ -271,6 +271,7 @@ The check has limits:
 - mloda 0.15.1 and older do not have it: some of these layouts plan, others fail with unrelated join errors.
 - It does not cover append and union links.
 - Members that share a compute framework pass it, but one base-class link over both is still ambiguous (`There are more than one solution for the join`).
+- A planned layout is not always correct: with the other side on one member's framework, a left or right join that keeps the member side can return wrong rows when the members hold different keys, and under `THREADING` planned layouts can fail intermittently with a missing column.
 
 ## When to Use Each Approach
 

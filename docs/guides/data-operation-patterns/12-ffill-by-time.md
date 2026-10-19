@@ -60,7 +60,7 @@ Ordering ties matter only when two rows in a partition share an `order_by` value
 
 ## Chained names
 
-A chained name writes the child inline: `price__ffill__ema_10` builds `price__ffill` as its own input feature. Context options stay local, so the child receives neither `order_by` nor `partition_by`: the missing `order_by` fails resolution with the key named in the error, while a missing `partition_by` silently computes the child unpartitioned and changes the result. List the keys in `propagate_context_keys` to push them to that child (one hop; for a longer chain use `cascade_context_keys` (mloda 0.16.0+), or group options, which forward down the whole chain but affect feature hashing and splitting).
+A chained name writes the child inline: `price__ffill__ema_10` builds `price__ffill` as its own input feature. Context options stay local, so the child receives neither `order_by` nor `partition_by`: the missing `order_by` fails resolution with the key named in the error, while a missing `partition_by` silently computes the child unpartitioned and changes the result. List the keys in `propagate_context_keys` to push them to that child (one hop; for a longer chain use `cascade_context_keys` (mloda 0.16.0+) or group options; both split features into separate feature sets per value at every level, and group options also change feature hashing).
 
 ```python
 Feature(
