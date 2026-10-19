@@ -1383,6 +1383,35 @@ class TestOtelExtenderPreCallInstrumentationFailure:
         assert len(spans) == 1, spans
         assert spans[0].status.status_code == StatusCode.ERROR
 
+    def test_pre_call_interrupt_ends_span_unset_with_cancel_type_and_logs_nothing(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class _Halt(BaseException):
+            pass
+
+        def broken_set_context_attributes(span: Any, context: Any) -> None:
+            raise _Halt("attrs halt")
+
+        monkeypatch.setattr(otel_extender_module, "_set_context_attributes", broken_set_context_attributes)
+
+        provider, exporter = otel_capture
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            with caplog.at_level(logging.WARNING):
+                with pytest.raises(_Halt):
+                    otel(lambda: None)
+
+        span = single_span(exporter)
+        assert span.status.status_code == StatusCode.UNSET
+        assert (span.attributes or {})["mloda.cancel.type"] == f"{_Halt.__module__}.{_Halt.__qualname__}"
+        assert "error.type" not in (span.attributes or {})
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
 
 class TestOtelExtenderPostCallInstrumentationFailure:
     """A bug in the extender's OWN post-call code (reading context.rows_out, then mask/str on a result
@@ -2767,6 +2796,37 @@ class TestOtelExtenderRunScopeFullRuns:
         assert (root.attributes or {}).get("mloda.run.status") == "failed"
         assert (root.attributes or {})["error.type"] == f"{RuntimeError.__module__}.{RuntimeError.__qualname__}"
 
+    def test_interrupted_run_marks_the_root_cancelled_not_error(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        group = failing_feature_group("mloda_testing_otel_root_halt")
+
+        class _Halt(BaseException):
+            pass
+
+        def halt(data: Any, features: Any) -> Any:
+            raise _Halt("halt")
+
+        group.calculate_feature = staticmethod(halt)  # type: ignore[method-assign]
+
+        with pytest.raises(BaseException) as raised:
+            run_failing_feature(group, OtelExtender(tracer_provider=provider))
+        assert not isinstance(raised.value, Exception)
+
+        halt_type = f"{_Halt.__module__}.{_Halt.__qualname__}"
+        spans = exporter.get_finished_spans()
+        step = next(span for span in spans if span.name not in ("mloda.run", "mloda.plan"))
+        assert step.status.status_code == StatusCode.UNSET
+        assert (step.attributes or {})["mloda.cancel.type"] == halt_type
+        assert "error.type" not in (step.attributes or {})
+        root = assert_well_formed_trace(spans)
+        assert root.name == "mloda.run"
+        assert root.status.status_code != StatusCode.ERROR
+        assert (root.attributes or {})["mloda.run.status"] == "cancelled"
+        assert (root.attributes or {})["mloda.cancel.type"] == halt_type
+        assert "error.type" not in (root.attributes or {})
+
     def test_caller_active_span_is_the_parent_of_the_root(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
@@ -2988,22 +3048,35 @@ class TestOtelExtenderRootSpanHooks:
         assert span.attributes["mloda.run.status"] == "succeeded"
         assert span.status.status_code != StatusCode.ERROR
 
-    @pytest.mark.parametrize("status", ["failed", "cancelled"])
+    @pytest.mark.parametrize(
+        ("status", "error_type"),
+        [("failed", "ValueError"), ("cancelled", "builtins.SystemExit"), ("cancelled", None)],
+        ids=["failed", "cancelled", "cancelled_without_type"],
+    )
     def test_non_success_status_is_recorded(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], status: str
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], status: str, error_type: str | None
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         run_id = str(uuid.uuid4())
 
         _start_run(otel, run_id)
-        _complete_run(otel, run_id, status=status, error_type="ValueError")
+        _complete_run(otel, run_id, status=status, error_type=error_type)
 
         span = single_span(exporter)
-        assert (span.attributes or {})["mloda.run.status"] == status
+        attributes = span.attributes or {}
+        assert attributes["mloda.run.status"] == status
         if status == "failed":
             assert span.status.status_code == StatusCode.ERROR
-            assert (span.attributes or {})["error.type"] == "ValueError"
+            assert attributes["error.type"] == "ValueError"
+            assert "mloda.cancel.type" not in attributes
+        else:
+            assert span.status.status_code != StatusCode.ERROR
+            assert "error.type" not in attributes
+            if error_type is None:
+                assert "mloda.cancel.type" not in attributes
+            else:
+                assert attributes["mloda.cancel.type"] == "builtins.SystemExit"
 
     def test_complete_for_an_unknown_run_id_is_a_noop(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -3176,6 +3249,12 @@ class TestOtelExtenderPlanSpanHooks:
             pytest.param("plan", LifecycleOutcome(status="succeeded"), False, id="plan_succeeded"),
             pytest.param("plan", LifecycleOutcome(status="failed", error_type="KeyError"), True, id="plan_failed"),
             pytest.param("run", LifecycleOutcome(status="failed", error_type="KeyError"), True, id="run_failed"),
+            pytest.param(
+                "plan",
+                LifecycleOutcome(status="cancelled", error_type="builtins.SystemExit"),
+                False,
+                id="plan_cancelled",
+            ),
         ],
     )
     @pytest.mark.parametrize("structure_hash", ["abc123", None])
@@ -3210,6 +3289,7 @@ class TestOtelExtenderPlanSpanHooks:
             assert (span.attributes or {})["error.type"] == "KeyError"
         else:
             assert span.status.status_code != StatusCode.ERROR
+        assert "mloda.cancel.type" not in (span.attributes or {})
         if trace_scope == "run":
             assert span.start_time == 1767323045678901000
             assert span.parent is None

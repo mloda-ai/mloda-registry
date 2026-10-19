@@ -136,7 +136,14 @@ class MlodaTestingStatusSpanExporter(SpanExporter):
     def export(self, spans):
         with open(Path(os.environ["MLODA_TEST_DIR"]) / "spans.ndjson", "a") as handle:
             for span in spans:
-                record = {"pid": os.getpid(), "name": span.name, "status": span.status.status_code.name}
+                attributes = dict(span.attributes or {})
+                record = {
+                    "pid": os.getpid(),
+                    "name": span.name,
+                    "status": span.status.status_code.name,
+                    "cancel_type": attributes.get("mloda.cancel.type"),
+                    "error_type": attributes.get("error.type"),
+                }
                 handle.write(json.dumps(record) + "\\n")
         return SpanExportResult.SUCCESS
 
@@ -206,10 +213,13 @@ def test_sigterm_to_parent_aborts_the_worker_step_only_when_the_worker_installs_
         else []
     )
     calculate_statuses = [r["status"] for r in worker_spans if r["name"].startswith("calculate ")]
+    calculate_spans = [r for r in worker_spans if r["name"].startswith("calculate ")]
     if worker_handler:
         assert worker_step == ["START", "ABORT"], events
         assert (tmp_path / f"closed.{worker_pid}.marker").exists(), output
-        assert calculate_statuses == ["ERROR"], worker_spans
+        assert calculate_statuses == ["UNSET"], worker_spans
+        assert [r["cancel_type"] for r in calculate_spans] == ["builtins.SystemExit"], worker_spans
+        assert [r["error_type"] for r in calculate_spans] == [None], worker_spans
     else:
         assert worker_step == ["START"], events
         assert calculate_statuses == [], worker_spans

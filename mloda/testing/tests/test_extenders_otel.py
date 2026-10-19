@@ -368,8 +368,12 @@ class _CachedTracerProbeOtelExtender(Extender):
             try:
                 return func(*args, **kwargs)
             except BaseException as exc:
-                span.set_status(Status(StatusCode.ERROR))
-                span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                qualified = f"{type(exc).__module__}.{type(exc).__qualname__}"
+                if isinstance(exc, Exception):
+                    span.set_status(Status(StatusCode.ERROR))
+                    span.set_attribute("error.type", qualified)
+                else:
+                    span.set_attribute("mloda.cancel.type", qualified)
                 raise
 
 

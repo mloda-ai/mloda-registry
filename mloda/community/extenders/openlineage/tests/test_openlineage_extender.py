@@ -2046,9 +2046,9 @@ class TestOpenLineageExtenderParentRun:
             pytest.param("succeeded", None, RunState.COMPLETE, id="succeeded"),
             pytest.param("failed", None, RunState.FAIL, id="failed"),
             pytest.param("cancelled", None, RunState.ABORT, id="cancelled"),
-            pytest.param("failed", "SystemExit", RunState.ABORT, id="failed-system-exit"),
+            pytest.param("failed", "SystemExit", RunState.FAIL, id="failed-system-exit"),
             pytest.param(
-                "failed", "builtins.KeyboardInterrupt", RunState.ABORT, id="failed-qualified-keyboard-interrupt"
+                "cancelled", "builtins.KeyboardInterrupt", RunState.ABORT, id="cancelled-qualified-keyboard-interrupt"
             ),
             pytest.param("failed", "ValueError", RunState.FAIL, id="failed-value-error"),
         ],

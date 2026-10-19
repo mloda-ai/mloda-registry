@@ -37,7 +37,14 @@ from opentelemetry.trace import (
     set_span_in_context,
 )
 
-from mloda.community.extenders.otel._constants import DECLARABLE_HOOKS, OPERATION_NAMES, TRACER_NAME
+from mloda.community.extenders.otel._constants import (
+    CANCEL_TYPE_KEY,
+    DECLARABLE_HOOKS,
+    OPERATION_NAMES,
+    TRACER_NAME,
+    exception_type_name,
+    is_interrupt,
+)
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.declared import declared_scalars
@@ -465,8 +472,7 @@ class OtelExtender(Extender):
                     if context.hook == ExtenderHook.JOIN:
                         _set_join_attributes(span, context)
                 except BaseException as exc:
-                    span.set_status(Status(StatusCode.ERROR))
-                    span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                    _mark_exception(span, exc)
                     raise
                 if context.hook in DECLARABLE_HOOKS:
                     _set_scalar_attributes(span, context.declared_attributes, "mloda.declared")
@@ -474,9 +480,9 @@ class OtelExtender(Extender):
             try:
                 result = func(*args, **kwargs)
             except BaseException as exc:
-                span.set_status(Status(StatusCode.ERROR))
-                span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
-                logger.warning("%s %s failed: %s", type(self).__name__, span_name, type(exc).__name__)
+                _mark_exception(span, exc)
+                verb = "cancelled" if is_interrupt(exc) else "failed"
+                logger.warning("%s %s %s: %s", type(self).__name__, span_name, verb, type(exc).__name__)
                 raise
             finally:
                 try:
@@ -537,6 +543,15 @@ def _carrier_or_active_span_context(carrier: Any) -> SpanContext | None:
     return span_context if span_context.is_valid else None
 
 
+def _mark_exception(span: Span, exc: BaseException) -> None:
+    """An Exception sets ERROR and error.type; an interrupt sets mloda.cancel.type and leaves the status UNSET."""
+    if is_interrupt(exc):
+        span.set_attribute(CANCEL_TYPE_KEY, exception_type_name(exc))
+    else:
+        span.set_status(Status(StatusCode.ERROR))
+        span.set_attribute("error.type", exception_type_name(exc))
+
+
 def _end_with_outcome(span: Span, outcome: LifecycleOutcome, status_attribute: str | None) -> None:
     if status_attribute is not None:
         span.set_attribute(status_attribute, outcome.status)
@@ -544,6 +559,8 @@ def _end_with_outcome(span: Span, outcome: LifecycleOutcome, status_attribute: s
         span.set_status(Status(StatusCode.ERROR))
         if outcome.error_type is not None:
             span.set_attribute("error.type", outcome.error_type)
+    elif status_attribute is not None and outcome.status == "cancelled" and outcome.error_type is not None:
+        span.set_attribute(CANCEL_TYPE_KEY, outcome.error_type)
     span.end()
 
 

@@ -460,7 +460,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         assert span.attributes is not None
         assert "error.type" in span.attributes
 
-    def test_otel_base_exception_marks_span_error_and_propagates(self) -> None:
+    def test_otel_interrupt_marks_span_cancelled_and_propagates(self, caplog: pytest.LogCaptureFixture) -> None:
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
         marker = "SENSITIVE_ROW_VALUE_xyz123"
@@ -472,14 +472,18 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
             raise _Boom(f"base exception boom: {marker}")
 
         with make_hook_context(hook=self.context_hook()).activate():
-            with pytest.raises(_Boom):
-                extender(func)
+            with caplog.at_level(logging.WARNING):
+                with pytest.raises(_Boom):
+                    extender(func)
 
         span = single_span(exporter)
-        assert span.status.status_code == StatusCode.ERROR
+        assert span.status.status_code == StatusCode.UNSET
         assert span.attributes is not None
-        assert "error.type" in span.attributes
+        assert "error.type" not in span.attributes
+        assert span.attributes["mloda.cancel.type"] == f"{_Boom.__module__}.{_Boom.__qualname__}"
+        assert marker not in repr(dict(span.attributes))
         assert marker not in (span.status.description or "")
+        assert marker not in caplog.text
 
     def test_otel_wrapped_failure_logs_warning_naming_extender(self, caplog: pytest.LogCaptureFixture) -> None:
         provider, _ = make_span_capture()

@@ -50,7 +50,6 @@ from openlineage.client.facet_v2 import (
 
 logger = logging.getLogger(__name__)
 
-_ABORT_ERROR_TYPES = frozenset({"SystemExit", "KeyboardInterrupt"})
 
 OWNER_KEY = "mloda.owner"
 
@@ -448,8 +447,6 @@ class OpenLineageExtender(Extender):
                 started = run.run_id in self._started_runs
             if started:
                 state = {"succeeded": RunState.COMPLETE, "failed": RunState.FAIL}.get(outcome.status, RunState.ABORT)
-                if outcome.status == "failed" and (outcome.error_type or "").rsplit(".", 1)[-1] in _ABORT_ERROR_TYPES:
-                    state = RunState.ABORT
                 plan = self._plans.get(run.run_id)
                 try:
                     self._emit(self._parent_event(state, run, plan, _now_iso()), run_id=run.run_id)
