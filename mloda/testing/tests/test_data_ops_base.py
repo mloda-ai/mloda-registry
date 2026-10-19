@@ -227,33 +227,28 @@ class _CompareStub(_StubDataOpsTestBase):
 
 def test_compare_with_reference_forwards_extra_context_to_both_calls() -> None:
     _RecordingImpl.seen = []
+    _RecordingImpl.seen_factor = []
     stub = _CompareStub()
     stub.setup_method()
     stub._compare_with_reference("f", partition_by=["g"], lookup_mapping={"a": "b"}, on_unmatched="null")
     expected = {"partition_by": ["g"], "lookup_mapping": {"a": "b"}, "on_unmatched": "null"}
     assert _RecordingImpl.seen == [expected, expected]
-
-
-def test_compare_with_reference_materializes_defaults_for_both_calls() -> None:
-    _RecordingImpl.seen_factor = []
-    stub = _CompareStub()
-    stub.setup_method()
-    stub._compare_with_reference("f")
     assert _RecordingImpl.seen_factor == [2, 2]
 
 
 # -- helpers feature_group keyword -------------------------------------------
 
 
-def test_make_feature_set_with_feature_group_carries_its_default() -> None:
-    with_group = helpers.make_feature_set("f", feature_group=_RecordingImpl)
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda **kwargs: helpers.make_feature_set("f", **kwargs),
+        lambda **kwargs: helpers.feature_set_for("f", Options(), **kwargs),
+    ],
+    ids=["make_feature_set", "feature_set_for"],
+)
+def test_feature_set_builder_with_feature_group_carries_its_default(build: Any) -> None:
+    with_group = build(feature_group=_RecordingImpl)
     assert next(iter(with_group.features)).options.get("factor") == 2
-    without = helpers.make_feature_set("f")
-    assert next(iter(without.features)).options.get("factor") is None
-
-
-def test_feature_set_for_with_feature_group_carries_its_default() -> None:
-    with_group = helpers.feature_set_for("f", Options(), feature_group=_RecordingImpl)
-    assert next(iter(with_group.features)).options.get("factor") == 2
-    without = helpers.feature_set_for("f", Options())
+    without = build()
     assert next(iter(without.features)).options.get("factor") is None
