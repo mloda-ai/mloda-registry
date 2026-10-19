@@ -9,12 +9,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pyarrow as pa
-from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
     ReferenceFrameAggregate,
 )
+from mloda.testing.feature_set import build_feature_set
 
 
 class TestReferenceTimeWindow:
@@ -53,8 +53,7 @@ class TestReferenceTimeWindow:
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(ReferenceFrameAggregate, feature)
 
         result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("my_time_sum").to_pylist()
@@ -83,8 +82,7 @@ class TestReferenceNullHandling:
             "value__sum_rolling_3",
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(ReferenceFrameAggregate, feature)
 
         result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("value__sum_rolling_3").to_pylist()
@@ -104,8 +102,7 @@ class TestReferenceNullHandling:
             "value__cumsum",
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(ReferenceFrameAggregate, feature)
 
         result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("value__cumsum").to_pylist()
@@ -125,8 +122,7 @@ class TestReferenceNullHandling:
             "value__cumsum",
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(ReferenceFrameAggregate, feature)
 
         result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("value__cumsum").to_pylist()

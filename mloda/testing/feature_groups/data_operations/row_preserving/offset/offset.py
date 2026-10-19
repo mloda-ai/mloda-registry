@@ -28,6 +28,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 __all__ = [
     "EXPECTED_FIRST_VALUE",
@@ -307,7 +308,6 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_option_based_lag(self) -> None:
         """Option-based configuration (not string pattern) produces the same result as pattern."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -321,8 +321,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_lag_result")
@@ -330,7 +329,6 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_unsupported_offset_type_raises(self) -> None:
         """Calling calculate_feature with an unknown offset type should raise ValueError."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -342,8 +340,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 

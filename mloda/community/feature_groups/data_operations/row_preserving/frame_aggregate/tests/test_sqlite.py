@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
@@ -22,6 +21,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
     FrameAggregateTestBase,
     config_frame_options,
 )
+from mloda.testing.feature_set import build_feature_set
 
 
 class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAggregateTestBase):
@@ -99,8 +99,7 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
             feature_name,
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
         result_col = self.extract_column(result, feature_name)

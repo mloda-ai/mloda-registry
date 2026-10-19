@@ -49,6 +49,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Dedicated 8-row fixture (UTC timestamps)
@@ -393,8 +394,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "my_floored")
         assert_values_with_nulls(col, EXPECTED_FLOOR_1_DAY, parse_iso=True)
@@ -403,7 +403,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
 
     def _compare_bucket_with_reference(self, feature_name: str) -> None:
         """Run the feature on this framework and the PyArrow reference; assert equal."""
-        fs = make_feature_set(feature_name)
+        fs = make_feature_set(feature_name, feature_group=self.implementation_class())
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 
@@ -464,8 +464,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match=match):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -481,8 +480,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match=rf"(?i){unit}"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 

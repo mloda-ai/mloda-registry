@@ -82,6 +82,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 _U = timezone.utc
 
@@ -344,8 +345,7 @@ class SessionizationTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
@@ -405,7 +405,6 @@ class SessionizationTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match=r"(?i)feature name"):
             self.implementation_class().calculate_feature(self.test_data, fs)

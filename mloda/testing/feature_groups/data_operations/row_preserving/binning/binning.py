@@ -26,6 +26,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -396,7 +397,6 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     def test_option_based_bin_3(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -409,8 +409,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_bin_result")
@@ -418,7 +417,6 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     def test_unsupported_binning_type_raises(self) -> None:
         """Calling calculate_feature with an unknown binning type should raise."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -431,8 +429,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 

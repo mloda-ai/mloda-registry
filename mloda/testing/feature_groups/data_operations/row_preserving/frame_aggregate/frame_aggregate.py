@@ -44,6 +44,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -587,8 +588,7 @@ class FrameAggregateTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         col = self.extract_column(result, "monthly_sum")
@@ -631,8 +631,7 @@ class FrameAggregateTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         col = self.extract_column(result, "yearly_sum")
@@ -747,8 +746,7 @@ class FrameAggregateTestBase(
             feature_name,
             options=Options(context={"partition_by": partition_by, "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
@@ -778,8 +776,7 @@ class FrameAggregateTestBase(
             feature_name,
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
@@ -810,8 +807,7 @@ class FrameAggregateTestBase(
             feature_name,
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
@@ -842,8 +838,7 @@ class FrameAggregateTestBase(
             feature_name,
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
@@ -877,8 +872,7 @@ class FrameAggregateTestBase(
             feature_name,
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
@@ -914,8 +908,7 @@ class FrameAggregateTestBase(
             feature_name,
             options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
@@ -1020,6 +1013,7 @@ class FrameAggregateTestBase(
             partition_by=partition_by,
             order_by="ts",
             mask=mask_spec,
+            feature_group=self.implementation_class(),
         )
 
         result = self.implementation_class().calculate_feature(data, fs)
@@ -1113,8 +1107,7 @@ class FrameAggregateTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_rolling_sum")

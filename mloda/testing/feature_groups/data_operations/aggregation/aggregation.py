@@ -44,6 +44,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -469,7 +470,7 @@ class AggregationTestBase(
         """
         arrow_table = self._arrow_table if table is None else table
         test_data = self.test_data if table is None else self.create_test_data(table)
-        fs = make_feature_set(feature_name, partition_by)
+        fs = make_feature_set(feature_name, partition_by, feature_group=self.implementation_class())
         result = self.implementation_class().calculate_feature(test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(arrow_table, fs)
 
@@ -891,7 +892,6 @@ class AggregationTestBase(
 
     def test_unsupported_aggregation_type_raises(self) -> None:
         """Calling calculate_feature with an unknown aggregation type should raise."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -902,8 +902,7 @@ class AggregationTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -1010,7 +1009,7 @@ class AggregationTestBase(
             }
         )
         feature_name = "v__count_agg"
-        fs = make_feature_set(feature_name, ["k"])
+        fs = make_feature_set(feature_name, ["k"], feature_group=self.implementation_class())
 
         ref = self.reference_implementation_class().calculate_feature(table, fs)
         assert ref.num_rows == 2, f"reference must split 0.0/-0.0 into two groups, got {ref.num_rows} rows"

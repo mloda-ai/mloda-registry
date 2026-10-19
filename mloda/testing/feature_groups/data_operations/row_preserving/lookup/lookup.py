@@ -34,6 +34,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 _IDS: list[int] = [0, 1, 2, 3, 4, 5, 6]
 _PRODUCT_CODES: list[str | None] = ["A100", "B200", "A100", "C300", None, "D400", "C300"]
@@ -174,7 +175,9 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
-        return make_feature_set("product_code__lookup", lookup_mapping=FULL_STR_MAP)
+        return make_feature_set(
+            "product_code__lookup", lookup_mapping=FULL_STR_MAP, feature_group=self.implementation_class()
+        )
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -234,7 +237,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         context: dict[str, Any] = {"lookup_mapping": mapping}
         if policy is not None:
             context["on_unmatched"] = policy
-        fs = make_feature_set(feature_name, **context)
+        fs = make_feature_set(feature_name, feature_group=self.implementation_class(), **context)
         return self.implementation_class().calculate_feature(self.test_data if data is None else data, fs)
 
     def _unmatched_error(self, feature_name: str, mapping: dict[Any, Any], policy: str | None = None) -> Any:
@@ -320,8 +323,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 context={"in_features": "product_code", "lookup_mapping": PARTIAL_STR_MAP, "on_unmatched": "null"}
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert_values_with_nulls(self.extract_column(result, "my_result"), NULL_STR_PARTIAL)
 
@@ -371,7 +373,9 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_raise_sample_is_sorted_and_capped_at_ten(self) -> None:
         keys = [f"K{i:02d}" for i in range(12)]
         table = self.create_test_data(pa.table({"k": pa.array(["K11", *keys, None], type=pa.string())}))
-        fs = make_feature_set("k__lookup", lookup_mapping={"zzz": "x"}, on_unmatched="raise")
+        fs = make_feature_set(
+            "k__lookup", lookup_mapping={"zzz": "x"}, on_unmatched="raise", feature_group=self.implementation_class()
+        )
         with pytest.raises(LookupUnmatchedError) as excinfo:
             self.implementation_class().calculate_feature(table, fs)
         err = excinfo.value

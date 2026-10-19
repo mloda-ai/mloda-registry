@@ -29,6 +29,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Source columns and expected values (module-level constants)
@@ -246,8 +247,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
             "value_int&amount__bogus_point",
             options=Options(),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -264,8 +264,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_custom_add")
@@ -287,8 +286,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_diff")
@@ -309,8 +307,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_product")
@@ -333,8 +330,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match="at least 2"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -393,7 +389,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         divide-by-zero row, which legitimately diverges between SQLite and the
         IEEE-754 backends). Default ``None`` compares every row.
         """
-        fs = make_feature_set(feature_name)
+        fs = make_feature_set(feature_name, feature_group=self.implementation_class())
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 

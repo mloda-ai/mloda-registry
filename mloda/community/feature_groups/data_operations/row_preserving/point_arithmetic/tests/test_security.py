@@ -17,11 +17,13 @@ from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
+    PointArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
     PyArrowPointArithmetic,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_set import build_feature_set
 
 
 def _make_fs(
@@ -41,8 +43,7 @@ def _make_fs(
     if in_features is not None:
         context["in_features"] = in_features
     feature = Feature(name, options=Options(context=context))
-    fs = FeatureSet()
-    fs.add(feature)
+    fs = build_feature_set(PointArithmeticFeatureGroup, feature)
     return fs
 
 

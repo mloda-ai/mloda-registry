@@ -73,6 +73,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 _U = timezone.utc
 
@@ -374,7 +375,9 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
                 assert got == exp, f"bucket {key!r}: {got!r} != {exp!r}"
 
     def _resample_fs(self, feature_name: str, partition_by: list[str]) -> FeatureSet:
-        return make_feature_set(feature_name, partition_by=partition_by, time_column="ts")
+        return make_feature_set(
+            feature_name, partition_by=partition_by, time_column="ts", feature_group=self.implementation_class()
+        )
 
     # -- NanPolicyTestMixin configuration ---------------------------------------
 
@@ -396,7 +399,9 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     @classmethod
     def nan_policy_feature_set(cls, feature_name: str) -> FeatureSet:
-        return make_feature_set(feature_name, partition_by=["grp"], time_column="ts")
+        return make_feature_set(
+            feature_name, partition_by=["grp"], time_column="ts", feature_group=cls.implementation_class()
+        )
 
     def nan_policy_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
         """Resample skips nothing: every token in NAN_POLICY_RESAMPLE is always supported."""
@@ -588,8 +593,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         result_map = self._build_resample_map(result, "value__resample_1_hour_mean", "ts", ["region"])
         self._assert_map_equals(result_map, EXPECTED_1_HOUR_MEAN, use_approx=True)

@@ -32,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -433,7 +434,6 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_option_based_row_number(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -447,8 +447,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_row_number")
@@ -456,7 +455,6 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_option_based_top_n(self) -> None:
         """Option-based top_N produces the same result as string pattern."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -470,8 +468,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_top_3")
@@ -479,7 +476,6 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_unsupported_rank_type_raises(self) -> None:
         """Calling calculate_feature with an unknown rank type should raise."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -491,8 +487,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -616,7 +611,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
             }
         )
         feature_name = f"val__{rank_type}_ranked"
-        fs = make_feature_set(feature_name, ["grp"], "val")
+        fs = make_feature_set(feature_name, ["grp"], "val", feature_group=self.implementation_class())
 
         ref = self.reference_implementation_class().calculate_feature(table, fs)
         result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)

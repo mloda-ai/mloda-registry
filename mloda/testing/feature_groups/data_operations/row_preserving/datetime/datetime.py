@@ -45,6 +45,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, canonical 12-row dataset)
@@ -293,7 +294,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
 
     def _compare_varied_with_reference(self, feature_name: str) -> None:
         """Run the feature on the supplementary dataset, compare with the reference."""
-        fs = make_feature_set(feature_name)
+        fs = make_feature_set(feature_name, feature_group=self.implementation_class())
         result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._varied_arrow_table, fs)
 
@@ -354,7 +355,6 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
 
     def test_option_based_year(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -366,8 +366,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_year")

@@ -34,6 +34,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -313,7 +314,6 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
     def test_option_based_upper(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
         self._skip_if_unsupported("upper")
-        from mloda.provider import FeatureSet
         from mloda.user import Feature, Options
 
         feature = Feature(
@@ -325,8 +325,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_upper")

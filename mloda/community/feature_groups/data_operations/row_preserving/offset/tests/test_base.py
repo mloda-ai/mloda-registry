@@ -157,11 +157,11 @@ class TestConfigBasedFeatures:
 
     def test_config_based_calculate_feature(self) -> None:
         import pyarrow as pa
-        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
+        from mloda.testing.feature_set import build_feature_set
 
         table = PyArrowDataOpsTestDataCreator.create()
         feature = Feature(
@@ -175,8 +175,7 @@ class TestConfigBasedFeatures:
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(ReferenceOffset, feature)
 
         result = ReferenceOffset.calculate_feature(table, fs)
         assert isinstance(result, pa.Table)

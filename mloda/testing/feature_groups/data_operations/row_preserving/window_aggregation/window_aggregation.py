@@ -35,6 +35,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -876,7 +877,6 @@ class WindowAggregationTestBase(
 
     def test_option_based_sum_window(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -889,8 +889,7 @@ class WindowAggregationTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_window_sum")
@@ -898,7 +897,6 @@ class WindowAggregationTestBase(
 
     def test_unsupported_aggregation_type_raises(self) -> None:
         """Calling calculate_feature with an unknown aggregation type should raise."""
-        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -909,8 +907,7 @@ class WindowAggregationTestBase(
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 

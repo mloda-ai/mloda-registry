@@ -15,11 +15,13 @@ from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
+    ScalarArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_set import build_feature_set
 
 
 def _make_fs(name: str, *, constant: int | float | None = None, op: str | None = None) -> FeatureSet:
@@ -35,8 +37,7 @@ def _make_fs(name: str, *, constant: int | float | None = None, op: str | None =
         context["arithmetic_op"] = op
         context["in_features"] = "value_int"
     feature = Feature(name, options=Options(context=context))
-    fs = FeatureSet()
-    fs.add(feature)
+    fs = build_feature_set(ScalarArithmeticFeatureGroup, feature)
     return fs
 
 
@@ -264,8 +265,7 @@ def _make_fs_with_constant(name: str, constant: Any) -> FeatureSet:
     these tests deliberately pass bools, strings, and lists to verify rejection.
     """
     feature = Feature(name, options=Options(context={"constant": constant}))
-    fs = FeatureSet()
-    fs.add(feature)
+    fs = build_feature_set(ScalarArithmeticFeatureGroup, feature)
     return fs
 
 

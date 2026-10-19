@@ -65,6 +65,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 _U = timezone.utc
 
@@ -301,8 +302,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "value__ffill")
         assert_values_with_nulls(col, EXPECTED_FFILL, cast=float, approx=True)

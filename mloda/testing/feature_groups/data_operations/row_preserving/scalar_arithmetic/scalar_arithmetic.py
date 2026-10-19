@@ -26,6 +26,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_set import build_feature_set
 
 # ---------------------------------------------------------------------------
 # Source column and expected values (module-level constants)
@@ -165,8 +166,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     def test_missing_constant_raises(self) -> None:
         """If Options has no constant key, calculate_feature must raise ValueError."""
         feature = Feature("value_int__add_constant", options=Options())
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match="constant"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -176,8 +176,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
             "value_int__bogus_constant",
             options=Options(context={"constant": 5}),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -193,8 +192,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_custom_add")
@@ -217,8 +215,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(self.implementation_class(), feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "my_doubled")
@@ -274,7 +271,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         constant: int | float,
     ) -> None:
         """Compute the feature on this framework and on the reference; assert equal."""
-        fs = make_feature_set(feature_name, constant=constant)
+        fs = make_feature_set(feature_name, constant=constant, feature_group=self.implementation_class())
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 

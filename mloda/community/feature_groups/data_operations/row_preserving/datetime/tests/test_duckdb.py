@@ -21,6 +21,7 @@ from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTes
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
+from mloda.testing.feature_set import build_feature_set
 
 
 class TestDuckdbDateTimeExtraction(DuckdbTestMixin, DateTimeTestBase):
@@ -71,8 +72,7 @@ class TestDuckdbTimezoneBoundary:
 
     def _make_feature_set(self, feature_name: str) -> FeatureSet:
         feature = Feature(feature_name, options=Options())
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(DuckdbDateTimeExtraction, feature)
         return fs
 
     def _extract_column(self, result: DuckdbRelation, column_name: str) -> list[Any]:

@@ -239,11 +239,11 @@ class TestConfigBasedFeatures:
 
     def test_config_based_calculate_feature(self) -> None:
         import pyarrow as pa
-        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
+        from mloda.testing.feature_set import build_feature_set
 
         table = PyArrowDataOpsTestDataCreator.create()
 
@@ -258,8 +258,7 @@ class TestConfigBasedFeatures:
                 }
             ),
         )
-        fs = FeatureSet()
-        fs.add(feature)
+        fs = build_feature_set(ReferenceRank, feature)
 
         result = ReferenceRank.calculate_feature(table, fs)
         assert isinstance(result, pa.Table)
