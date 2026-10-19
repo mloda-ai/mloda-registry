@@ -153,6 +153,7 @@ members = [
     "mloda/community/feature_groups/data_operations/row_preserving/ema",
     "mloda/community/feature_groups/data_operations/row_preserving/ffill",
     "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate",
+    "mloda/community/feature_groups/data_operations/row_preserving/lookup",
     "mloda/community/feature_groups/data_operations/row_preserving/offset",
     "mloda/community/feature_groups/data_operations/row_preserving/percentile",
     "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic",

@@ -1,4 +1,4 @@
-"""Cross-cutting guards for ``return_data_type_rule`` across all ten data operations.
+"""Cross-cutting guards for ``return_data_type_rule`` across all eleven data operations.
 
 Decision (mloda core `PR #493 <https://github.com/mloda-ai/mloda/pull/493>`_):
 ``return_data_type_rule`` runs only AFTER a feature group has been SELECTED, and
@@ -60,6 +60,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
@@ -78,13 +80,14 @@ from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_co
     generate_valid_names,
 )
 
-# The ten base classes that declare a deterministic output type. Kept as a named
-# tuple so both tests can assert they cover all ten.
+# The eleven base classes that declare a deterministic output type. Kept as a named
+# tuple so both tests can assert they cover all eleven.
 ALL_BASE_CLASSES: tuple[type[FeatureGroup], ...] = (
     AggregationFeatureGroup,
     BinningFeatureGroup,
     DateTimeFeatureGroup,
     FrameAggregateFeatureGroup,
+    LookupFeatureGroup,
     OffsetFeatureGroup,
     RankFeatureGroup,
     ResampleFeatureGroup,
@@ -161,6 +164,11 @@ COMPLETENESS_CASES: list[tuple[type[FeatureGroup], Feature, DataType]] = [
         Feature("value_int__percent_rank_ranked", options=_opts(partition_by=["region"], order_by="value_int")),
         DataType.DOUBLE,
     ),
+    # lookup: output type follows the mapping's value family
+    (LookupFeatureGroup, Feature("name__lookup", options=_opts(lookup_mapping={"a": "x"})), DataType.STRING),
+    (LookupFeatureGroup, Feature("count__lookup", options=_opts(lookup_mapping={"a": 1})), DataType.INT64),
+    (LookupFeatureGroup, Feature("ratio__lookup", options=_opts(lookup_mapping={"a": 1.5})), DataType.DOUBLE),
+    (LookupFeatureGroup, Feature("flag__lookup", options=_opts(lookup_mapping={"a": True})), DataType.BOOLEAN),
     # resample: count -> INT64 (mean/sum input-dependent -> None)
     (ResampleFeatureGroup, Feature("value__resample_5_minute_count", options=Options()), DataType.INT64),
     # scalar_aggregate: count -> INT64 (sum input-dependent -> None)
@@ -182,7 +190,7 @@ COMPLETENESS_CASES: list[tuple[type[FeatureGroup], Feature, DataType]] = [
 
 
 def test_completeness_covers_every_base_class() -> None:
-    """Sanity: the completeness table must touch all ten base classes (catches a
+    """Sanity: the completeness table must touch all eleven base classes (catches a
     new deterministic operation added without a representative row here)."""
     covered = {cls for cls, _feature, _expected in COMPLETENESS_CASES}
     assert covered == set(ALL_BASE_CLASSES)
@@ -215,10 +223,16 @@ def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], 
     The rule is only ever invoked post-selection (mloda core PR #493), so the
     relevant contract is over MATCHING features, not unselected garbage. Every base
     class in ``ALL_BASE_CLASSES`` is exercised here because ``COMPLETENESS_CASES``
-    covers all ten (guarded by ``test_completeness_covers_every_base_class``).
+    covers all eleven (guarded by ``test_completeness_covers_every_base_class``).
     """
     result = feature_group_class.return_data_type_rule(feature)
     assert result is None or isinstance(result, DataType)
+
+
+def test_lookup_invalid_mapping_never_raises() -> None:
+    """A selected lookup feature whose mapping is invalid types to None instead of raising."""
+    feature = Feature("code__lookup", options=_opts(lookup_mapping={"a": "x", "b": 1}))
+    assert PyArrowLookup.return_data_type_rule(feature) is None
 
 
 # --- generalized numeric-boundary fuzzer (registry-driven) --------------------

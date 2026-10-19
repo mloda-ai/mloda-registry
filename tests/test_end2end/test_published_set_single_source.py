@@ -73,6 +73,7 @@ _EXPECTED_PUBLISHED = [
     "mloda-community-ema",
     "mloda-community-sessionization",
     "mloda-community-resample",
+    "mloda-community-lookup",
     "mloda-community",
     "mloda-enterprise",
     "mloda-testing",

@@ -23,6 +23,8 @@ convention for shared mixin tests (see ``MaskTestMixin``).
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pytest
 
@@ -72,6 +74,11 @@ class ReservedColumnsTestMixin:
         return None
 
     @classmethod
+    def reserved_columns_extra_context(cls) -> dict[str, Any]:
+        """Extra Options context for ops that need more than partition/order keys (default: none)."""
+        return {}
+
+    @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
         """Internal helper column base names to exercise for collision survival.
 
@@ -118,6 +125,7 @@ class ReservedColumnsTestMixin:
             self.reserved_columns_feature_name(),
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
+            **self.reserved_columns_extra_context(),
         )
         result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
         assert result is not None
@@ -152,6 +160,7 @@ class ReservedColumnsTestMixin:
             self.reserved_columns_feature_name(),
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
+            **self.reserved_columns_extra_context(),
         )
         result = self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == n  # type: ignore[attr-defined]

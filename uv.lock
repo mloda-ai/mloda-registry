@@ -36,6 +36,7 @@ members = [
     "mloda-community-extenders-shared",
     "mloda-community-ffill",
     "mloda-community-frame-aggregate",
+    "mloda-community-lookup",
     "mloda-community-offset",
     "mloda-community-openlineage",
     "mloda-community-otel",
@@ -765,6 +766,7 @@ dependencies = [
     { name = "mloda-community-extenders-shared" },
     { name = "mloda-community-ffill" },
     { name = "mloda-community-frame-aggregate" },
+    { name = "mloda-community-lookup" },
     { name = "mloda-community-offset" },
     { name = "mloda-community-percentile" },
     { name = "mloda-community-point-arithmetic" },
@@ -804,6 +806,7 @@ requires-dist = [
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "mloda-community-ffill", editable = "mloda/community/feature_groups/data_operations/row_preserving/ffill" },
     { name = "mloda-community-frame-aggregate", editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" },
+    { name = "mloda-community-lookup", editable = "mloda/community/feature_groups/data_operations/row_preserving/lookup" },
     { name = "mloda-community-offset", editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" },
     { name = "mloda-community-openlineage", marker = "extra == 'all'", editable = "mloda/community/extenders/openlineage" },
     { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
@@ -964,6 +967,7 @@ all = [
     { name = "mloda-community-ema" },
     { name = "mloda-community-ffill" },
     { name = "mloda-community-frame-aggregate" },
+    { name = "mloda-community-lookup" },
     { name = "mloda-community-offset" },
     { name = "mloda-community-percentile" },
     { name = "mloda-community-point-arithmetic" },
@@ -990,6 +994,7 @@ requires-dist = [
     { name = "mloda-community-ema", marker = "extra == 'all'" },
     { name = "mloda-community-ffill", marker = "extra == 'all'" },
     { name = "mloda-community-frame-aggregate", marker = "extra == 'all'" },
+    { name = "mloda-community-lookup", marker = "extra == 'all'" },
     { name = "mloda-community-offset", marker = "extra == 'all'" },
     { name = "mloda-community-percentile", marker = "extra == 'all'" },
     { name = "mloda-community-point-arithmetic", marker = "extra == 'all'" },
@@ -1257,6 +1262,56 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
+
+[[package]]
+name = "mloda-community-lookup"
+version = "0.9.0"
+source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/lookup" }
+dependencies = [
+    { name = "mloda-community-data-operations" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "duckdb" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "polars" },
+    { name = "pyarrow" },
+]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+duckdb = [
+    { name = "duckdb" },
+]
+pandas = [
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+polars = [
+    { name = "polars" },
+]
+pyarrow = [
+    { name = "pyarrow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "duckdb", marker = "extra == 'all'" },
+    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "mloda-community-data-operations", specifier = ">=0.9.0" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pandas", marker = "extra == 'all'" },
+    { name = "pandas", marker = "extra == 'pandas'" },
+    { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
+    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
+    { name = "pyarrow", marker = "extra == 'all'" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-offset"

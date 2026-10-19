@@ -274,6 +274,15 @@ published = true
 optional_dependencies = { pyarrow = ["pyarrow"], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
+[packages.mloda-community-lookup]
+description = "Key-lookup feature group (replace each key with its mapped value, on_unmatched raise/null/keep, row-preserving)"
+keywords = ["lookup", "mapping", "code-lists"]
+dependencies = ["mloda-community-data-operations>={version}"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/lookup"
+published = true
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
+
 # --- Bundles ---
 # Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
 # pinned '<name>=={version}': the bundle ships only the unpublished rest, so each shipped path keeps
@@ -307,6 +316,7 @@ dependencies = [
     "mloda-community-ema=={version}",
     "mloda-community-sessionization=={version}",
     "mloda-community-resample=={version}",
+    "mloda-community-lookup=={version}",
 ]
 path = "mloda/community"
 published = true

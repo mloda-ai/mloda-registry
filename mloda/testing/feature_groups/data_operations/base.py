@@ -175,11 +175,15 @@ class DataOpsTestBase(ABC):
         order_by: str | None = None,
         use_approx: bool = False,
         rel: float = 1e-6,
+        **extra_context: Any,
     ) -> None:
-        """Run a feature through this framework and the reference, assert results match."""
+        """Run a feature through this framework and the reference, assert results match.
+
+        ``extra_context`` is forwarded to ``make_feature_set`` as op-specific Options context.
+        """
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by)
+        fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by, **extra_context)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 

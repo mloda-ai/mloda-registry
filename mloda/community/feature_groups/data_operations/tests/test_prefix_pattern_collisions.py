@@ -41,7 +41,7 @@ from __future__ import annotations
 import importlib
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +79,9 @@ class FamilySpec:
     # ``ignore_prefix_pattern`` drops the duplicated rolling entry.
     pattern_module_attrs: tuple[str, ...] = ()
     ignore_prefix_pattern: bool = False
+    # Extra Options context the family needs before its name-based match accepts (e.g. ``lookup_mapping``).
+    # Merged over the shared options for this family's names only, so PERMISSIVE_OPTIONS stays config-free.
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 _DO = "mloda.community.feature_groups.data_operations"
@@ -100,6 +103,13 @@ FAMILIES: tuple[FamilySpec, ...] = (
         ("sales__sum_rolling_3", "sales__avg_7_day_window", "sales__cumsum", "sales__expanding_avg"),
         pattern_module_attrs=("_ROLLING_PATTERN", "_TIME_WINDOW_PATTERN", "_CUMULATIVE_PATTERN", "_EXPANDING_PATTERN"),
         ignore_prefix_pattern=True,
+    ),
+    FamilySpec(
+        "lookup",
+        f"{_DO}.row_preserving.lookup.base",
+        "LookupFeatureGroup",
+        ("sales__lookup",),
+        options={"lookup_mapping": {"a": "b"}},
     ),
     FamilySpec("offset", f"{_DO}.row_preserving.offset.base", "OffsetFeatureGroup", ("sales__lag_1_offset",)),
     FamilySpec(
@@ -236,7 +246,10 @@ def find_collisions(
     collisions: list[Collision] = []
     for spec in families:
         for name in spec.representative_names:
-            acceptors = tuple(key for key, cls in classes.items() if cls.match_feature_group_criteria(name, options))
+            name_options = Options(context={**options.context, **spec.options}) if spec.options else options
+            acceptors = tuple(
+                key for key, cls in classes.items() if cls.match_feature_group_criteria(name, name_options)
+            )
             if acceptors != (spec.key,):
                 collisions.append(Collision(name, spec.key, acceptors))
     return collisions
@@ -389,6 +402,11 @@ def _gen_ffill() -> tuple[str, ...]:
     return ("sales__ffill",)
 
 
+def _gen_lookup() -> tuple[str, ...]:
+    # Pattern ``__lookup`` (lookup/base.py); no vocabulary.
+    return ("sales__lookup",)
+
+
 def _gen_sessionization() -> tuple[str, ...]:
     # Vocabulary: SESSIONIZATION_UNITS (sessionization/base.py). Names: ``{col}__sessionize_{N}_{unit}``.
     from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import SESSIONIZATION_UNITS
@@ -443,6 +461,7 @@ NAME_GENERATORS: dict[str, Callable[[], tuple[str, ...]]] = {
     "ema": _gen_ema,
     "ffill": _gen_ffill,
     "frame_aggregate": _gen_frame_aggregate,
+    "lookup": _gen_lookup,
     "offset": _gen_offset,
     "percentile": _gen_percentile,
     "point_arithmetic": _gen_point_arithmetic,
