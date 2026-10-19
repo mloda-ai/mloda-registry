@@ -106,10 +106,6 @@ class ProviderFlushTestMixin:
             if r.levelno >= logging.WARNING and (logger_name is None or r.name == logger_name)
         ]
 
-    def assert_blocking_flush_warned(self, caplog: pytest.LogCaptureFixture, name: str) -> None:
-        """The warning check of the blocking-flush case; exact text by default."""
-        assert self._warnings(caplog) == [self._not_flushed_text(name)]
-
     def test_close_flushes_the_injected_provider_with_timeout_millis(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
 
@@ -202,7 +198,7 @@ class ProviderFlushTestMixin:
             raise outcome["error"]
         assert elapsed < 1.0, elapsed
 
-        self.assert_blocking_flush_warned(caplog, type(flusher).__name__)
+        assert self._warnings(caplog) == [self._not_flushed_text(type(flusher).__name__)]
 
     def test_negative_close_timeout_calls_force_flush_with_no_args(self) -> None:
         provider = Mock(force_flush=Mock(return_value=True))
