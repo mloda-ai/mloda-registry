@@ -159,12 +159,15 @@ def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
 
 
 def _requested_features(steps: Any) -> list[str] | None:
-    """Sorted union of the requested feature names of the compute steps, None when there are none."""
-    names: set[str] = set()
-    for step in steps or ():
-        if step.step_kind == "compute":
-            names.update(step.requested_feature_names or ())
-    return sorted(names) or None
+    """Sorted union of the requested feature names of the compute steps, None when there are none or on odd input."""
+    try:
+        names: set[str] = set()
+        for step in steps or ():
+            if getattr(step, "step_kind", None) == "compute":
+                names.update(str(n) for n in getattr(step, "requested_feature_names", None) or ())
+        return sorted(names) or None
+    except Exception:
+        return None
 
 
 def _processing_engine_facet(producer: str) -> processing_engine_run.ProcessingEngineRunFacet | None:

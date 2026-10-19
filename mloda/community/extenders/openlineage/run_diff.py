@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 _TERMINAL_UNKNOWN = "incomplete"
-_STEP_FIELDS = (
-    "featureGroupVersion",
-    "pluginVersion",
-    "computeFramework",
-    "inputFeatures",
-    "loadedDatasets",
-    "schemaFields",
-    "rowCount",
-    "outcome",
-)
-_StepKey = tuple[str, "tuple[str, ...] | None", str, int]
+# Field -> the least step progress (0 started, 1 ended, 2 complete) both sides need for it to be comparable.
+_STEP_FIELDS = {
+    "featureGroupVersion": 0,
+    "pluginVersion": 0,
+    "computeFramework": 0,
+    "inputFeatures": 1,
+    "loadedDatasets": 1,
+    "schemaFields": 2,
+    "rowCount": 2,
+    "outcome": 0,
+}
+_Names = tuple[str, ...] | None
+_StepKey = tuple[str, _Names, str, int]
 
 
 @dataclass(frozen=True)
@@ -38,20 +41,20 @@ class RunDiff:
 
     def __str__(self) -> str:
         lines = ["comparable: " + ("yes" if self.comparable else "no")]
-        run = [c for c in self.changes if c.step is None]
-        steps = [c for c in self.changes if c.step is not None and c.field != "step"]
-        added_removed = [c for c in self.changes if c.step is not None and c.field == "step"]
-        for title, group in (("run", run), ("steps", steps), ("added/removed steps", added_removed)):
-            if group:
-                lines.append(title + ":")
-                lines.extend("  " + _render(c) for c in group)
-        lines.append("durations (informational):")
-        lines.extend("  " + _render(c) for c in self.durations)
+        shown = list(self.changes)
+        if self.comparable:
+            digest = next((c for c in shown if c.step is None and c.field == "structureHash"), None)
+            lines.append("structureHash: equal" if digest is None else _render(digest))
+            shown = [c for c in shown if c is not digest]
+        lines.extend(_render(c) for c in shown)
+        if self.durations:
+            lines.append("durations (informational):")
+            lines.extend("  " + _render(c) for c in self.durations)
         return "\n".join(lines)
 
 
 def _show(value: Any) -> str:
-    return json.dumps(value, default=str)
+    return value if isinstance(value, str) else json.dumps(value, default=str)
 
 
 def _render(change: Change) -> str:
@@ -59,33 +62,41 @@ def _render(change: Change) -> str:
     return f"{where}{change.field}: {_show(change.before)} -> {_show(change.after)}"
 
 
-def _facets(event: dict[str, Any]) -> dict[str, Any]:
-    run = event.get("run")
-    facets = run.get("facets") if isinstance(run, dict) else None
-    return facets if isinstance(facets, dict) else {}
-
-
-def _facet(event: dict[str, Any], name: str) -> dict[str, Any]:
-    value = _facets(event).get(name)
+def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _run_id(event: dict[str, Any]) -> Any:
-    run = event.get("run")
-    return run.get("runId") if isinstance(run, dict) else None
+def _dicts(value: Any) -> list[dict[str, Any]]:
+    return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
 
 
-def _parent_run_id(event: dict[str, Any]) -> Any:
-    run = _facet(event, "parent").get("run")
-    return run.get("runId") if isinstance(run, dict) else None
+def _facets(event: dict[str, Any]) -> dict[str, Any]:
+    return _dict(_dict(event.get("run")).get("facets"))
 
 
-def _root_ids(events: list[dict[str, Any]]) -> set[Any]:
-    named = {_parent_run_id(e) for e in events} - {None}
+def _facet(event: dict[str, Any], name: str) -> dict[str, Any]:
+    return _dict(_facets(event).get(name))
+
+
+def _str_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _run_id(event: dict[str, Any]) -> str | None:
+    return _str_or_none(_dict(event.get("run")).get("runId"))
+
+
+def _parent_run_id(event: dict[str, Any]) -> str | None:
+    return _str_or_none(_dict(_facet(event, "parent").get("run")).get("runId"))
+
+
+def _root_ids(events: list[dict[str, Any]]) -> set[str]:
+    named = {p for p in map(_parent_run_id, events) if p is not None}
     return {
-        _run_id(e)
+        rid
         for e in events
-        if "mlodaPlan" in _facets(e) or "processingEngine" in _facets(e) or _run_id(e) in named
+        if (rid := _run_id(e)) is not None
+        and ("mlodaPlan" in _facets(e) or "processingEngine" in _facets(e) or rid in named)
     }
 
 
@@ -102,23 +113,15 @@ def read_runs(path: str | Path) -> list[list[dict[str, Any]]]:
         if isinstance(event, dict):
             events.append(event)
     roots = _root_ids(events)
-    order = list(dict.fromkeys(_run_id(e) for e in events if _run_id(e) in roots))
-    return [
-        [e for e in events if _run_id(e) == root]
-        + [e for e in events if _parent_run_id(e) == root and _run_id(e) != root]
-        for root in order
-    ]
-
-
-def _seconds(events: list[dict[str, Any]]) -> float | None:
-    terminal = _terminal(events)
-    start = next((e for e in events if e.get("eventType") == "START"), None)
-    if terminal is None or start is None:
-        return None
-    try:
-        return (_time(terminal) - _time(start)).total_seconds()
-    except (ValueError, TypeError, AttributeError):
-        return None
+    own: dict[str, list[dict[str, Any]]] = {}
+    children: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        rid, parent = _run_id(event), _parent_run_id(event)
+        if rid in roots and rid is not None:
+            own.setdefault(rid, []).append(event)
+        if parent in roots and parent is not None and rid != parent:
+            children.setdefault(parent, []).append(event)
+    return [own[root] + children.get(root, []) for root in own]
 
 
 def _time(event: dict[str, Any]) -> datetime:
@@ -130,6 +133,17 @@ def _terminal(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     return ended[-1] if ended else None
 
 
+def _seconds(events: list[dict[str, Any]]) -> float | None:
+    terminal = _terminal(events)
+    start = next((e for e in events if e.get("eventType") == "START"), None)
+    if terminal is None or start is None:
+        return None
+    try:
+        return (_time(terminal) - _time(start)).total_seconds()
+    except (ValueError, TypeError, AttributeError, KeyError):
+        return None
+
+
 def _outcome(events: list[dict[str, Any]]) -> str:
     terminal = _terminal(events)
     return str(terminal.get("eventType")) if terminal is not None else _TERMINAL_UNKNOWN
@@ -138,76 +152,98 @@ def _outcome(events: list[dict[str, Any]]) -> str:
 @dataclass(frozen=True)
 class _Step:
     job: str
-    names: tuple[str, ...] | None
+    declared: _Names
+    outputs: _Names
     framework: str
     values: dict[str, Any]
+    level: int
     duration: float | None
+
+    def base(self, legacy: bool) -> tuple[str, _Names]:
+        return self.job, self.outputs if legacy else self.declared or self.outputs
+
+
+def _sorted_names(values: list[Any]) -> _Names:
+    return tuple(sorted(str(v) for v in values)) or None
+
+
+def _schema_fields(output: dict[str, Any]) -> tuple[Any, ...]:
+    fields = _dict(_dict(output.get("facets")).get("schema")).get("fields")
+    return tuple((f.get("name"), f.get("type")) for f in _dicts(fields))
+
+
+def _loaded_dataset(item: dict[str, Any]) -> tuple[str, str, bool]:
+    access = _dict(_dict(item.get("facets")).get("mlodaDataAccess"))
+    return str(item.get("namespace")), str(item.get("name")), bool(access.get("identityIsFallback"))
 
 
 def _step(events: list[dict[str, Any]]) -> _Step:
     terminal = _terminal(events)
     source = terminal if terminal is not None else events[0]
     step_facet = _facet(source, "mlodaStep")
-    inputs = [i for i in (source.get("inputs") or []) if isinstance(i, dict)]
-    outputs = [o for o in (source.get("outputs") or []) if isinstance(o, dict)]
-    features = step_facet.get("featureNames")
-    names: tuple[str, ...] | None
-    if isinstance(features, list) and features:
-        names = tuple(sorted(str(n) for n in features))
-    elif outputs:
-        names = tuple(sorted(str(o.get("name")) for o in outputs))
-    else:
-        names = None
-    loaded = [i for i in inputs if "dataSource" in (i.get("facets") or {})]
+    inputs = _dicts(source.get("inputs"))
+    outputs = _dicts(source.get("outputs"))
+    loaded = [i for i in inputs if "dataSource" in _dict(i.get("facets"))]
     plain = [i for i in inputs if i not in loaded]
     first_out = outputs[0] if outputs else {}
-    schema = ((first_out.get("facets") or {}).get("schema") or {}).get("fields") or []
-    stats = ((first_out.get("outputFacets") or {}).get("outputStatistics")) or {}
+    stats = _dict(_dict(first_out.get("outputFacets")).get("outputStatistics"))
+    features = step_facet.get("featureNames")
     values: dict[str, Any] = {
         "featureGroupVersion": step_facet.get("featureGroupVersion"),
         "pluginVersion": step_facet.get("pluginVersion"),
         "computeFramework": step_facet.get("computeFramework"),
         "inputFeatures": tuple(sorted(str(i.get("name")) for i in plain)),
-        "loadedDatasets": tuple(
-            sorted(
-                (
-                    str(i.get("namespace")),
-                    str(i.get("name")),
-                    bool(((i.get("facets") or {}).get("mlodaDataAccess") or {}).get("identityIsFallback")),
-                )
-                for i in loaded
-            )
-        ),
-        "schemaFields": tuple((f.get("name"), f.get("type")) for f in schema if isinstance(f, dict)),
+        "loadedDatasets": tuple(sorted(_loaded_dataset(i) for i in loaded)),
+        "schemaFields": _schema_fields(first_out),
         "rowCount": stats.get("rowCount"),
         "outcome": _outcome(events),
     }
     return _Step(
-        str(source.get("job", {}).get("name")), names, str(values["computeFramework"] or ""), values, _seconds(events)
+        str(_dict(source.get("job")).get("name")),
+        _sorted_names(features) if isinstance(features, list) else None,
+        _sorted_names([o.get("name") for o in outputs]),
+        str(values["computeFramework"] or ""),
+        values,
+        {"incomplete": 0, "COMPLETE": 2}.get(values["outcome"], 1),
+        _seconds(events),
     )
 
 
-def _steps(events: list[dict[str, Any]], roots: set[Any]) -> dict[_StepKey, _Step]:
-    by_run: dict[Any, list[dict[str, Any]]] = {}
+def _steps(events: list[dict[str, Any]], roots: set[str]) -> list[_Step]:
+    by_run: dict[str, list[dict[str, Any]]] = {}
     for event in events:
-        if _run_id(event) not in roots and "mlodaStep" in _facets(event):
-            by_run.setdefault(_run_id(event), []).append(event)
-    steps = [_step(group) for group in by_run.values()]
-    base: dict[tuple[str, tuple[str, ...] | None], list[_Step]] = {}
-    for step in steps:
-        base.setdefault((step.job, step.names), []).append(step)
+        rid = _run_id(event)
+        if rid is not None and rid not in roots and "mlodaStep" in _facets(event):
+            by_run.setdefault(rid, []).append(event)
+    return [_step(group) for group in by_run.values()]
+
+
+def _duplicates(steps: list[_Step], legacy: bool) -> tuple[set[Any], set[Any]]:
+    """Base keys and (base key, framework) groups holding more than one step."""
+    bases = Counter(s.base(legacy) for s in steps)
+    groups = Counter((s.base(legacy), s.framework) for s in steps)
+    return {k for k, n in bases.items() if n > 1}, {k for k, n in groups.items() if n > 1}
+
+
+def _keyed(steps: list[_Step], legacy: bool, bases: set[Any], groups: set[Any]) -> dict[_StepKey, _Step]:
     keyed: dict[_StepKey, _Step] = {}
-    for (job, names), group in base.items():
-        if len(group) == 1:
-            keyed[(job, names, "", 0)] = group[0]
+    seen: Counter[Any] = Counter()
+    for step in steps:
+        base = step.base(legacy)
+        if base not in bases:
+            keyed[(*base, "", 0)] = step
             continue
-        by_framework: dict[str, list[_Step]] = {}
-        for step in group:
-            by_framework.setdefault(step.framework, []).append(step)
-        for framework, same in by_framework.items():
-            for index, step in enumerate(same):
-                keyed[(job, names, framework, index + 1 if len(same) > 1 else 0)] = step
+        group = (base, step.framework)
+        seen[group] += 1
+        keyed[(*base, step.framework, seen[group] if group in groups else 0)] = step
     return keyed
+
+
+def _key_both(a: list[_Step], b: list[_Step]) -> tuple[dict[_StepKey, _Step], dict[_StepKey, _Step]]:
+    legacy = any(s.declared for s in a) != any(s.declared for s in b)
+    (bases_a, groups_a), (bases_b, groups_b) = _duplicates(a, legacy), _duplicates(b, legacy)
+    bases, groups = bases_a | bases_b, groups_a | groups_b
+    return _keyed(a, legacy, bases, groups), _keyed(b, legacy, bases, groups)
 
 
 def _label(key: _StepKey) -> str:
@@ -218,8 +254,10 @@ def _label(key: _StepKey) -> str:
     return label + (f" #{ordinal}" if ordinal else "")
 
 
-def _roots(events: list[dict[str, Any]]) -> tuple[set[Any], list[dict[str, Any]]]:
+def _roots(events: list[dict[str, Any]]) -> tuple[set[str], list[dict[str, Any]]]:
     ids = _root_ids(events)
+    if len(ids) > 1:
+        raise ValueError(f"expected one root run per argument, found {len(ids)}; split the events with read_runs")
     return ids, [e for e in events if _run_id(e) in ids]
 
 
@@ -232,51 +270,49 @@ def _requested(roots: list[dict[str, Any]]) -> tuple[str, ...] | None:
 
 
 def _first(roots: list[dict[str, Any]], facet: str, field: str) -> Any:
-    return next((_facet(e, facet)[field] for e in roots if field in _facet(e, facet)), None)
+    return next((v for e in roots if (v := _facet(e, facet).get(field)) is not None), None)
+
+
+def _step_changes(label: str, a: _Step, b: _Step) -> list[Change]:
+    level = min(a.level, b.level)
+    return [
+        Change(label, f, a.values[f], b.values[f])
+        for f, needed in _STEP_FIELDS.items()
+        if level >= needed and a.values[f] != b.values[f]
+    ]
 
 
 def diff_run_events(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> RunDiff:
     """Compare two runs given as raw event lists; inputs are never mutated."""
     roots_a, root_events_a = _roots(a)
     roots_b, root_events_b = _roots(b)
-    job_a = (root_events_a[0].get("job") or {}) if root_events_a else {}
-    job_b = (root_events_b[0].get("job") or {}) if root_events_b else {}
+    job_a = _dict(root_events_a[0].get("job")) if root_events_a else {}
+    job_b = _dict(root_events_b[0].get("job")) if root_events_b else {}
     request_a = (job_a.get("namespace"), job_a.get("name"), _requested(root_events_a))
     request_b = (job_b.get("namespace"), job_b.get("name"), _requested(root_events_b))
     both_known = request_a[2] is not None and request_b[2] is not None
     if request_a[:2] != request_b[:2] or (both_known and request_a[2] != request_b[2]):
         return RunDiff(False, (Change(None, "different request", request_a, request_b),), ())
 
-    changes: list[Change] = []
     durations = [Change(None, "duration", _seconds(root_events_a), _seconds(root_events_b))]
-    run_values = (
-        (
-            "structureHash",
-            _first(root_events_a, "mlodaPlan", "structureHash"),
-            _first(root_events_b, "mlodaPlan", "structureHash"),
-        ),
-        (
-            "mlodaVersion",
-            _first(root_events_a, "processingEngine", "version"),
-            _first(root_events_b, "processingEngine", "version"),
-        ),
-        ("outcome", _outcome(root_events_a), _outcome(root_events_b)),
-    )
-    changes.extend(Change(None, f, x, y) for f, x, y in run_values if x != y)
+    changes: list[Change] = []
+    for field, facet, name in (
+        ("structureHash", "mlodaPlan", "structureHash"),
+        ("mlodaVersion", "processingEngine", "version"),
+    ):
+        before, after = _first(root_events_a, facet, name), _first(root_events_b, facet, name)
+        if before != after:
+            changes.append(Change(None, field, before, after))
 
-    steps_a = _steps(a, roots_a)
-    steps_b = _steps(b, roots_b)
+    steps_a, steps_b = _key_both(_steps(a, roots_a), _steps(b, roots_b))
     for key, step_a in steps_a.items():
         step_b = steps_b.get(key)
-        if step_b is None:
-            continue
-        label = _label(key)
-        changes.extend(
-            Change(label, f, step_a.values[f], step_b.values[f])
-            for f in _STEP_FIELDS
-            if step_a.values[f] != step_b.values[f]
-        )
-        durations.append(Change(label, "duration", step_a.duration, step_b.duration))
+        if step_b is not None:
+            changes.extend(_step_changes(_label(key), step_a, step_b))
+            durations.append(Change(_label(key), "duration", step_a.duration, step_b.duration))
     changes.extend(Change(_label(k), "step", "present", "absent") for k in steps_a if k not in steps_b)
     changes.extend(Change(_label(k), "step", "absent", "present") for k in steps_b if k not in steps_a)
+    outcome_a, outcome_b = _outcome(root_events_a), _outcome(root_events_b)
+    if outcome_a != outcome_b:
+        changes.append(Change(None, "outcome", outcome_a, outcome_b))
     return RunDiff(True, tuple(changes), tuple(durations))

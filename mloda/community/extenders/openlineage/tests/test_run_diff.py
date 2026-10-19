@@ -108,13 +108,19 @@ def _shift(seconds: float) -> Edit:
 
 class TestRunDiffIdenticalRuns:
     def test_two_identical_runs_are_comparable_without_changes(self, recorded: Events) -> None:
-        diff = diff_run_events(recorded, _record())
+        other = _record()
+        snapshots = copy.deepcopy((recorded, other))
+
+        diff = diff_run_events(recorded, other)
+
+        assert (recorded, other) == snapshots
 
         assert isinstance(diff, RunDiff)
         assert diff.comparable is True
         assert diff.changes == ()
         assert diff.durations
         assert all(isinstance(change, Change) for change in diff.durations)
+        assert "structureHash: equal" in str(diff)
 
     def test_durations_are_informational_and_never_changes(self, recorded: Events) -> None:
         slower = _variant(recorded, _shift(3600), job=_ROOT, kind="COMPLETE")
@@ -160,76 +166,78 @@ class TestRunDiffRunLevelChanges:
         assert (found["outcome"].before, found["outcome"].after) == ("COMPLETE", "incomplete")
 
 
+_RECORDED = object()
+_PLUS_ONE_SCHEMA = (("MlodaTestingValueIntPlusOne", "int"),)
 _STEP_CHANGES: list[Any] = [
     pytest.param(
         None,
         lambda e: _facets(e)["mlodaStep"].update(featureGroupVersion="v2"),
-        {"featureGroupVersion"},
-        "v2",
+        {"featureGroupVersion": (_RECORDED, "v2")},
         id="featureGroupVersion",
     ),
     pytest.param(
         None,
         lambda e: _facets(e)["mlodaStep"].update(pluginVersion="p2"),
-        {"pluginVersion"},
-        "p2",
+        {"pluginVersion": (None, "p2")},
         id="pluginVersion",
     ),
     pytest.param(
         None,
         lambda e: _facets(e)["mlodaStep"].update(computeFramework="OtherFramework"),
-        {"computeFramework"},
-        "OtherFramework",
+        {"computeFramework": ("PyArrowTable", "OtherFramework")},
         id="computeFramework",
     ),
     pytest.param(
         "COMPLETE",
         lambda e: e["inputs"][0].update(name="other_input"),
-        {"inputFeatures"},
-        "other_input",
+        {"inputFeatures": (("value_int",), ("other_input",))},
         id="inputFeatures",
     ),
     pytest.param(
         "COMPLETE",
         _add_dataset_input(False),
-        {"inputFeatures", "loadedDatasets"},
-        "value_int",
+        {
+            "inputFeatures": (("value_int",), ()),
+            "loadedDatasets": ((), (("mloda", "value_int", False),)),
+        },
         id="loadedDatasets",
     ),
     pytest.param(
         "COMPLETE",
         lambda e: e["outputs"][0]["facets"]["schema"]["fields"][0].update(type="string"),
-        {"schemaFields"},
-        "string",
+        {"schemaFields": (_PLUS_ONE_SCHEMA, (("MlodaTestingValueIntPlusOne", "string"),))},
         id="schemaFields",
     ),
     pytest.param(
         "COMPLETE",
         lambda e: e["outputs"][0]["outputFacets"]["outputStatistics"].update(rowCount=99),
-        {"rowCount"},
-        "99",
+        {"rowCount": (12, 99)},
         id="rowCount",
     ),
-    pytest.param("COMPLETE", lambda e: e.update(eventType="FAIL"), {"outcome"}, "FAIL", id="outcome"),
+    pytest.param("COMPLETE", lambda e: e.update(eventType="FAIL"), {"outcome": ("COMPLETE", "FAIL")}, id="outcome"),
 ]
 
 
 class TestRunDiffStepChanges:
-    @pytest.mark.parametrize(("kind", "edit", "fields", "needle"), _STEP_CHANGES)
+    @pytest.mark.parametrize(("kind", "edit", "expected"), _STEP_CHANGES)
     def test_each_step_field_change_is_reported_for_that_step(
-        self, recorded: Events, kind: str | None, edit: Edit, fields: set[str], needle: str
+        self, recorded: Events, kind: str | None, edit: Edit, expected: dict[str, tuple[Any, Any]]
     ) -> None:
         other = _variant(recorded, edit, job=_PLUS_ONE, kind=kind)
+        snapshots = copy.deepcopy((recorded, other))
 
         found = _changes(diff_run_events(recorded, other).changes)
 
-        assert set(found) == fields
-        for change in found.values():
+        assert (recorded, other) == snapshots
+        assert set(found) == set(expected)
+        recorded_version = _facets(next(e for e in recorded if e["job"]["name"].endswith(_PLUS_ONE)))["mlodaStep"][
+            "featureGroupVersion"
+        ]
+        for field, (before, after) in expected.items():
+            change = found[field]
             assert change.step is not None
             assert _PLUS_ONE in str(change.step)
-        primary = found[sorted((fields - {"inputFeatures"}) or fields)[0]]
-        assert needle in json.dumps(primary.after)
-        assert needle not in json.dumps(primary.before)
+            assert (change.before, change.after) == (recorded_version if before is _RECORDED else before, after)
 
     def test_a_flipped_identity_fallback_flag_is_a_loaded_dataset_change(self, recorded: Events) -> None:
         before = _variant(recorded, _add_dataset_input(False), job=_PLUS_ONE, kind="COMPLETE")
@@ -246,6 +254,7 @@ class TestRunDiffStepChanges:
 
         found = _changes(diff_run_events(recorded, other).changes)
 
+        assert set(found) == {"outcome"}
         assert (found["outcome"].before, found["outcome"].after) == ("COMPLETE", "incomplete")
         assert _PLUS_ONE in str(found["outcome"].step)
 
@@ -257,6 +266,7 @@ class TestRunDiffStepChanges:
         found = _changes(diff_run_events(recorded, failed).changes)
 
         assert "step" not in found
+        assert not {"schemaFields", "rowCount"} & set(found)
         assert (found["outcome"].before, found["outcome"].after) == ("COMPLETE", "FAIL")
         assert _PLUS_ONE in str(found["outcome"].step)
 
@@ -293,6 +303,41 @@ class TestRunDiffStepKeys:
 
         assert set(found) == {"rowCount"}
         assert diff_run_events(before, changed) == diff_run_events(before, changed)
+
+    @pytest.mark.parametrize("extra_on_after", [True, False], ids=["added", "removed"])
+    def test_an_extra_step_on_another_framework_leaves_the_original_step_unchanged(
+        self, recorded: Events, extra_on_after: bool
+    ) -> None:
+        with_extra, _ = _with_duplicate(recorded, "OtherFramework")
+        before, after = (recorded, with_extra) if extra_on_after else (with_extra, recorded)
+
+        found = _changes(diff_run_events(before, after).changes)
+
+        assert set(found) == {"step"}
+        assert "OtherFramework" in str(found["step"].step)
+        assert (found["step"].before, found["step"].after) == (
+            ("absent", "present") if extra_on_after else ("present", "absent")
+        )
+
+    @pytest.mark.parametrize("new_is_first", [True, False], ids=["new-vs-old", "old-vs-new"])
+    def test_a_record_with_feature_names_diffs_against_one_without_them_by_complete_output_names(
+        self, recorded: Events, new_is_first: bool
+    ) -> None:
+        def requested_only(event: dict[str, Any]) -> None:
+            step = _facets(event).get("mlodaStep")
+            if step is not None:
+                step["featureNames"] = ["requested_only"]
+
+        def legacy(event: dict[str, Any]) -> None:
+            step = _facets(event).get("mlodaStep")
+            if step is not None:
+                step.pop("featureNames", None)
+
+        new = _variant(recorded, requested_only)
+        old = _variant(recorded, legacy)
+        before, after = (new, old) if new_is_first else (old, new)
+
+        assert diff_run_events(before, after).changes == ()
 
     def test_a_validation_run_event_without_a_step_facet_is_skipped(self, recorded: Events) -> None:
         extra = [copy.deepcopy(e) for e in recorded if e["job"]["name"].endswith(_PLUS_ONE)]
@@ -360,17 +405,50 @@ class TestRunDiffComparability:
 class TestRunDiffReport:
     def test_the_report_orders_run_changes_step_changes_and_durations(self, recorded: Events) -> None:
         other = _variant(recorded, lambda e: _facets(e)["mlodaPlan"].update(structureHash="f" * 64), job=_ROOT)
+        other = _variant(other, lambda e: _facets(e)["processingEngine"].update(version="99.0.0"), job=_ROOT)
+        other = _variant(other, lambda e: e.update(eventType="FAIL"), job=_ROOT, kind="COMPLETE")
         other = _variant(
             other,
             lambda e: e["outputs"][0]["outputFacets"]["outputStatistics"].update(rowCount=99),
             job=_PLUS_ONE,
             kind="COMPLETE",
         )
+        other, _ = _with_duplicate(other, "OtherFramework")
 
-        report = str(diff_run_events(recorded, other))
+        diff = diff_run_events(recorded, other)
+        report = str(diff)
 
-        positions = [report.index(text) for text in ("structureHash", "rowCount", "durations (informational)")]
+        assert [(c.step is None, c.field) for c in diff.changes] == [
+            (True, "structureHash"),
+            (True, "mlodaVersion"),
+            (False, "rowCount"),
+            (False, "step"),
+            (True, "outcome"),
+        ]
+        needles = ("comparable:", "structureHash", "mlodaVersion", "rowCount", "step: absent", "outcome", "durations")
+        positions = [report.index(text) for text in needles]
         assert positions == sorted(positions)
+
+    def test_an_unchanged_structure_hash_is_stated_in_the_report(self, recorded: Events) -> None:
+        other = _variant(
+            recorded,
+            lambda e: e["outputs"][0]["outputFacets"]["outputStatistics"].update(rowCount=99),
+            job=_PLUS_ONE,
+            kind="COMPLETE",
+        )
+
+        lines = str(diff_run_events(recorded, other)).splitlines()
+
+        assert lines[0] == "comparable: yes"
+        assert lines[1] == "structureHash: equal"
+
+    def test_a_not_comparable_report_has_no_durations_section(self, recorded: Events) -> None:
+        other = _variant(recorded, lambda e: e["job"].update(name="renamed.root"), job=_ROOT)
+
+        diff = diff_run_events(recorded, other)
+
+        assert diff.durations == ()
+        assert "durations" not in str(diff)
 
     def test_unread_event_content_never_reaches_the_report(self, recorded: Events) -> None:
         def plant(event: dict[str, Any]) -> None:
@@ -405,6 +483,91 @@ class TestRunDiffReport:
         assert set(_changes(diff.changes)) == {"rowCount"}
         assert _SENTINEL not in str(diff)
         assert _SENTINEL not in repr(diff)
+
+
+class TestRunDiffOddShapes:
+    @pytest.mark.parametrize(
+        "edit",
+        [
+            lambda e: e["run"].update(runId=["unhashable"]),
+            lambda e: _facets(e).update(parent={"run": {"runId": {"a": 1}}, "job": {}}),
+            lambda e: e["run"].update(runId=7),
+        ],
+        ids=["list-run-id", "dict-parent-run-id", "int-run-id"],
+    )
+    def test_a_non_string_run_id_is_ignored_without_raising(self, recorded: Events, tmp_path: Path, edit: Edit) -> None:
+        junk = _variant(recorded, edit, job=_PLUS_ONE, kind="START")
+        extra = [e for e, o in zip(junk, recorded, strict=True) if e != o]
+        assert extra
+
+        assert diff_run_events(recorded, recorded + extra).changes == ()
+        path = _write(tmp_path / "events.ndjson", _dumps(recorded + extra))
+        assert len(read_runs(path)) == 1
+
+    def test_an_event_without_a_run_id_is_never_a_root(self, recorded: Events, tmp_path: Path) -> None:
+        junk = {"eventType": "START", "job": {"name": "x"}, "run": {"facets": {"mlodaPlan": {}}}}
+        path = _write(tmp_path / "events.ndjson", _dumps([*recorded, junk]))
+
+        assert len(read_runs(path)) == 1
+        assert diff_run_events(recorded, [*recorded, junk]).changes == ()
+
+    def test_an_event_without_event_time_has_no_duration(self, recorded: Events) -> None:
+        other = _variant(recorded, lambda e: e.pop("eventTime"), job=_ROOT, kind="COMPLETE")
+
+        diff = diff_run_events(recorded, other)
+
+        run_level = [d for d in diff.durations if d.step is None]
+        assert run_level[0].after is None
+        assert run_level[0].before is not None
+        assert diff.changes == ()
+
+    @pytest.mark.parametrize(
+        "edit",
+        [
+            lambda e: e.update(job=None),
+            lambda e: e["run"].update(facets="not-a-dict"),
+            lambda e: e["outputs"][0].update(facets="not-a-dict"),
+            lambda e: e["outputs"][0]["facets"].update(schema="not-a-dict"),
+            lambda e: e["outputs"][0]["outputFacets"].update(outputStatistics=[1]),
+            lambda e: e["outputs"][0].update(outputFacets="not-a-dict"),
+            lambda e: e.update(inputs=["junk", 3, None]),
+            lambda e: e["outputs"][0]["facets"]["schema"].update(fields="oops"),
+        ],
+        ids=[
+            "job-null",
+            "run-facets",
+            "output-facets",
+            "schema-facet",
+            "output-statistics",
+            "output-facets-field",
+            "input-items",
+            "schema-fields",
+        ],
+    )
+    def test_a_valid_json_event_of_an_odd_shape_never_raises(self, recorded: Events, edit: Edit) -> None:
+        odd = _variant(recorded, edit, job=_PLUS_ONE, kind="COMPLETE")
+
+        assert isinstance(diff_run_events(recorded, odd), RunDiff)
+        assert isinstance(diff_run_events(odd, recorded), RunDiff)
+
+
+class TestRunDiffRootHandling:
+    def test_more_than_one_root_run_is_rejected(self, recorded: Events) -> None:
+        both = recorded + _record()
+
+        with pytest.raises(ValueError):
+            diff_run_events(both, recorded)
+        with pytest.raises(ValueError):
+            diff_run_events(recorded, both)
+
+    @pytest.mark.parametrize("nulled", ["START", "COMPLETE"])
+    def test_an_explicit_null_on_one_root_event_never_masks_the_other_root_event(
+        self, recorded: Events, nulled: str
+    ) -> None:
+        other = _variant(recorded, lambda e: _facets(e)["mlodaPlan"].update(structureHash=None), job=_ROOT, kind=nulled)
+
+        assert diff_run_events(recorded, other).changes == ()
+        assert diff_run_events(other, recorded).changes == ()
 
 
 class TestReadRuns:
