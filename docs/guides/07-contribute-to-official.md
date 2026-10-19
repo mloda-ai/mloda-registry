@@ -49,7 +49,7 @@ You don't need to open an issue or discuss beforehand—PRs can be submitted dir
 
 Your PR will be merged when:
 
-- **CI passes**: All tests and ruff linting checks must pass
+- **CI passes**: `pytest`, `ruff format --check`, `ruff check`, `mypy --strict --ignore-missing-imports` and `bandit` must all pass (see [Code Style](../../CONTRIBUTING.md#code-style))
 - **Tests included**: New functionality has corresponding tests
 - **Docs updated**: If behavior changes, documentation reflects it
 - **Style consistent**: Code follows existing patterns in the codebase
