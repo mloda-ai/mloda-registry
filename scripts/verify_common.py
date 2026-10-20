@@ -37,7 +37,7 @@ def install(requirements: list[str], tmpdir: str) -> str | None:
         ["uv", "pip", "install", "--python", str(venv_python(venv)), *requirements],
     ]
     for command in commands:
-        # cwd is the temp dir: the checkout cannot shadow the installed packages, nor the workspace [tool.uv] filter.
+        # Run in the temp dir so the checkout cannot shadow installed packages or apply workspace [tool.uv] filters.
         result = subprocess.run(command, capture_output=True, text=True, cwd=tmpdir)  # nosec
         if result.returncode != 0:
             return f"{' '.join(command)} failed:\n{(result.stderr or result.stdout)[-500:]}"
