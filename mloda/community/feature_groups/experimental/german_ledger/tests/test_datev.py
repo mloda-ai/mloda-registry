@@ -515,7 +515,7 @@ def test_the_late_entry_cutoff_refuses_a_datev_batch_it_cannot_evaluate() -> Non
 
 def test_a_folder_holding_both_formats_is_refused_not_shadowed(tmp_path: Path) -> None:
     """Neither reader is pinned, so both journals claim the feature with their own reader and
-    mloda 0.15 refuses the ambiguity (reader overlap) rather than picking one."""
+    mloda 0.16 refuses the ambiguity (reader overlap) rather than picking one."""
     both = tmp_path / "both"
     shutil.copytree(HERE / "fixtures" / "dossier_a", both)
     shutil.copy(LEDERMANN / "EXTF_Buchungsstapel.csv", both)
