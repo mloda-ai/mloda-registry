@@ -17,7 +17,7 @@ _COMMON_PATH = _REPO_ROOT / "scripts" / "verify_common.py"
 
 
 def _common() -> ModuleType:
-    """The shared helper module, failing with a clear message while it does not exist."""
+    """The shared helper module."""
     assert _COMMON_PATH.is_file(), f"{_COMMON_PATH} does not exist: the shared verify helpers are missing"
     return load_script("verify_common", _COMMON_PATH)
 
@@ -25,7 +25,7 @@ def _common() -> ModuleType:
 def _record(
     monkeypatch: pytest.MonkeyPatch, results: dict[str, _FakeCompletedProcess] | None = None
 ) -> list[tuple[list[str], dict[str, Any]]]:
-    """Patch subprocess.run to record (command, kwargs); a command whose first matching key is found gets that result."""
+    """Patch subprocess.run to record (command, kwargs); a command containing a results key gets that result."""
     calls: list[tuple[list[str], dict[str, Any]]] = []
 
     def fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeCompletedProcess:
