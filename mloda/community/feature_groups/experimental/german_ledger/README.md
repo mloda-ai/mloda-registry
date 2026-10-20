@@ -3,10 +3,8 @@
 Totals from German ledger exports that carry the ledger lines behind them, or a refusal
 that names the reason.
 
-**Status: experimental.** The package lives under
-`mloda.community.feature_groups.experimental`. It has no stability guarantee: the import
-path, the API and the evidence keys may change or move in any release, including a patch
-release.
+**Status: experimental**, see [Experimental packages](../../../../../docs/packaging.md#experimental-packages)
+for what that guarantees.
 
 - **Reads:** GDPdU/GoBD dossiers (`index.xml` + data file) and DATEV-Format EXTF 700
   booking batches.

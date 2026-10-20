@@ -283,12 +283,16 @@ published = true
 optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
+# --- Experimental ---
+# Bundle-only, no stability guarantee: docs/packaging.md#experimental-packages. Its third-party dependencies
+# reach users through mloda-community[german-ledger]; dev repeats them for its own tests.
+
 [packages.mloda-community-german-ledger]
 description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"
-dependencies = ["{core_dependency}", "pyarrow>=14.0.1", "defusedxml>=0.7"]
+keywords = ["gdpdu", "gobd", "datev", "accounting", "bookkeeping"]
+dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/experimental/german_ledger"
-has_readme = true
-optional_dependencies = { dev = ["types-defusedxml"] }
+optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3", "pyarrow>=14.0.1", "defusedxml>=0.7", "types-defusedxml"] }
 
 # --- Bundles ---
 # Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
@@ -298,7 +302,7 @@ optional_dependencies = { dev = ["types-defusedxml"] }
 
 [packages.mloda-community]
 description = "All community plugins for mloda"
-keywords = ["feature-engineering", "data-operations", "opentelemetry", "openlineage"]
+keywords = ["feature-engineering", "data-operations", "opentelemetry", "openlineage", "gdpdu", "datev"]
 dependencies = [
     "{core_dependency}",
     "mloda-community-extenders-shared=={version}",
