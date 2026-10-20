@@ -100,18 +100,19 @@ def _root_ids(events: list[dict[str, Any]]) -> set[str]:
     }
 
 
-def read_runs(path: str | Path) -> list[list[dict[str, Any]]]:
-    """Group an NDJSON file into runs: each run is its root events then its step events, in file order."""
+def read_runs(*paths: str | Path) -> list[list[dict[str, Any]]]:
+    """Group NDJSON files, read in the given order, into runs: each run is its root events then its step events."""
     events: list[dict[str, Any]] = []
-    for line in Path(path).read_text().splitlines():
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(event, dict):
-            events.append(event)
+    for path in paths:
+        for line in Path(path).read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
     roots = _root_ids(events)
     own: dict[str, list[dict[str, Any]]] = {}
     children: dict[str, list[dict[str, Any]]] = {}

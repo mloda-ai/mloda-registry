@@ -231,7 +231,7 @@ Notes:
 
 - With `append: true`, runs accumulate in one file; group lines by the root runId (each step's `parent` facet points at it).
 - Without `append`, every event goes to its own `<log_file_path>-<timestamp>.json` file.
-- Under `MULTIPROCESSING` each worker writes to the same path, and an appended line stays whole only while the event fits one write. Leave `append` off there.
+- Under `MULTIPROCESSING` every worker appends to the same path. The `file` transport of openlineage-python writes each event in a single append write, so lines stay whole on a local POSIX file system. On NFS, Windows or an object store, leave `append` off. Without `append`, file names carry the local time to the microsecond, so if two workers emit in the same microsecond, one event overwrites the other.
 - Diff two runs with the stdlib-only `mloda.community.extenders.openlineage.run_diff`:
 
   ```python
@@ -241,7 +241,7 @@ Notes:
   print(diff_run_events(runs[-2], runs[-1]))
   ```
 
-  It compares the structure hash, mloda version, outcome and, per step, the versions, compute framework, input features, loaded datasets, output schema, row count and outcome. Durations are listed as informational and never count as changes. Data-access identities appear as the events record them. Steps are keyed by feature group and feature names; duplicate steps of one feature group are told apart by compute framework, then order. Runs are comparable when the root job namespace and name match and, when both recorded them, the requested features match; otherwise they are reported as not comparable. `diff_run_events` takes one record per argument and raises `ValueError` for more. `read_runs` reads a file written with `append: true`.
+  It compares the structure hash, mloda version, outcome and, per step, the versions, compute framework, input features, loaded datasets, output schema, row count and outcome. Durations are listed as informational and never count as changes. Data-access identities appear as the events record them. Steps are keyed by feature group and feature names; duplicate steps of one feature group are told apart by compute framework, then order. Runs are comparable when the root job namespace and name match and, when both recorded them, the requested features match; otherwise they are reported as not comparable. `diff_run_events` takes one record per argument and raises `ValueError` for more. `read_runs` takes the file written with `append: true`, or the per-event files written without it, in name order: `read_runs(*sorted(glob.glob("openlineage.ndjson-*.json")))`. Keep `debug_mode` off, because its indented files are skipped.
 - The events do not show how the plan is wired; keep a [plan lock](feature-group-patterns/10-testing-guide.md) next to the record for that.
 
 ## Traces and lineage

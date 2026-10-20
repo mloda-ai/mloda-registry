@@ -11,6 +11,7 @@ from __future__ import annotations
 import atexit
 import copy
 import gc
+import glob
 import importlib.metadata
 import json
 import logging
@@ -45,13 +46,14 @@ from mloda.steward import (
     RunContext,
     pickle_failure_reason,
 )
-from mloda.user import PluginCollector, mloda
+from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
+from mloda.community.extenders.openlineage.run_diff import read_runs
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.community.extenders.shared.tests.classification_helpers import (
@@ -3658,13 +3660,29 @@ class TestOpenLineageExtenderRunAll:
         # path (e.g. "int64") or to a garbage/empty type must fail loudly, not pass on a loose substring.
         assert schema_types == ["int"]
 
+    @pytest.mark.parametrize(
+        ("mode", "append"),
+        [
+            (ParallelizationMode.SYNC, True),
+            (ParallelizationMode.MULTIPROCESSING, True),
+            (ParallelizationMode.MULTIPROCESSING, False),
+        ],
+        ids=["sync-append", "multiprocessing-append", "multiprocessing-per-event-files"],
+    )
     def test_documented_file_transport_recipe_writes_a_run_record(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        mode: ParallelizationMode,
+        append: bool,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        request: pytest.FixtureRequest,
     ) -> None:
-        """openlineage.yml with a file transport and use_sdk_defaults=True leaves one run's events as NDJSON."""
+        """Smoke test: the documented file transport records a run that read_runs reads back."""
         log_path = tmp_path / "events.ndjson"
         config_path = tmp_path / "openlineage.yml"
-        config_path.write_text(f"transport:\n  type: file\n  log_file_path: {log_path}\n  append: true\n")
+        config_path.write_text(
+            f"transport:\n  type: file\n  log_file_path: {log_path}\n  append: {str(append).lower()}\n"
+        )
         monkeypatch.delenv("OPENLINEAGE_DISABLED", raising=False)
         monkeypatch.delenv("OPENLINEAGE_URL", raising=False)
         for name in [name for name in os.environ if name.startswith("OPENLINEAGE__")]:
@@ -3673,11 +3691,17 @@ class TestOpenLineageExtenderRunAll:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("HOME", str(tmp_path))
         extender = OpenLineageExtender(use_sdk_defaults=True)
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
 
-        run_two_features(extender)
+        run_two_features(extender, parallelization_modes={mode}, flight_server=flight_server)
         assert extender.close() is True
 
-        events = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        files = [str(log_path)] if append else sorted(glob.glob(f"{log_path}-*.json"))
+        assert files
+        events = [json.loads(line) for path in files for line in Path(path).read_text().splitlines() if line.strip()]
         root = [e for e in events if e["job"]["name"] == "mloda.run_all"]
         steps = [e for e in events if e["job"]["name"] != "mloda.run_all"]
         assert [e["eventType"] for e in root] == ["START", "COMPLETE"]
@@ -3696,6 +3720,7 @@ class TestOpenLineageExtenderRunAll:
                 assert output["outputFacets"]["outputStatistics"]["rowCount"] == len(
                     PyArrowDataOpsTestDataCreator.create()
                 )
+        assert read_runs(*files) == [root + steps]
 
 
 def _breaker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
