@@ -183,6 +183,117 @@ def test_a_total_over_rows_of_two_bases_is_refused() -> None:
         _sources_of(_stamped_rows(one, other))
 
 
+def _calculate_context() -> Any:
+    """A bare `calculate_feature` HookContext, to be activated by the test."""
+    from mloda.steward import ExtenderHook, HookContext
+
+    return HookContext(
+        hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+        feature_group_class=None,
+        feature_group_version=None,
+        compute_framework_name=None,
+    )
+
+
+def _published_by(rows: pa.Table) -> dict[str, Any] | None:
+    """The result attributes `calculate_feature` publishes into an activated context."""
+    context = _calculate_context()
+    with context.activate():
+        _sources_of(rows)
+    return None if context.result_attributes is None else dict(context.result_attributes)
+
+
+_FULL_BASIS = {
+    "profile": {"b": 2, "a": [1, 2]},
+    "sign": "credit_positive",
+    "catalogue": {"name": "SKR04_2025", "fingerprint": "0123456789ab"},
+}
+
+
+def test_the_total_publishes_the_basis_as_result_attributes() -> None:
+    basis = json.dumps(_FULL_BASIS, sort_keys=True)
+    assert _published_by(_stamped_rows(basis, basis)) == {
+        "revenue__sources.profile": '{"a":[1,2],"b":2}',
+        "revenue__sources.sign": "credit_positive",
+        "revenue__sources.catalogue": "SKR04_2025",
+        "revenue__sources.catalogue.fingerprint": "0123456789ab",
+    }
+
+
+def test_a_basis_missing_fields_publishes_only_the_present_keys() -> None:
+    basis = json.dumps({"catalogue": {"name": "SKR04_2025", "fingerprint": "0123456789ab"}})
+    assert _published_by(_stamped_rows(basis)) == {
+        "revenue__sources.catalogue": "SKR04_2025",
+        "revenue__sources.catalogue.fingerprint": "0123456789ab",
+    }
+
+
+@pytest.mark.parametrize("basis", [None, json.dumps(["not", "an", "object"]), "not json"])
+def test_a_null_or_non_object_basis_publishes_nothing(basis: str | None) -> None:
+    assert not _published_by(_stamped_rows(basis, basis))
+    assert _sources_of(_stamped_rows(basis)).column("revenue__sources~basis").to_pylist() == [basis]
+
+
+_CATALOGUE = {"name": "SKR04_2025", "fingerprint": "0123456789ab"}
+
+
+@pytest.mark.parametrize(
+    "basis",
+    [{"sign": [], "catalogue": _CATALOGUE}, {"profile": None, "catalogue": _CATALOGUE}],
+    ids=["non_scalar_sign", "null_profile"],
+)
+def test_an_unpublishable_basis_field_is_skipped(basis: dict[str, Any]) -> None:
+    assert _published_by(_stamped_rows(json.dumps(basis))) == {
+        "revenue__sources.catalogue": "SKR04_2025",
+        "revenue__sources.catalogue.fingerprint": "0123456789ab",
+    }
+
+
+def test_a_refused_total_publishes_nothing() -> None:
+    context = _calculate_context()
+    one = json.dumps({"sign": "a"})
+    other = json.dumps({"sign": "b"})
+    with context.activate():
+        with pytest.raises(ValueError, match="2 different concept bases"):
+            _sources_of(_stamped_rows(one, other))
+    assert not context.result_attributes
+
+
+def test_the_published_attributes_equal_the_basis_column_on_a_run() -> None:
+    from mloda.steward import Extender, ExtenderHook, HookContext
+
+    seen: list[dict[str, Any]] = []
+
+    class Recorder(Extender):
+        def wraps(self) -> set[ExtenderHook]:
+            return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+        def __call__(self, func: Any, *a: Any, **k: Any) -> Any:
+            result = func(*a, **k)
+            context = HookContext.current()
+            assert context is not None
+            if context.feature_group_class and context.feature_group_class.endswith("SourcesFeatureGroup"):
+                seen.append(dict(context.result_attributes or {}))
+            return result
+
+    res = mloda.run_all(
+        features=["revenue__sources"],
+        compute_frameworks=[PyArrowTable],
+        data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
+        function_extender={Recorder()},
+        plugin_collector=PLUGINS,
+    )
+    basis = json.loads(res[0].column("revenue__sources~basis").to_pylist()[0])
+    assert seen == [
+        {
+            "revenue__sources.profile": json.dumps(basis["profile"], sort_keys=True, separators=(",", ":")),
+            "revenue__sources.sign": basis["sign"],
+            "revenue__sources.catalogue": basis["catalogue"]["name"],
+            "revenue__sources.catalogue.fingerprint": basis["catalogue"]["fingerprint"],
+        }
+    ], seen
+
+
 def test_guard_fails_closed_without_second_clock() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "no_clock"
@@ -787,6 +898,15 @@ def test_profile_shadowing_refuses_instead_of_answering_wrongly() -> None:
     # two is the dangerous count precisely because three is the loud one
     assert "THIRD PROFILE COLLIDES" in proof.stdout, proof.stdout
     assert "Multiple feature groups found" in proof.stdout, proof.stdout
+
+
+def test_a_reader_subclass_declaring_internal_is_the_classification_remedy() -> None:
+    """The documented remedy: a reader subclass declaring `internal` runs under clearance `internal`."""
+    proof = _run_proof("proof_reader_classification")
+    if proof.returncode == 77:
+        pytest.skip(proof.stdout.strip())
+    assert proof.returncode == 0, proof.stdout + proof.stderr[-2000:]
+    assert "REMEDY: a reader subclass declaring internal runs under clearance internal" in proof.stdout, proof.stdout
 
 
 def test_removing_the_admissibility_policy_yields_no_number() -> None:

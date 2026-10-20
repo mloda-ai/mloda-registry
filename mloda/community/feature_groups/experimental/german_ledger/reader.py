@@ -6,6 +6,7 @@ import csv
 import hashlib
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, localcontext
@@ -483,7 +484,20 @@ def decline_unconfirmed(
     return True
 
 
-class GdpduReader(ReadFile):
+CLASSIFICATION_KEY = "mloda.data.classification"
+
+
+class ClassifiedReader:
+    """Declares the reader's data classification; subclass with another CLASSIFICATION to lower it."""
+
+    CLASSIFICATION = "confidential"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
+        return {CLASSIFICATION_KEY: cls.CLASSIFICATION}
+
+
+class GdpduReader(ClassifiedReader, ReadFile):
     """Claims a dossier *directory* by its index.xml, not a file by suffix."""
 
     #: public alias; parse_descriptor reserves this name against a descriptor collision

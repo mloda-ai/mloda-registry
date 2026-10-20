@@ -5085,7 +5085,12 @@ class TestAuditExtenderClassificationRunAll:
             )
 
         assert results
-        denies = [r for r in sink.records if r["decision"] == "deny"]
+        # Other installed readers in the process may declare their own level, so only the stock readers are pinned.
+        denies = [
+            r
+            for r in sink.records
+            if r["decision"] == "deny" and (r["reader_class"] or "").startswith("mloda_plugins.")
+        ]
         assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=lambda t: t[2]) == [
             ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["alpha"]),
             ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["beta"]),
@@ -5154,3 +5159,55 @@ class TestAuditExtenderClassificationRunAll:
         calculates = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
         assert calculates
         assert {r["classification"] for r in calculates} == {"public"}
+
+
+class TestAuditExtenderClassificationGermanLedger:
+    """The german_ledger readers declare `confidential`; the gate refuses them below that clearance."""
+
+    @staticmethod
+    def _host() -> Any:
+        pytest.importorskip("defusedxml")
+        return pytest.importorskip("mloda.community.feature_groups.experimental.german_ledger.tests._host")
+
+    @staticmethod
+    def _run(host: Any, folder: Path, gate: AuditExtender, plugins: PluginCollector | None = None) -> list[Any]:
+        return mloda.run_all(
+            ["revenue__sources"],
+            compute_frameworks=[PyArrowTable],
+            data_access_collection=DataAccessCollection(folders={str(folder)}),
+            plugin_collector=plugins or host.PLUGINS,
+            function_extender={gate},
+        )
+
+    @pytest.mark.parametrize("fmt", ["gdpdu", "datev"])
+    def test_a_reader_above_clearance_is_refused_at_plan_time(self, fmt: str) -> None:
+        host = self._host()
+        from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+        from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader
+
+        folder = Path(host.__file__).parent / "fixtures" / "twin_2025" / fmt
+        sink = InMemoryAuditSink()
+
+        with verified_context(tenant_id="t", principal="svc"):
+            with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
+                self._run(host, folder, _classified(sink, "internal"))
+
+        denies = [r for r in sink.records if r["decision"] == "deny" and r["hook"] == "INPUT_DATA_MATCH"]
+        assert {r["deny_reason"] for r in denies} == {"classification_above_clearance"}
+        assert {r["classification"] for r in denies} == {"confidential"}
+        # core probes every candidate reader, so both declare and both are denied
+        assert {r["reader_class"] for r in denies} == {_qualname(GdpduReader), _qualname(DatevExtfReader)}
+
+    def test_a_confidential_clearance_runs_the_gdpdu_dossier(self) -> None:
+        host = self._host()
+        folder = Path(host.__file__).parent / "fixtures" / "twin_2025" / "gdpdu"
+        sink = InMemoryAuditSink()
+
+        with verified_context(tenant_id="t", principal="svc"):
+            self._run(host, folder, _classified(sink, "confidential"))
+
+        records = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+        assert records
+        for record in records:
+            assert record["decision"] == "allow"
+            assert record["classification"] == "confidential"

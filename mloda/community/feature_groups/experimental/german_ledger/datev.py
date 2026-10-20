@@ -38,7 +38,7 @@ from mloda.provider import FeatureSet
 from mloda.user import DataAccessCollection, Options
 from mloda_plugins.feature_group.input_data.read_file import ReadFile
 
-from .reader import _ORIGIN_COLUMN, GdpduReader, decline_unconfirmed
+from .reader import _ORIGIN_COLUMN, ClassifiedReader, GdpduReader, decline_unconfirmed
 
 
 class DatevRefusal(ValueError):
@@ -426,7 +426,7 @@ def read_batch(path: str) -> tuple[DatevHeader, dict[str, list[Any]]]:
     return h, legs
 
 
-class DatevExtfReader(ReadFile):
+class DatevExtfReader(ClassifiedReader, ReadFile):
     """Claims a folder of DATEV-Format booking batches (EXTF/DTVF, category 21)."""
 
     ORIGIN_COLUMN = _ORIGIN_COLUMN

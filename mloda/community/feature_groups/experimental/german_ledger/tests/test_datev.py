@@ -527,6 +527,19 @@ def test_a_folder_holding_both_formats_is_refused_not_shadowed(tmp_path: Path) -
     ), message
 
 
+@pytest.mark.parametrize("reader", [GdpduReader, DatevExtfReader])
+def test_the_reader_declares_its_data_classification(reader: Any) -> None:
+    from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
+
+    assert CLASSIFICATION_KEY == "mloda.data.classification"
+    assert reader.declared_attributes(None) == {"mloda.data.classification": "confidential"}
+
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ClassifiedReader
+
+    lowered: type[ClassifiedReader] = type("Lowered", (ClassifiedReader,), {"CLASSIFICATION": "internal"})
+    assert lowered.declared_attributes(None) == {CLASSIFICATION_KEY: "internal"}
+
+
 @pytest.mark.parametrize("reader", ["GdpduReader", "DatevExtfReader"])
 def test_a_folder_holding_both_formats_resolves_when_one_reader_is_pinned(tmp_path: Path, reader: str) -> None:
     both = tmp_path / "both"

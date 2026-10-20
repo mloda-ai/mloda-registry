@@ -136,6 +136,17 @@ Pinning one reader by option key also resolves a single folder that holds both f
   `feature_group_declared_attributes`. A refused policy step emits no COMPLETE event, so it has
   no `mlodaDeclared` facet; its OTel span and audit record (status `error`) still carry the
   declared stamp, which is not the run's outcome.
+- **Result attributes:** once all totals of a step are built, each total's profile, sign,
+  catalogue and catalogue fingerprint are published as
+  `<concept>__sources.profile|sign|catalogue|catalogue.fingerprint` (OTel `mloda.result.<key>`);
+  a refused step publishes none, and the `~basis` column stays authoritative.
+- **Classification:** both readers declare `mloda.data.classification = confidential`, so an
+  audit `ClassificationPolicy` needs clearance `confidential` or above; a gate below it is
+  refused. `exempt_readers` skips only the plan-time probe, not the run-start check. Raising the
+  clearance is the intended lever. A reader subclass with a lower `CLASSIFICATION` also works,
+  but core then prefers it over the stock reader for every read in the process, so every
+  dossier there carries the lower level. Imported readers are candidates for every file read
+  (mloda#1745), so unrelated reads under a lower gate record a deny but continue.
 - **Resolution evidence:** `mloda.diagnose` says, per feature, the group chosen, the groups
   that also matched and those that declined, with stage and reason.
 
