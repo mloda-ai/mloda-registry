@@ -252,7 +252,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
                 "rolling": "Fixed-size row-count window",
                 "time": "Time-interval window",
                 "cumulative": "Running aggregate from start",
-                "expanding": "Same as cumulative (alias; either agrees with either name)",
+                "expanding": "Alias of cumulative",
             },
             match_guard=is_op_token,
             expected=OP_TOKEN_EXPECTED,
@@ -390,7 +390,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         for key in (cls.FRAME_SIZE, cls.FRAME_UNIT):
             if key not in used and is_own_option(options, key):
                 msg = f"Feature '{feature_name}': option '{key}' is not used by a '{frame_type}' frame; remove the option."
-                # Marked: not downgraded by MLODA_ALLOW_FORWARDED_NAME_MISMATCH.
+                # Marked: user misconfiguration; the option would be silently ignored otherwise.
                 raise escalate_match_abort(ValueError(msg))
 
     @classmethod
@@ -408,7 +408,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         name_type = parsed["frame_type"]
         if name_type in ("cumulative", "expanding"):
             declared = _option_token(options, cls.FRAME_TYPE)
-            # expanding and cumulative are aliases: either agrees with either name.
+            # Aliases: either agrees with either name.
             if declared in ("cumulative", "expanding"):
                 bindings[cls.FRAME_TYPE] = declared
         cls._reject_unused_frame_options(feature_name, options, str(name_type))

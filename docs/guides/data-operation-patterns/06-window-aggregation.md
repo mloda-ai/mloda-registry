@@ -96,7 +96,7 @@ See [Masking](../feature-group-patterns/25-masking.md) for the full mask spec.
 
 ## Config form
 
-The config form uses the key `window_aggregation_type` with `in_features` and `partition_by`. An own `aggregation_type` on a window feature is rejected with a `ValueError`.
+The config form uses the key `window_aggregation_type` with `in_features` and `partition_by`. An own `aggregation_type` on a window name (e.g. `value_int__sum_window`) raises a `ValueError`; on a config feature it is not window's, so the feature goes to aggregation.
 
 ---
 
