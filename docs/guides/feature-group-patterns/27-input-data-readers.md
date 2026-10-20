@@ -37,6 +37,10 @@ Distinct names only protect pinned features. Without a pin, every reader in the 
 
 While matching, the `(ReaderClass, data_access)` pair is written under the reserved `"BaseInputData"` options key, then moved onto `Feature.input_data_match` and removed from options (it may carry credentials). `BaseInputData.init_reader` takes that pair at load time. The class-name option key is the normal way to select a reader; tests may call `feature_scope_data_access` directly, which writes the key into the given `Options`. Setting it twice with different values raises `ValueError`. Two candidates that both match raise `Multiple feature groups found`, naming each candidate and its source.
 
+### Overriding the selection
+
+Prefer overriding only `match_subclass_data_access`: core probes it through the `INPUT_DATA_MATCH` extender hook, so a gate can refuse the reader before the probe reads anything (see [Reader match hook](../11-create-extender.md#reader-match-hook)). A reader base that overrides `feature_scope_data_access` or `match_data_access` must call each candidate as `probe_reader(subclass, data_access, feature_names, options)` instead of `subclass.match_subclass_data_access(...)`: a direct call silently bypasses the hook, so no gate sees or refuses that reader. `probe_reader` returns `None` for a refused reader and lets an exception from the probe propagate. It is core-internal in mloda 0.16 (module `mloda.core.abstract_plugins.components.input_data.reader_probe`, not exported from `mloda.provider`), so its path may move. Overriding `matches`, or doing I/O in `match_feature_group_criteria`, is never gated.
+
 ## Sibling Readers Under One Root FeatureGroup
 
 The option key selects the reader; the selected reader then confirms the data access via `match_subclass_data_access`. Return the data access to claim it, `None` to decline:
@@ -240,6 +244,8 @@ def test_option_key_routes_to_reader() -> None:
 ```
 
 End to end, run the feature through `mloda.run_all` with `PluginCollector.enabled_feature_groups({ReadFileFeature})`. mloda core pins the full contract in [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py); mirror its isolation trick (a unique marker option key checked in `match_subclass_data_access`) so test readers never hijack matching in unrelated tests.
+
+A reader that [overrides the selection](#overriding-the-selection) also needs an end-to-end gate test: calling `feature_scope_data_access` directly runs no extender, so plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the reader, then assert `FeatureResolutionError` names the refusal (or that a sibling serves the feature). Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.16.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
 
 ## Real Implementations
 
