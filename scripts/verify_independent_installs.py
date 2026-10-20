@@ -16,9 +16,7 @@ import argparse
 import concurrent.futures
 import os
 import runpy
-import subprocess  # nosec
 import sys
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -33,6 +31,7 @@ MAX_WORKERS = 8
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
     "load_sibling"
 ]
+install_and_probe: Callable[[list[str], str], str | None] = _load_sibling("verify_common").install_and_probe
 
 
 def independent_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
@@ -74,23 +73,10 @@ def verify_distribution(name: str, version: str, modules: list[str]) -> str | No
     """Install one distribution into its own venv and probe its import surface; returns an error
     message, or None on success. Runs the whole cycle in its own temporary directory; prints nothing,
     so callers running several of these concurrently control all output themselves."""
-    # Resolved by file path, not a plain import: callers may invoke this without scripts/ on sys.path.
-    venv_python: Callable[[Path], Path] = _load_sibling("verify_build_floor").venv_python
-    with tempfile.TemporaryDirectory() as tmpdir:
-        venv = Path(tmpdir) / "venv"
-        # One import statement per probed module: the distribution's own surface plus its nested ones.
-        imports = "\n".join(f"import {module}" for module in modules)
-        commands = [
-            ["uv", "venv", "--python", sys.executable, str(venv)],
-            ["uv", "pip", "install", "--python", str(venv_python(venv)), f"{name}=={version}"],
-            [str(venv_python(venv)), "-c", imports],
-        ]
-        for command in commands:
-            # cwd is the temp dir, so the checkout cannot shadow the installed packages.
-            result = subprocess.run(command, capture_output=True, text=True, cwd=tmpdir)  # nosec
-            if result.returncode != 0:
-                return f"{name}: {' '.join(command)} failed:\n{result.stderr[-500:]}"
-    return None
+    # One import statement per probed module: the distribution's own surface plus its nested ones.
+    imports = "\n".join(f"import {module}" for module in modules)
+    error = install_and_probe([f"{name}=={version}"], imports)
+    return None if error is None else f"{name}: {error}"
 
 
 def main() -> int:

@@ -5,6 +5,7 @@ was not raised to paper over the serial loop it replaces."""
 from __future__ import annotations
 
 import re
+import subprocess  # nosec
 import sys
 import threading
 import time
@@ -92,7 +93,7 @@ def test_verify_distribution_returns_none_and_runs_from_its_own_cwd(monkeypatch:
         calls.append(command)
         return _FakeCompletedProcess(returncode=0)
 
-    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     error = fn("mloda-registry", "9.9.9", ["mloda.registry"])
 
@@ -109,7 +110,7 @@ def test_verify_distribution_stops_at_the_first_failing_command(monkeypatch: pyt
         calls.append(command)
         return _FakeCompletedProcess(returncode=1, stderr="boom")
 
-    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     error = fn("mloda-registry", "9.9.9", ["mloda.registry"])
 
@@ -134,7 +135,7 @@ def test_main_runs_the_per_distribution_loop_concurrently(monkeypatch: pytest.Mo
             state["in_flight"] -= 1
         return _FakeCompletedProcess(returncode=0)
 
-    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     exit_code = _run_main(monkeypatch)
 
@@ -164,7 +165,7 @@ def test_main_reports_every_failing_distribution_while_running_concurrently(
             return _FakeCompletedProcess(returncode=1, stderr="boom")
         return _FakeCompletedProcess(returncode=0)
 
-    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     exit_code = _run_main(monkeypatch)
     out = capsys.readouterr().out

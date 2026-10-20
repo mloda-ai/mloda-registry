@@ -14,7 +14,6 @@ import ast
 import concurrent.futures
 import os
 import runpy
-import subprocess  # nosec
 import sys
 import tempfile
 from collections.abc import Callable
@@ -28,6 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
     "load_sibling"
 ]
+_common = _load_sibling("verify_common")
+install_and_probe: Callable[[list[str], str], str | None] = _common.install_and_probe
+build_wheel: Callable[[str, Path], tuple[Path | None, str | None]] = _common.build_wheel
 
 BASE = "mloda-community-data-operations"
 
@@ -146,42 +148,24 @@ if failures:
 
 def build_wheels(names: list[str], out_dir: Path) -> tuple[dict[str, Path], list[str]]:
     """Build one wheel per package."""
-    find_wheels: Callable[[Path, str], list[Path]] = _load_sibling("published_packages").find_wheels
     wheels: dict[str, Path] = {}
     errors: list[str] = []
     for name in names:
-        command = ["uv", "build", "--package", name, "--out-dir", str(out_dir), "--wheel", "--no-build-isolation"]
-        result = subprocess.run(command, capture_output=True, text=True, cwd=REPO_ROOT)  # nosec
-        if result.returncode != 0:
-            errors.append(f"{name}: build failed:\n{result.stderr[-500:]}")
-            continue
-        found = find_wheels(out_dir, name)
-        if len(found) != 1:
-            errors.append(f"{name}: expected exactly one wheel, got {[w.name for w in found]}")
-            continue
-        wheels[name] = found[0]
+        wheel, error = build_wheel(name, out_dir)
+        if wheel is None:
+            errors.append(str(error))
+        else:
+            wheels[name] = wheel
     return wheels, errors
 
 
 def verify_extra(backend: str, leaves_and_classes: LeafClasses, wheels: dict[str, Path]) -> str | None:
     """Install the backend's leaves into a clean venv and probe them; error message or None."""
-    venv_python: Callable[[Path], Path] = _load_sibling("verify_build_floor").venv_python
     classes = [pair for _, pairs in leaves_and_classes for pair in pairs]
     absent = list(ABSENT_IN_BARE_INSTALL) if backend == "python_dict" else []
     requirements = install_requirements(backend, [leaf for leaf, _ in leaves_and_classes], wheels)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        python = str(venv_python(Path(tmpdir) / "venv"))
-        commands = [
-            ["uv", "venv", "--python", sys.executable, str(Path(tmpdir) / "venv")],
-            ["uv", "pip", "install", "--python", python, *requirements],
-            [python, "-c", probe_source(classes, absent)],
-        ]
-        for step, command in zip(["venv", "install", "probe"], commands):
-            # cwd is the temp dir, so the checkout cannot shadow the installed packages.
-            result = subprocess.run(command, capture_output=True, text=True, cwd=tmpdir)  # nosec
-            if result.returncode != 0:
-                return f"extra {backend}: {step} failed:\n{(result.stderr or result.stdout)[-500:]}"
-    return None
+    error = install_and_probe(requirements, probe_source(classes, absent))
+    return None if error is None else f"extra {backend}: {error}"
 
 
 def main() -> int:

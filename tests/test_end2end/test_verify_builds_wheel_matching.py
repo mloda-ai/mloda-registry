@@ -5,6 +5,7 @@ version setuptools normalizes into the filename may decide which wheel a package
 from __future__ import annotations
 
 import shutil
+import subprocess  # nosec
 import sys
 import zipfile
 from collections.abc import Callable
@@ -140,7 +141,7 @@ def _stub_build(
         return []
 
     monkeypatch.setattr(vb, "PACKAGES", packages)
-    monkeypatch.setattr(vb.subprocess, "run", _fake_build)
+    monkeypatch.setattr(subprocess, "run", _fake_build)
     monkeypatch.setattr(vb, "check_version_consistency", _consistent_versions)
     monkeypatch.setattr(vb, "verify_entry_points", _capture_wheels)
     for verifier in (

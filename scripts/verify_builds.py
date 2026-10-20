@@ -6,7 +6,6 @@ from __future__ import annotations
 import configparser
 import runpy
 import shutil
-import subprocess  # nosec
 import sys
 import tempfile
 import zipfile
@@ -29,6 +28,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(_SCRIPTS_DIR / "script_loader.py"))["load_sibling"]
 gen = _load_sibling("generate_pyproject")
 pp = _load_sibling("published_packages")
+build_wheel: Callable[[str, Path], tuple[Path | None, str | None]] = _load_sibling("verify_common").build_wheel
 
 # Each entry-point group's own (module suffix, attribute) pairing, derived from generate_pyproject's
 # own tables so the two scripts never drift apart.
@@ -378,26 +378,11 @@ def main() -> int:
 
         for pkg_name, _ in PACKAGES:
             print(f"\nBuilding {pkg_name}...")
-            result = subprocess.run(  # nosec B603 B607
-                ["uv", "build", "--package", pkg_name, "--out-dir", tmpdir, "--wheel", "--no-build-isolation"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                errors.append(f"{pkg_name}: build failed\n{result.stderr[:500]}")
+            wheel, error = build_wheel(pkg_name, Path(tmpdir))
+            if wheel is None:
+                errors.append(str(error))
                 continue
 
-            # Find and verify wheel
-            wheels = find_wheels(Path(tmpdir), pkg_name)
-            if not wheels:
-                errors.append(f"{pkg_name}: no wheel produced (no wheel in the out-dir carries this distribution)")
-                continue
-            if len(wheels) > 1:
-                candidates = ", ".join(wheel.name for wheel in wheels)
-                errors.append(f"{pkg_name}: ambiguous wheels in the out-dir ({candidates})")
-                continue
-
-            wheel = wheels[0]
             if not verify_wheel_version(wheel, expected_version):
                 errors.append(f"{pkg_name}: version mismatch in wheel (expected {expected_version}, got {wheel.name})")
             else:

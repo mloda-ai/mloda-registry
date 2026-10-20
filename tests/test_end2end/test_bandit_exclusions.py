@@ -1,4 +1,5 @@
-"""The bandit gate in tox.ini must scan scripts/verify_builds.py and scripts/verify_build_floor.py.
+"""The bandit gate in tox.ini must scan the subprocess-bearing verify scripts (verify_builds.py,
+verify_build_floor.py, verify_common.py).
 Bandit applies each exclusion entry both as an fnmatch glob and as a plain substring of the full
 path, so a bare entry like "build" silently drops every path containing that substring, while genuine
 artifact directories must stay excluded. The gate therefore passes an explicit -x glob list: without
@@ -100,10 +101,10 @@ def _configured_exclude_dirs() -> list[str]:
 
 
 def test_gate_scans_the_verify_build_scripts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The two verify scripts must be discovered, not swallowed by a substring exclude."""
+    """The subprocess-bearing verify scripts must be discovered, not swallowed by a substring exclude."""
     monkeypatch.chdir(_REPO_ROOT)
     mgr = _discover(["scripts"], _PYPROJECT)
-    expected = {"scripts/verify_builds.py", "scripts/verify_build_floor.py"}
+    expected = {"scripts/verify_builds.py", "scripts/verify_build_floor.py", "scripts/verify_common.py"}
     missing = expected - set(mgr.files_list)
     dropped = [path for path in mgr.excluded_files if path.endswith(".py")]
     assert not missing, (
@@ -115,7 +116,11 @@ def test_gate_scans_the_verify_build_scripts(monkeypatch: pytest.MonkeyPatch) ->
 def test_gate_scans_the_verify_build_scripts_in_walk_form(monkeypatch: pytest.MonkeyPatch) -> None:
     """The gate walks from ".", so the scripts surface as "./"-prefixed paths and must stay included."""
     monkeypatch.chdir(_REPO_ROOT)
-    targets = ["./scripts/verify_builds.py", "./scripts/verify_build_floor.py"]
+    targets = [
+        "./scripts/verify_builds.py",
+        "./scripts/verify_build_floor.py",
+        "./scripts/verify_common.py",
+    ]
     mgr = _discover(targets, _PYPROJECT)
     dropped = set(targets) & set(mgr.excluded_files)
     assert not dropped, f'an exclude_dirs entry matches the "./"-prefixed form the gate produces: {sorted(dropped)}'

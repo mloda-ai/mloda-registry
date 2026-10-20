@@ -5,6 +5,7 @@ source tree no longer has."""
 from __future__ import annotations
 
 import shutil
+import subprocess  # nosec
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -123,7 +124,7 @@ def test_main_cleans_build_dirs_before_building(monkeypatch: pytest.MonkeyPatch)
         return _FakeCompletedProcess()
 
     monkeypatch.setattr(vb, "cleanup_build_dirs", _record_cleanup)
-    monkeypatch.setattr(vb.subprocess, "run", _record_run)
+    monkeypatch.setattr(subprocess, "run", _record_run)
 
     vb.main()
 
@@ -163,7 +164,7 @@ def test_main_leaves_no_build_dirs_after_a_successful_run(tmp_path: Path, monkey
     def _no_errors(*args: Any, **kwargs: Any) -> list[str]:
         return []
 
-    monkeypatch.setattr(vb.subprocess, "run", _fake_build)
+    monkeypatch.setattr(subprocess, "run", _fake_build)
     monkeypatch.setattr(vb, "check_version_consistency", _consistent_versions)
     monkeypatch.setattr(vb, "verify_wheel_version", _version_matches)
     for verifier in (

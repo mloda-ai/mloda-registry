@@ -226,7 +226,7 @@ def test_build_wheels_issues_uv_build_per_package_and_reports_failures(
             (tmp_path / "pkg_ok-1.0-py3-none-any.whl").write_text("")
         return subprocess.CompletedProcess(command, 1 if name == "pkg-bad" else 0, "", "boom")
 
-    monkeypatch.setattr(script.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     wheels, errors = script.build_wheels(["pkg-ok", "pkg-bad", "pkg-missing"], tmp_path)
 
@@ -262,7 +262,7 @@ _CLASSES = [("sqlite-leaf", [(_RANK_MODULE, "SqliteRank")])]
 def test_verify_extra_installs_and_probes_from_an_isolated_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     script = _script()
     calls: list[tuple[list[str], dict[str, Any]]] = []
-    monkeypatch.setattr(script.subprocess, "run", _recording_run(calls))
+    monkeypatch.setattr(subprocess, "run", _recording_run(calls))
     wheels = {"sqlite-leaf": tmp_path / "leaf.whl", _BASE: tmp_path / "base.whl"}
 
     assert script.verify_extra("sqlite", _CLASSES, wheels) is None
@@ -281,7 +281,7 @@ def test_verify_extra_installs_and_probes_from_an_isolated_cwd(monkeypatch: pyte
 def test_verify_extra_reports_probe_failure_naming_the_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     script = _script()
     marker = "SqliteRank"
-    monkeypatch.setattr(script.subprocess, "run", _recording_run([], fail_on=marker))
+    monkeypatch.setattr(subprocess, "run", _recording_run([], fail_on=marker))
     wheels = {"sqlite-leaf": tmp_path / "leaf.whl", _BASE: tmp_path / "base.whl"}
 
     error = script.verify_extra("sqlite", _CLASSES, wheels)
@@ -295,7 +295,7 @@ def test_verify_extra_python_dict_expects_backend_packages_absent(
 ) -> None:
     script = _script()
     calls: list[tuple[list[str], dict[str, Any]]] = []
-    monkeypatch.setattr(script.subprocess, "run", _recording_run(calls))
+    monkeypatch.setattr(subprocess, "run", _recording_run(calls))
     wheels = {"dict-leaf": tmp_path / "leaf.whl", _BASE: tmp_path / "base.whl"}
     classes = [("dict-leaf", [("mod.python_dict_rank", "PythonDictRank")])]
 
