@@ -59,15 +59,15 @@ CHARTS: dict[str, dict[str, range]] = {"03": SKR03_2025, "04": SKR04_2025}
 CATALOGUE_NAMES: dict[str, str] = {"03": "SKR03_2025", "04": "SKR04_2025"}
 
 # Automatikkonten inside the revenue slice: DATEV splits the VAT out of what is booked there,
-# so the booked amount is GROSS. These account numbers are facts about the DATEV charts: no
-# Odoo code, text or file is reproduced and the selection is a fixed rule, not a choice, so no
-# LGPL terms apply and Odoo is cited as the source only. Rule: every account in the revenue
-# slice whose default tax has a rate above 0 % in Odoo's l10n_de chart templates (LGPL-3),
-# branch 18.0 at commit 925f8cbe6aeb, files account.account-de_skr0{3,4}.csv joined with
-# account.tax-de_skr0{3,4}.csv. Tax-free and reverse-charge accounts (e.g. 8125, and 8130
-# despite its tax key's "19" in the name) default to 0 % and stay net. Odoo's defaults stand
-# in for DATEV's own list, which is not reproduced here; a host whose books use further
-# automatic revenue accounts must add them, or their gross amounts pass.
+# so the booked amount is GROSS. These account numbers are facts about the DATEV charts, read
+# from Odoo's transcription of them: no Odoo code, text or file is reproduced, so Odoo is
+# cited as the source only. Rule: every account in the revenue slice whose default tax has a
+# rate above 0 % in Odoo's l10n_de chart templates (LGPL-3), branch 18.0 at commit
+# 925f8cbe6aeb, files account.account-de_skr0{3,4}.csv joined with account.tax-de_skr0{3,4}.csv.
+# Tax-free and reverse-charge accounts (e.g. 8125, and 8130 despite its tax key's "19" in the
+# name) default to 0 % and stay net. Odoo's defaults stand in for DATEV's own list, which is
+# not reproduced here; a host whose books use further automatic revenue accounts must add
+# them, or their gross amounts pass.
 AUTOMATIC_REVENUE: dict[str, frozenset[int]] = {
     "03": frozenset({8196, 8300, 8310, 8315, 8400, 8410}),
     "04": frozenset({4186, 4200, 4300, 4310, 4315, 4400}),
