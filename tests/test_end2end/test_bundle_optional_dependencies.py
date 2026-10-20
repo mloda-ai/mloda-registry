@@ -425,8 +425,8 @@ def _sandbox_bundle_packages(leaf: dict[str, Any]) -> dict[str, dict[str, Any]]:
             True,
             id="entry-points-covered-by-bundle-extra",
         ),
-        pytest.param({"dependencies": ["sandbox-thirdparty>=1.0"]}, True, id="no-entry-points-not-in-any-extra"),
-        pytest.param({"dependencies": ["other-thirdparty>=2"]}, True, id="no-entry-points-other-dependency"),
+        pytest.param({"dependencies": ["sandbox-thirdparty>=1.0"]}, True, id="no-entry-points-covered-by-bundle-extra"),
+        pytest.param({"dependencies": ["other-thirdparty>=2"]}, True, id="no-entry-points-not-in-any-extra"),
         pytest.param(
             {"optional_dependencies": {"dev": ["sandbox-thirdparty>=1.0"]}}, False, id="dev-extra-only-dependency"
         ),

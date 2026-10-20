@@ -193,9 +193,9 @@ exactly, and the leaf's own `dependencies` carry the third-party pin, so a bare 
 install ships neither extender; each installs, and is probed, only through its own distribution or
 the matching extra. `mloda-community[german-ledger]` differs: the package is unpublished and ships
 in the bare bundle, so the extra carries its third-party floors (`pyarrow`, `defusedxml`) itself,
-and importing the package without them raises `ModuleNotFoundError`. Every extra member's manifest
-must import cleanly without that dependency installed so entry-point loading of the rest of the
-bundle stays intact. The config steps are in
+and importing the package without them raises `ModuleNotFoundError`. Every extra member that
+declares entry points must have a manifest that imports cleanly without that dependency, so
+entry-point loading of the rest of the bundle stays intact. The config steps are in
 [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin).
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,
@@ -255,7 +255,8 @@ only `mloda-community-german-ledger`; unrelated to core's `mloda_plugins.feature
 - **Bundle-only.** It is never `published = true`: it ships inside the `mloda-community` wheel, and
   its third-party dependencies sit behind a bundle extra named after it, and in `[all]` (see
   [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin)).
-- **Leaving the tier.** Once a maintainer agrees its API is stable and its tests run in the gate, a
+- **Leaving the tier.** Once a maintainer agrees its API is stable and none of its tests is skipped
+  in CI (for example behind an environment variable), a
   `minor:` PR moves it out of `experimental/` to its permanent path, the one import-path change, and
   may set `published = true`.
 
@@ -354,9 +355,11 @@ member's `dev` extra (`--all-packages` plus `extras = dev`), so root
 
 ### Add an optional runtime dependency to a bundle-only plugin
 
-For a plugin that ships only inside `mloda-community` or `mloda-enterprise` and loads without the
-dependency (today `cryptography` behind `mloda-enterprise[ed25519]` and `opentelemetry-api` behind
-`mloda-enterprise[otel]`, both used by `mloda-enterprise-audit`):
+For a plugin that ships only inside `mloda-community` or `mloda-enterprise` (today `cryptography`
+behind `mloda-enterprise[ed25519]` and `opentelemetry-api` behind `mloda-enterprise[otel]`, both
+used by `mloda-enterprise-audit`, and `pyarrow` and `defusedxml` behind
+`mloda-community[german-ledger]`). A plugin with entry points must load without the dependency;
+one without, like german-ledger, may require it on import:
 
 1. Add the extra to the bundle's `optional_dependencies` in `config/packages.toml`. For
    `mloda-community`, also add it to the `all` extra.
