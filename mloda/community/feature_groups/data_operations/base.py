@@ -323,12 +323,8 @@ def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
 
 
 def is_own_option(options: Any, key: str) -> bool:
-    """True if the feature itself set the option, not inherited via group or context keys."""
-    if options.get(key) is None:
-        return False
-    if key in options.inherited_group_keys | options.inherited_context_keys:
-        return False
-    return bool(options.is_own(key))
+    """True if the option is set and is the feature's own, not purely forwarded."""
+    return options.get(key) is not None and bool(options.is_own(key))
 
 
 class NameOnlyMatchMixin:

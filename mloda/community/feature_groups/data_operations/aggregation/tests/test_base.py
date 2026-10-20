@@ -295,6 +295,9 @@ class TestConfigFrameTypeOwnership:
             options.add_to_context("frame_type", "rolling")
         elif origin == "inherited_group":
             options.inherit_from(Options(group={"frame_type": "rolling"}))
+        elif origin == "own_and_inherited_group":
+            options.add_to_group("frame_type", "rolling")
+            options.inherit_from(Options(group={"frame_type": "rolling"}))
         elif origin == "inherited_context":
             options.inherit_from(
                 Options(context={"frame_type": "rolling"}), inherit_context_keys=frozenset({"frame_type"})
@@ -310,7 +313,13 @@ class TestConfigFrameTypeOwnership:
     )
     @pytest.mark.parametrize(
         ("origin", "expected"),
-        [("none", True), ("inherited_group", True), ("inherited_context", True), ("own", False)],
+        [
+            ("none", True),
+            ("inherited_group", True),
+            ("inherited_context", True),
+            ("own", False),
+            ("own_and_inherited_group", False),
+        ],
     )
     def test_config_match_depends_on_frame_type_ownership(
         self, cls: Any, key: str, origin: str, expected: bool
@@ -324,6 +333,7 @@ class TestConfigFrameTypeOwnership:
             ("inherited_group", AggregationFeatureGroup),
             ("inherited_context", AggregationFeatureGroup),
             ("own", FrameAggregateFeatureGroup),
+            ("own_and_inherited_group", FrameAggregateFeatureGroup),
         ],
     )
     def test_exactly_one_of_aggregation_and_frame_aggregate_claims_the_config_feature(
