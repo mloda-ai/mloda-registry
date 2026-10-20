@@ -23,7 +23,9 @@ from mloda.community.extenders.shared import termination
 
 def _ready():
     print("ready", flush=True)
-    time.sleep(120)
+    # short sleeps: a SIGTERM landing just before a long sleep starts is only handled when it ends
+    for _ in range(1200):
+        time.sleep(0.1)
 """
 
 _CASES = {
@@ -64,8 +66,7 @@ atexit.register(hook)
     "second_sigterm_during_unwind": """
 termination.install_sigterm_handler(grace=300.0)
 try:
-    print("ready", flush=True)
-    time.sleep(120)
+    _ready()
 finally:
     os.kill(os.getpid(), signal.SIGTERM)
     time.sleep(0.5)

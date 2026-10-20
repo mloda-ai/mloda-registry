@@ -4586,7 +4586,9 @@ class SigtermSleepingFeature(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data, features):
         print("ready", flush=True)
-        time.sleep(120)
+        # short sleeps: see run_until_ready_then_sigterm
+        for _ in range(1200):
+            time.sleep(0.1)
         return {"sigterm_sleeping": [1]}
 
 

@@ -344,7 +344,8 @@ def run_until_ready_then_sigterm(
     args: list[str], *, env: dict[str, str] | None = None, timeout: float = 60.0
 ) -> tuple[int, str]:
     """Spawn args, wait for a stdout line "ready", send SIGTERM; return (returncode, merged stdout and stderr).
-    timeout is one deadline over the whole run; on expiry the child is killed and the output so far is reported."""
+    timeout is one deadline over the whole run; on expiry the child is killed and the output so far is reported.
+    The child should wait in short sleeps after ready: a SIGTERM just before a long sleep is handled only after it."""
     proc = subprocess.Popen(  # nosec
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
     )
