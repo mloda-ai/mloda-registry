@@ -31,9 +31,9 @@ a no-op; the version now comes from the workflow env.
 
 ## Post-release verification
 
-The `verify-backend-extras` tox env gates the release: a read-only job builds the data-operations
-leaves locally and installs one clean venv per backend extra before semantic-release runs. The
-rest of the verification is not part of the release. It runs in a separate workflow,
+The `verify-backend-extras` tox env gates the release: it checks, from locally built wheels, that each
+data-operations backend extra is enough on its own. The rest of the verification is not part of the
+release. It runs in a separate workflow,
 `.github/workflows/verify-published.yaml` ("Weekly Package Verification"), on a
 Monday cron plus manual dispatch, so a fresh release stays unverified until the next
 run. To check a release immediately, dispatch that workflow.

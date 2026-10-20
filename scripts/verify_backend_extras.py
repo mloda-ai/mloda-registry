@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Prove each data-operations backend extra is enough on its own: build the base and every leaf wheel
-locally, then install, per backend extra, every leaf declaring it into one clean venv and require every
-compute framework of every manifest class to report is_available(). The python_dict venv must also lack
-pyarrow, polars, pandas and duckdb. One shared venv per extra is safe because
-tests/test_end2end/test_backend_optional_dependencies.py forces every leaf's same-named extra to the same packages.
+"""Prove each data-operations backend extra is enough on its own, installed into a clean venv from local wheels.
+
+The probe checks is_available(), not imports: core guards its optional backend imports. One venv per extra is
+safe because test_backend_optional_dependencies.py forces every leaf's same-named extra to the same packages.
 
 Run: python scripts/verify_backend_extras.py
 Exit code: 1 if any wheel fails to build or any extra is insufficient, 0 otherwise.
@@ -50,7 +49,7 @@ LeafClasses = list[tuple[str, list[tuple[str, str]]]]
 
 
 def backend_for_module(module: str) -> str:
-    """Backend named by the module's last segment prefix; raises ValueError for an unknown prefix."""
+    """Backend named by the module's prefix."""
     last = module.rsplit(".", 1)[-1]
     for prefix, backend in BACKEND_PREFIXES:
         if last.startswith(prefix):
@@ -59,7 +58,7 @@ def backend_for_module(module: str) -> str:
 
 
 def leaf_packages(packages: dict[str, dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
-    """Packages under the base package's path that ship a manifest.py, in config order."""
+    """Packages under the base path that ship a manifest.py."""
     if BASE not in packages:
         return []
     prefix = str(packages[BASE]["path"]).rstrip("/") + "/"
@@ -109,14 +108,13 @@ def backend_jobs(packages: dict[str, dict[str, Any]]) -> dict[str, LeafClasses]:
 
 
 def install_requirements(backend: str, leaves: list[str], wheels: dict[str, Path]) -> list[str]:
-    """Direct file:// requirements: each leaf with its backend extra, plus the base wheel."""
     reqs = [f"{leaf}[{backend}] @ {wheels[leaf].resolve().as_uri()}" for leaf in leaves]
     reqs.append(f"{BASE} @ {wheels[BASE].resolve().as_uri()}")
     return reqs
 
 
 def probe_source(classes: list[tuple[str, str]], absent: list[str]) -> str:
-    """Program run in the venv: every class's compute frameworks must be available, `absent` not importable."""
+    """Probe program: every class's compute frameworks are available and `absent` is not importable."""
     return f"""import importlib
 import importlib.util
 import sys
@@ -137,7 +135,7 @@ if failures:
 
 
 def build_wheels(names: list[str], out_dir: Path) -> tuple[dict[str, Path], list[str]]:
-    """Build one wheel per package; returns the wheels by name and the error messages."""
+    """Build one wheel per package."""
     find_wheels: Callable[[Path, str], list[Path]] = _load_sibling("published_packages").find_wheels
     wheels: dict[str, Path] = {}
     errors: list[str] = []
@@ -156,7 +154,7 @@ def build_wheels(names: list[str], out_dir: Path) -> tuple[dict[str, Path], list
 
 
 def verify_extra(backend: str, leaves_and_classes: LeafClasses, wheels: dict[str, Path]) -> str | None:
-    """Install the backend's leaves into a clean venv and probe them; returns an error message or None."""
+    """Install the backend's leaves into a clean venv and probe them; error message or None."""
     venv_python: Callable[[Path], Path] = _load_sibling("verify_build_floor").venv_python
     classes = [pair for _, pairs in leaves_and_classes for pair in pairs]
     absent = list(ABSENT_IN_BARE_INSTALL) if backend == "python_dict" else []
@@ -177,7 +175,7 @@ def verify_extra(backend: str, leaves_and_classes: LeafClasses, wheels: dict[str
 
 
 def main() -> int:
-    # The reused verify_builds helpers resolve the config and the build directories relative to cwd.
+    # The reused helpers resolve paths relative to cwd.
     os.chdir(REPO_ROOT)
     builds = _load_sibling("verify_builds")
     cleanup_build_dirs: Callable[[], int] = builds.cleanup_build_dirs
