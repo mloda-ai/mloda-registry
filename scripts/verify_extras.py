@@ -179,8 +179,10 @@ def verification_jobs(
     return jobs
 
 
-_venv_python: Callable[[Path], Path] = _load_sibling("verify_build_floor").venv_python
-install: Callable[[list[str], str], str | None] = _load_sibling("verify_common").install
+_verify_common = _load_sibling("verify_common")
+install: Callable[[list[str], str], str | None] = _verify_common.install
+venv_dir: Callable[[str], Path] = _verify_common.venv_dir
+_venv_python: Callable[[Path], Path] = _verify_common.venv_python
 
 
 def _install_and_probe(
@@ -195,7 +197,7 @@ def _install_and_probe(
     Prints nothing, so callers running several of these concurrently control all output themselves.
     Returns (messages, errors).
     """
-    venv = Path(tmpdir) / "venv"
+    venv = venv_dir(tmpdir)
     failure = install([specifier], tmpdir)
     if failure is not None:
         return [], [f"{specifier}: {failure}"]
@@ -240,7 +242,7 @@ def _install_and_probe_external(
     tmpdir: str,
 ) -> tuple[list[str], list[str]]:
     """Install one third-party extra into a fresh venv, import the owner surface, then run the probe."""
-    venv = Path(tmpdir) / "venv"
+    venv = venv_dir(tmpdir)
     failure = install([specifier], tmpdir)
     if failure is not None:
         return [], [f"{specifier}: {failure}"]
