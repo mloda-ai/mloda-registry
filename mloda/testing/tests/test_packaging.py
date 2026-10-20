@@ -74,6 +74,7 @@ class _Build:
         self.sdist_files: list[str] = list(_FULL_MODULE_FILES)
         self.src_layout = False
         self.extra_wheel_files: list[str] | None = None
+        self.skip_sdist = False
         self.returncode = 0
         self.stderr = ""
         self.raises: BaseException | None = None
@@ -94,7 +95,8 @@ class _Build:
             _write_wheel(out_dir / "acme-0.1.0-py3-none-any.whl", self.wheel_files)
             if self.extra_wheel_files is not None:
                 _write_wheel(out_dir / "acme-0.1.0-cp3-none-any.whl", self.extra_wheel_files)
-            _write_sdist(out_dir / "acme-0.1.0.tar.gz", [prefix + f for f in self.sdist_files])
+            if not self.skip_sdist:
+                _write_sdist(out_dir / "acme-0.1.0.tar.gz", [prefix + f for f in self.sdist_files])
         return subprocess.CompletedProcess(self.cmd, self.returncode, stdout="", stderr=self.stderr)
 
 
@@ -173,18 +175,12 @@ def test_test_code_and_main_are_not_required(tmp_path: Path, build: _Build) -> N
         "acme/feature_groups/test_logic.py",
         "acme/feature_groups/conftest.py",
         "acme/__main__.py",
+        "acme/.ipynb_checkpoints/logic-checkpoint.py",
+        "acme/feature_groups/my-script.py",
     ]
     project = _make_project(tmp_path, [*_FULL_MODULE_FILES, *extras])
 
     assert_distributions_complete(project, "acme")
-
-
-def test_exclude_drops_package_and_children(tmp_path: Path, build: _Build) -> None:
-    optional = ["acme/optional/__init__.py", "acme/optional/deep/__init__.py", "acme/optional/deep/mod.py"]
-    project = _make_project(tmp_path, [*_FULL_MODULE_FILES, *optional])
-
-    assert "acme.optional" in _failure(project)
-    assert_distributions_complete(project, "acme", exclude=("acme.optional",))
 
 
 def test_src_layout(tmp_path: Path, build: _Build) -> None:
@@ -231,12 +227,26 @@ def test_build_failure_raises_with_stderr(tmp_path: Path, build: _Build) -> None
     assert "backend exploded" in _failure(_make_project(tmp_path))
 
 
+def test_missing_sdist_is_reported_as_no_artifact(tmp_path: Path, build: _Build) -> None:
+    build.skip_sdist = True
+
+    message = _failure(_make_project(tmp_path))
+
+    assert "sdist" in message and "no artifact" in message
+
+
 def test_build_args_are_appended_to_the_command(tmp_path: Path, build: _Build) -> None:
     assert_distributions_complete(_make_project(tmp_path), "acme", build_args=("--no-build-isolation", "--quiet"))
 
     assert build.cmd[-2:] == ["--no-build-isolation", "--quiet"]
     assert "build" in build.cmd
+    assert build.cmd[build.cmd.index("--python") + 1] == sys.executable
     assert build.cmd[build.cmd.index("--out-dir") + 2] == str(build.copy_dir)
+
+    assert_distributions_complete(_make_project(tmp_path), "acme", build_args="--no-build-isolation")
+
+    assert build.cmd[-1:] == ["--no-build-isolation"]
+    assert "--quiet" not in build.cmd
 
 
 def test_unknown_package_dir_raises_value_error(tmp_path: Path, build: _Build) -> None:
@@ -279,20 +289,27 @@ _EXCLUDE_FORMS: dict[str, Callable[[str], Any]] = {
 }
 
 
-@pytest.mark.parametrize("helper", ["distributions", "cold_imports"])
 @pytest.mark.parametrize("form", list(_EXCLUDE_FORMS))
-def test_exclude_forms_drop_the_named_module(
-    tmp_path: Path, request: pytest.FixtureRequest, helper: str, form: str
-) -> None:
-    if helper == "distributions":
-        request.getfixturevalue("build")
-    project = _make_project(tmp_path)
-    _write(project / "acme/optional.py", "raise RuntimeError('optional dependency missing')\n")
-    run = assert_distributions_complete if helper == "distributions" else assert_cold_imports
+def test_exclude_forms_drop_the_named_module(tmp_path: Path, form: str) -> None:
+    project = _make_cold_project(tmp_path, {"acme/optional.py": "raise RuntimeError('optional dependency missing')\n"})
+    _write(project / "acme/feature_groups/needs_sibling.py")
 
     with pytest.raises(AssertionError, match="acme.optional"):
-        run(project, "acme")
-    run(project, "acme", exclude=_EXCLUDE_FORMS[form]("acme.optional"))
+        assert_cold_imports(project, "acme")
+    assert_cold_imports(project, "acme", exclude=_EXCLUDE_FORMS[form]("acme.optional"))
+
+
+def test_exclude_drops_package_and_children(tmp_path: Path) -> None:
+    boom = "raise RuntimeError('optional dependency missing')\n"
+    project = _make_cold_project(
+        tmp_path, {"acme/optional/__init__.py": boom, "acme/optional/deep/mod.py": boom}, clean=True
+    )
+
+    with pytest.raises(AssertionError, match="acme.optional"):
+        assert_cold_imports(project, "acme")
+    assert_cold_imports(project, "acme", exclude=("acme.optional",))
+    with pytest.raises(TypeError):
+        assert_distributions_complete(project, "acme", exclude=("acme.optional",))  # type: ignore[call-arg]
 
 
 def test_timeout_is_reported_as_assertion_error(tmp_path: Path, build: _Build) -> None:
@@ -303,12 +320,6 @@ def test_timeout_is_reported_as_assertion_error(tmp_path: Path, build: _Build) -
         assert_distributions_complete(project, "acme", timeout=1)
 
     assert "timed out" in str(excinfo.value).lower() or "timeout" in str(excinfo.value).lower()
-
-
-def test_build_command_pins_the_current_interpreter(tmp_path: Path, build: _Build) -> None:
-    assert_distributions_complete(_make_project(tmp_path), "acme")
-
-    assert build.cmd[build.cmd.index("--python") + 1] == sys.executable
 
 
 def test_modules_in_any_wheel_count_as_present(tmp_path: Path, build: _Build) -> None:
@@ -325,6 +336,8 @@ def test_package_without_python_files_raises(tmp_path: Path, build: _Build) -> N
         assert_distributions_complete(project, "acme")
     with pytest.raises(AssertionError):
         assert_cold_imports(project, "acme")
+    with pytest.raises(AssertionError, match="exclude"):
+        assert_cold_imports(_make_cold_project(tmp_path / "cold", clean=True), "acme", exclude=("acme",))
 
 
 def test_package_named_tests_still_requires_its_modules(tmp_path: Path, build: _Build) -> None:
@@ -394,28 +407,35 @@ def test_missing_uv_raises_runtime_error(
 _NEEDS_SIBLING = "import acme.feature_groups\n\nVALUE = acme.feature_groups.plugin.VALUE\n"
 
 
-def _make_cold_project(root: Path, extra: dict[str, str] | None = None, clean: bool = False) -> Path:
-    _write(root / "acme/__init__.py")
-    _write(root / "acme/feature_groups/__init__.py")
-    _write(root / "acme/feature_groups/plugin.py", "VALUE = 1\n")
+def _make_cold_project(
+    root: Path, extra: dict[str, str] | None = None, clean: bool = False, src_layout: bool = False
+) -> Path:
+    base = root / "src" if src_layout else root
+    _write(base / "acme/__init__.py")
+    _write(base / "acme/feature_groups/__init__.py")
+    _write(base / "acme/feature_groups/plugin.py", "VALUE = 1\n")
     if not clean:
-        _write(root / "acme/feature_groups/needs_sibling.py", _NEEDS_SIBLING)
-    _write(root / "acme/clean.py", "X = 1\n")
+        _write(base / "acme/feature_groups/needs_sibling.py", _NEEDS_SIBLING)
+    _write(base / "acme/clean.py", "X = 1\n")
     for rel, content in (extra or {}).items():
-        _write(root / rel, content)
+        _write(base / rel, content)
     return root
 
 
 def test_toy_sibling_module_works_once_the_plugin_is_imported(tmp_path: Path) -> None:
     project = _make_cold_project(tmp_path)
     code = "import acme.feature_groups.plugin, acme.feature_groups.needs_sibling"
-    result = subprocess.run([sys.executable, "-c", code], cwd=project, capture_output=True, text=True)  # nosec
+    result = subprocess.run([sys.executable, "-c", code], cwd=project, capture_output=True, text=True, timeout=60)  # nosec
 
     assert result.returncode == 0, result.stderr
 
 
-def test_cold_import_reports_sibling_dependent_module(tmp_path: Path) -> None:
-    project = _make_cold_project(tmp_path)
+_BAD_BYTES = "import sys\nsys.stderr.buffer.write(b'\\xff bad bytes\\n')\nsys.stderr.flush()\nraise SystemExit(1)\n"
+
+
+@pytest.mark.parametrize("src_layout", [False, True], ids=["flat", "src"])
+def test_cold_import_reports_sibling_dependent_module(tmp_path: Path, src_layout: bool) -> None:
+    project = _make_cold_project(tmp_path, {"acme/badbytes.py": _BAD_BYTES}, src_layout=src_layout)
 
     with pytest.raises(AssertionError) as excinfo:
         assert_cold_imports(project, "acme")
@@ -423,14 +443,19 @@ def test_cold_import_reports_sibling_dependent_module(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert "acme.feature_groups.needs_sibling" in message
     assert "AttributeError" in message
+    assert "acme.badbytes" in message
     assert "acme.clean" not in message
     assert "acme.feature_groups.plugin" not in message
 
 
 def test_cold_import_all_clean_passes(tmp_path: Path) -> None:
-    project = _make_cold_project(tmp_path, clean=True)
+    boom = "raise RuntimeError('x')\n"
+    extra = {"acme/.ipynb_checkpoints/logic-checkpoint.py": boom, "acme/feature_groups/my-script.py": boom}
+    project = _make_cold_project(tmp_path, extra, clean=True)
 
     assert_cold_imports(project, "acme")
+
+    assert not list(project.rglob("__pycache__"))
 
 
 def test_cold_import_timeout_is_reported(tmp_path: Path) -> None:
@@ -443,12 +468,6 @@ def test_cold_import_timeout_is_reported(tmp_path: Path) -> None:
     assert "acme.slow" in message
     assert "timeout" in message.lower() or "timed out" in message.lower()
     assert "acme.clean" not in message
-
-
-def test_cold_import_module_name_is_not_interpolated_into_code(tmp_path: Path) -> None:
-    project = _make_cold_project(tmp_path, {"acme/v-0001.py": "X = 1\n"}, clean=True)
-
-    assert_cold_imports(project, "acme")
 
 
 def test_cold_import_ignores_a_shadow_package_in_the_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

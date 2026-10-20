@@ -195,7 +195,7 @@ def test_every_module_imports_cold() -> None:
     assert_cold_imports(PROJECT, "acme")
 ```
 
-`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs on a temp copy of a self-contained project (`PROJECT` is the root holding `pyproject.toml`, here for a test in a root `tests/` dir) and needs `uv` installed. Pass `exclude=` for modules behind optional extras and `build_args=("--no-build-isolation",)` to build offline. `.git` is not copied, so a VCS-versioned plugin sets e.g. `SETUPTOOLS_SCM_PRETEND_VERSION`.
+`assert_distributions_complete` catches a module missing from the wheel or sdist; `assert_cold_imports` catches a module that only imports after a sibling. The build runs on a temp copy of a self-contained project (`PROJECT` is the root holding `pyproject.toml`, here for a test in a root `tests/` dir) and needs `uv` installed. Pass `exclude=` to `assert_cold_imports` for modules behind optional extras (`assert_distributions_complete` has no exclude, those modules must still ship). Pass `build_args=("--no-build-isolation",)` to build offline. `.git` is not copied, so a VCS-versioned plugin sets e.g. `SETUPTOOLS_SCM_PRETEND_VERSION`.
 
 ## Testing by Pattern
 

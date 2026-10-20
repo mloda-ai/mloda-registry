@@ -31,8 +31,8 @@ def _copy_ignore(project_dir: Path) -> Callable[[str, list[str]], set[str]]:
     return ignore
 
 
-def _normalize_exclude(exclude: Iterable[str]) -> tuple[str, ...]:
-    return (exclude,) if isinstance(exclude, str) else tuple(exclude)
+def _as_tuple(args: Iterable[str]) -> tuple[str, ...]:
+    return (args,) if isinstance(args, str) else tuple(args)
 
 
 def _source_root(project_dir: Path, package: str) -> Path:
@@ -49,12 +49,16 @@ def _is_excluded(name: str, exclude: Iterable[str]) -> bool:
 
 
 def _discover_modules(project_dir: Path, package: str, exclude: Iterable[str]) -> tuple[Path, list[str]]:
+    """Find importable modules, skipping test dirs, ``test_*.py``, ``conftest.py``, ``__main__.py`` and non-identifier names."""
     root = _source_root(project_dir, package)
     names: set[str] = set()
     package_dir = root / Path(*package.split("."))
     for path in package_dir.rglob("*.py"):
         rel = path.relative_to(root)
-        if any(part in _SKIP_DIRS for part in path.relative_to(package_dir).parts[:-1]):
+        below = path.relative_to(package_dir)
+        if any(part in _SKIP_DIRS for part in below.parts[:-1]):
+            continue
+        if not all(part.isidentifier() for part in (*below.parts[:-1], path.stem)):
             continue
         if path.name in _SKIP_FILES or path.name.startswith("test_"):
             continue
@@ -64,7 +68,9 @@ def _discover_modules(project_dir: Path, package: str, exclude: Iterable[str]) -
         names.add(".".join(parts))
     modules = sorted(n for n in names if not _is_excluded(n, exclude))
     if not modules:
-        raise AssertionError(f"no modules were found for package {package!r} in {project_dir}")
+        raise AssertionError(
+            f"no modules were found for package {package!r} in {project_dir}" + (" (after exclude)" if exclude else "")
+        )
     return root, modules
 
 
@@ -99,7 +105,6 @@ def assert_distributions_complete(
     project_dir: Path,
     package: str,
     *,
-    exclude: Iterable[str] = (),
     build_args: Iterable[str] = (),
     timeout: float = 600,
 ) -> None:
@@ -109,15 +114,23 @@ def assert_distributions_complete(
     versions are unavailable.
     """
     project_dir = Path(project_dir)
-    exclude = _normalize_exclude(exclude)
-    _, modules = _discover_modules(project_dir, package, exclude)
+    _, modules = _discover_modules(project_dir, package, ())
     with tempfile.TemporaryDirectory() as tmp:
         copy_dir = Path(tmp) / "project"
         out_dir = Path(tmp) / "dist"
         shutil.copytree(project_dir, copy_dir, ignore=_copy_ignore(project_dir))
-        cmd = [_find_uv(), "build", "--python", sys.executable, "--out-dir", str(out_dir), str(copy_dir), *build_args]
+        cmd = [
+            _find_uv(),
+            "build",
+            "--python",
+            sys.executable,
+            "--out-dir",
+            str(out_dir),
+            str(copy_dir),
+            *_as_tuple(build_args),
+        ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # nosec B603
+            result = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout)  # nosec B603
         except subprocess.TimeoutExpired:
             raise AssertionError(f"uv build timed out after {timeout}s") from None
         if result.returncode != 0:
@@ -147,12 +160,14 @@ def assert_distributions_complete(
 
 def _cold_import(module: str, root: Path, timeout: float) -> str | None:
     env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(root), env.get("PYTHONPATH", "")) if p)
     try:
         result = subprocess.run(  # nosec B603
             [sys.executable, "-c", "import importlib, sys; importlib.import_module(sys.argv[1])", module],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             env=env,
             cwd=root,
@@ -170,8 +185,8 @@ def assert_cold_imports(project_dir: Path, package: str, *, exclude: Iterable[st
 
     Modules are imported from the source tree, not from a built wheel.
     """
-    root, modules = _discover_modules(Path(project_dir), package, _normalize_exclude(exclude))
-    with ThreadPoolExecutor(max_workers=min(4, len(modules) or 1)) as pool:
+    root, modules = _discover_modules(Path(project_dir), package, _as_tuple(exclude))
+    with ThreadPoolExecutor(max_workers=min(4, len(modules))) as pool:
         results = list(pool.map(lambda m: (m, _cold_import(m, root, timeout)), modules))
     failures = sorted((m, err) for m, err in results if err is not None)
     if failures:
