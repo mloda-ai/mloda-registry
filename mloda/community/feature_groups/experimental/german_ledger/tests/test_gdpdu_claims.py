@@ -99,7 +99,7 @@ def test_plugin_loader_all() -> None:
     """mloda#1745 pinned: after PluginLoader.all(), stock read feature groups claim our names.
 
     GdpduReader declines every name but gdpdu_journal, yet the stock TextFileReader still
-    accepts the dossier's GL.txt. On mloda 0.15 the collision is between SkrAccountFeatureGroup
+    accepts the dossier's GL.txt. On mloda 0.16 the collision is between SkrAccountFeatureGroup
     and ReadDocumentFeature, the latter resolved through TextFileReader. Entry-point plugins
     are only discovered through PluginLoader.all(), so this is the packaged path, not an
     edge case. When #1745 lands upstream this fails on purpose: flip it to assert the total.

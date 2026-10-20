@@ -850,8 +850,8 @@ requires-dist = [
     { name = "mloda-community-string", editable = "mloda/community/feature_groups/data_operations/string" },
     { name = "mloda-community-time-bucketization", editable = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization" },
     { name = "mloda-community-window-aggregation", editable = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'german-ledger'" },
+    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'german-ledger'", specifier = ">=14.0.1" },
 ]
 provides-extras = ["otel", "openlineage", "german-ledger", "all"]
 
@@ -1344,7 +1344,7 @@ dev = [
 requires-dist = [
     { name = "defusedxml", specifier = ">=0.7" },
     { name = "mloda", specifier = ">=0.16.0,<0.17.0" },
-    { name = "pyarrow" },
+    { name = "pyarrow", specifier = ">=14.0.1" },
     { name = "types-defusedxml", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]

@@ -113,7 +113,7 @@ class _ReaderJournal(FeatureGroup):
 
     @classmethod
     def input_data(cls) -> BaseInputData | None:
-        # Returned directly: 0.15 raises when several readers accept, so the stock CsvReader
+        # Returned directly: 0.16 raises when several readers accept, so the stock CsvReader
         # must not be left in the pool to also accept a dossier folder holding a .csv.
         return cls.READER() if cls.READER is not None else None
 

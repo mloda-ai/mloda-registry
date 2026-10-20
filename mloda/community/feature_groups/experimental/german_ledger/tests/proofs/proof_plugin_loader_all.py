@@ -2,7 +2,7 @@
 
 `PluginLoader.all()` imports the stock read feature groups. GdpduReader now declines every
 name but `gdpdu_journal`, but the stock `ReadDocumentFeature` still claims `revenue`: its
-TextFileReader accepts the dossier's GL.txt. On mloda 0.15 the refusal reads "Multiple feature
+TextFileReader accepts the dossier's GL.txt. On mloda 0.16 the refusal reads "Multiple feature
 groups found" with ReadDocumentFeature (source: TextFileReader on GL.txt) beside
 SkrAccountFeatureGroup. The journal's own name gate cannot help: the second claimant is a
 different feature group.
