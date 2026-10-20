@@ -4,7 +4,7 @@ Totals from German ledger exports that carry the ledger lines behind them, or a 
 that names the reason.
 
 **Status: experimental**, see [Experimental packages](../../../../../docs/packaging.md#experimental-packages)
-for what that guarantees.
+for what that guarantees. Install with `pip install "mloda-community[german-ledger]"`.
 
 - **Reads:** GDPdU/GoBD dossiers (`index.xml` + data file) and DATEV-Format EXTF 700
   booking batches.
