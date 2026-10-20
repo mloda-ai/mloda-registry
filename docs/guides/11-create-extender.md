@@ -370,7 +370,7 @@ Step run ids derive from the run: `step_run_id(run_id, job_name, feature_names, 
 
 - `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, or, for a root step that declares its source column, from the one dataset it loaded.
 - `dataQualityAssertions` on validation runs: one assertion named after the validator, `success` true or false.
-- a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `declaredMasking` and `structureHash`.
+- a `mloda` run facet: `declaredMasking` and `structureHash`.
 
 With `classification_undeclared` set, each output dataset carries a `tags` facet entry `mloda.data.classification` (source `mloda`) with its own feature's effective level, so a span and a dataset of one multi-output step can differ. `declaredMasking` records a declaration (class attribute or own option), but only a masking group (class attribute) that declares its own level lowers the effective level (see the classification paragraph under [Verified run context](#verified-run-context)); `declaredMasking` and `structureHash` are unchanged.
 
@@ -384,7 +384,7 @@ Validation is reported only for a feature group that overrides `validate_input_f
 
 A failing validator is re-raised and marks every validated dataset `success=false`, because the failing one is unknown. Its message reaches neither the WARNING log (only the exception type does) nor an event.
 
-Validation runs carry the parent facet only, not the `mloda` or `mlodaStep` facet. Calculate runs carry both: `mloda` repeats the versions and framework of the community `mlodaStep`, writing `unknown` for a feature group version or framework that `mlodaStep` omits. Tie a validation run to its calculate run through the job name and the run id.
+Validation runs carry the parent facet only, not the `mloda` or `mlodaStep` facet. Calculate runs carry both; read the versions and framework from `mlodaStep`. Tie a validation run to its calculate run through the job name and the run id.
 
 Validate-output assertions ride on input datasets of the `<feature group>.validate_output_features` job, the only spec-legal home for `dataQualityAssertions`.
 

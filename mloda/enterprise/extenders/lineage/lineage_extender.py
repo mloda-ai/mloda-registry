@@ -68,9 +68,6 @@ _open_described_columns: OpenInvocationStack[_LoadState | None] = OpenInvocation
 
 @attr.define
 class MlodaRunFacet(RunFacet):
-    featureGroupVersion: str = attr.field()
-    pluginVersion: str | None = attr.field()
-    computeFramework: str = attr.field()
     declaredMasking: list[str] = attr.field()
     structureHash: str = attr.field()
 
@@ -117,9 +114,6 @@ class LineageFacetsExtender(OpenLineageExtender):
         facets = super()._calculate_run_facets(context, func, args)
         masked = _masked_features(context, func, args)
         facets["mloda"] = MlodaRunFacet(
-            featureGroupVersion=context.feature_group_version or "unknown",
-            pluginVersion=context.plugin_version,
-            computeFramework=context.compute_framework_name or "unknown",
             declaredMasking=masked,
             structureHash=_structure_hash(context, masked, _source_columns(context, func, args)),
             producer=self.producer,

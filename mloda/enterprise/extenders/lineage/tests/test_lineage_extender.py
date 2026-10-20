@@ -1927,15 +1927,16 @@ class TestLineageFacetsValidationRuns:
 class TestLineageFacetsRunFacet:
     """The custom `mloda` run facet: context values plus a deterministic structure hash."""
 
+    @pytest.mark.parametrize("plugin_version", ["2.5.0", None])
     def test_present_on_start_and_terminal_events_with_the_context_values(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], plugin_version: str | None
     ) -> None:
         client, transport = ol_capture
         run_id = str(uuid.uuid4())
         context = make_hook_context(
             run_id=run_id,
             feature_group_version="7",
-            plugin_version="2.5.0",
+            plugin_version=plugin_version,
             compute_framework_name="MyFramework",
             feature_names=("beta", "alpha"),
             input_features=frozenset({"src"}),
@@ -1947,15 +1948,17 @@ class TestLineageFacetsRunFacet:
         assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
         for event in transport.events:
             facet = _run_facet(event)
-            assert (facet.featureGroupVersion, facet.pluginVersion, facet.computeFramework) == (
-                "7",
-                "2.5.0",
-                "MyFramework",
-            )
             assert facet.declaredMasking == []
             assert _parent_run_id(event) == run_id
-            payload = json.loads(Serde.to_json(event))
-            assert payload["run"]["facets"]["mloda"]["structureHash"] == facet.structureHash
+            facets = json.loads(Serde.to_json(event))["run"]["facets"]
+            assert set(facets["mloda"]) == {"_producer", "_schemaURL", "declaredMasking", "structureHash"}
+            assert facets["mloda"]["structureHash"] == facet.structureHash
+            assert facets["mlodaStep"]["featureGroupVersion"] == "7"
+            assert facets["mlodaStep"]["computeFramework"] == "MyFramework"
+            if plugin_version is None:
+                assert "pluginVersion" not in facets["mlodaStep"]
+            else:
+                assert facets["mlodaStep"]["pluginVersion"] == plugin_version
         assert _run_facet(transport.events[0]).structureHash == _run_facet(transport.events[1]).structureHash
 
     def test_present_on_the_fail_event(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
@@ -1971,17 +1974,7 @@ class TestLineageFacetsRunFacet:
         assert [event.eventType for event in transport.events] == [RunState.START, RunState.FAIL]
         assert _run_facet(transport.events[0]).structureHash == _run_facet(transport.events[1]).structureHash
 
-    def test_plugin_version_none_is_passed_through(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-
-        with make_hook_context(plugin_version=None).activate():
-            LineageFacetsExtender(client=client)(lambda: None)
-
-        assert all(_run_facet(event).pluginVersion is None for event in transport.events)
-
-    def test_unresolved_version_and_framework_are_unknown_never_the_string_none(
+    def test_unresolved_version_and_framework_are_omitted_never_the_string_none(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
@@ -2003,8 +1996,10 @@ class TestLineageFacetsRunFacet:
 
         assert transport.events
         for event in _calculate_run_events(transport.events):
-            facet = _run_facet(event)
-            assert (facet.featureGroupVersion, facet.computeFramework) == ("unknown", "unknown")
+            facets = json.loads(Serde.to_json(event))["run"]["facets"]
+            assert not {"featureGroupVersion", "pluginVersion", "computeFramework"} & set(facets["mloda"])
+            assert "featureGroupVersion" not in facets["mlodaStep"]
+            assert "computeFramework" not in facets["mlodaStep"]
         for event in transport.events:
             assert "None" not in Serde.to_json(event)
             assert "None" not in event.job.name
