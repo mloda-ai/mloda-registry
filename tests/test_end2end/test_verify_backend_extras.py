@@ -16,7 +16,7 @@ import pytest
 
 from tests.script_loader import load_script
 from tests.toml_loader import load_toml
-from tests.tox_ini import tox_block
+from tests.tox_ini import tox_block, tox_deps
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_backend_extras.py"
@@ -352,8 +352,8 @@ def test_tox_env_runs_the_script_without_installing_the_project() -> None:
     block = tox_block("verify-backend-extras")
     assert re.search(r"^skip_install\s*=\s*true$", block, re.MULTILINE)
     assert re.search(r"^runner\s*=\s*uv-venv-runner$", block, re.MULTILINE)
-    deps = re.search(r"^deps\s*=\s*\n((?:[ \t]+\S.*\n?)+)", block, re.MULTILINE)
-    assert deps is not None and "setuptools" in deps.group(1) and "tomli" in deps.group(1)
+    deps = tox_deps("verify-backend-extras")
+    assert "setuptools" in deps and "tomli" in deps
     assert re.search(r"^[^\n#]*python scripts/verify_backend_extras\.py\s*$", block, re.MULTILINE)
 
 
