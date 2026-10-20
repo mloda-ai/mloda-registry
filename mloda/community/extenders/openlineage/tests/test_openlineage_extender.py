@@ -3702,6 +3702,8 @@ class TestOpenLineageExtenderRunAll:
         files = [str(log_path)] if append else sorted(glob.glob(f"{log_path}-*.json"))
         assert files
         events = [json.loads(line) for path in files for line in Path(path).read_text().splitlines() if line.strip()]
+        if not append:
+            assert len(files) == len(events)
         root = [e for e in events if e["job"]["name"] == "mloda.run_all"]
         steps = [e for e in events if e["job"]["name"] != "mloda.run_all"]
         assert [e["eventType"] for e in root] == ["START", "COMPLETE"]

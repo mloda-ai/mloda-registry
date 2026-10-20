@@ -1925,10 +1925,10 @@ class TestLineageFacetsValidationRuns:
 
 
 class TestLineageFacetsRunFacet:
-    """The custom `mloda` run facet: context values plus a deterministic structure hash."""
+    """The custom `mloda` run facet: declared masking plus a deterministic structure hash."""
 
     @pytest.mark.parametrize("plugin_version", ["2.5.0", None])
-    def test_present_on_start_and_terminal_events_with_the_context_values(
+    def test_present_on_start_and_terminal_events_with_the_context_values_on_mloda_step(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], plugin_version: str | None
     ) -> None:
         client, transport = ol_capture

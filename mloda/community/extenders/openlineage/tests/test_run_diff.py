@@ -587,15 +587,18 @@ class TestReadRuns:
             roots, steps = _split(original)
             assert run == roots + steps
 
-    def test_no_paths_reads_no_runs_and_per_event_files_diff_like_the_appended_file(
-        self, recorded: Events, tmp_path: Path
-    ) -> None:
-        files = [_write(tmp_path / f"events-{i:05d}.json", [line]) for i, line in enumerate(_dumps(recorded))]
-
-        (run,) = read_runs(*sorted(files))
-
+    def test_no_paths_read_no_runs(self) -> None:
         assert read_runs() == []
-        assert diff_run_events(run, recorded).changes == ()
+
+    def test_per_event_files_diff_like_the_appended_file(self, recorded: Events, tmp_path: Path) -> None:
+        files = [_write(tmp_path / f"events-{i:05d}.json", [line]) for i, line in enumerate(_dumps(recorded))]
+        appended_path = _write(tmp_path / "appended.ndjson", _dumps(recorded))
+
+        (per_event,) = read_runs(*sorted(files))
+        (appended,) = read_runs(appended_path)
+
+        assert diff_run_events(per_event, appended).changes == ()
+        assert per_event == appended
 
     def test_interleaved_runs_are_still_grouped_per_root(self, recorded: Events, tmp_path: Path) -> None:
         second = _record()
