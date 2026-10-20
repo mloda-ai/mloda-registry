@@ -28,6 +28,7 @@ import pytest
 from tests.script_loader import load_script, version_tuple
 from tests.test_end2end.test_verify_independent_installs import _FakeCompletedProcess
 from tests.toml_loader import load_toml, loads_toml
+from tests.tox_ini import tox_block
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
@@ -38,7 +39,6 @@ _IMPORTS_SCRIPT = _REPO_ROOT / "scripts" / "verify_published_imports.py"
 _INDEPENDENT_SCRIPT = _REPO_ROOT / "scripts" / "verify_independent_installs.py"
 _EXTRAS_SCRIPT = _REPO_ROOT / "scripts" / "verify_extras.py"
 _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
-_TOX_INI = _REPO_ROOT / "tox.ini"
 
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
@@ -283,17 +283,6 @@ def _cli_lines(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[st
     exit_code = _cli(monkeypatch, _REPO_ROOT, argv)()
     assert exit_code == 0, f"published_packages.py {' '.join(argv)} exited {exit_code!r}, expected 0"
     return [line.strip() for line in capsys.readouterr().out.splitlines() if line.strip()]
-
-
-def _tox_block(env_name: str) -> str:
-    """Body of a tox.ini ``[testenv:<name>]`` section."""
-    match = re.search(
-        rf"^\[testenv:{re.escape(env_name)}\]\n(.*?)(?=\n\[|\Z)",
-        _TOX_INI.read_text(),
-        re.MULTILINE | re.DOTALL,
-    )
-    assert match is not None, f"tox.ini has no [testenv:{env_name}] section"
-    return match.group(1)
 
 
 def _workflow_step_body(step_name: str) -> str:
@@ -804,7 +793,7 @@ def test_release_workflow_publish_step_matches_wheels_through_published_wheels()
 @pytest.mark.parametrize("env_name", _TOX_DERIVED_SET_ENVS)
 def test_tox_env_names_no_distribution_itself(env_name: str) -> None:
     """tox must not re-type any distribution name; every installed set is derived from the config."""
-    names = sorted(set(_DISTRIBUTION_NAME_RE.findall(_tox_block(env_name))))
+    names = sorted(set(_DISTRIBUTION_NAME_RE.findall(tox_block(env_name))))
     assert names == [], (
         f"tox.ini [testenv:{env_name}] names {len(names)} distribution(s) by hand, starting with "
         f"{names[:3]}; derive the list from config/packages.toml through a scripts/ helper instead."
@@ -846,7 +835,7 @@ def test_import_modules_covers_every_configured_package_in_config_order() -> Non
 def test_tox_verify_env_runs_its_config_derived_script(env_name: str, script: str) -> None:
     """Each PyPI-verifying env invokes the config-reading script with an argument, not in a comment."""
     invocation = re.compile(rf"^[^\n;#]*{re.escape(script)}\s+\S", re.MULTILINE)
-    assert invocation.search(_tox_block(env_name)) is not None, (
+    assert invocation.search(tox_block(env_name)) is not None, (
         f"tox.ini [testenv:{env_name}] does not invoke {script} with an argument on a non-comment "
         "line, so its checks are a hand-written copy of the configured package set."
     )
@@ -1368,7 +1357,7 @@ def test_external_probe_fails_for_a_distribution_mapping_to_no_module(tmp_path: 
 def test_tox_env_installs_from_the_published_script(env_name: str) -> None:
     """Both PyPI-installing envs read the released set, and its exclude-newer exemption, from the single source."""
     install_lines = [
-        line for line in _tox_block(env_name).splitlines() if "uv pip install" in line and _SCRIPT_INVOCATION in line
+        line for line in tox_block(env_name).splitlines() if "uv pip install" in line and _SCRIPT_INVOCATION in line
     ]
     assert len(install_lines) == 1, (
         f"tox.ini [testenv:{env_name}] must have exactly one 'uv pip install' line invoking "

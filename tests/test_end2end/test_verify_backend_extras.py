@@ -16,12 +16,12 @@ import pytest
 
 from tests.script_loader import load_script
 from tests.toml_loader import load_toml
+from tests.tox_ini import tox_block
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_backend_extras.py"
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
-_TOX_INI = _REPO_ROOT / "tox.ini"
 
 _BASE = "mloda-community-data-operations"
 _RANK_MODULE = "mloda.community.feature_groups.data_operations.row_preserving.rank.sqlite_rank"
@@ -42,14 +42,6 @@ def _fn(name: str) -> Callable[..., Any]:
 def _packages() -> dict[str, dict[str, Any]]:
     packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG)["packages"]
     return packages
-
-
-def _tox_block(env_name: str) -> str:
-    match = re.search(
-        rf"^\[testenv:{re.escape(env_name)}\]\n(.*?)(?=\n\[|\Z)", _TOX_INI.read_text(), re.MULTILINE | re.DOTALL
-    )
-    assert match is not None, f"tox.ini has no [testenv:{env_name}] section"
-    return match.group(1)
 
 
 def _job_block(job: str) -> str:
@@ -113,8 +105,14 @@ def test_backend_for_module_rejects_unknown_prefix() -> None:
 
 @pytest.mark.parametrize(
     "content",
-    ["X = 1\n", "load_plugin_classes(__package__, SPECS)\n", 'load_plugin_classes(__package__, [(name, "A")])\n'],
-    ids=["no-call", "non-literal-list", "non-literal-module"],
+    [
+        "X = 1\n",
+        "load_plugin_classes(__package__, SPECS)\n",
+        'load_plugin_classes(__package__, [(name, "A")])\n',
+        'load_plugin_classes(__package__, ["a"])\n',
+        'load_plugin_classes(__package__, [("a", "B", "c")])\n',
+    ],
+    ids=["no-call", "non-literal-list", "non-literal-module", "non-tuple-element", "wrong-length-tuple"],
 )
 def test_manifest_specs_rejects_bad_manifests(tmp_path: Path, content: str) -> None:
     manifest = tmp_path / "manifest.py"
@@ -123,9 +121,17 @@ def test_manifest_specs_rejects_bad_manifests(tmp_path: Path, content: str) -> N
         _fn("manifest_specs")(manifest)
 
 
-def test_manifest_specs_reads_literal_pairs(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "call",
+    [
+        'load_plugin_classes(__package__, [("sqlite_rank", "SqliteRank")])',
+        'load_plugin_classes(__package__, specs=[("sqlite_rank", "SqliteRank")])',
+    ],
+    ids=["positional", "keyword"],
+)
+def test_manifest_specs_reads_literal_pairs(tmp_path: Path, call: str) -> None:
     manifest = tmp_path / "manifest.py"
-    manifest.write_text('load_plugin_classes(__package__, [("sqlite_rank", "SqliteRank")])\n')
+    manifest.write_text(call + "\n")
     assert _fn("manifest_specs")(manifest) == [("sqlite_rank", "SqliteRank")]
 
 
@@ -289,7 +295,7 @@ def test_main_runs_every_extra_after_one_fails(
 
 
 def test_tox_env_runs_the_script_without_installing_the_project() -> None:
-    block = _tox_block("verify-backend-extras")
+    block = tox_block("verify-backend-extras")
     assert re.search(r"^skip_install\s*=\s*true$", block, re.MULTILINE)
     assert re.search(r"^runner\s*=\s*uv-venv-runner$", block, re.MULTILINE)
     deps = re.search(r"^deps\s*=\s*\n((?:[ \t]+\S.*\n?)+)", block, re.MULTILINE)

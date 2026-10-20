@@ -74,10 +74,12 @@ def manifest_specs(manifest: Path) -> list[tuple[str, str]]:
     for node in ast.walk(ast.parse(manifest.read_text())):
         if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "load_plugin_classes"):
             continue
-        if len(node.args) < 2 or not isinstance(node.args[1], ast.List):
+        keyword = [kw.value for kw in node.keywords if kw.arg == "specs"]
+        spec_list = node.args[1] if len(node.args) > 1 else (keyword[0] if keyword else None)
+        if not isinstance(spec_list, ast.List):
             raise ValueError(f"{manifest}: load_plugin_classes needs a literal list of (module, class) pairs")
         specs: list[tuple[str, str]] = []
-        for element in node.args[1].elts:
+        for element in spec_list.elts:
             if not (
                 isinstance(element, ast.Tuple)
                 and len(element.elts) == 2
