@@ -354,8 +354,7 @@ def _extra_only_owned_leaves_with_entry_points(bundle_name: str, packages: dict[
 
 
 def _bundle_shipped_leaves_with_external_runtime_dependency(packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Nested leaves an entry_point_bundle SHIPS (does not own) whose ``dependencies`` name an external package;
-    reads only ``dependencies`` (a dev-only dependency of a leaf with entry points is out of its reach)."""
+    """Nested leaves a bundle ships (does not own) whose ``dependencies`` name an external package."""
     found: set[str] = set()
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
@@ -436,8 +435,7 @@ def _sandbox_bundle_packages(leaf: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def test_bundle_shipped_leaves_helper_detects_an_external_runtime_dependency(
     leaf: dict[str, Any], reported: bool
 ) -> None:
-    """Proves the helper above can fail: a shipped leaf with an external ``dependencies`` entry is reported,
-    one with the dependency only in its ``dev`` extra is not."""
+    """A shipped leaf with an external ``dependencies`` entry is reported; a dev-extra-only one is not."""
     found = _bundle_shipped_leaves_with_external_runtime_dependency(_sandbox_bundle_packages(leaf))
 
     assert found == ({"sandbox-bundle-leaf"} if reported else set()), f"unexpected helper result {sorted(found)}"

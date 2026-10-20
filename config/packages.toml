@@ -284,8 +284,8 @@ optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.
 entry_point_groups = ["mloda.feature_groups"]
 
 # --- Experimental ---
-# Bundle-only, no stability guarantee: docs/packaging.md#experimental-packages. Its third-party dependencies
-# reach users through mloda-community[german-ledger]; dev repeats them for its own tests.
+# Bundle-only, no stability guarantee: docs/packaging.md#experimental-packages. Third-party deps ship via
+# mloda-community[german-ledger]; dev repeats them for its tests.
 
 [packages.mloda-community-german-ledger]
 description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"

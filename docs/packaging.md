@@ -193,8 +193,9 @@ exactly, and the leaf's own `dependencies` carry the third-party pin, so a bare 
 install ships neither extender; each installs, and is probed, only through its own distribution or
 the matching extra. `mloda-community[german-ledger]` differs: the package is unpublished and ships
 in the bare bundle, so the extra carries its third-party floors (`pyarrow`, `defusedxml`) itself,
-and importing the package without them raises `ModuleNotFoundError`. Every extra member's manifest must import cleanly without that dependency
-installed so entry-point loading of the rest of the bundle stays intact. The config steps are in
+and importing the package without them raises `ModuleNotFoundError`. Every extra member's manifest
+must import cleanly without that dependency installed so entry-point loading of the rest of the
+bundle stays intact. The config steps are in
 [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin).
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,
