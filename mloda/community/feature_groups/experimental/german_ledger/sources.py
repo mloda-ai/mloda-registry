@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from decimal import Decimal, localcontext
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, HookContext
 from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -93,6 +94,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             )
 
         out: dict[str, pa.Array] = {}
+        published: dict[str, str] = {}
 
         for name in sorted(features.get_all_names()):
             requested = str(name)
@@ -194,8 +196,32 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             # Null value with a null list is one statement; an empty list beside a null total
             # reads as "we looked and found nothing", which claims more than we know.
             out[f"{requested}~origins"] = pa.array([origins if pairs else None], type=pa.list_(pa.string()))
-            out[f"{requested}~basis"] = pa.array([cls._basis(data, source)], type=pa.string())
+            basis = cls._basis(data, source)
+            out[f"{requested}~basis"] = pa.array([basis], type=pa.string())
+            published.update(cls._basis_attributes(requested, basis))
+        if published:
+            HookContext.publish_result_attributes(published)
         return pa.table(out)
+
+    @staticmethod
+    def _basis_attributes(requested: str, basis: str | None) -> dict[str, str]:
+        """Result attributes read off a JSON-object basis; anything else publishes nothing."""
+        try:
+            doc = json.loads(basis) if basis is not None else None
+        except ValueError:
+            return {}
+        if not isinstance(doc, dict):
+            return {}
+        catalogue = doc.get("catalogue")
+        fields = {
+            "profile": json.dumps(doc["profile"], sort_keys=True, separators=(",", ":"))
+            if doc.get("profile") is not None
+            else None,
+            "sign": doc.get("sign"),
+            "catalogue": catalogue.get("name") if isinstance(catalogue, dict) else None,
+            "catalogue.fingerprint": catalogue.get("fingerprint") if isinstance(catalogue, dict) else None,
+        }
+        return {f"{requested}.{k}": v for k, v in fields.items() if v is not None}
 
     @staticmethod
     def _basis(data: Any, source: str) -> str | None:
