@@ -312,6 +312,14 @@ class TestConfigBasedFrameUnitValidation:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
+    def test_frame_unit_guard_rejects_multi_element_value(self) -> None:
+        # The key's own guard, independent of the time-unit table.
+        guard = FrameAggregateFeatureGroup.PROPERTY_MAPPING[FrameAggregateFeatureGroup.FRAME_UNIT].match_guard
+        assert guard is not None
+        assert guard(("day", "week")) is False
+        assert guard(("day",)) is True
+        assert guard("day") is True
+
     def test_accepts_declared_frame_unit(self) -> None:
         options = self._options(frame_type="time", frame_size=7, frame_unit="day")
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
@@ -361,6 +369,19 @@ class TestConfigBasedFrameSizeValidation:
         options = self._options(frame_type=frame_type)
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is True, f"Config path should accept {frame_type} without frame_size"
+
+    @pytest.mark.parametrize(
+        ("overrides", "key", "frame_type"),
+        [
+            ({"frame_type": "cumulative", "frame_size": 3}, "frame_size", "cumulative"),
+            ({"frame_type": "expanding", "frame_unit": "day"}, "frame_unit", "expanding"),
+            ({"frame_type": "rolling", "frame_size": 3, "frame_unit": "day"}, "frame_unit", "rolling"),
+        ],
+        ids=["cumulative_size", "expanding_unit", "rolling_unit"],
+    )
+    def test_own_unused_frame_option_raises(self, overrides: dict[str, Any], key: str, frame_type: str) -> None:
+        with pytest.raises(ValueError, match=rf"option '{key}'.*'{frame_type}'.*remove"):
+            FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", self._options(**overrides), None)
 
 
 class TestNameBasedZeroFrameSizeRejected:
@@ -648,6 +669,61 @@ class TestFrameNameAgreement:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True
 
+    def test_rolling_ignores_forwarded_frame_unit(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(Options(group={"frame_unit": "hour"}))
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+        assert result is True
+
+    @pytest.mark.parametrize(
+        ("feature_name", "key", "value", "frame_type"),
+        [
+            ("sales__cumsum", "frame_size", 3, "cumulative"),
+            ("sales__expanding_avg", "frame_size", 3, "expanding"),
+            ("sales__cumsum", "frame_unit", "day", "cumulative"),
+            ("sales__expanding_avg", "frame_unit", "day", "expanding"),
+            ("sales__sum_rolling_3", "frame_unit", "day", "rolling"),
+        ],
+    )
+    @pytest.mark.parametrize("placement", ["group", "context"])
+    def test_own_unused_frame_option_raises(
+        self, placement: str, feature_name: str, key: str, value: Any, frame_type: str
+    ) -> None:
+        base = {"partition_by": ["region"], "order_by": "timestamp"}
+        if placement == "group":
+            options = Options(group={key: value}, context=base)
+        else:
+            options = Options(context={key: value, **base})
+        with pytest.raises(ValueError, match=rf"option '{key}'.*'{frame_type}'.*remove") as exc_info:
+            FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert feature_name in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ("feature_name", "frame_type"),
+        [("sales__cumsum", "expanding"), ("sales__expanding_avg", "cumulative")],
+    )
+    @pytest.mark.parametrize("wrap", [False, True], ids=["scalar", "singleton_tuple"])
+    @pytest.mark.parametrize("origin", ["own", "forwarded"])
+    def test_expanding_and_cumulative_frame_types_agree(
+        self, origin: str, wrap: bool, feature_name: str, frame_type: str
+    ) -> None:
+        value: Any = (frame_type,) if wrap else frame_type
+        base = {"partition_by": ["region"], "order_by": "timestamp"}
+        if origin == "own":
+            options = Options(group={"frame_type": value}, context=base)
+        else:
+            options = Options(context=base)
+            options.inherit_from(Options(group={"frame_type": value}))
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is True
+
+    def test_genuine_frame_type_contradiction_on_cumulative_still_raises(self) -> None:
+        options = Options(
+            group={"frame_type": "rolling"}, context={"partition_by": ["region"], "order_by": "timestamp"}
+        )
+        with pytest.raises(ValueError, match="frame_type"):
+            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumsum", options, None)
+
 
 #: Each frame name shape, its configuration equivalent, and the same shape with a malformed agg token.
 _FRAME_SHAPE_PAIRS: list[tuple[str, dict[str, Any], str]] = [
@@ -831,9 +907,6 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
             TokenCase("frame_type", "expanding", without=("frame_size",)),
             # Only a time frame requires frame_unit, which additional_match_options() does not carry.
             TokenCase("frame_type", "time", matches=False),
-            # A rolling frame ignores frame_unit, so nothing but the key's own guard rejects a
-            # multi-element value there; under "time" the unit table would mask a missing guard.
-            TokenCase("frame_unit", "day", "week", context={"frame_type": "rolling"}),
             # order_by and frame_size are scalar too: one column, one positive int, so a
             # zero-sized frame and a bool stay out at every arity.
             TokenCase("order_by", "timestamp", "region", required=True),

@@ -247,16 +247,17 @@ def config_frame_options(agg_type: str, frame_type: str, frame_size: int = 3) ->
     Used by the per-backend capability-hook tests to probe whether a backend
     accepts a given ``aggregation_type``/``frame_type`` combination.
     """
-    return Options(
-        context={
-            "aggregation_type": agg_type,
-            "frame_type": frame_type,
-            "frame_size": frame_size,
-            "in_features": "value",
-            "partition_by": ["region"],
-            "order_by": "ts",
-        }
-    )
+    context: dict[str, Any] = {
+        "aggregation_type": agg_type,
+        "frame_type": frame_type,
+        "in_features": "value",
+        "partition_by": ["region"],
+        "order_by": "ts",
+    }
+    # Only sized shapes carry frame_size: an own frame_size on cumulative/expanding is rejected as unused.
+    if frame_type in ("rolling", "time"):
+        context["frame_size"] = frame_size
+    return Options(context=context)
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +525,18 @@ class FrameAggregateTestBase(
 
         result_col = self.extract_column(result, "value_int__expanding_avg")
         assert result_col == pytest.approx(EXPECTED_EXPANDING_AVG, rel=1e-3)
+
+    def test_cumsum_and_expanding_sum_are_the_same_column(self) -> None:
+        """cumulative and expanding are aliases: both names compute the same column."""
+        impl = self.implementation_class()
+        cumsum = impl.calculate_feature(self.test_data, make_feature_set("value_int__cumsum", ["region"], "value_int"))
+        expanding = impl.calculate_feature(
+            self.test_data, make_feature_set("value_int__expanding_sum", ["region"], "value_int")
+        )
+
+        cumsum_col = self.extract_column(cumsum, "value_int__cumsum")
+        expanding_col = self.extract_column(expanding, "value_int__expanding_sum")
+        assert cumsum_col == pytest.approx(expanding_col, nan_ok=True)
 
     # -- Time window support tests -------------------------------------------
 

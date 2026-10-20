@@ -146,7 +146,7 @@ All frame-aggregate variants accept:
 
 ### Config-based frame features
 
-A frame feature built from Options instead of a name declares its window explicitly, and PROPERTY_MAPPING is what enforces it: `aggregation_type`, `frame_type` and `in_features` are always required, `order_by` is always required on both the name and config paths, `frame_size` (a positive integer) is required for `rolling` and `time`, and `frame_unit` is required for `time` and must be one of the units above. Name-based features carry all of that in the name, so they need only `partition_by` and `order_by`.
+A frame feature built from Options instead of a name declares its window explicitly, and PROPERTY_MAPPING is what enforces it: `aggregation_type`, `frame_type` and `in_features` are always required, `order_by` is always required on both the name and config paths, `frame_size` (a positive integer) is required for `rolling` and `time`, and `frame_unit` is required for `time` and must be one of the units above. Name-based features carry all of that in the name, so they need only `partition_by` and `order_by`. An own `frame_size` or `frame_unit` that the frame type does not use raises on both paths, and `expanding` and `cumulative` are aliases that agree with either name.
 
 ---
 

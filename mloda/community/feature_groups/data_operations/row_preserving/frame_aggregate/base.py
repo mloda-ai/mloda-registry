@@ -6,6 +6,7 @@ import functools
 import re
 from typing import Any
 
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParserMixin,
@@ -29,6 +30,7 @@ from mloda.community.feature_groups.data_operations.base import (
     is_column_ref,
     is_in_features_value,
     is_op_token,
+    is_own_option,
     is_positive_int,
     op_token_value,
     option_value,
@@ -65,6 +67,13 @@ _EXPANDING_PATTERN = re.compile(r"^.+__expanding_(\w+)$")
 # than a derivation from the shared table. Cumulative and expanding accept this
 # full set, so they need no narrower table of their own.
 _AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
+# Options each frame type uses; any other own frame_size/frame_unit is rejected.
+_FRAME_OPTIONS_USED: dict[str, frozenset[str]] = {
+    "rolling": frozenset({_FRAME_SIZE_KEY}),
+    "time": frozenset({_FRAME_SIZE_KEY, _FRAME_UNIT_KEY}),
+    "cumulative": frozenset(),
+    "expanding": frozenset(),
+}
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
 
@@ -243,7 +252,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
                 "rolling": "Fixed-size row-count window",
                 "time": "Time-interval window",
                 "cumulative": "Running aggregate from start",
-                "expanding": "Same as cumulative",
+                "expanding": "Same as cumulative (alias; either agrees with either name)",
             },
             match_guard=is_op_token,
             expected=OP_TOKEN_EXPECTED,
@@ -348,6 +357,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             frame_type = _option_token(options, cls.FRAME_TYPE)
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
+            cls._reject_unused_frame_options(feature_name, options, str(frame_type))
             if _needs_frame_size(options) and options.get(cls.FRAME_SIZE) is None:
                 record_match_rejection(
                     cls.get_class_name(),
@@ -372,6 +382,18 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         return True
 
     @classmethod
+    def _reject_unused_frame_options(cls, feature_name: Any, options: Any, frame_type: str) -> None:
+        """Raise on an own frame_size/frame_unit the frame type does not use."""
+        used = _FRAME_OPTIONS_USED.get(frame_type)
+        if used is None:
+            return
+        for key in (cls.FRAME_SIZE, cls.FRAME_UNIT):
+            if key not in used and is_own_option(options, key):
+                msg = f"Feature '{feature_name}': option '{key}' is not used by a '{frame_type}' frame; remove the option."
+                # Marked: not downgraded by MLODA_ALLOW_FORWARDED_NAME_MISMATCH.
+                raise escalate_match_abort(ValueError(msg))
+
+    @classmethod
     def _validate_frame_name_agreement(cls, feature_name: Any, options: Any, parsed: dict[str, Any]) -> None:
         """Reject an own or forwarded frame_type/frame_size/frame_unit that contradicts the name."""
         bindings = {
@@ -383,6 +405,13 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             )
             if parsed[field] is not None
         }
+        name_type = parsed["frame_type"]
+        if name_type in ("cumulative", "expanding"):
+            declared = _option_token(options, cls.FRAME_TYPE)
+            # expanding and cumulative are aliases: either agrees with either name.
+            if declared in ("cumulative", "expanding"):
+                bindings[cls.FRAME_TYPE] = declared
+        cls._reject_unused_frame_options(feature_name, options, str(name_type))
         cls._validate_forwarded_name_mismatch(feature_name, bindings, options)
         cls._validate_name_agreement(feature_name, bindings, None, options)
 
