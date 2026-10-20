@@ -51,7 +51,7 @@ acme/
         └── my_feature_group.py  # imports acme.core.parsers
 ```
 
-To pin what an import loads, see [Testing What an Import Loads](feature-group-patterns/10-testing-guide.md#testing-what-an-import-loads).
+To pin what an import loads, see [Testing What an Import Loads](feature-group-patterns/10-testing-guide.md#testing-what-an-import-loads). The same section shows how to check that the built wheel ships every module and that each module imports on its own.
 
 ## Set Up Your Plugin
 
