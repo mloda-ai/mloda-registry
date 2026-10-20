@@ -1330,21 +1330,25 @@ name = "mloda-community-german-ledger"
 version = "0.10.0"
 source = { editable = "mloda/community/feature_groups/experimental/german_ledger" }
 dependencies = [
-    { name = "defusedxml" },
     { name = "mloda" },
-    { name = "pyarrow" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "defusedxml" },
+    { name = "mloda-testing" },
+    { name = "pyarrow" },
+    { name = "pytest" },
     { name = "types-defusedxml" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "defusedxml", specifier = ">=0.7" },
+    { name = "defusedxml", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "mloda", specifier = ">=0.16.0,<0.17.0" },
-    { name = "pyarrow", specifier = ">=14.0.1" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=14.0.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "types-defusedxml", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
