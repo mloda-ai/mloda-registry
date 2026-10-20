@@ -183,10 +183,10 @@ class TestConfigBasedFeatures:
     """Tests for configuration-based feature matching (non-string features)."""
 
     def test_config_based_match(self) -> None:
-        """A feature with aggregation_type and in_features in options should match."""
+        """A feature with window_aggregation_type and in_features in options should match."""
         options = Options(
             context={
-                "aggregation_type": "sum",
+                "window_aggregation_type": "sum",
                 "in_features": "value_int",
                 "partition_by": ["region"],
             }
@@ -200,7 +200,7 @@ class TestConfigBasedFeatures:
 
         options = Options(
             context={
-                "aggregation_type": "sum",
+                "window_aggregation_type": "sum",
                 "in_features": frozenset({UserFeature("value_int"), UserFeature("value_float")}),
                 "partition_by": ["region"],
             }
@@ -212,7 +212,7 @@ class TestConfigBasedFeatures:
         """Config-based feature without partition_by should not match."""
         options = Options(
             context={
-                "aggregation_type": "sum",
+                "window_aggregation_type": "sum",
                 "in_features": "value_int",
             }
         )
@@ -236,7 +236,7 @@ class TestConfigBasedFeatures:
             "my_sum_result",
             options=Options(
                 context={
-                    "aggregation_type": "sum",
+                    "window_aggregation_type": "sum",
                     "in_features": "value_int",
                     "partition_by": ["region"],
                 }
@@ -252,6 +252,30 @@ class TestConfigBasedFeatures:
         result_col = result.column("my_sum_result").to_pylist()
         expected = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
         assert result_col == expected
+
+
+class TestWindowDiscriminatorKey:
+    """window_aggregation owns window_aggregation_type; the legacy aggregation_type key is not its discriminator."""
+
+    def test_aggregation_type_attribute_is_window_specific(self) -> None:
+        assert WindowAggregationFeatureGroup.AGGREGATION_TYPE == "window_aggregation_type"
+
+    def test_config_with_legacy_key_only_is_not_claimed(self) -> None:
+        options = Options(context={"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]})
+        assert WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+
+    @pytest.mark.parametrize("placement", ["context", "group"])
+    @pytest.mark.parametrize("value", ["sum", "max"])
+    def test_own_legacy_key_on_a_name_raises(self, placement: str, value: str) -> None:
+        options = Options(**{placement: {"aggregation_type": value, "partition_by": ["region"]}})
+        with pytest.raises(ValueError, match="aggregation_type") as exc_info:
+            WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
+        assert "window_aggregation_type" in str(exc_info.value)
+
+    def test_forwarded_legacy_key_on_a_name_is_ignored(self) -> None:
+        options = Options(context={"partition_by": ["region"]})
+        options.inherit_from(Options(group={"aggregation_type": "max"}))
+        assert WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
 
 
 class TestReturnDataTypeRule:
@@ -288,7 +312,7 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def config_key(cls) -> str:
-        return "aggregation_type"
+        return "window_aggregation_type"
 
     @classmethod
     def build_feature_name(cls, operation: str) -> str:

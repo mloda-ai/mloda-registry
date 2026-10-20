@@ -94,6 +94,12 @@ See [Masking](../feature-group-patterns/25-masking.md) for the full mask spec.
 
 ---
 
+## Config form
+
+The config form uses the key `window_aggregation_type` with `in_features` and `partition_by`. An own `aggregation_type` on a window feature is rejected with a `ValueError`.
+
+---
+
 ## Related
 
 - [Row-preserving contract](02-row-preserving-contract.md) - Why ordered window functions need careful handling.

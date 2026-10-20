@@ -284,8 +284,8 @@ class TestConfigFrameTypeOwnership:
     """Only a feature's own frame_type makes a config feature frame_aggregate's; an inherited one does not."""
 
     @staticmethod
-    def _options(origin: str) -> Options:
-        options = Options(context={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})
+    def _options(key: str, origin: str) -> Options:
+        options = Options(context={key: "sum", "in_features": "v", "partition_by": ["g"]})
         if origin == "own":
             options.add_to_context("frame_type", "rolling")
         elif origin == "inherited_group":
@@ -296,13 +296,21 @@ class TestConfigFrameTypeOwnership:
             )
         return options
 
-    @pytest.mark.parametrize("cls", [AggregationFeatureGroup, WindowAggregationFeatureGroup])
+    @pytest.mark.parametrize(
+        ("cls", "key"),
+        [
+            (AggregationFeatureGroup, "aggregation_type"),
+            (WindowAggregationFeatureGroup, "window_aggregation_type"),
+        ],
+    )
     @pytest.mark.parametrize(
         ("origin", "expected"),
         [("none", True), ("inherited_group", True), ("inherited_context", True), ("own", False)],
     )
-    def test_config_match_depends_on_frame_type_ownership(self, cls: Any, origin: str, expected: bool) -> None:
-        assert cls.match_feature_group_criteria("my_result", self._options(origin), None) is expected
+    def test_config_match_depends_on_frame_type_ownership(
+        self, cls: Any, key: str, origin: str, expected: bool
+    ) -> None:
+        assert cls.match_feature_group_criteria("my_result", self._options(key, origin), None) is expected
 
 
 class TestReturnDataTypeRule:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
@@ -20,6 +21,8 @@ from mloda.community.feature_groups.data_operations.base import (
     column_ref_value,
     is_column_ref,
     is_op_token,
+    is_own_option,
+    name_matches_prefix,
     op_token_value,
     option_value,
 )
@@ -90,7 +93,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             name="my_result",
             options=Options(
                 context={
-                    "aggregation_type": "sum",
+                    "window_aggregation_type": "sum",
                     "in_features": "sales",
                     "partition_by": ["region"],
                 }
@@ -100,7 +103,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
     ## Parameter Classification
 
     ### Context Parameters
-    - ``aggregation_type``: The type of aggregation to perform
+    - ``window_aggregation_type``: The type of aggregation to perform
     - ``in_features``: The source feature to aggregate
     - ``partition_by``: List of columns to partition by
     - ``order_by``: Column to order by (required for first/last)
@@ -118,8 +121,10 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
 
     AGGREGATION_TYPES = AGGREGATION_TYPES
 
+    AGGREGATION_TYPE = "window_aggregation_type"
+
     PROPERTY_MAPPING = {
-        AggregationFeatureGroupBase.AGGREGATION_TYPE: property_spec(
+        AGGREGATION_TYPE: property_spec(
             "Aggregation applied over the window",
             strict=True,
             allowed_values=AGGREGATION_TYPES,
@@ -166,6 +171,15 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         - partition_by type validation (must be a list of strings)
         - order_by required for first/last (must be one column reference)
         """
+        legacy_key = AggregationFeatureGroupBase.AGGREGATION_TYPE
+        if name_matches_prefix(cls, feature_name) and is_own_option(options, legacy_key):
+            msg = (
+                f"Feature '{feature_name}': option '{legacy_key}' is not read by window_aggregation; "
+                f"use '{cls.AGGREGATION_TYPE}' or drop the option."
+            )
+            # Marked: user misconfiguration; the option would be silently ignored otherwise.
+            raise escalate_match_abort(ValueError(msg))
+
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
 
@@ -203,7 +217,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         """Shared loop: extract params from each feature, delegate to _compute_window.
 
         Supports both string-based features (e.g. "value_int__sum_window") and
-        configuration-based features (via Options with aggregation_type, in_features,
+        configuration-based features (via Options with window_aggregation_type, in_features,
         partition_by).
         """
         table = data

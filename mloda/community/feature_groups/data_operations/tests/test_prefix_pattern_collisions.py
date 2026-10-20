@@ -216,7 +216,7 @@ FAMILIES: tuple[FamilySpec, ...] = (
         f"{_DO}.row_preserving.window_aggregation.base",
         "WindowAggregationFeatureGroup",
         ("sales__sum_window",),
-        config_options={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
+        config_options={"window_aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]},
     ),
 )
 
@@ -653,14 +653,8 @@ def test_every_family_module_is_discovered_on_disk() -> None:
 
 # --- config-path invariants ---------------------------------------
 
-# (owner, sorted acceptors): aggregation and window_aggregation share ``aggregation_type`` and
-# ``partition_by`` and need a discriminator option to be told apart.
-KNOWN_CONFIG_OVERLAPS: frozenset[tuple[str, tuple[str, ...]]] = frozenset(
-    {
-        ("aggregation", ("aggregation", "window_aggregation")),
-        ("window_aggregation", ("aggregation", "window_aggregation")),
-    }
-)
+# (owner, sorted acceptors): empty because every family has its own discriminator option.
+KNOWN_CONFIG_OVERLAPS: frozenset[tuple[str, tuple[str, ...]]] = frozenset()
 
 
 def _known(collision: Collision) -> bool:

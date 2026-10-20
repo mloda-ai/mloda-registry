@@ -142,7 +142,11 @@ class WindowAggregationTestBase(
         return {
             "multi_column_in_features": InputValidationCase(
                 "bad_multi",
-                {"aggregation_type": "sum", "partition_by": ["region"], "in_features": ["value_int", "value_float"]},
+                {
+                    "window_aggregation_type": "sum",
+                    "partition_by": ["region"],
+                    "in_features": ["value_int", "value_float"],
+                },
                 "at most 1",
             ),
             "missing_source_column": InputValidationCase(
@@ -883,7 +887,7 @@ class WindowAggregationTestBase(
             "my_window_sum",
             options=Options(
                 context={
-                    "aggregation_type": "sum",
+                    "window_aggregation_type": "sum",
                     "in_features": "value_int",
                     "partition_by": ["region"],
                 }
