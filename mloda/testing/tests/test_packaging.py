@@ -394,11 +394,12 @@ def test_missing_uv_raises_runtime_error(
 _NEEDS_SIBLING = "import acme.feature_groups\n\nVALUE = acme.feature_groups.plugin.VALUE\n"
 
 
-def _make_cold_project(root: Path, extra: dict[str, str] | None = None) -> Path:
+def _make_cold_project(root: Path, extra: dict[str, str] | None = None, clean: bool = False) -> Path:
     _write(root / "acme/__init__.py")
     _write(root / "acme/feature_groups/__init__.py")
     _write(root / "acme/feature_groups/plugin.py", "VALUE = 1\n")
-    _write(root / "acme/feature_groups/needs_sibling.py", _NEEDS_SIBLING)
+    if not clean:
+        _write(root / "acme/feature_groups/needs_sibling.py", _NEEDS_SIBLING)
     _write(root / "acme/clean.py", "X = 1\n")
     for rel, content in (extra or {}).items():
         _write(root / rel, content)
@@ -427,15 +428,13 @@ def test_cold_import_reports_sibling_dependent_module(tmp_path: Path) -> None:
 
 
 def test_cold_import_all_clean_passes(tmp_path: Path) -> None:
-    project = _make_cold_project(tmp_path)
-    (project / "acme/feature_groups/needs_sibling.py").unlink()
+    project = _make_cold_project(tmp_path, clean=True)
 
     assert_cold_imports(project, "acme")
 
 
 def test_cold_import_timeout_is_reported(tmp_path: Path) -> None:
-    project = _make_cold_project(tmp_path, {"acme/slow.py": "import time\ntime.sleep(60)\n"})
-    (project / "acme/feature_groups/needs_sibling.py").unlink()
+    project = _make_cold_project(tmp_path, {"acme/slow.py": "import time\ntime.sleep(60)\n"}, clean=True)
 
     with pytest.raises(AssertionError) as excinfo:
         assert_cold_imports(project, "acme", timeout=5)
@@ -447,15 +446,13 @@ def test_cold_import_timeout_is_reported(tmp_path: Path) -> None:
 
 
 def test_cold_import_module_name_is_not_interpolated_into_code(tmp_path: Path) -> None:
-    project = _make_cold_project(tmp_path, {"acme/v-0001.py": "X = 1\n"})
-    (project / "acme/feature_groups/needs_sibling.py").unlink()
+    project = _make_cold_project(tmp_path, {"acme/v-0001.py": "X = 1\n"}, clean=True)
 
     assert_cold_imports(project, "acme")
 
 
 def test_cold_import_ignores_a_shadow_package_in_the_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = _make_cold_project(tmp_path / "real")
-    (project / "acme/feature_groups/needs_sibling.py").unlink()
+    project = _make_cold_project(tmp_path / "real", clean=True)
     shadow = tmp_path / "shadow"
     _write(shadow / "acme/__init__.py", "raise RuntimeError('shadow')\n")
     monkeypatch.chdir(shadow)
