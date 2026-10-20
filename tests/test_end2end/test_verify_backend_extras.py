@@ -97,6 +97,27 @@ def test_backend_jobs_rejects_a_backend_without_leaves() -> None:
         _fn("backend_jobs")({})
 
 
+def test_backend_jobs_rejects_a_declared_extra_whose_leaves_register_no_class_of_that_backend() -> None:
+    script = _script()
+    packages = _packages()
+    all_backends = {backend for _, backend in script.BACKEND_PREFIXES}
+
+    def registered(path: str) -> set[str]:
+        specs = script.manifest_specs(_REPO_ROOT / path / "manifest.py")
+        return {script.backend_for_module(module) for module, _ in specs}
+
+    leaf, path = next(
+        (n, packages[n]["path"])
+        for n, _ in script.leaf_packages(packages)
+        if registered(packages[n]["path"]) < all_backends
+    )
+    entry = {**packages[leaf], "optional_dependencies": {backend: ["x"] for backend in all_backends}}
+    config = {_BASE: packages[_BASE], leaf: entry}
+
+    with pytest.raises(ValueError):
+        script.backend_jobs(config)
+
+
 def test_backend_for_module_rejects_unknown_prefix() -> None:
     assert _fn("backend_for_module")("sqlite_rank") == "sqlite"
     with pytest.raises(ValueError):
@@ -172,6 +193,14 @@ def test_probe_source_fails_naming_a_class_with_an_unavailable_framework(tmp_pat
     result = _run_probe(_fn("probe_source")([("fake_backend_mod", "BrokenClass")], []), pythonpath=tmp_path)
     assert result.returncode != 0
     assert "BrokenClass" in result.stdout + result.stderr
+
+
+def test_probe_source_reports_every_failing_class() -> None:
+    classes = [("no_such_module_one", "FirstClass"), ("no_such_module_two", "SecondClass")]
+    result = _run_probe(_fn("probe_source")(classes, []))
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "FirstClass" in output and "SecondClass" in output
 
 
 def test_probe_source_fails_when_an_expected_absent_module_is_importable() -> None:
@@ -258,6 +287,7 @@ def test_verify_extra_reports_probe_failure_naming_the_extra(monkeypatch: pytest
     error = script.verify_extra("sqlite", _CLASSES, wheels)
 
     assert error is not None and "sqlite" in error and "probe exploded" in error
+    assert "import importlib" not in error
 
 
 def test_verify_extra_python_dict_expects_backend_packages_absent(
@@ -281,17 +311,41 @@ def test_main_runs_every_extra_after_one_fails(
     script = _script()
     monkeypatch.chdir(tmp_path)  # main() chdirs to the repo root; monkeypatch restores the cwd
     ran: list[str] = []
+    events: list[str] = []
+
+    class FakeBuilds:
+        @staticmethod
+        def cleanup_build_dirs() -> int:
+            events.append("cleanup_build_dirs")
+            return 0
+
+        @staticmethod
+        def cleanup_egg_info() -> int:
+            events.append("cleanup_egg_info")
+            return 0
+
+    original_load_sibling = script._load_sibling
+    monkeypatch.setattr(
+        script, "_load_sibling", lambda name: FakeBuilds if name == "verify_builds" else original_load_sibling(name)
+    )
+
+    def fake_build(names: Any, out_dir: Any) -> tuple[dict[str, Path], list[str]]:
+        events.append("build_wheels")
+        return {}, []
 
     def fake_verify(extra: str, leaves_and_classes: Any, wheels: Any) -> str | None:
         ran.append(extra)
         return f"extra {extra} failed: boom" if extra == "sqlite" else None
 
-    monkeypatch.setattr(script, "build_wheels", lambda names, out_dir: ({}, []))
+    monkeypatch.setattr(script, "build_wheels", fake_build)
     monkeypatch.setattr(script, "verify_extra", fake_verify)
 
     assert script.main() == 1
     assert set(ran) == {backend for _, backend in script.BACKEND_PREFIXES}
     assert "sqlite" in capsys.readouterr().out
+    build = events.index("build_wheels")
+    assert "cleanup_egg_info" in events[:build], "stale SOURCES.txt must be removed before building"
+    assert "cleanup_egg_info" in events[build:] and "cleanup_build_dirs" in events[build:]
 
 
 def test_tox_env_runs_the_script_without_installing_the_project() -> None:
@@ -309,8 +363,13 @@ def test_release_workflow_gates_github_release_on_the_verified_sha() -> None:
     assert re.search(r"^[^\n#]*tox -e verify-backend-extras", job, re.MULTILINE)
     assert re.search(r"outputs:\s*\n\s+sha:", job)
     assert "continue-on-error" not in job
+    assert "persist-credentials: false" in job
+    assert "secrets." not in job
 
     release = _job_block("github_release")
     assert re.search(r"needs:\s*(\[?\s*)verify_backend_extras", release)
     assert "needs.verify_backend_extras.outputs.sha" in release
     assert re.search(r"git rev-parse HEAD", release)
+    guard = release.index("needs.verify_backend_extras.outputs.sha")
+    assert guard < release.index("Semantic Release Dry Run"), "SHA guard must run before the dry run"
+    assert "dispatch a new Release run" in release

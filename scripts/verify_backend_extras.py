@@ -30,7 +30,6 @@ _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scr
 ]
 
 BASE = "mloda-community-data-operations"
-MAX_WORKERS: int = _load_sibling("verify_independent_installs").MAX_WORKERS
 
 # Longer, more specific prefixes first.
 BACKEND_PREFIXES = [
@@ -80,13 +79,16 @@ def manifest_specs(manifest: Path) -> list[tuple[str, str]]:
             raise ValueError(f"{manifest}: load_plugin_classes needs a literal list of (module, class) pairs")
         specs: list[tuple[str, str]] = []
         for element in spec_list.elts:
+            pair = element.elts if isinstance(element, ast.Tuple) else []
+            module, cls = pair if len(pair) == 2 else (None, None)
             if not (
-                isinstance(element, ast.Tuple)
-                and len(element.elts) == 2
-                and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in element.elts)
+                isinstance(module, ast.Constant)
+                and isinstance(module.value, str)
+                and isinstance(cls, ast.Constant)
+                and isinstance(cls.value, str)
             ):
                 raise ValueError(f"{manifest}: every entry must be a literal (module, class) string pair")
-            specs.append((element.elts[0].value, element.elts[1].value))  # type: ignore[attr-defined]
+            specs.append((module.value, cls.value))
         return specs
     raise ValueError(f"{manifest}: no load_plugin_classes call found")
 
@@ -106,6 +108,9 @@ def backend_jobs(packages: dict[str, dict[str, Any]]) -> dict[str, LeafClasses]:
     empty = [backend for backend, entries in jobs.items() if not entries]
     if empty:
         raise ValueError(f"no leaf declares an extra for backend(s) {empty}")
+    classless = [backend for backend, entries in jobs.items() if not any(classes for _, classes in entries)]
+    if classless:
+        raise ValueError(f"no leaf registers a class for backend(s) {classless}")
     return jobs
 
 
@@ -123,10 +128,13 @@ import sys
 
 failures = []
 for module, name in {classes!r}:
-    cls = getattr(importlib.import_module(module), name)
-    for framework in cls.compute_framework_rule():
-        if not framework.is_available():
-            failures.append(f"{{name}}: {{framework.__name__}} is not available")
+    try:
+        cls = getattr(importlib.import_module(module), name)
+        for framework in cls.compute_framework_rule():
+            if not framework.is_available():
+                failures.append(f"{{name}}: {{framework.__name__}} is not available")
+    except Exception as exc:
+        failures.append(f"{{name}}: {{exc!r}}")
 for module in {absent!r}:
     if importlib.util.find_spec(module) is not None:
         failures.append(f"{{module}} is importable but must be absent")
@@ -168,11 +176,11 @@ def verify_extra(backend: str, leaves_and_classes: LeafClasses, wheels: dict[str
             ["uv", "pip", "install", "--python", python, *requirements],
             [python, "-c", probe_source(classes, absent)],
         ]
-        for command in commands:
+        for step, command in zip(["venv", "install", "probe"], commands):
             # cwd is the temp dir, so the checkout cannot shadow the installed packages.
             result = subprocess.run(command, capture_output=True, text=True, cwd=tmpdir)  # nosec
             if result.returncode != 0:
-                return f"extra {backend}: {' '.join(command[:4])} failed:\n{(result.stderr or result.stdout)[-500:]}"
+                return f"extra {backend}: {step} failed:\n{(result.stderr or result.stdout)[-500:]}"
     return None
 
 
@@ -191,6 +199,7 @@ def main() -> int:
     names = [BASE, *dict.fromkeys(leaf for entries in jobs.values() for leaf, _ in entries)]
 
     errors: list[str] = []
+    cleanup_egg_info()
     cleanup_build_dirs()
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -199,7 +208,7 @@ def main() -> int:
             errors.extend(build_errors)
             if not build_errors:
                 backends = list(jobs)
-                workers = min(len(backends), MAX_WORKERS)
+                workers = len(backends)
                 print(f"Verifying {len(backends)} backend extras, {workers} at a time...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
                     results = executor.map(lambda b: verify_extra(b, jobs[b], wheels), backends)

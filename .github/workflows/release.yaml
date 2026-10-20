@@ -64,7 +64,7 @@ jobs:
           VERIFIED_SHA: ${{ needs.verify_backend_extras.outputs.sha }}
         run: |
           if [ "$(git rev-parse HEAD)" != "$VERIFIED_SHA" ]; then
-            echo "::error ::main moved since verify_backend_extras ran; rerun the release"
+            echo "::error ::main moved since verification; dispatch a new Release run (re-running only this job reuses the stale verified SHA)"
             exit 1
           fi
 

@@ -12,6 +12,9 @@ Manual only, via GitHub Actions -> Release -> Run workflow. Nothing releases on 
 workflow_dispatch → verify-backend-extras → semantic-release → PyPI publish
 ```
 
+First, the `verify-backend-extras` tox env builds the data-operations leaves locally and checks each backend
+extra in a clean venv; its third-party deps resolve at their newest PyPI release, as a user's install would.
+
 1. **Version bump**: semantic-release analyzes commits and updates `config/shared.toml`.
 2. **Regenerate**: `scripts/generate_pyproject.py` updates every package `pyproject.toml`
    (and the root file's generated parts), then `uv lock` re-locks `uv.lock` against the bumped versions.
@@ -31,9 +34,7 @@ a no-op; the version now comes from the workflow env.
 
 ## Post-release verification
 
-The `verify-backend-extras` tox env gates the release: it checks, from locally built wheels, that each
-data-operations backend extra is enough on its own. The rest of the verification is not part of the
-release. It runs in a separate workflow,
+Verification is not part of the release. It runs in a separate workflow,
 `.github/workflows/verify-published.yaml` ("Weekly Package Verification"), on a
 Monday cron plus manual dispatch, so a fresh release stays unverified until the next
 run. To check a release immediately, dispatch that workflow.
