@@ -29,6 +29,9 @@ PARTITION_BY = "partition_by"
 Used by: window_aggregation, aggregation, rank, offset, frame_aggregate.
 """
 
+WINDOW_AGGREGATION_TYPE = "window_aggregation_type"
+"""Config key for the aggregation type of window_aggregation."""
+
 FRAME_TYPE = "frame_type"
 """Config key for frame type in frame_aggregate operations.
 

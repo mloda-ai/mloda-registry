@@ -11,7 +11,9 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AggregationFeatureGroupBase,
 )
 from mloda.community.feature_groups.data_operations.base import (
+    FRAME_TYPE,
     OP_TOKEN_EXPECTED,
+    WINDOW_AGGREGATION_TYPE,
     assert_key_columns_present,
     assert_source_columns_present,
     is_op_token,
@@ -88,6 +90,8 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
     KEY_COLUMN_OPTIONS = ("partition_by", "mask")
 
     PREFIX_PATTERN = r".*__([\w]+)_agg$"
+
+    CONFIG_DECLINE_KEYS = (FRAME_TYPE, WINDOW_AGGREGATION_TYPE)
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1

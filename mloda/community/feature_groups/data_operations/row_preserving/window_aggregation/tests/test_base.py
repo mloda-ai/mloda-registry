@@ -7,6 +7,10 @@ from typing import Any
 import pytest
 from mloda.user import DataType, Feature, Options
 
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+    FrameAggregateFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -267,10 +271,45 @@ class TestWindowDiscriminatorKey:
     @pytest.mark.parametrize("placement", ["context", "group"])
     @pytest.mark.parametrize("value", ["sum", "max"])
     def test_own_legacy_key_on_a_name_raises(self, placement: str, value: str) -> None:
-        options = Options(**{placement: {"aggregation_type": value, "partition_by": ["region"]}})
+        params = {"aggregation_type": value, "partition_by": ["region"]}
+        options = Options(group=params) if placement == "group" else Options(context=params)
         with pytest.raises(ValueError, match="aggregation_type") as exc_info:
             WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
         assert "window_aggregation_type" in str(exc_info.value)
+
+    @pytest.mark.parametrize("feature_name", ["sales__avg_7_day_window", "v__bogus_window"])
+    def test_names_window_does_not_own_decline_without_raising(self, feature_name: str) -> None:
+        options = Options(
+            context={
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+                "aggregation_type": "avg",
+            }
+        )
+        assert WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None) is False
+
+    def test_frame_feature_with_legacy_key_goes_to_frame_aggregate(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "aggregation_type": "avg"})
+        assert FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
+
+    def test_dual_key_config_is_declined_by_aggregation_and_raises_in_window(self) -> None:
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "window_aggregation_type": "sum",
+                "in_features": "v",
+                "partition_by": ["g"],
+            }
+        )
+        assert AggregationFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+        with pytest.raises(ValueError, match="aggregation_type") as exc_info:
+            WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert "window_aggregation_type" in str(exc_info.value)
+
+    def test_forwarded_legacy_key_on_a_window_config_matches(self) -> None:
+        options = Options(context={"window_aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})
+        options.inherit_from(Options(group={"aggregation_type": "max"}))
+        assert WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None) is True
 
     def test_forwarded_legacy_key_on_a_name_is_ignored(self) -> None:
         options = Options(context={"partition_by": ["region"]})

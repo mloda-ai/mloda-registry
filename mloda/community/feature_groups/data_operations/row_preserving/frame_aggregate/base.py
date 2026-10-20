@@ -357,7 +357,8 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             frame_type = _option_token(options, cls.FRAME_TYPE)
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
-            cls._reject_unused_frame_options(feature_name, options, str(frame_type))
+            if is_own_option(options, cls.FRAME_TYPE):
+                cls._reject_unused_frame_options(feature_name, options, str(frame_type))
             if _needs_frame_size(options) and options.get(cls.FRAME_SIZE) is None:
                 record_match_rejection(
                     cls.get_class_name(),
@@ -411,9 +412,9 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             # Aliases: either agrees with either name.
             if declared in ("cumulative", "expanding"):
                 bindings[cls.FRAME_TYPE] = declared
-        cls._reject_unused_frame_options(feature_name, options, str(name_type))
         cls._validate_forwarded_name_mismatch(feature_name, bindings, options)
         cls._validate_name_agreement(feature_name, bindings, None, options)
+        cls._reject_unused_frame_options(feature_name, options, str(name_type))
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:

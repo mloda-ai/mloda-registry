@@ -16,13 +16,13 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     OP_TOKEN_EXPECTED,
+    WINDOW_AGGREGATION_TYPE,
     assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
     is_op_token,
     is_own_option,
-    name_matches_prefix,
     op_token_value,
     option_value,
 )
@@ -121,7 +121,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
 
     AGGREGATION_TYPES = AGGREGATION_TYPES
 
-    AGGREGATION_TYPE = "window_aggregation_type"
+    AGGREGATION_TYPE = WINDOW_AGGREGATION_TYPE
 
     PROPERTY_MAPPING = {
         AGGREGATION_TYPE: property_spec(
@@ -171,17 +171,17 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         - partition_by type validation (must be a list of strings)
         - order_by required for first/last (must be one column reference)
         """
+        if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
+            return False
+
         legacy_key = AggregationFeatureGroupBase.AGGREGATION_TYPE
-        if name_matches_prefix(cls, feature_name) and is_own_option(options, legacy_key):
+        if is_own_option(options, legacy_key):
             msg = (
                 f"Feature '{feature_name}': option '{legacy_key}' is not read by window_aggregation; "
                 f"use '{cls.AGGREGATION_TYPE}' or drop the option."
             )
             # Marked: user misconfiguration; the option would be silently ignored otherwise.
             raise escalate_match_abort(ValueError(msg))
-
-        if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
-            return False
 
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):

@@ -383,6 +383,12 @@ class TestConfigBasedFrameSizeValidation:
         with pytest.raises(ValueError, match=rf"option '{key}'.*'{frame_type}'.*remove"):
             FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", self._options(**overrides), None)
 
+    def test_inherited_frame_type_does_not_trigger_the_unused_option_raise(self) -> None:
+        options = self._options(frame_size=3)
+        options.inherit_from(Options(group={"frame_type": "cumulative"}))
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert isinstance(result, bool)
+
 
 class TestNameBasedZeroFrameSizeRejected:
     """A zero-sized frame is not a window, so the name path must reject it exactly as the config path does."""
@@ -595,6 +601,7 @@ class TestFrameNameAgreement:
             ("sales__avg_7_day_window", "frame_size", 5, "7", "int"),
             ("sales__avg_7_day_window", "frame_unit", "hour", "day", "str"),
             ("sales__avg_7_day_window", "frame_type", "rolling", "time", "str"),
+            ("sales__cumsum", "frame_type", "rolling", "cumulative", "str"),
         ],
     )
     @pytest.mark.parametrize("placement", ["group", "context"])
@@ -717,11 +724,11 @@ class TestFrameNameAgreement:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True
 
-    def test_genuine_frame_type_contradiction_on_cumulative_still_raises(self) -> None:
+    def test_contradiction_is_reported_before_the_unused_option(self) -> None:
         options = Options(
-            group={"frame_type": "rolling"}, context={"partition_by": ["region"], "order_by": "timestamp"}
+            context={"frame_type": "rolling", "frame_size": 3, "partition_by": ["region"], "order_by": "timestamp"}
         )
-        with pytest.raises(ValueError, match="frame_type"):
+        with pytest.raises(ValueError, match=r"option 'frame_type' is .* but the feature name encodes 'cumulative'"):
             FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumsum", options, None)
 
 
