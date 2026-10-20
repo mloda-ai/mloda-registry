@@ -18,7 +18,6 @@ def versioned_schema_url(distribution: str, module_path: str) -> str:
     return f"https://github.com/mloda-ai/mloda-registry/blob/{ref or 'main'}/{module_path}"
 
 
-# The release tag pins the facet shape a stored event names.
 _SCHEMA_URL = versioned_schema_url("mloda-community-openlineage", "mloda/community/extenders/openlineage/_facets.py")
 
 
