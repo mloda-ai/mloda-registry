@@ -2,7 +2,7 @@
 
 A subprocess because the host's policy registers process-wide, and exactly one may be live.
 
-The twin (fixtures/twin_2025, see make_twin.py) is four SKR04 bookings for FY2025. GDPdU lists
+The twin (fixtures/twin_2025, see tests/make_twin.py) is four SKR04 bookings for FY2025. GDPdU lists
 each account in its own direction; DATEV books Konto against Gegenkonto, +Soll/-Haben. Two
 things must hold for the totals to meet:
   - one policy both formats can be judged by. The late-entry cutoff needs an Erfassungsdatum

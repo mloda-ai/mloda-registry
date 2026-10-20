@@ -40,6 +40,8 @@ from mloda.community.feature_groups.experimental.german_ledger.skr import (
     SkrAccountFeatureGroup,
 )
 
+from . import make_twin
+
 LEDERMANN = Path(__file__).parent / "fixtures" / "datev_ledermann"
 TWIN = Path(__file__).parent / "fixtures" / "twin_2025"
 DOSSIER_A = Path(__file__).parent / "fixtures" / "dossier_a"
@@ -346,11 +348,6 @@ def test_the_same_books_in_both_formats_give_the_same_cited_totals() -> None:
 
 def test_the_twin_fixture_is_what_its_generator_writes(tmp_path: Path) -> None:
     """The checked-in files are reproducible: a hand edit would break the twin silently."""
-    sys.path.insert(0, str(TWIN))
-    try:
-        import make_twin
-    finally:
-        sys.path.remove(str(TWIN))
     make_twin.write_gdpdu(tmp_path / "gdpdu")
     make_twin.write_datev(tmp_path / "datev")
     for rel in ("gdpdu/GL.txt", "gdpdu/index.xml", "datev/EXTF_Buchungsstapel.csv"):
