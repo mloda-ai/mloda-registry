@@ -5166,7 +5166,6 @@ class TestAuditExtenderClassificationGermanLedger:
 
     @staticmethod
     def _host() -> Any:
-        pytest.importorskip("defusedxml")
         return pytest.importorskip("mloda.community.feature_groups.experimental.german_ledger.tests._host")
 
     @staticmethod

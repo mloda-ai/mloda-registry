@@ -80,7 +80,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 | Package | Description | License | Install |
 |---------|-------------|---------|---------|
-| `mloda-community` | All community plugins (bundle) | Apache 2.0 | `pip install mloda-community` (add `[otel]` or `[openlineage]` for the extenders, `[german-ledger]` for the experimental german-ledger package's `pyarrow` and `defusedxml`, or `[all]` for all three) |
+| `mloda-community` | All community plugins (bundle) | Apache 2.0 | `pip install mloda-community` (add `[otel]` or `[openlineage]` for the extenders, `[german-ledger]` for the experimental german-ledger package's `pyarrow`, or `[all]` for all three) |
 | `mloda-community-<plugin>` | One plugin from the table above | Apache 2.0 | `pip install "mloda-community-rank[pandas]"` |
 | `mloda-registry` | Plugin discovery and search | Apache 2.0 | `pip install mloda-registry` |
 | `mloda-testing` | Test utilities for plugin development | Apache 2.0 | `pip install mloda-testing` |
