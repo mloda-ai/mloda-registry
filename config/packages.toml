@@ -292,7 +292,7 @@ description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batch
 keywords = ["gdpdu", "gobd", "datev", "accounting", "bookkeeping"]
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/experimental/german_ledger"
-optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3", "pyarrow>=14.0.1", "defusedxml>=0.7", "types-defusedxml"] }
+optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3", "pyarrow>=14.0.1"] }
 
 # --- Bundles ---
 # Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
@@ -332,7 +332,7 @@ dependencies = [
 path = "mloda/community"
 published = true
 entry_point_bundle = true
-optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], german-ledger = ["pyarrow>=14.0.1", "defusedxml>=0.7"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}", "pyarrow>=14.0.1", "defusedxml>=0.7"] }
+optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], german-ledger = ["pyarrow>=14.0.1"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}", "pyarrow>=14.0.1"] }
 py_typed = true
 
 [packages.mloda-enterprise]

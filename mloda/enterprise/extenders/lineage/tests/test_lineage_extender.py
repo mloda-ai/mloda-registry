@@ -2215,7 +2215,6 @@ class TestLineageFacetsGermanLedgerPolicy:
     def test_the_policy_step_declares_the_stamp_its_cited_rows_carry(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], extender_cls: Any
     ) -> None:
-        pytest.importorskip("defusedxml")
         host = pytest.importorskip("mloda.community.feature_groups.experimental.german_ledger.tests._host")
         from mloda.user import DataAccessCollection
 

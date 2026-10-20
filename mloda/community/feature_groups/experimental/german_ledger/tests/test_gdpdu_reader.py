@@ -9,6 +9,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from xml.etree.ElementTree import ParseError  # nosec B405
 
 import pytest
 from mloda.user import Options
@@ -31,10 +32,33 @@ BOMB = b"""<?xml version="1.0"?>
 """
 
 
-def test_a_descriptor_declaring_xml_entities_is_refused_by_name() -> None:
+def _doc(subset: str, body: str = "x") -> bytes:
+    return (
+        f'<?xml version="1.0"?>\n<!DOCTYPE DataSet [\n{subset}\n]>\n'
+        f"<DataSet><Media><Table><URL>{body}</URL></Table></Media></DataSet>\n"
+    ).encode()
+
+
+ENTITY_DESCRIPTORS = {
+    "billion_laughs": BOMB,
+    "external_general": _doc('<!ENTITY x SYSTEM "file:///etc/passwd">', "&x;"),
+    "parameter_declaration": _doc('<!ENTITY % p "x">'),
+    "parameter_declared_and_referenced": _doc("<!ENTITY % p \"<!ENTITY y 'z'>\"> %p;"),
+    "unparsed": _doc('<!NOTATION gif SYSTEM "image/gif">\n<!ENTITY logo SYSTEM "logo.gif" NDATA gif>'),
+}
+
+
+@pytest.mark.parametrize("raw", ENTITY_DESCRIPTORS.values(), ids=ENTITY_DESCRIPTORS.keys())
+def test_a_descriptor_declaring_xml_entities_is_refused_by_name(raw: bytes) -> None:
     """A dossier is third-party input; entity expansion is how an XML bomb works."""
     with pytest.raises(ValueError, match="entit"):
-        parse_descriptor_bytes(BOMB, "index.xml")
+        parse_descriptor_bytes(raw, "index.xml")
+
+
+def test_a_malformed_descriptor_keeps_its_parse_error_type() -> None:
+    """Malformed XML raises ElementTree.ParseError, not a ValueError."""
+    with pytest.raises(ParseError):
+        parse_descriptor_bytes(b"<DataSet><Media>", "index.xml")
 
 
 def test_a_descriptor_naming_the_gdpdu_dtd_still_parses() -> None:

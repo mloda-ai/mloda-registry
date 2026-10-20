@@ -1,7 +1,7 @@
 """Isolated: a reader subclass with a lower CLASSIFICATION replaces the stock reader process-wide.
 
 A subprocess because the subclass registers process-wide. Exits 77 when the enterprise audit
-package or defusedxml is absent.
+package is absent.
 """
 
 import sys
@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import defusedxml  # noqa: F401
-
     from mloda.enterprise.extenders.audit import AuditExtender, ClassificationPolicy
 except ImportError as e:
     print(f"SKIP: {e}")

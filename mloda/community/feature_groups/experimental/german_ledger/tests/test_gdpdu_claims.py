@@ -572,11 +572,11 @@ def test_empty_element_is_not_an_absent_element() -> None:
     xml.etree gives .text is None for both. Reading the empty element as the default '.'
     strips every decimal point from the file: 12.500,00 -> 1250000, still shaped like money.
     """
-    import defusedxml.ElementTree as ET
+    import xml.etree.ElementTree as ET  # nosec B405
 
     from mloda.community.feature_groups.experimental.german_ledger.reader import _text
 
-    node = ET.fromstring("<Table><DigitGroupingSymbol/></Table>")
+    node = ET.fromstring("<Table><DigitGroupingSymbol/></Table>")  # nosec B314
     assert _text(node, "DigitGroupingSymbol", ".") == "", "empty element must not take the default"
     assert _text(node, "DecimalSymbol", ",") == ",", "absent element must take the default"
 

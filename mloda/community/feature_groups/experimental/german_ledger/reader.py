@@ -6,16 +6,16 @@ import csv
 import hashlib
 import os
 import re
+import xml.etree.ElementTree as ET  # nosec B405
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any
+from xml.parsers import expat
 
-import defusedxml.ElementTree as ET
 import pyarrow as pa
-from defusedxml import DefusedXmlException
 from mloda.provider import INPUT_DATA_STAGE, FeatureSet, record_match_rejection
 from mloda.user import DataAccessCollection, Options
 from mloda_plugins.feature_group.input_data.read_file import ReadFile
@@ -213,6 +213,20 @@ def parse_descriptor(index_path: str) -> TableSpec:
     return parse_descriptor_bytes(Path(index_path).read_bytes(), index_path)
 
 
+def _refuse_entities(descriptor: bytes, index_path: str) -> None:
+    """Raise ValueError if the descriptor declares any XML entity; malformed XML is left to the main parse."""
+
+    def _refuse(*_: object) -> None:
+        raise ValueError(f"{index_path}: the descriptor declares XML entities; refused, a GDPdU descriptor needs none")
+
+    parser = expat.ParserCreate()
+    parser.EntityDeclHandler = _refuse
+    try:
+        parser.Parse(descriptor, True)
+    except expat.ExpatError:
+        return
+
+
 def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
     """Parse one *snapshot* of the descriptor.
 
@@ -225,16 +239,10 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
         <!ELEMENT Numeric ((ImpliedAccuracy | Accuracy)?)>
         <!ELEMENT Date (Format?)>
     """
-    # A dossier is third-party input. defusedxml keeps the <!DOCTYPE ... gdpdu-01-09-2004.dtd>
-    # every descriptor carries, and refuses entity declarations and external references --
-    # the mechanics of an XML bomb. The DTD itself is never fetched either way.
-    try:
-        root = ET.fromstring(descriptor)
-    except DefusedXmlException as exc:
-        raise ValueError(
-            f"{index_path}: the descriptor declares XML entities or external references "
-            f"({type(exc).__name__}); refused, a GDPdU descriptor needs neither"
-        ) from exc
+    # A dossier is third-party input. Any entity declaration is refused before the stdlib parse
+    # (the mechanics of an XML bomb); the external GDPdU DTD the DOCTYPE names is never fetched.
+    _refuse_entities(descriptor, index_path)
+    root = ET.fromstring(descriptor)  # nosec B314
     tables = root.findall(".//Table")
     if not tables:
         raise ValueError(f"{index_path}: no <Table> in descriptor")

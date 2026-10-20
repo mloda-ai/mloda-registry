@@ -1196,8 +1196,8 @@ def test_external_bundle_extras_yields_exactly_the_third_party_bundle_extras() -
     """The bundle extras that name third-party distributions are the ones never installed by the internal jobs."""
     entries = _external_extra_entries(_packages())
     expected = [
-        ("mloda-community", "german-ledger", ["pyarrow", "defusedxml"], []),
-        ("mloda-community", "all", ["pyarrow", "defusedxml"], []),
+        ("mloda-community", "german-ledger", ["pyarrow"], []),
+        ("mloda-community", "all", ["pyarrow"], []),
         ("mloda-enterprise", "ed25519", ["cryptography"], []),
         ("mloda-enterprise", "otel", ["opentelemetry-api"], []),
         ("mloda-enterprise", "anonymizer", ["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"]),
