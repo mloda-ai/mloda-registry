@@ -180,7 +180,7 @@ A folder holding both formats is refused, not resolved to one of them.
   SKR03 Bank 1200 counts as SKR04 receivables.
 - **Gross DATEV revenue:** a revenue leg on an automatic account, or with any BU key other
   than 40, includes VAT. The automatic accounts are those Odoo's `l10n_de` templates give a
-  taxable default (SKR03 8196, 8300, 8310, 8315, 8400, 8410; SKR04 4186, 4200, 4300, 4310,
+  taxable default, kept as facts about the DATEV charts with no Odoo material reproduced (SKR03 8196, 8300, 8310, 8315, 8400, 8410; SKR04 4186, 4200, 4300, 4310,
   4315, 4400). It is refused by name
   (`GrossRevenueRefused`) because no tax-key table exists yet. Only DATEV journals carry a BU
   key; GDPdU lines are booked as declared.
@@ -194,8 +194,8 @@ A folder holding both formats is refused, not resolved to one of them.
 - **Sachkontenlänge:** the charts state 4-digit accounts. A DATEV Sachkonto with more digits
   is refused by name (`AccountLengthUnsupported`) rather than mapped by a guess. No batch we
   hold uses a longer Sachkontenlänge.
-- **Twin fixture:** `tests/fixtures/twin_2025` holds the same four bookings as a GDPdU
-  dossier and a DATEV batch. Under one `PeriodBound` policy both give revenue 22 485,06 and
+- **Twin fixture:** `tests/fixtures/twin_2025`, written by `tests/make_twin.py`, holds the same
+  four bookings as a GDPdU dossier and a DATEV batch. Under one `PeriodBound` policy both give revenue 22 485,06 and
   receivables 7 500,00, each with its own citations (`proofs/proof_twin.py`).
 - **DATEV totals:** the late-entry cutoff needs an `Erfassungsdatum`, which DATEV does not
   carry, so it refuses every DATEV journal (fail closed). A DATEV host runs `PeriodBound` +
@@ -217,4 +217,5 @@ so the tests run them in a subprocess. Each one prints what it reproduced and ca
 its own.
 
 The third-party DATEV files are not committed: not all of them are licensed for
-redistribution. The ledermann sample in `tests/fixtures/` is MIT (see its NOTICE).
+redistribution. The ledermann sample in `tests/fixtures/` is MIT: its NOTICE carries the license text, and the
+root `NOTICE.md` lists it as third-party material.
