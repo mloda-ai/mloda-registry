@@ -387,7 +387,7 @@ class TestConfigBasedFrameSizeValidation:
         options = self._options(frame_size=3)
         options.inherit_from(Options(group={"frame_type": "cumulative"}))
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert isinstance(result, bool)
+        assert result is False
 
 
 class TestNameBasedZeroFrameSizeRejected:

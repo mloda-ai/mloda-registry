@@ -357,8 +357,9 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             frame_type = _option_token(options, cls.FRAME_TYPE)
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
-            if is_own_option(options, cls.FRAME_TYPE):
-                cls._reject_unused_frame_options(feature_name, options, str(frame_type))
+            if not is_own_option(options, cls.FRAME_TYPE):
+                return False  # inherited frame_type: not addressed to this group (aggregation owns it)
+            cls._reject_unused_frame_options(feature_name, options, str(frame_type))
             if _needs_frame_size(options) and options.get(cls.FRAME_SIZE) is None:
                 record_match_rejection(
                     cls.get_class_name(),
