@@ -48,7 +48,7 @@ Three rules keep it predictable:
 1. **Import, don't auto-load.** Importing the package registers its feature groups. Do not
    call `PluginLoader.all()` until [mloda#1745](https://github.com/mloda-ai/mloda/issues/1745)
    is fixed: it loads the stock read feature groups, which then claim the same names, and the
-   request fails with "Multiple feature groups found" (on mloda 0.15 `ReadDocumentFeature`
+   request fails with "Multiple feature groups found" (on mloda 0.16 `ReadDocumentFeature`
    appears with the stock `TextFileReader` on the dossier's `GL.txt` as its source). For the same reason the package
    declares no entry point yet. A collection holding both formats (GDPdU and DATEV) must pin
    one reader by its option key (`GdpduReader` or `DatevExtfReader`); unpinned, it is refused.
@@ -130,8 +130,12 @@ Pinning one reader by option key also resolves a single folder that holds both f
 
 - **Community route:** `OtelExtender` emits each declared key as a `mloda.declared.<key>` span
   attribute.
-- **Enterprise route:** `LineageFacetsExtender` puts them in the `mloda` run facet's
-  `declaredAttributes`.
+- **OpenLineage and audit route:** the declarations reach OpenLineage as the `mlodaDeclared` facet
+  on each output dataset (COMPLETE events, so via the community `OpenLineageExtender` and the
+  enterprise `LineageFacetsExtender` alike), and the audit record's
+  `feature_group_declared_attributes`. A refused policy step emits no COMPLETE event, so it has
+  no `mlodaDeclared` facet; its OTel span and audit record (status `error`) still carry the
+  declared stamp, which is not the run's outcome.
 - **Resolution evidence:** `mloda.diagnose` says, per feature, the group chosen, the groups
   that also matched and those that declined, with stage and reason.
 
@@ -139,10 +143,10 @@ Pinning one reader by option key also resolves a single folder that holds both f
 `InadmissibleTotal` carry `verdicts`, the rows counted by kind (`admitted`, `outside-scope`,
 `refused`, `unevaluated`, `malformed`, `unstamped`), and say it in the message.
 
-**Mapping to OpenLineage.** With `LineageFacetsExtender` the policy step's `mloda` run facet
-carries `policy.verdict` and the concept step's carries the catalogue keys, beside the run and
-the job. The reader's `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input
-dataset. Nothing here is tamper-proof: anything inside the process can write these attributes.
+**Mapping to OpenLineage.** The policy step's `mlodaDeclared` output-dataset facet carries
+`policy.verdict` and the concept step's carries the catalogue keys. The reader's
+`data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset. Nothing here
+is tamper-proof: anything inside the process can write these attributes.
 
 ## Formats
 
