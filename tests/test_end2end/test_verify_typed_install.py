@@ -4,14 +4,20 @@ distinguishes that silent success from a genuinely typed install."""
 
 from __future__ import annotations
 
+import re
+import subprocess  # nosec
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
 from tests.script_loader import load_script
+from tests.test_end2end.test_verify_independent_installs import _FakeCompletedProcess
 from tests.toml_loader import load_toml
+from tests.tox_ini import tox_block
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_typed_install.py"
@@ -150,3 +156,54 @@ def test_any_inside_a_revealed_signature_is_not_flagged() -> None:
     """Only the bare 'Revealed type is "Any"' is untyped; Any as a parameter annotation is legitimate."""
     problems = _mypy_output_problems()(_ANY_IN_SIGNATURE_OUTPUT)
     assert problems == [], f"'secondary: Any' inside a signature must not be flagged, got {problems!r}"
+
+
+def _run_main(monkeypatch: pytest.MonkeyPatch, install_error: str | None) -> tuple[ModuleType, int, dict[str, Any]]:
+    """Run main() in-process with install and subprocess.run faked; returns (script, exit code, recorded calls)."""
+    script = _load()
+    seen: dict[str, Any] = {"commands": []}
+
+    def fake_install(requirements: list[str], tmpdir: str) -> str | None:
+        seen["requirements"], seen["tmpdir"] = requirements, tmpdir
+        return install_error
+
+    def fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeCompletedProcess:
+        seen["commands"].append((command, kwargs))
+        return _FakeCompletedProcess(stdout=_GOOD_OUTPUT)
+
+    monkeypatch.setattr(sys, "argv", ["verify_typed_install.py", "9.9.9"])
+    monkeypatch.setattr(script, "install", fake_install)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return script, script.main(), seen
+
+
+def test_main_reports_a_failed_install_and_skips_mypy(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failing shared install ends main() with 1 and its error, before any mypy run."""
+    _, code, seen = _run_main(monkeypatch, "install exploded")
+
+    assert code == 1, f"main() must return 1 when install fails, got {code}"
+    assert "install exploded" in capsys.readouterr().out, "the install error must be printed"
+    assert seen["commands"] == [], f"mypy must not run after a failed install, got {seen['commands']}"
+
+
+def test_main_installs_pins_and_mypy_then_runs_mypy_from_the_venv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() installs the pinned probe distributions plus mypy via the shared helper, then runs the venv's mypy."""
+    script, code, seen = _run_main(monkeypatch, None)
+
+    assert code == 0, f"main() must return 0 on a typed install, got {code}"
+    expected = [f"{name}==9.9.9" for name in script.PROBE_DISTRIBUTIONS] + ["mypy"]
+    assert seen["requirements"] == expected, f"install got {seen['requirements']}, expected {expected}"
+    assert len(seen["commands"]) == 1, f"expected one mypy command, got {seen['commands']}"
+    command, kwargs = seen["commands"][0]
+    assert command[0] == str(Path(seen["tmpdir"]) / "venv" / "bin" / "python"), f"mypy must use the venv: {command}"
+    assert "mypy" in command and "--strict" in command, f"expected a strict mypy run, got {command}"
+    assert Path(kwargs["cwd"]) == Path(seen["tmpdir"]), f"mypy must run in the install tmpdir, got {kwargs['cwd']}"
+
+
+def test_tox_env_installs_a_toml_parser() -> None:
+    """Python 3.10 has no tomllib and verify_common pulls in a toml parser, so the env must install tomli."""
+    block = tox_block("verify-typed-install")
+    deps = re.search(r"^deps\s*=\s*\n((?:[ \t]+\S.*\n?)+)", block, re.MULTILINE)
+    assert deps is not None and "tomli" in deps.group(1)

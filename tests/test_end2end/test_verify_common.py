@@ -50,6 +50,7 @@ def test_install_runs_venv_then_install_in_tmpdir(monkeypatch: pytest.MonkeyPatc
     assert len(calls) == 2, f"expected a venv and an install command, got {[c for c, _ in calls]}"
     assert str(tmp_path / "venv") in calls[0][0], f"the venv command must target <tmpdir>/venv: {calls[0][0]}"
     assert calls[1][0][-2:] == ["pkg-a==1", "pkg-b"], f"the install must end with all requirements: {calls[1][0]}"
+    assert str(tmp_path / "venv" / "bin" / "python") in calls[1][0], f"the install must target the venv: {calls[1][0]}"
     for _, kwargs in calls:
         assert Path(kwargs["cwd"]) == tmp_path, f"every command must run with cwd == tmpdir, got {kwargs.get('cwd')}"
 

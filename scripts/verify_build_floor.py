@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import subprocess  # nosec
 import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -23,6 +25,15 @@ else:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHARED_CONFIG = REPO_ROOT / "config" / "shared.toml"
+
+# Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
+_load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
+    "load_sibling"
+]
+_common = _load_sibling("verify_common")
+install: Callable[[list[str], str], str | None] = _common.install
+venv_dir: Callable[[str], Path] = _common.venv_dir
+venv_python: Callable[[Path], Path] = _common.venv_python
 
 # Only the lower bound matters: "setuptools>=77.0.1" and "setuptools >= 77.0.1, < 90" both floor at 77.0.1.
 SETUPTOOLS_FLOOR_RE = re.compile(r"^setuptools\s*>=\s*([^\s,;]+)")
@@ -46,24 +57,6 @@ def license_sample_packages(packages: dict[str, dict[str, Any]], license_form: C
     for pkg_name, pkg_config in packages.items():
         samples.setdefault(license_form(str(pkg_config["path"])), pkg_name)
     return samples
-
-
-def venv_python(venv: Path) -> Path:
-    """Interpreter of a uv-created virtual environment."""
-    return venv / "bin" / "python"
-
-
-def create_floor_env(venv: Path, floor: str) -> str | None:
-    """Create a venv holding exactly setuptools==floor; returns an error message, or None on success."""
-    commands = [
-        ["uv", "venv", "--python", sys.executable, str(venv)],
-        ["uv", "pip", "install", "--python", str(venv_python(venv)), f"setuptools=={floor}"],
-    ]
-    for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True)  # nosec
-        if result.returncode != 0:
-            return f"{' '.join(command)} failed:\n{result.stderr[-500:]}"
-    return None
 
 
 def build_wheel_with(python: Path, pkg_dir: Path, out_dir: Path) -> subprocess.CompletedProcess[str]:
@@ -99,19 +92,19 @@ def main() -> int:
     cleanup_build_dirs()
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            venv = Path(tmpdir) / "venv"
             out_dir = Path(tmpdir) / "wheels"
             out_dir.mkdir()
 
-            setup_error = create_floor_env(venv, floor)
+            setup_error = install([f"setuptools=={floor}"], tmpdir)
             if setup_error is not None:
                 print(f"\n❌ {setup_error}")
                 return 1
 
+            python = venv_python(venv_dir(tmpdir))
             for form in gen.LICENSE_FORMS:
                 pkg_name = samples[form]
                 print(f"\nBuilding {pkg_name} ({form} license) at setuptools=={floor}...")
-                result = build_wheel_with(venv_python(venv), REPO_ROOT / packages[pkg_name]["path"], out_dir)
+                result = build_wheel_with(python, REPO_ROOT / packages[pkg_name]["path"], out_dir)
                 if result.returncode != 0:
                     errors.append(f"{pkg_name}: build failed at setuptools=={floor}\n{result.stderr[-500:]}")
                     continue
