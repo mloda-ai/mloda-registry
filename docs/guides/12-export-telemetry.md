@@ -231,7 +231,7 @@ Notes:
 
 - With `append: true`, runs accumulate in one file; group lines by the root runId (each step's `parent` facet points at it).
 - Without `append`, every event goes to its own `<log_file_path>-<timestamp>.json` file.
-- Under `MULTIPROCESSING` every worker appends to the same path. The `file` transport of openlineage-python writes each event in a single append write, so lines stay whole on a local POSIX file system. On NFS, Windows or an object store, leave `append` off. Without `append`, file names carry the local time to the microsecond, so if two workers emit in the same microsecond, one event overwrites the other.
+- With `append: true` under `MULTIPROCESSING`, every worker appends to the same path. The `file` transport of openlineage-python writes each event in a single append write, so lines stay whole on a local POSIX file system. On NFS, Windows or an object store, leave `append` off. Without `append`, file names carry the local time to the microsecond, so if two workers emit in the same microsecond, one event overwrites the other.
 - Diff two runs with the stdlib-only `mloda.community.extenders.openlineage.run_diff`:
 
   ```python
