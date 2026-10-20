@@ -51,7 +51,13 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
-from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
+from mloda.community.extenders.openlineage._facets import (
+    MlodaDataAccessFacet,
+    MlodaDeclaredDatasetFacet,
+    MlodaPlanRunFacet,
+    MlodaStepRunFacet,
+    MlodaTraceRunFacet,
+)
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
 from mloda.community.extenders.openlineage.run_diff import read_runs
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
@@ -503,6 +509,41 @@ class TestOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
         client = OpenLineageClient(transport=BufferingFileTransport(marker_path))
         extender = self.make_openlineage_extender(client)
         return extender, marker_path
+
+
+class TestOpenLineageFacetSchemaUrl:
+    """The facet schemaURL names the module at the installed release tag, falling back to main."""
+
+    @pytest.mark.parametrize(
+        "facet_class",
+        [MlodaDataAccessFacet, MlodaDeclaredDatasetFacet, MlodaPlanRunFacet, MlodaStepRunFacet, MlodaTraceRunFacet],
+    )
+    def test_schema_url_names_the_module_at_the_installed_release_tag(self, facet_class: Any) -> None:
+        version = importlib.metadata.version("mloda-community-openlineage")
+        expected = (
+            f"https://github.com/mloda-ai/mloda-registry/blob/{version}/"
+            "mloda/community/extenders/openlineage/_facets.py"
+        )
+
+        url = facet_class._get_schema()
+
+        assert url == expected
+        assert "/blob/main/" not in url
+
+    @pytest.mark.parametrize("failure", ["raise", "empty"])
+    def test_versioned_schema_url_falls_back_to_main(self, failure: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mloda.community.extenders.openlineage._facets import versioned_schema_url
+
+        def version(name: str) -> str:
+            if failure == "raise":
+                raise importlib.metadata.PackageNotFoundError(name)
+            return ""
+
+        monkeypatch.setattr(importlib.metadata, "version", version)
+
+        assert versioned_schema_url("some-dist", "pkg/mod.py") == (
+            "https://github.com/mloda-ai/mloda-registry/blob/main/pkg/mod.py"
+        )
 
 
 class TestOpenLineageExtenderPriority:

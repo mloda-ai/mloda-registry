@@ -15,6 +15,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.event_v2 import InputDataset, Job
 from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_quality_assertions_dataset
 
+from mloda.community.extenders.openlineage._facets import versioned_schema_url
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, owner_name
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
@@ -31,9 +32,7 @@ require_matching_community()
 logger = logging.getLogger(__name__)
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
-_SCHEMA_URL = (
-    "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/lineage/lineage_extender.py"
-)
+_SCHEMA_URL = versioned_schema_url("mloda-enterprise", "mloda/enterprise/extenders/lineage/lineage_extender.py")
 _STEP_LEVEL_DESCRIPTION = "step-level declared inputs"
 _MASKING = MASKING_ATTRIBUTE
 _SOURCE_COLUMN = "lineage_source_column"

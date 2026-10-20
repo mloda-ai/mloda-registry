@@ -406,7 +406,7 @@ Validate-output assertions ride on input datasets of the `<feature group>.valida
 
 An option (`masking`, `lineage_source_column`) counts only when it is the step's own: declared in the feature's `context` before mloda starts resolving it (core's `Options.own_context_keys`). A key the step only received never counts, whether forwarded (`propagate_context_keys`, `inherit_context_keys`) or written by a feature group while matching. A `PROPERTY_MAPPING` default is filled in by core, so it never counts either; use the class attribute for a class-wide declaration. A key the step declares itself counts even when its consumer holds or forwards the same value. A consumer that hands its `Options` (or a copy) to an input feature declares its own keys on that input too, so build a new `Options` for inputs to keep them apart. When several consumers request the same feature, a key is own if any request declared it, so `declaredMasking` and `structureHash` do not depend on which consumer core kept.
 
-The `mloda` facet's schema URL points at its module in this repository; it is not a hosted JSON schema.
+The `_schemaURL` of the `mloda` facet and of the community `mloda*` facets points at the facet's module in this repository at the installed release tag (`.../blob/<version>/...`), so a facet shape change between releases changes the URL; it is not a hosted JSON schema. An uninstalled source checkout names `main`, and an install built from unreleased code names the last release. Upgrade note: the URL changes on every release, so match on the module path and read the tag as the facet version.
 
 ## Testing
 

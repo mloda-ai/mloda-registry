@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import importlib.metadata
+
 import attr
 
 from openlineage.client.facet_v2 import DatasetFacet, RunFacet
 
-_SCHEMA_URL = "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/_facets.py"
+
+def versioned_schema_url(distribution: str, module_path: str) -> str:
+    """Return the GitHub URL of module_path at the installed release tag of distribution, or main if unknown."""
+    try:
+        ref = importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        ref = ""
+    return f"https://github.com/mloda-ai/mloda-registry/blob/{ref or 'main'}/{module_path}"
+
+
+# The release tag pins the facet shape a stored event names.
+_SCHEMA_URL = versioned_schema_url("mloda-community-openlineage", "mloda/community/extenders/openlineage/_facets.py")
 
 
 @attr.define
