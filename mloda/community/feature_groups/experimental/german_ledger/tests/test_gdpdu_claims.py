@@ -83,6 +83,7 @@ def test_collision_gate() -> None:
 
     facts = run_isolated("collision")
     assert facts["matched"] == "FeatureResolutionError", facts
+    assert facts["resolution"], facts
 
 
 def test_plugin_loader_all() -> None:
@@ -96,6 +97,7 @@ def test_plugin_loader_all() -> None:
     """
     facts = run_isolated("plugin_loader_all")
     assert facts["matched"] == "FeatureResolutionError", facts
+    assert facts["resolution"], facts
     claimants = " ".join(facts["claimants"])
     assert "ReadDocumentFeature" in claimants, "the second claimant must be the stock document family"
     assert "SkrAccountFeatureGroup" in claimants and "TextFileReader" in claimants, facts["claimants"]
@@ -941,11 +943,12 @@ def test_profile_shadowing_refuses_instead_of_answering_wrongly() -> None:
     """
     facts = run_isolated("profile_shadow")
     shadow, third = facts["shadow"], facts["third"]
-    assert shadow["raised"] and shadow["exc"] != "FeatureResolutionError", shadow
+    assert shadow["raised"] and not shadow["resolution"], shadow
     assert shadow["matched"] == "NoProfileForDossier" and shadow["root"] == "NoProfileForDossier", shadow
     assert "Konto" in shadow["message"], shadow["message"]
     # two is the dangerous count precisely because three is the loud one
     assert third["matched"] == "FeatureResolutionError", third
+    assert third["resolution"], third
     assert "Multiple feature groups found" in third["first_line"], third
 
 

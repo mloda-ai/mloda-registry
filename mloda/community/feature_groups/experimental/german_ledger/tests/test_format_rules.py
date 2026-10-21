@@ -119,6 +119,7 @@ def test_one_host_reads_both_formats_end_to_end() -> None:
     assert facts["datev"] == "22485.06", facts
     open_datev = facts["open_datev"]
     assert open_datev["matched"] == "InadmissibleTotal", open_datev
+    assert open_datev["root"] == "InadmissibleTotal", open_datev
     assert "outside=datev.festschreibung" in open_datev["message"], open_datev
 
 

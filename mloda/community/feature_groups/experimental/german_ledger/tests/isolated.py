@@ -49,6 +49,7 @@ FIX = Path(__file__).parent / "fixtures"
 
 def run_isolated(name: str) -> dict[str, Any]:
     """Run the `name` scenario in a fresh interpreter and return the JSON it prints."""
+    assert name.isidentifier(), name
     code = f"import json; from {__name__} import {name}; print(json.dumps({name}(), default=str))"
     # Runs our own scenario functions, not external input.
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)  # nosec B603
@@ -74,6 +75,7 @@ def _attempt(call: Callable[[], Any], wanted: type[BaseException] | None = None)
             "raised": True,
             "matched": wanted.__name__ if hit is not None and wanted is not None else None,
             "exc": type(exc).__name__,
+            "resolution": isinstance(exc, FeatureResolutionError),
             "root": type(root).__name__,
             "message": str(root),
             "first_line": str(exc).splitlines()[0] if str(exc) else "",
