@@ -213,18 +213,37 @@ def parse_descriptor(index_path: str) -> TableSpec:
     return parse_descriptor_bytes(Path(index_path).read_bytes(), index_path)
 
 
+class _EntityRefusal(ValueError):
+    """The descriptor declares an XML entity."""
+
+
 def _refuse_entities(descriptor: bytes, index_path: str) -> None:
-    """Raise ValueError if the descriptor declares any XML entity; malformed XML is left to the main parse."""
+    """Raise ValueError on a declared XML entity or an undecodable encoding; malformed XML is left to the main parse."""
 
     def _refuse(*_: object) -> None:
-        raise ValueError(f"{index_path}: the descriptor declares XML entities; refused, a GDPdU descriptor needs none")
+        raise _EntityRefusal(
+            f"{index_path}: the descriptor declares XML entities; refused, a GDPdU descriptor needs none"
+        )
+
+    declared: str | None = None
+
+    def _record(version: str | None, encoding: str | None, standalone: int) -> None:
+        nonlocal declared
+        declared = encoding
 
     parser = expat.ParserCreate()
     parser.EntityDeclHandler = _refuse
+    parser.XmlDeclHandler = _record
     try:
         parser.Parse(descriptor, True)
     except expat.ExpatError:
         return
+    except _EntityRefusal:
+        raise
+    except (LookupError, ValueError) as exc:
+        raise ValueError(
+            f"{index_path}: the descriptor declares encoding {declared!r}, which this reader cannot decode ({exc})"
+        ) from exc
 
 
 def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
@@ -239,14 +258,9 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
         <!ELEMENT Numeric ((ImpliedAccuracy | Accuracy)?)>
         <!ELEMENT Date (Format?)>
     """
-    # A dossier is third-party input. Any entity declaration is refused before the stdlib parse
-    # (the mechanics of an XML bomb); the external GDPdU DTD the DOCTYPE names is never fetched.
-    try:
-        _refuse_entities(descriptor, index_path)
-    except LookupError as exc:
-        raise ValueError(
-            f"{index_path}: the descriptor declares an encoding this reader cannot decode ({exc})"
-        ) from exc
+    # A dossier is third-party input. Entity declarations are refused (the mechanics of an XML bomb),
+    # as is an undecodable encoding; the external GDPdU DTD the DOCTYPE names is never fetched.
+    _refuse_entities(descriptor, index_path)
     root = ET.fromstring(descriptor)  # nosec B314
     tables = root.findall(".//Table")
     if not tables:
