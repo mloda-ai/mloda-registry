@@ -6,7 +6,9 @@ Imported lazily by the tests that run the full chain: importing it is what makes
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
+from typing import Any
 
 from mloda.user import PluginCollector
 
@@ -47,3 +49,26 @@ def _cause(exc: BaseException, kind: type[BaseException]) -> BaseException | Non
             return seen
         seen = seen.__cause__ or seen.__context__
     return None
+
+
+class ListSink:
+    """An audit sink collecting every record."""
+
+    def __init__(self) -> None:
+        self.records: list[dict[str, Any]] = []
+
+    def write(self, record: Mapping[str, Any]) -> None:
+        self.records.append(dict(record))
+
+
+def audit_gate(sink: ListSink, clearance: str) -> Any:
+    """A fail-closed audit gate granting `clearance`; needs the enterprise audit package."""
+    from mloda.enterprise.extenders.audit import AuditExtender, ClassificationPolicy
+
+    return AuditExtender(
+        sink=sink,
+        fail_closed=True,
+        required_identity=("tenant_id", "principal"),
+        policy_version="german-ledger-test",
+        classification=ClassificationPolicy(clearance=lambda tenant, principal: clearance, undeclared="public"),
+    )
