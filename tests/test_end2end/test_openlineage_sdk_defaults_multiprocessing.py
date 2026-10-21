@@ -70,6 +70,8 @@ def test_use_sdk_defaults_client_emits_inside_the_spawned_worker(
 PARENT_GRACE = 30.0
 # Below PARENT_GRACE minus core's graceful_shutdown_timeout, so the worker watchdog never races the parent's.
 WORKER_GRACE = 15.0
+# The worker's wait must outlast this, so a late SIGTERM fails as a timeout instead of a completed run (exit 0).
+RUN_TIMEOUT = 120.0
 
 _SIGTERM_TRANSPORT_MODULE = """
 import json, os
@@ -110,6 +112,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, Sp
 
 PARENT_GRACE = __PARENT_GRACE__
 WORKER_GRACE = __WORKER_GRACE__
+RUN_TIMEOUT = __RUN_TIMEOUT__
 
 
 class MlodaTestingSigtermSleeper(FeatureGroup):
@@ -129,7 +132,7 @@ class MlodaTestingSigtermSleeper(FeatureGroup):
     def calculate_feature(cls, data, features):
         print("ready", flush=True)
         # short sleeps: see run_until_ready_then_sigterm
-        for _ in range(1200):
+        for _ in range(int(RUN_TIMEOUT * 10)):
             time.sleep(0.1)
         return {"sigterm_sleeping": [1]}
 
@@ -184,9 +187,9 @@ def test_sigterm_to_parent_aborts_the_worker_step_only_when_the_worker_installs_
     pytest.importorskip("opentelemetry.sdk")
     script = tmp_path / "sigterm_multiprocessing_child.py"
     script.write_text(
-        _SIGTERM_MULTIPROCESSING_CHILD.replace("__PARENT_GRACE__", repr(PARENT_GRACE)).replace(
-            "__WORKER_GRACE__", repr(WORKER_GRACE)
-        ),
+        _SIGTERM_MULTIPROCESSING_CHILD.replace("__PARENT_GRACE__", repr(PARENT_GRACE))
+        .replace("__WORKER_GRACE__", repr(WORKER_GRACE))
+        .replace("__RUN_TIMEOUT__", repr(RUN_TIMEOUT)),
         encoding="utf-8",
     )
     (tmp_path / "sigterm_transport.py").write_text(_SIGTERM_TRANSPORT_MODULE, encoding="utf-8")
@@ -196,7 +199,7 @@ def test_sigterm_to_parent_aborts_the_worker_step_only_when_the_worker_installs_
     env["MLODA_TEST_WORKER_HANDLER"] = "1" if worker_handler else "0"
     env["OPENLINEAGE__TRANSPORT__TYPE"] = "sigterm_transport.SigtermTransport"
 
-    returncode, output = run_until_ready_then_sigterm([sys.executable, str(script)], env=env, timeout=120)
+    returncode, output = run_until_ready_then_sigterm([sys.executable, str(script)], env=env, timeout=RUN_TIMEOUT)
 
     assert returncode == 143, output
     events = [json.loads(line) for line in (tmp_path / "events.ndjson").read_text(encoding="utf-8").splitlines()]

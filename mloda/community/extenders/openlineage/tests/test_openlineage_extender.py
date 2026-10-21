@@ -57,6 +57,7 @@ from mloda.community.extenders.openlineage._facets import (
     MlodaPlanRunFacet,
     MlodaStepRunFacet,
     MlodaTraceRunFacet,
+    versioned_schema_url,
 )
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
 from mloda.community.extenders.openlineage.run_diff import read_runs
@@ -520,10 +521,11 @@ class TestOpenLineageFacetSchemaUrl:
     )
     def test_schema_url_names_the_module_at_the_installed_release_tag(self, facet_class: Any) -> None:
         version = importlib.metadata.version("mloda-community-openlineage")
-        expected = (
-            f"https://github.com/mloda-ai/mloda-registry/blob/{version}/"
-            "mloda/community/extenders/openlineage/_facets.py"
-        )
+        module_path = facet_class.__module__.replace(".", "/") + ".py"
+        expected = f"https://github.com/mloda-ai/mloda-registry/blob/{version}/{module_path}"
+        repo_root = Path(__file__).resolve().parents[5]
+
+        assert (repo_root / module_path).is_file()
 
         url = facet_class._get_schema()
 
@@ -532,8 +534,6 @@ class TestOpenLineageFacetSchemaUrl:
 
     @pytest.mark.parametrize("failure", ["raise", "empty"])
     def test_versioned_schema_url_falls_back_to_main(self, failure: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        from mloda.community.extenders.openlineage._facets import versioned_schema_url
-
         def version(name: str) -> str:
             if failure == "raise":
                 raise importlib.metadata.PackageNotFoundError(name)

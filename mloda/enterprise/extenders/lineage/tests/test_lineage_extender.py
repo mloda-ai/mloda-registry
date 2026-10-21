@@ -2008,11 +2008,11 @@ class TestLineageFacetsRunFacet:
     def test_schema_url_names_the_module_at_the_installed_release_tag(self) -> None:
         url = MlodaRunFacet._get_schema()
         version = importlib.metadata.version("mloda-enterprise")
-        expected = (
-            f"https://github.com/mloda-ai/mloda-registry/blob/{version}/"
-            "mloda/enterprise/extenders/lineage/lineage_extender.py"
-        )
+        module_path = MlodaRunFacet.__module__.replace(".", "/") + ".py"
+        expected = f"https://github.com/mloda-ai/mloda-registry/blob/{version}/{module_path}"
+        repo_root = Path(__file__).resolve().parents[5]
 
+        assert (repo_root / module_path).is_file()
         assert url.startswith("https://")
         assert "mloda/enterprise/extenders/lineage" in url
         assert url != "https://openlineage.io/spec/2-0-2/OpenLineage.json#/$defs/RunFacet"
