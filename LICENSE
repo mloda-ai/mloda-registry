@@ -2,8 +2,8 @@ mloda-registry Licensing
 
 This repository contains code under two different licenses:
 
-APACHE 2.0 (everything except mloda/enterprise/ and the third-party material listed in NOTICE.md)
-=================================================================================================
+APACHE 2.0 (everything except mloda/enterprise/ and the third-party material listed in THIRD_PARTY_NOTICES.md)
+=============================================================================================================
 Licensed under the Apache License, Version 2.0.
 You may freely use, modify, and distribute this code.
 See: LICENSE-APACHE

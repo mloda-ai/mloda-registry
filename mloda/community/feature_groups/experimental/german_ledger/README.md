@@ -218,4 +218,4 @@ its own.
 
 The other third-party DATEV files are not committed: not all of them are licensed for
 redistribution. The ledermann sample in `tests/fixtures/` is MIT: its NOTICE carries the
-license text, and the root `NOTICE.md` lists it as third-party material.
+license text, and the root `THIRD_PARTY_NOTICES.md` lists it.
