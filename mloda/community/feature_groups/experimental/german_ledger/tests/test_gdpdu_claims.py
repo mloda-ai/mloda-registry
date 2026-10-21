@@ -294,6 +294,59 @@ def test_the_published_attributes_equal_the_basis_column_on_a_run() -> None:
     ], seen
 
 
+@pytest.mark.parametrize("extender", ["community", "enterprise"])
+def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(extender: str) -> None:
+    """A policy verdict and a catalogue reach the mlodaDeclared output facet of both extenders."""
+    pytest.importorskip("openlineage.client")
+    extender_cls: Any
+    if extender == "enterprise":
+        pytest.importorskip("mloda.enterprise.extenders.lineage")
+        from mloda.enterprise.extenders.lineage import LineageFacetsExtender
+
+        extender_cls = LineageFacetsExtender
+    else:
+        from mloda.community.extenders.openlineage import OpenLineageExtender
+
+        extender_cls = OpenLineageExtender
+    from openlineage.client.event_v2 import RunEvent, RunState
+
+    from mloda.community.extenders.openlineage._facets import MlodaDeclaredDatasetFacet
+    from mloda.testing.extenders.openlineage import make_recording_client
+
+    dossier = FIX / "twin_2025" / "gdpdu"
+    [stamp] = set(
+        Closing2025.clear(GdpduReader.load_data(str(dossier), FeatureSet())).column(ADMISSIBILITY_COLUMN).to_pylist()
+    )
+    client, transport = make_recording_client()
+
+    mloda.run_all(
+        ["revenue__sources"],
+        compute_frameworks=[PyArrowTable],
+        data_access_collection=DataAccessCollection(folders={str(dossier)}),
+        plugin_collector=PLUGINS,
+        function_extender={extender_cls(client=client)},
+    )
+
+    def complete(group: type) -> RunEvent:
+        job = f"{group.__module__}.{group.__qualname__}"
+        (event,) = [e for e in transport.events if e.job.name == job and e.eventType == RunState.COMPLETE]
+        return event
+
+    def assert_declared(event: RunEvent, expected: dict[str, Any]) -> None:
+        assert event.outputs
+        for output in event.outputs:
+            declared = (output.facets or {}).get("mlodaDeclared")
+            assert isinstance(declared, MlodaDeclaredDatasetFacet)
+            assert declared.attributes == expected
+            assert declared.conflicts == []
+
+    assert_declared(complete(Closing2025), {"policy.verdict": stamp})
+
+    declared_skr = SkrAccountFeatureGroup.declared_attributes(None)
+    assert {"chart", "catalogue", "catalogue.fingerprint"} <= set(declared_skr)
+    assert_declared(complete(SkrAccountFeatureGroup), declared_skr)
+
+
 def test_guard_fails_closed_without_second_clock() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "no_clock"
@@ -907,6 +960,77 @@ def test_a_reader_subclass_declaring_internal_is_the_classification_remedy() -> 
         pytest.skip(proof.stdout.strip())
     assert proof.returncode == 0, proof.stdout + proof.stderr[-2000:]
     assert "REMEDY: a reader subclass declaring internal runs under clearance internal" in proof.stdout, proof.stdout
+
+
+class _ListSink:
+    """A minimal audit sink collecting every record."""
+
+    def __init__(self) -> None:
+        self.records: list[dict[str, Any]] = []
+
+    def write(self, record: Any) -> None:
+        self.records.append(dict(record))
+
+
+def _qualname(cls: type) -> str:
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _audited_run(fmt: str, clearance: str, sink: _ListSink) -> None:
+    """Run the `fmt` twin dossier through an audit gate granting `clearance`."""
+    pytest.importorskip("mloda.enterprise.extenders.audit")
+    from mloda.steward import verified_context
+
+    from mloda.enterprise.extenders.audit import AuditExtender, ClassificationPolicy
+
+    gate = AuditExtender(
+        sink=sink,
+        fail_closed=True,
+        required_identity=("tenant_id", "principal"),
+        policy_version="german-ledger-test",
+        classification=ClassificationPolicy(clearance=lambda tenant, principal: clearance, undeclared="public"),
+    )
+    with verified_context(tenant_id="t", principal="svc"):
+        mloda.run_all(
+            ["revenue__sources"],
+            compute_frameworks=[PyArrowTable],
+            data_access_collection=DataAccessCollection(folders={str(FIX / "twin_2025" / fmt)}),
+            plugin_collector=PLUGINS,
+            function_extender={gate},
+        )
+
+
+@pytest.mark.parametrize("fmt", ["gdpdu", "datev"])
+def test_a_reader_above_clearance_is_refused_at_plan_time(fmt: str) -> None:
+    """The german_ledger readers declare `confidential`; the gate refuses them below that clearance."""
+    from mloda.steward import FeatureResolutionError
+
+    from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+
+    sink = _ListSink()
+
+    with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
+        _audited_run(fmt, "internal", sink)
+
+    denies = [r for r in sink.records if r["decision"] == "deny" and r["hook"] == "INPUT_DATA_MATCH"]
+    assert {r["deny_reason"] for r in denies} == {"classification_above_clearance"}
+    assert {r["classification"] for r in denies} == {"confidential"}
+    # core probes every candidate reader, so both declare and both are denied
+    assert {r["reader_class"] for r in denies} == {_qualname(GdpduReader), _qualname(DatevExtfReader)}
+
+
+def test_a_confidential_clearance_runs_the_gdpdu_dossier() -> None:
+    from mloda.steward import ExtenderHook
+
+    sink = _ListSink()
+
+    _audited_run("gdpdu", "confidential", sink)
+
+    records = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+    assert records
+    for record in records:
+        assert record["decision"] == "allow"
+        assert record["classification"] == "confidential"
 
 
 def test_removing_the_admissibility_policy_yields_no_number() -> None:
