@@ -12,6 +12,7 @@ from typing import Any
 from xml.etree.ElementTree import ParseError  # nosec B405
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import Options
 
 from mloda.community.feature_groups.experimental.german_ledger.reader import (
@@ -29,6 +30,10 @@ BOMB = b"""<?xml version="1.0"?>
   <!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">
 ]>
 <DataSet><Media><Table><URL>&b;</URL></Table></Media></DataSet>
+"""
+
+UNKNOWN_ENCODING = b"""<?xml version="1.0" encoding="bogus"?>
+<DataSet><Media><Table><URL>GL.txt</URL></Table></Media></DataSet>
 """
 
 
@@ -61,6 +66,13 @@ def test_a_malformed_descriptor_keeps_its_parse_error_type() -> None:
         parse_descriptor_bytes(b"<DataSet><Media>", "index.xml")
 
 
+def test_an_unknown_declared_encoding_is_refused_by_name(tmp_path: Path) -> None:
+    """An encoding Python does not know raises a ValueError naming it, not pyexpat's LookupError."""
+    (tmp_path / "index.xml").write_bytes(UNKNOWN_ENCODING)
+    with pytest.raises(ValueError, match="bogus"):
+        GdpduReader.load_data(str(tmp_path), FeatureSet())
+
+
 def test_a_descriptor_naming_the_gdpdu_dtd_still_parses() -> None:
     """GDPdU descriptors routinely carry <!DOCTYPE DataSet SYSTEM "gdpdu-01-09-2004.dtd">."""
     raw = (DOSSIER_A / "index.xml").read_bytes()
@@ -68,9 +80,10 @@ def test_a_descriptor_naming_the_gdpdu_dtd_still_parses() -> None:
     assert "Konto" in parse_descriptor_bytes(raw, "index.xml").columns
 
 
-def test_the_identity_of_a_bomb_dossier_is_still_a_name(tmp_path: Path) -> None:
+@pytest.mark.parametrize("raw", [BOMB, UNKNOWN_ENCODING], ids=["bomb", "unknown_encoding"])
+def test_the_identity_of_a_refused_descriptor_is_still_a_name(tmp_path: Path, raw: bytes) -> None:
     """data_access_identity never raises: a refused descriptor still gets a name."""
-    (tmp_path / "index.xml").write_bytes(BOMB)
+    (tmp_path / "index.xml").write_bytes(raw)
     assert GdpduReader.data_access_identity(str(tmp_path)) == f"gdpdu:{tmp_path.name}"
 
 
