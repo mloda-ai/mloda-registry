@@ -4628,6 +4628,9 @@ class SigtermTransport(Transport):
         return True
 """
 
+# The child's wait must outlast this, so a late SIGTERM fails as a timeout instead of a completed run (exit 0).
+_SIGTERM_RUN_TIMEOUT = 120.0
+
 _SIGTERM_CHILD = """
 import sys, time
 import pyarrow as pa
@@ -4636,6 +4639,8 @@ from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.community.extenders.shared import termination
+
+RUN_TIMEOUT = __RUN_TIMEOUT__
 
 
 class SigtermSleepingFeature(FeatureGroup):
@@ -4655,7 +4660,7 @@ class SigtermSleepingFeature(FeatureGroup):
     def calculate_feature(cls, data, features):
         print("ready", flush=True)
         # short sleeps: see run_until_ready_then_sigterm
-        for _ in range(1200):
+        for _ in range(int(RUN_TIMEOUT * 10)):
             time.sleep(0.1)
         return {"sigterm_sleeping": [1]}
 
@@ -4681,7 +4686,11 @@ class TestOpenLineageExtenderSigterm:
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(tmp_path), env.get("PYTHONPATH")]))
         env["MLODA_TEST_OL_DIR"] = str(tmp_path)
         env["OPENLINEAGE__TRANSPORT__TYPE"] = "sigterm_transport.SigtermTransport"
-        returncode, _ = run_until_ready_then_sigterm([sys.executable, "-c", _SIGTERM_CHILD], env=env, timeout=120)
+        returncode, _ = run_until_ready_then_sigterm(
+            [sys.executable, "-c", _SIGTERM_CHILD.replace("__RUN_TIMEOUT__", repr(_SIGTERM_RUN_TIMEOUT))],
+            env=env,
+            timeout=_SIGTERM_RUN_TIMEOUT,
+        )
 
         assert returncode == 143
         events = [json.loads(raw) for raw in (tmp_path / "events.ndjson").read_text(encoding="utf-8").splitlines()]

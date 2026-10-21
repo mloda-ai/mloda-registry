@@ -15,16 +15,19 @@ from mloda.testing.extenders.runners import run_until_ready_then_sigterm
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
 
+# The child's wait must outlast this, so a late SIGTERM fails as a timeout instead of a completed run (exit 0).
 _TIMEOUT = 60.0
 
 _PRELUDE = """
 import atexit, os, signal, sys, time
 from mloda.community.extenders.shared import termination
 
+RUN_TIMEOUT = __RUN_TIMEOUT__
+
 def _ready():
     print("ready", flush=True)
     # short sleeps: a SIGTERM landing just before a long sleep starts is only handled when it ends
-    for _ in range(1200):
+    for _ in range(int(RUN_TIMEOUT * 10)):
         time.sleep(0.1)
 """
 
@@ -82,9 +85,8 @@ _ready()
 
 
 def _run(case: str, marker: Path | None = None) -> tuple[int, str]:
-    code, out = run_until_ready_then_sigterm(
-        [sys.executable, "-c", textwrap.dedent(_PRELUDE + _CASES[case]), str(marker)], timeout=_TIMEOUT
-    )
+    script = textwrap.dedent(_PRELUDE + _CASES[case]).replace("__RUN_TIMEOUT__", repr(_TIMEOUT))
+    code, out = run_until_ready_then_sigterm([sys.executable, "-c", script, str(marker)], timeout=_TIMEOUT)
     return code, out
 
 
