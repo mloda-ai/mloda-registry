@@ -296,7 +296,6 @@ def test_the_published_attributes_equal_the_basis_column_on_a_run() -> None:
 
 @pytest.mark.parametrize("extender", ["community", "enterprise"])
 def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(extender: str) -> None:
-    """A policy verdict and a catalogue reach the mlodaDeclared output facet of both extenders."""
     pytest.importorskip("openlineage.client")
     extender_cls: Any
     if extender == "enterprise":
@@ -963,8 +962,6 @@ def test_a_reader_subclass_declaring_internal_is_the_classification_remedy() -> 
 
 
 class _ListSink:
-    """A minimal audit sink collecting every record."""
-
     def __init__(self) -> None:
         self.records: list[dict[str, Any]] = []
 
@@ -977,7 +974,6 @@ def _qualname(cls: type) -> str:
 
 
 def _audited_run(fmt: str, clearance: str, sink: _ListSink) -> None:
-    """Run the `fmt` twin dossier through an audit gate granting `clearance`."""
     pytest.importorskip("mloda.enterprise.extenders.audit")
     from mloda.steward import verified_context
 
