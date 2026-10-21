@@ -31,7 +31,7 @@ def _declared(owner: Any) -> int | None:
 
 def feature_classifications(steps: Iterable[PlanStep], *, undeclared: str) -> dict[str, str]:
     """Effective level of every compute output: its declared level or the most restrictive input, unless a masking
-    group (class attribute `masking is True`) that declares its own level lowers it to exactly that level."""
+    group (class attribute `masking is True`) that declares its own level caps it at that level."""
     undeclared_rank = _rank(undeclared, "undeclared")
     producers: dict[str, list[PlanStep]] = {}
     for step in steps:
@@ -46,14 +46,18 @@ def feature_classifications(steps: Iterable[PlanStep], *, undeclared: str) -> di
         group = step.feature_group
         group_rank = None if group is None else _declared(group)
         ranks = [rank for rank in (group_rank,) if rank is not None]
+        reader_rank = None
         if step.reader_data_access is not None:
             reader_rank = _declared(step.reader_data_access[0])
             if reader_rank is not None:
                 ranks.append(reader_rank)
+        sources = [resolve(source) for source in step.input_feature_edges.get(name, ())]
         if group_rank is not None and getattr(group, MASKING_ATTRIBUTE, None) is True:
-            return group_rank
+            if step.reader_data_access is not None:
+                sources.append(reader_rank if reader_rank is not None else len(LEVELS))
+            return min(group_rank, max(sources)) if sources else group_rank
         own = max(ranks) if ranks else undeclared_rank
-        return max([own, *(resolve(source) for source in step.input_feature_edges.get(name, ()))])
+        return max([own, *sources])
 
     def resolve(name: str) -> int:
         if name in resolved:

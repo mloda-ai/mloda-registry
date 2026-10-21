@@ -75,6 +75,16 @@ class _InternalReader(BaseInputData):
         return declaring("internal")
 
 
+class _PublicReader(BaseInputData):
+    @classmethod
+    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
+        return declaring("public")
+
+
+class _UndeclaredReader(BaseInputData):
+    pass
+
+
 def _derived(group: type[FeatureGroup], name: str, source: str) -> PlanStep:
     return classified_step(group, (name,), {name: (source,)})
 
@@ -152,6 +162,63 @@ def test_a_masking_group_lowers_to_its_own_declared_level() -> None:
         "masked": "internal",
         "after": "internal",
     }
+
+
+@pytest.mark.parametrize("group, expected", [(_Public, "public"), (InternalGroup, "internal"), (PiiGroup, "internal")])
+def test_a_masking_group_caps_the_level_of_its_input(group: type[FeatureGroup], expected: str) -> None:
+    steps = [classified_step(group, ("raw",)), _derived(_Masking, "masked", "raw")]
+
+    assert feature_classifications(steps, undeclared="public")["masked"] == expected
+
+
+def test_a_masking_group_caps_the_most_restrictive_of_several_inputs() -> None:
+    steps = [
+        classified_step(_Public, ("a",)),
+        classified_step(PiiGroup, ("b",)),
+        classified_step(_Masking, ("m",), {"m": ("a", "b")}),
+    ]
+
+    assert feature_classifications(steps, undeclared="public")["m"] == "internal"
+
+
+def test_a_masking_group_over_an_undeclared_input_caps_the_undeclared_level() -> None:
+    steps = [classified_step(_Undeclared, ("raw",)), _derived(_Masking, "masked", "raw")]
+
+    assert feature_classifications(steps, undeclared="public")["masked"] == "public"
+
+
+@pytest.mark.parametrize("reader, expected", [(_PublicReader, "public"), (_UndeclaredReader, "internal")])
+def test_a_masking_group_caps_the_level_of_its_reader(reader: type[BaseInputData], expected: str) -> None:
+    steps = [classified_step(_Masking, ("a",), reader=reader)]
+
+    assert feature_classifications(steps, undeclared="public") == {"a": expected}
+
+
+def test_a_reader_declaring_nothing_is_unbounded_even_with_a_public_input() -> None:
+    steps = [
+        classified_step(_Public, ("raw",)),
+        classified_step(_Masking, ("m",), {"m": ("raw",)}, reader=_UndeclaredReader),
+    ]
+
+    assert feature_classifications(steps, undeclared="public")["m"] == "internal"
+
+
+def test_a_masking_root_step_without_reader_or_inputs_gets_its_own_level() -> None:
+    result = feature_classifications([classified_step(_Masking, ("a",))], undeclared="public")
+
+    assert result == {"a": "internal"}
+
+
+def test_a_masking_group_over_an_input_without_a_producer_raises_naming_the_feature() -> None:
+    with pytest.raises(ValueError, match="ghost"):
+        feature_classifications([_derived(_Masking, "m", "ghost")], undeclared="public")
+
+
+def test_a_masking_output_depending_on_itself_raises() -> None:
+    steps = [classified_step(PiiGroup, ("a",)), classified_step(_Masking, ("a",), {"a": ("a",)})]
+
+    with pytest.raises(ValueError):
+        feature_classifications(steps, undeclared="public")
 
 
 def test_masking_without_its_own_level_lowers_nothing() -> None:
