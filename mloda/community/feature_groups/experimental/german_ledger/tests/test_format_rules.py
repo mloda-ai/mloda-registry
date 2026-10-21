@@ -7,12 +7,10 @@ rule judges only its own format's rows and does not apply to the others; a row t
 applies to is refused, because nothing vouched for it. The format of a row is read from its
 citation: a DATEV citation always names a leg, a GDPdU citation never does.
 
-These tests call `apply_rules` directly; the chain is proven in proofs/proof_format_rules.py.
+These tests call `apply_rules` directly; the chain is proven in isolated.format_rules.
 """
 
 import shutil
-import subprocess  # nosec
-import sys
 from datetime import date
 from pathlib import Path
 
@@ -36,6 +34,7 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
 )
 
 from ._host import TestClosing2025 as Closing2025
+from .isolated import run_isolated
 
 HERE = Path(__file__).parent
 FIX = HERE / "fixtures"
@@ -115,12 +114,12 @@ def test_a_rule_scoped_twice_to_one_format_is_one_kind() -> None:
 
 def test_one_host_reads_both_formats_end_to_end() -> None:
     """Its own process: the mixed host's policy registers process-wide."""
-    script = str(HERE / "proofs" / "proof_format_rules.py")
-    proof = subprocess.run([sys.executable, script], capture_output=True, text=True)  # nosec B603
-    assert proof.returncode == 0, proof.stdout + proof.stderr[-2000:]
-    assert "GDPdU:  revenue 22485.06" in proof.stdout, proof.stdout
-    assert "DATEV:  revenue 22485.06" in proof.stdout, proof.stdout
-    assert "OPEN DATEV: InadmissibleTotal" in proof.stdout, proof.stdout
+    facts = run_isolated("format_rules")
+    assert facts["gdpdu"] == "22485.06", facts
+    assert facts["datev"] == "22485.06", facts
+    open_datev = facts["open_datev"]
+    assert open_datev["matched"] == "InadmissibleTotal", open_datev
+    assert "outside=datev.festschreibung" in open_datev["message"], open_datev
 
 
 def test_a_policy_with_scoped_rules_declares_the_stamp_every_admitted_row_carries(

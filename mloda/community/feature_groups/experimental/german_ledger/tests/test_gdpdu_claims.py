@@ -1,13 +1,10 @@
 """GDPdU claims: each test pins one claim the package makes.
 
-The subprocess proofs live in proofs/: each one registers classes process-wide, so it runs
-in its own process.
+The scenarios in isolated.py register classes process-wide, so each runs in a fresh process.
 """
 
 import json
 import shutil
-import subprocess  # nosec
-import sys
 import tempfile
 from datetime import date
 from decimal import Decimal
@@ -36,9 +33,9 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import So
 
 from ._host import PLUGINS, ListSink, audit_gate, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
+from .isolated import run_isolated
 
 HERE = Path(__file__).parent
-PROOFS = HERE / "proofs"
 
 
 def _without_column(xml: str, name: str) -> str:
@@ -75,13 +72,6 @@ def _drop_column(dossier: Path, name: str) -> None:
 FIX = HERE / "fixtures"
 
 
-def _run_proof(name: str) -> "subprocess.CompletedProcess[str]":
-    """Run one proofs/<name>.py in its own process: each registers classes process-wide."""
-    # Runs our own proof scripts, not external input.
-    script = str(PROOFS / f"{name}.py")
-    return subprocess.run([sys.executable, script], capture_output=True, text=True)  # nosec B603
-
-
 def test_collision_gate() -> None:
     """The gate is load-bearing, and the failure it prevents is reproducible."""
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue", Options()) is True
@@ -91,8 +81,8 @@ def test_collision_gate() -> None:
     assert JournalFeatureGroup.match_feature_group_criteria("gdpdu_journal", Options(), dossier) is True
     assert JournalFeatureGroup.match_feature_group_criteria("revenue__sources", Options(), dossier) is False
 
-    proof = _run_proof("proof_collision")
-    assert proof.returncode == 0 and "COLLISION REPRODUCED" in proof.stdout, proof.stdout + proof.stderr
+    facts = run_isolated("collision")
+    assert facts["matched"] == "FeatureResolutionError", facts
 
 
 def test_plugin_loader_all() -> None:
@@ -104,11 +94,11 @@ def test_plugin_loader_all() -> None:
     are only discovered through PluginLoader.all(), so this is the packaged path, not an
     edge case. When #1745 lands upstream this fails on purpose: flip it to assert the total.
     """
-    proof = _run_proof("proof_plugin_loader_all")
-    assert proof.returncode == 0, proof.stdout + proof.stderr
-    assert "COLLISION REPRODUCED" in proof.stdout
-    assert "ReadDocumentFeature" in proof.stdout, "the second claimant must be the stock document family"
-    assert "SkrAccountFeatureGroup" in proof.stdout and "TextFileReader" in proof.stdout, proof.stdout
+    facts = run_isolated("plugin_loader_all")
+    assert facts["matched"] == "FeatureResolutionError", facts
+    claimants = " ".join(facts["claimants"])
+    assert "ReadDocumentFeature" in claimants, "the second claimant must be the stock document family"
+    assert "SkrAccountFeatureGroup" in claimants and "TextFileReader" in claimants, facts["claimants"]
 
 
 def test_german_decimal() -> None:
@@ -893,12 +883,13 @@ def test_second_profile_reaches_the_same_total_end_to_end() -> None:
     Run in a subprocess: configuring a second profile registers it globally and would
     shadow the base group for every later resolution here.
     """
-    proof = _run_proof("proof_dossier_c")
-    assert proof.returncode == 0, proof.stdout + proof.stderr
-    assert "SECOND PROFILE END TO END" in proof.stdout, proof.stdout
-    assert "revenue=45385.06 (5 origins)" in proof.stdout, proof.stdout
-    assert "receivables=5000.00 (1 origin)" in proof.stdout, proof.stdout
-    assert "all citations name JOURNAL.csv" in proof.stdout, proof.stdout
+    facts = run_isolated("dossier_c")
+    assert facts["revenue"] == "45385.06", facts
+    assert len(facts["revenue_origins"]) == 5, facts
+    assert facts["receivables"] == "5000.00", facts
+    assert len(facts["receivables_origins"]) == 1, facts
+    every_citation = facts["revenue_origins"] + facts["receivables_origins"]
+    assert all(o.startswith("JOURNAL.csv@") for o in every_citation), every_citation
 
 
 def test_a_profile_naming_undeclared_columns_refuses_by_name() -> None:
@@ -915,7 +906,7 @@ def test_a_profile_naming_undeclared_columns_refuses_by_name() -> None:
     # Overriding PROFILE on the base class and restoring it, rather than defining a
     # subclass: a subclass registers globally via subclass discovery and would shadow the
     # base group for every later resolution in this process -- which is the very hazard
-    # proof_profile_shadow.py demonstrates. Warning about that and then doing it would
+    # isolated.profile_shadow demonstrates. Warning about that and then doing it would
     # leave this suite order-dependent.
     table = GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet())
     fs = FeatureSet()
@@ -948,21 +939,23 @@ def test_profile_shadowing_refuses_instead_of_answering_wrongly() -> None:
     Still not solved, and disclosed: two profiles whose columns are named identically but
     mean different things are indistinguishable on names alone.
     """
-    proof = _run_proof("proof_profile_shadow")
-    assert proof.returncode == 0, proof.stdout + proof.stderr
-    assert "SHADOWING REFUSES INSTEAD OF GUESSING" in proof.stdout, proof.stdout
+    facts = run_isolated("profile_shadow")
+    shadow, third = facts["shadow"], facts["third"]
+    assert shadow["raised"] and shadow["exc"] != "FeatureResolutionError", shadow
+    assert shadow["matched"] == "NoProfileForDossier" and shadow["root"] == "NoProfileForDossier", shadow
+    assert "Konto" in shadow["message"], shadow["message"]
     # two is the dangerous count precisely because three is the loud one
-    assert "THIRD PROFILE COLLIDES" in proof.stdout, proof.stdout
-    assert "Multiple feature groups found" in proof.stdout, proof.stdout
+    assert third["matched"] == "FeatureResolutionError", third
+    assert "Multiple feature groups found" in third["first_line"], third
 
 
 def test_a_reader_subclass_declaring_internal_is_the_classification_remedy() -> None:
     """The documented remedy: a reader subclass declaring `internal` runs under clearance `internal`."""
-    proof = _run_proof("proof_reader_classification")
-    if proof.returncode == 77:
-        pytest.skip(proof.stdout.strip())
-    assert proof.returncode == 0, proof.stdout + proof.stderr[-2000:]
-    assert "REMEDY: a reader subclass declaring internal runs under clearance internal" in proof.stdout, proof.stdout
+    pytest.importorskip("mloda.enterprise.extenders.audit")
+    facts = run_isolated("reader_classification")
+    assert facts["denies"] == [], facts["denies"]
+    assert facts["has_result"], facts
+    assert facts["calculate_levels"] == ["internal"], facts
 
 
 def _audited_run(fmt: str, clearance: str, sink: ListSink) -> None:
@@ -1019,15 +1012,18 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
 
     Subprocess: the unguarded run must not be confused with the guarded runs above.
     """
-    proof = _run_proof("proof_inseparable")
-    assert proof.returncode == 0, proof.stdout + proof.stderr
-    assert "WITH POLICY:    45385.06 and 5 citations" in proof.stdout, proof.stdout
+    facts = run_isolated("inseparable")
+    with_policy = facts["with_policy"]
+    assert with_policy.get("value") == "45385.06" and len(with_policy["origins"]) == 5, with_policy
     # Option A: with no policy class the verdict feature does not resolve at all; the
     # InadmissibleTotal backstop now catches the concept wired past the policy instead.
-    assert "WITHOUT POLICY: FeatureResolutionError" in proof.stdout, proof.stdout
-    assert "BYPASS:         InadmissibleTotal" in proof.stdout, proof.stdout
-    assert "TWO POLICIES:   FeatureResolutionError" in proof.stdout, proof.stdout
-    assert "CHAIN IS INSEPARABLE" in proof.stdout, proof.stdout
+    for step, error in (
+        ("without_policy", "FeatureResolutionError"),
+        ("bypass", "InadmissibleTotal"),
+        ("two_policies", "FeatureResolutionError"),
+    ):
+        assert facts[step]["matched"] == error, (step, facts[step])
+        assert "value" not in facts[step], (step, facts[step])
 
 
 def test_admissibility_evidence_names_the_policy_that_attested() -> None:
@@ -1175,7 +1171,7 @@ def test_an_attested_dossier_with_no_matching_rows_still_returns_null() -> None:
 def test_removing_the_policy_leaves_the_independent_source_with_no_number() -> None:
     """Inseparability is a property of the primitive, so it must hold off the ledger too.
 
-    Same statement as proof_inseparable.py, one source over: strip the admissibility
+    Same statement as isolated.inseparable, one source over: strip the admissibility
     evidence and the aggregation returns nothing rather than an unvetted total.
     """
     from decimal import Decimal

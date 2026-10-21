@@ -4,13 +4,11 @@ Only one policy group may be live per process, so a host that needs more than th
 cutoff -- a DATEV host needs Festschreibung and a period bound -- lists rules in RULES
 instead of adding a second group. These tests call `apply_rules` directly: defining a second
 configured policy subclass here would put two live policies into the process and break every
-end-to-end test after it. The chain itself is proven in proofs/proof_composite_datev.py.
+end-to-end test after it. The chain itself is proven in isolated.composite_datev.
 """
 
 import gc
 import shutil
-import subprocess  # nosec
-import sys
 from datetime import date
 from pathlib import Path
 
@@ -35,6 +33,7 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
 )
 
 from ._host import TestClosing2025 as Closing2025
+from .isolated import run_isolated
 
 HERE = Path(__file__).parent
 FIX = HERE / "fixtures"
@@ -240,10 +239,15 @@ def test_an_inverted_period_is_refused_where_it_is_written() -> None:
 
 def test_a_datev_host_runs_its_rules_through_the_one_policy_slot() -> None:
     """Its own process: the DATEV host's policy registers process-wide, and one may be live."""
-    # Runs our own proof script, not external input.
-    script = str(HERE / "proofs" / "proof_composite_datev.py")
-    proof = subprocess.run([sys.executable, script], capture_output=True, text=True)  # nosec B603
-    assert proof.returncode == 0, proof.stdout + proof.stderr[-2000:]
-    assert "OPEN BATCH:   InadmissibleTotal" in proof.stdout, proof.stdout
-    assert "LOCKED BATCH: admitted, then GrossRevenueRefused" in proof.stdout, proof.stdout
-    assert "NET BATCH:    revenue 5950.00 cited to EXTF_Buchungsstapel.csv@" in proof.stdout, proof.stdout
+    facts = run_isolated("composite_datev")
+    open_batch, locked_batch = facts["open_batch"], facts["locked_batch"]
+    assert open_batch["matched"] == "InadmissibleTotal", open_batch
+    assert "outside-scope:all-of" in open_batch["message"], open_batch
+    assert locked_batch["matched"] == "GrossRevenueRefused", locked_batch
+    assert "automatic account 8400" in locked_batch["message"], locked_batch
+    assert facts["net_value"] == ["5950.00"], facts
+    [cited] = facts["net_cited"]
+    assert cited.endswith(":4/G") and "EXTF_Buchungsstapel.csv@" in cited, cited
+    [stamp] = facts["stamps"]
+    assert facts["stamps_admitted"] == [True], facts
+    assert stamp.startswith("admitted:all-of;rules=period-bound,festschreibung;"), stamp
