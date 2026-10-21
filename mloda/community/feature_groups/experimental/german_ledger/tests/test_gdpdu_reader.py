@@ -66,11 +66,14 @@ def test_a_malformed_descriptor_keeps_its_parse_error_type() -> None:
         parse_descriptor_bytes(b"<DataSet><Media>", "index.xml")
 
 
-def test_an_unknown_declared_encoding_is_refused_by_name(tmp_path: Path) -> None:
-    """An encoding Python does not know raises a ValueError naming it, not pyexpat's LookupError."""
-    (tmp_path / "index.xml").write_bytes(UNKNOWN_ENCODING)
-    with pytest.raises(ValueError, match="bogus"):
+@pytest.mark.parametrize("encoding", ["bogus", "utf-32", "idna"])
+def test_an_undecodable_declared_encoding_is_refused_by_name(tmp_path: Path, encoding: str) -> None:
+    """An encoding pyexpat cannot use raises a ValueError naming the file and the encoding."""
+    (tmp_path / "index.xml").write_bytes(UNKNOWN_ENCODING.replace(b"bogus", encoding.encode()))
+    with pytest.raises(ValueError) as exc_info:
         GdpduReader.load_data(str(tmp_path), FeatureSet())
+    assert str(tmp_path / "index.xml") in str(exc_info.value)
+    assert encoding in str(exc_info.value)
 
 
 def test_a_descriptor_naming_the_gdpdu_dtd_still_parses() -> None:
