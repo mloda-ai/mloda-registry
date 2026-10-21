@@ -227,7 +227,7 @@ def _refuse_entities(descriptor: bytes, index_path: str) -> None:
 
     declared: str | None = None
 
-    def _record(version: str, encoding: str | None, standalone: int) -> None:
+    def _record(version: str | None, encoding: str | None, standalone: int) -> None:
         nonlocal declared
         declared = encoding
 

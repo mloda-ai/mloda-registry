@@ -56,7 +56,7 @@ ENTITY_DESCRIPTORS = {
 @pytest.mark.parametrize("raw", ENTITY_DESCRIPTORS.values(), ids=ENTITY_DESCRIPTORS.keys())
 def test_a_descriptor_declaring_xml_entities_is_refused_by_name(raw: bytes) -> None:
     """A dossier is third-party input; entity expansion is how an XML bomb works."""
-    with pytest.raises(ValueError, match="entit"):
+    with pytest.raises(ValueError, match=r"^index\.xml: the descriptor declares XML entities"):
         parse_descriptor_bytes(raw, "index.xml")
 
 
