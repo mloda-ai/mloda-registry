@@ -1,9 +1,9 @@
 """Writes the twin fixture: one small set of SKR04 books for FY2025, in both formats.
 
-    python make_twin.py        # rewrites gdpdu/ and datev/ next to this file
+    python make_twin.py        # rewrites fixtures/twin_2025/gdpdu/ and datev/
 
 The bookings are self-made. The DATEV header and column line are taken from the ledermann
-sample (MIT, see ../datev_ledermann/NOTICE) and only the fields named below are changed.
+sample (MIT, see fixtures/datev_ledermann/NOTICE) and only the fields named below are changed.
 
 Four bookings, each written once as a DATEV row (Konto against Gegenkonto, +Soll) and as
 the GDPdU Sachkonten lines for both of its accounts, each in that account's own direction:
@@ -22,8 +22,9 @@ import shutil
 from pathlib import Path
 
 HERE = Path(__file__).parent
-LEDERMANN = HERE.parent / "datev_ledermann" / "EXTF_Buchungsstapel.csv"
-DOSSIER_A = HERE.parent / "dossier_a" / "index.xml"
+FIXTURES = HERE / "fixtures"
+LEDERMANN = FIXTURES / "datev_ledermann" / "EXTF_Buchungsstapel.csv"
+DOSSIER_A = FIXTURES / "dossier_a" / "index.xml"
 
 # (Belegdatum, Konto, Gegenkonto, BU, amount, Belegfeld 1, text)
 BOOKINGS = [
@@ -85,5 +86,5 @@ def write_gdpdu(folder: Path) -> None:
 
 
 if __name__ == "__main__":
-    write_datev(HERE / "datev")
-    write_gdpdu(HERE / "gdpdu")
+    write_datev(FIXTURES / "twin_2025" / "datev")
+    write_gdpdu(FIXTURES / "twin_2025" / "gdpdu")
