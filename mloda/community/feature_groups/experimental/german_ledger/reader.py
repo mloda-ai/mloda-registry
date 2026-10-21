@@ -243,11 +243,11 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
     # (the mechanics of an XML bomb); the external GDPdU DTD the DOCTYPE names is never fetched.
     try:
         _refuse_entities(descriptor, index_path)
-        root = ET.fromstring(descriptor)  # nosec B314
     except LookupError as exc:
         raise ValueError(
             f"{index_path}: the descriptor declares an encoding this reader cannot decode ({exc})"
         ) from exc
+    root = ET.fromstring(descriptor)  # nosec B314
     tables = root.findall(".//Table")
     if not tables:
         raise ValueError(f"{index_path}: no <Table> in descriptor")
