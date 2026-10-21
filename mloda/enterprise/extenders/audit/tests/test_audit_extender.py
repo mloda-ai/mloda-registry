@@ -5090,7 +5090,7 @@ class TestAuditExtenderClassificationRunAll:
     def test_a_refused_global_scope_reader_writes_a_deny_record_per_feature_when_a_sibling_serves_the_run(
         self, tmp_path: Path
     ) -> None:
-        # A child process: core probes every reader loaded in the process, so a clean interpreter pins the stock set.
+        # A child process: core probes every reader loaded in this process, so others stay out of the deny records.
         script = (
             "import json, sys;"
             "from mloda.enterprise.extenders.audit.tests.test_audit_extender import _stock_global_scope_run;"
@@ -5099,8 +5099,8 @@ class TestAuditExtenderClassificationRunAll:
         completed = subprocess.run(  # nosec B603
             [sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, timeout=60
         )
-        assert completed.returncode == 0, f"stock run subprocess failed: {completed.stderr}"
-        outcome = json.loads(completed.stdout)
+        assert completed.returncode == 0, f"stock run subprocess failed: {completed.stdout}\n{completed.stderr}"
+        outcome = json.loads(completed.stdout.splitlines()[-1])
 
         assert outcome["results"]
         records = outcome["records"]

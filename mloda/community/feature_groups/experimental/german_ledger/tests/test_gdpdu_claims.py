@@ -34,7 +34,7 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
 from mloda.community.feature_groups.experimental.german_ledger.skr import SKR04_2025, SkrAccountFeatureGroup
 from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
 
-from ._host import PLUGINS, plugins_with
+from ._host import PLUGINS, ListSink, audit_gate, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
 
 HERE = Path(__file__).parent
@@ -294,6 +294,10 @@ def test_the_published_attributes_equal_the_basis_column_on_a_run() -> None:
     ], seen
 
 
+def _qualname(cls: type) -> str:
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
 @pytest.mark.parametrize("extender", ["community", "enterprise"])
 def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(extender: str) -> None:
     pytest.importorskip("openlineage.client")
@@ -327,7 +331,7 @@ def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(
     )
 
     def complete(group: type) -> RunEvent:
-        job = f"{group.__module__}.{group.__qualname__}"
+        job = _qualname(group)
         (event,) = [e for e in transport.events if e.job.name == job and e.eventType == RunState.COMPLETE]
         return event
 
@@ -961,31 +965,12 @@ def test_a_reader_subclass_declaring_internal_is_the_classification_remedy() -> 
     assert "REMEDY: a reader subclass declaring internal runs under clearance internal" in proof.stdout, proof.stdout
 
 
-class _ListSink:
-    def __init__(self) -> None:
-        self.records: list[dict[str, Any]] = []
-
-    def write(self, record: Any) -> None:
-        self.records.append(dict(record))
-
-
-def _qualname(cls: type) -> str:
-    return f"{cls.__module__}.{cls.__qualname__}"
-
-
-def _audited_run(fmt: str, clearance: str, sink: _ListSink) -> None:
+def _audited_run(fmt: str, clearance: str, sink: ListSink) -> None:
+    """Run the `fmt` twin dossier through an audit gate granting `clearance`."""
     pytest.importorskip("mloda.enterprise.extenders.audit")
     from mloda.steward import verified_context
 
-    from mloda.enterprise.extenders.audit import AuditExtender, ClassificationPolicy
-
-    gate = AuditExtender(
-        sink=sink,
-        fail_closed=True,
-        required_identity=("tenant_id", "principal"),
-        policy_version="german-ledger-test",
-        classification=ClassificationPolicy(clearance=lambda tenant, principal: clearance, undeclared="public"),
-    )
+    gate = audit_gate(sink, clearance)
     with verified_context(tenant_id="t", principal="svc"):
         mloda.run_all(
             ["revenue__sources"],
@@ -1003,7 +988,7 @@ def test_a_reader_above_clearance_is_refused_at_plan_time(fmt: str) -> None:
 
     from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
 
-    sink = _ListSink()
+    sink = ListSink()
 
     with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
         _audited_run(fmt, "internal", sink)
@@ -1018,7 +1003,7 @@ def test_a_reader_above_clearance_is_refused_at_plan_time(fmt: str) -> None:
 def test_a_confidential_clearance_runs_the_gdpdu_dossier() -> None:
     from mloda.steward import ExtenderHook
 
-    sink = _ListSink()
+    sink = ListSink()
 
     _audited_run("gdpdu", "confidential", sink)
 
