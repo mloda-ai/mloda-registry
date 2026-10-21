@@ -241,8 +241,13 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
     """
     # A dossier is third-party input. Any entity declaration is refused before the stdlib parse
     # (the mechanics of an XML bomb); the external GDPdU DTD the DOCTYPE names is never fetched.
-    _refuse_entities(descriptor, index_path)
-    root = ET.fromstring(descriptor)  # nosec B314
+    try:
+        _refuse_entities(descriptor, index_path)
+        root = ET.fromstring(descriptor)  # nosec B314
+    except LookupError as exc:
+        raise ValueError(
+            f"{index_path}: the descriptor declares an encoding this reader cannot decode ({exc})"
+        ) from exc
     tables = root.findall(".//Table")
     if not tables:
         raise ValueError(f"{index_path}: no <Table> in descriptor")
