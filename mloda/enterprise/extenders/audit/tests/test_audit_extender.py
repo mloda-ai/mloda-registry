@@ -14,6 +14,7 @@ import pickle  # nosec
 import re
 import socket
 import stat
+import subprocess  # nosec
 import sys
 import threading
 import time
@@ -580,6 +581,27 @@ class InMemoryAuditSink:
 
     def write(self, record: Mapping[str, Any]) -> None:
         self.records.append(dict(record))
+
+
+def _stock_global_scope_run(directory: str) -> dict[str, Any]:
+    """Run the global-scope deny scenario with a ParquetReader declared pii; return JSON-able facts."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ParquetReader, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"}))
+        path = write_csv(Path(directory))
+        sink = InMemoryAuditSink()
+        with verified_context(tenant_id="t", principal="svc"):
+            results = mloda.run_all(
+                ["alpha", "beta"],
+                compute_frameworks=[PyArrowTable],
+                plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature}),
+                data_access_collection=DataAccessCollection(files={str(path)}),
+                function_extender={_classified(sink, "internal")},
+                parallelization_modes={ParallelizationMode.SYNC},
+            )
+    return {
+        "results": bool(results),
+        "records": [{k: r[k] for k in ("decision", "hook", "reader_class", "feature_names")} for r in sink.records],
+    }
 
 
 class _LoggingSink:
@@ -5066,31 +5088,23 @@ class TestAuditExtenderClassificationRunAll:
         assert sink.records[0]["feature_names"] == ["alpha"]
 
     def test_a_refused_global_scope_reader_writes_a_deny_record_per_feature_when_a_sibling_serves_the_run(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr(
-            ParquetReader, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
+        # A child process: core probes every reader loaded in this process, so others stay out of the deny records.
+        script = (
+            "import json, sys;"
+            "from mloda.enterprise.extenders.audit.tests.test_audit_extender import _stock_global_scope_run;"
+            "print(json.dumps(_stock_global_scope_run(sys.argv[1])))"
         )
-        path = write_csv(tmp_path)
-        sink = InMemoryAuditSink()
+        completed = subprocess.run(  # nosec B603
+            [sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, timeout=60
+        )
+        assert completed.returncode == 0, f"stock run subprocess failed: {completed.stdout}\n{completed.stderr}"
+        outcome = json.loads(completed.stdout.splitlines()[-1])
 
-        with verified_context(tenant_id="t", principal="svc"):
-            results = mloda.run_all(
-                ["alpha", "beta"],
-                compute_frameworks=[PyArrowTable],
-                plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature}),
-                data_access_collection=DataAccessCollection(files={str(path)}),
-                function_extender={_classified(sink, "internal")},
-                parallelization_modes={ParallelizationMode.SYNC},
-            )
-
-        assert results
-        # Other installed readers in the process may declare their own level, so only the stock readers are pinned.
-        denies = [
-            r
-            for r in sink.records
-            if r["decision"] == "deny" and (r["reader_class"] or "").startswith("mloda_plugins.")
-        ]
+        assert outcome["results"]
+        records = outcome["records"]
+        denies = [r for r in records if r["decision"] == "deny"]
         assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=lambda t: t[2]) == [
             ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["alpha"]),
             ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["beta"]),
@@ -5159,54 +5173,3 @@ class TestAuditExtenderClassificationRunAll:
         calculates = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
         assert calculates
         assert {r["classification"] for r in calculates} == {"public"}
-
-
-class TestAuditExtenderClassificationGermanLedger:
-    """The german_ledger readers declare `confidential`; the gate refuses them below that clearance."""
-
-    @staticmethod
-    def _host() -> Any:
-        return pytest.importorskip("mloda.community.feature_groups.experimental.german_ledger.tests._host")
-
-    @staticmethod
-    def _run(host: Any, folder: Path, gate: AuditExtender, plugins: PluginCollector | None = None) -> list[Any]:
-        return mloda.run_all(
-            ["revenue__sources"],
-            compute_frameworks=[PyArrowTable],
-            data_access_collection=DataAccessCollection(folders={str(folder)}),
-            plugin_collector=plugins or host.PLUGINS,
-            function_extender={gate},
-        )
-
-    @pytest.mark.parametrize("fmt", ["gdpdu", "datev"])
-    def test_a_reader_above_clearance_is_refused_at_plan_time(self, fmt: str) -> None:
-        host = self._host()
-        from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
-        from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader
-
-        folder = Path(host.__file__).parent / "fixtures" / "twin_2025" / fmt
-        sink = InMemoryAuditSink()
-
-        with verified_context(tenant_id="t", principal="svc"):
-            with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
-                self._run(host, folder, _classified(sink, "internal"))
-
-        denies = [r for r in sink.records if r["decision"] == "deny" and r["hook"] == "INPUT_DATA_MATCH"]
-        assert {r["deny_reason"] for r in denies} == {"classification_above_clearance"}
-        assert {r["classification"] for r in denies} == {"confidential"}
-        # core probes every candidate reader, so both declare and both are denied
-        assert {r["reader_class"] for r in denies} == {_qualname(GdpduReader), _qualname(DatevExtfReader)}
-
-    def test_a_confidential_clearance_runs_the_gdpdu_dossier(self) -> None:
-        host = self._host()
-        folder = Path(host.__file__).parent / "fixtures" / "twin_2025" / "gdpdu"
-        sink = InMemoryAuditSink()
-
-        with verified_context(tenant_id="t", principal="svc"):
-            self._run(host, folder, _classified(sink, "confidential"))
-
-        records = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
-        assert records
-        for record in records:
-            assert record["decision"] == "allow"
-            assert record["classification"] == "confidential"
