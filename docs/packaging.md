@@ -311,7 +311,7 @@ python scripts/generate_pyproject.py    # Regenerate
 
 ```bash
 python scripts/generate_pyproject.py
-uv tool run --from "uv==0.12.9" uv lock
+uv tool run --from "uv==0.13.5" uv lock
 uv sync --frozen --all-packages --extra dev
 ```
 
@@ -321,7 +321,7 @@ Declare it in the package's `optional_dependencies.dev` in `config/packages.toml
 regenerate, then relock and commit `uv.lock`:
 
 ```bash
-uv tool run --from "uv==0.12.9" uv lock
+uv tool run --from "uv==0.13.5" uv lock
 ```
 
 Relock with exactly the uv the release job pins in `.github/workflows/release.yaml`, since
