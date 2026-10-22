@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from mloda.provider import FeatureGroup, FeatureResolutionError, FeatureSet
+from mloda.provider import FeatureGroup, FeatureSet
 from mloda.steward import verified_context
 from mloda.user import DataAccessCollection, Feature, PluginCollector, PluginLoader, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -34,9 +34,7 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
 )
 from mloda.community.feature_groups.experimental.german_ledger.skr import (
     SECOND_EXPORTER,
-    GrossRevenueRefused,
     LedgerProfile,
-    NoProfileForDossier,
     SkrAccountFeatureGroup,
 )
 from mloda.community.feature_groups.experimental.german_ledger.sources import (  # noqa: F401
@@ -64,23 +62,14 @@ def _root(exc: BaseException) -> BaseException:
     return exc
 
 
-def _attempt(call: Callable[[], Any], wanted: type[BaseException] | None = None) -> dict[str, Any]:
-    """Call it; report the exception (and its root) it raised, or the value it returned."""
+def outcome(call: Callable[[], Any]) -> Any:
+    """The call's value, or "<Exc>: <msg>" (or "<Exc> from <Root>: <msg>") of what it raised."""
     try:
-        value = call()
+        return call()
     except Exception as exc:
         root = _root(exc)
-        hit = next((e for e in (exc, root) if wanted is not None and isinstance(e, wanted)), None)
-        return {
-            "raised": True,
-            "matched": wanted.__name__ if hit is not None and wanted is not None else None,
-            "exc": type(exc).__name__,
-            "resolution": isinstance(exc, FeatureResolutionError),
-            "root": type(root).__name__,
-            "message": str(root),
-            "first_line": str(exc).splitlines()[0] if str(exc) else "",
-        }
-    return {"raised": False, "matched": None, "value": value}
+        named = type(root).__name__ if root is exc else f"{type(exc).__name__} from {type(root).__name__}"
+        return f"{named}: {root}"
 
 
 def _run(folder: Path, features: list[str], plugin_collector: Any = None) -> dict[str, Any]:
@@ -91,6 +80,12 @@ def _run(folder: Path, features: list[str], plugin_collector: Any = None) -> dic
         plugin_collector=plugin_collector,
     )
     return {k: v for t in results for k, v in t.to_pydict().items()}
+
+
+def _revenue(folder: Path, plugin_collector: Any = None) -> str:
+    """The one revenue total of the folder, as text (a refusing step that succeeds reads as this number)."""
+    [value] = _run(folder, ["revenue__sources"], plugin_collector)["revenue__sources~value"]
+    return str(value)
 
 
 def collision() -> dict[str, Any]:
@@ -106,7 +101,7 @@ def collision() -> dict[str, Any]:
             unbound: Any = FeatureGroup.match_feature_group_criteria
             return bool(unbound.__func__(cls, feature_name, options, data_access_collection))
 
-    return _attempt(lambda: _run(FIX / "dossier_a", ["revenue__sources"]), FeatureResolutionError)
+    return {"revenue": outcome(lambda: _revenue(FIX / "dossier_a"))}
 
 
 def plugin_loader_all() -> dict[str, Any]:
@@ -114,13 +109,9 @@ def plugin_loader_all() -> dict[str, Any]:
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
 
     PluginLoader.all()
-    outcome = _attempt(lambda: _run(FIX / "dossier_a", ["revenue__sources"]), FeatureResolutionError)
-    if outcome["raised"]:
-        outcome["claimants"] = [
-            line.strip() for line in outcome["message"].splitlines() if line.strip().startswith("- ")
-        ]
-        return outcome
-    return {"raised": False, "matched": None, "value": [str(v) for v in outcome["value"]["revenue__sources~value"]]}
+    revenue = outcome(lambda: _revenue(FIX / "dossier_a"))
+    # The refusal lists every claimant as a "- " line.
+    return {"revenue": revenue, "claimants": [ln.strip() for ln in revenue.splitlines() if ln.strip().startswith("- ")]}
 
 
 def dossier_c() -> dict[str, Any]:
@@ -152,15 +143,16 @@ def profile_shadow() -> dict[str, Any]:
 
         PROFILES = (SECOND_EXPORTER,)
 
-    def ask() -> dict[str, Any]:
-        return _run(FIX / "dossier_a", ["revenue__sources"])
+    def ask() -> str:
+        return _revenue(FIX / "dossier_a")
 
-    shadow = _attempt(ask, NoProfileForDossier)
+    # The shadowing subclass still wins resolution (mloda's rule), so it must refuse, not map under the wrong profile.
+    two_profile_classes = outcome(ask)
 
     class ExporterD(SkrAccountFeatureGroup):
         PROFILES = (LedgerProfile(account_column="AcctNo", amount_column="Value"),)
 
-    return {"shadow": shadow, "third": _attempt(ask, FeatureResolutionError)}
+    return {"two_profile_classes": two_profile_classes, "three_profile_classes": outcome(ask)}
 
 
 def reader_classification() -> dict[str, Any]:
@@ -193,25 +185,18 @@ def inseparable() -> dict[str, Any]:
     """Remove the admissibility policy, bypass it or double it, and the pipeline yields NO number."""
     logging.disable(logging.CRITICAL)  # mloda logs every failed step; the facts carry it
 
-    def ask(plugin_collector: Any = None) -> dict[str, Any]:
-        got = _run(FIX / "dossier_a", ["revenue__sources"], plugin_collector)
-        return {k: v[0] for k, v in got.items()}
+    def ask(plugin_collector: Any = None) -> str:
+        return _revenue(FIX / "dossier_a", plugin_collector)
 
-    def no_number(call: Callable[[], Any], wanted: type[BaseException]) -> dict[str, Any]:
-        outcome = _attempt(call, wanted)
-        if not outcome["raised"]:
-            outcome["value"] = str(outcome["value"].get("revenue__sources~value"))
-        return outcome
-
-    without_policy = no_number(ask, FeatureResolutionError)
+    # No policy class exists yet in this process, so the verdict feature does not resolve.
+    without_policy = outcome(ask)
 
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
 
-    with_policy = _attempt(ask)
-    if not with_policy["raised"]:
-        got = with_policy.pop("value")
-        with_policy.update(value=str(got["revenue__sources~value"]), origins=got["revenue__sources~origins"])
+    got = {k: v[0] for k, v in _run(FIX / "dossier_a", ["revenue__sources"]).items()}
 
+    # Reads the raw journal, wired past the policy. It shadows the concept group (mloda keeps a matching
+    # subclass over its parent), which is why the later run disables it.
     class Bypass(SkrAccountFeatureGroup):
         def input_features(self, options: Any, feature_name: Any) -> Any:
             return {Feature(JOURNAL)}
@@ -220,19 +205,20 @@ def inseparable() -> dict[str, Any]:
         def calculate_feature(cls, data: Any, features: Any) -> Any:
             return cls._map_accounts(unprefixed(data, JOURNAL), features)
 
-    bypass = no_number(ask, InadmissibleTotal)
+    bypass = outcome(ask)
     without_bypass = PluginCollector.disabled_feature_groups(Bypass)
 
+    # A second configured policy beside the host's: resolution refuses to pick one.
     class Closing2025Again(AdmissibilityPolicyGroup):
         LOCK_DATE = date(2026, 3, 31)
         PERIOD_END = date(2025, 12, 31)
 
-    two_policies = no_number(lambda: ask(without_bypass), FeatureResolutionError)
     return {
         "without_policy": without_policy,
-        "with_policy": with_policy,
+        "with_policy_revenue": str(got["revenue__sources~value"]),
+        "with_policy_origins": got["revenue__sources~origins"],
         "bypass": bypass,
-        "two_policies": two_policies,
+        "two_policies": outcome(lambda: ask(without_bypass)),
     }
 
 
@@ -251,10 +237,6 @@ def format_rules() -> dict[str, Any]:
 
     SkrAccountFeatureGroup.CHART = "04"
 
-    def revenue(folder: Path) -> str:
-        [value] = _run(folder, ["revenue__sources"])["revenue__sources~value"]
-        return str(value)
-
     with tempfile.TemporaryDirectory() as tmp:
         locked = Path(tmp) / "datev"
         shutil.copytree(twin / "datev", locked)
@@ -265,9 +247,10 @@ def format_rules() -> dict[str, Any]:
         batch.write_bytes(b";".join(fields) + b"\r\n" + rest)
 
         return {
-            "gdpdu": revenue(twin / "gdpdu"),
-            "datev": revenue(locked),
-            "open_datev": _attempt(lambda: revenue(twin / "datev"), InadmissibleTotal),
+            "gdpdu_revenue": _revenue(twin / "gdpdu"),
+            "locked_datev_revenue": _revenue(locked),
+            # An open batch is outside the Festschreibung.
+            "open_datev_revenue": outcome(lambda: _revenue(twin / "datev")),
         }
 
 
@@ -302,21 +285,27 @@ def composite_datev() -> dict[str, Any]:
         locked = copy(Path(tmp) / "locked", locked=True)
         net = copy(Path(tmp) / "net", locked=True, bu_8400=b'"40"')
 
-        open_batch = _attempt(lambda: _run(shipped, ["revenue__sources"]), InadmissibleTotal)
-        locked_batch = _attempt(lambda: _run(locked, ["revenue__sources"]), GrossRevenueRefused)
+        # Festschreibung 0: outside the lock.
+        open_batch_revenue = outcome(lambda: _revenue(shipped))
+        # Admitted by both rules, then the SKR03 concept refuses the gross automatic account 8400.
+        locked_batch_revenue = outcome(lambda: _revenue(locked))
+        # BU key 40 lifts the automatic: the booked amount is net, so a cited total.
         got = _run(net, ["revenue__sources"])
         origins = got["revenue__sources~origins"]
+        # Core returns only the requested columns, so read the stamp from the policy's own step.
         stamps = DatevClosing2018.clear(DatevExtfReader.load_data(str(locked), FeatureSet())).column(
             ADMISSIBILITY_COLUMN
         )
         stamp_set = sorted(set(stamps.to_pylist()))
         return {
-            "open_batch": open_batch,
-            "locked_batch": locked_batch,
-            "net_value": [str(v) for v in got["revenue__sources~value"]],
-            "net_cited": [str(c) for c in origins[0]] if len(origins) == 1 and isinstance(origins[0], list) else [],
-            "stamps": stamp_set,
-            "stamps_admitted": [is_admitted(s) for s in stamp_set],
+            "open_batch_revenue": open_batch_revenue,
+            "locked_batch_revenue": locked_batch_revenue,
+            "net_batch_revenue": [str(v) for v in got["revenue__sources~value"]],
+            "net_batch_citations": (
+                [str(c) for c in origins[0]] if len(origins) == 1 and isinstance(origins[0], list) else []
+            ),
+            "locked_batch_stamps": stamp_set,
+            "locked_batch_stamps_admitted": [is_admitted(s) for s in stamp_set],
         }
 
 

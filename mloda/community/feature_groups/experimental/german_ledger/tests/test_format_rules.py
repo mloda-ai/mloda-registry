@@ -115,12 +115,10 @@ def test_a_rule_scoped_twice_to_one_format_is_one_kind() -> None:
 def test_one_host_reads_both_formats_end_to_end() -> None:
     """Its own process: the mixed host's policy registers process-wide."""
     facts = run_isolated("format_rules")
-    assert facts["gdpdu"] == "22485.06", facts
-    assert facts["datev"] == "22485.06", facts
-    open_datev = facts["open_datev"]
-    assert open_datev["matched"] == "InadmissibleTotal", open_datev
-    assert open_datev["root"] == "InadmissibleTotal", open_datev
-    assert "outside=datev.festschreibung" in open_datev["message"], open_datev
+    assert facts["gdpdu_revenue"] == "22485.06", facts
+    assert facts["locked_datev_revenue"] == "22485.06", facts
+    assert facts["open_datev_revenue"].startswith("InadmissibleTotal: "), facts
+    assert "outside=datev.festschreibung" in facts["open_datev_revenue"], facts
 
 
 def test_a_policy_with_scoped_rules_declares_the_stamp_every_admitted_row_carries(

@@ -82,8 +82,7 @@ def test_collision_gate() -> None:
     assert JournalFeatureGroup.match_feature_group_criteria("revenue__sources", Options(), dossier) is False
 
     facts = run_isolated("collision")
-    assert facts["matched"] == "FeatureResolutionError", facts
-    assert facts["resolution"], facts
+    assert facts["revenue"].startswith("FeatureResolutionError: "), facts
 
 
 def test_plugin_loader_all() -> None:
@@ -96,8 +95,7 @@ def test_plugin_loader_all() -> None:
     edge case. When #1745 lands upstream this fails on purpose: flip it to assert the total.
     """
     facts = run_isolated("plugin_loader_all")
-    assert facts["matched"] == "FeatureResolutionError", facts
-    assert facts["resolution"], facts
+    assert facts["revenue"].startswith("FeatureResolutionError: "), facts
     claimants = " ".join(facts["claimants"])
     assert "ReadDocumentFeature" in claimants, "the second claimant must be the stock document family"
     assert "SkrAccountFeatureGroup" in claimants and "TextFileReader" in claimants, facts["claimants"]
@@ -942,14 +940,11 @@ def test_profile_shadowing_refuses_instead_of_answering_wrongly() -> None:
     mean different things are indistinguishable on names alone.
     """
     facts = run_isolated("profile_shadow")
-    shadow, third = facts["shadow"], facts["third"]
-    assert shadow["raised"] and not shadow["resolution"], shadow
-    assert shadow["matched"] == "NoProfileForDossier" and shadow["root"] == "NoProfileForDossier", shadow
-    assert "Konto" in shadow["message"], shadow["message"]
+    two, three = facts["two_profile_classes"], facts["three_profile_classes"]
+    assert two.startswith("NoProfileForDossier: "), two
+    assert "Konto" in two, two
     # two is the dangerous count precisely because three is the loud one
-    assert third["matched"] == "FeatureResolutionError", third
-    assert third["resolution"], third
-    assert "Multiple feature groups found" in third["first_line"], third
+    assert three.startswith("FeatureResolutionError: Multiple feature groups found"), three
 
 
 def test_a_reader_subclass_declaring_internal_is_the_classification_remedy() -> None:
@@ -1016,17 +1011,13 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
     Subprocess: the unguarded run must not be confused with the guarded runs above.
     """
     facts = run_isolated("inseparable")
-    with_policy = facts["with_policy"]
-    assert with_policy.get("value") == "45385.06" and len(with_policy["origins"]) == 5, with_policy
+    assert facts["with_policy_revenue"] == "45385.06", facts
+    assert len(facts["with_policy_origins"]) == 5, facts
     # Option A: with no policy class the verdict feature does not resolve at all; the
     # InadmissibleTotal backstop now catches the concept wired past the policy instead.
-    for step, error in (
-        ("without_policy", "FeatureResolutionError"),
-        ("bypass", "InadmissibleTotal"),
-        ("two_policies", "FeatureResolutionError"),
-    ):
-        assert facts[step]["matched"] == error, (step, facts[step])
-        assert "value" not in facts[step], (step, facts[step])
+    assert facts["without_policy"].startswith("FeatureResolutionError: "), facts
+    assert facts["bypass"].startswith("InadmissibleTotal: "), facts
+    assert facts["two_policies"].startswith("FeatureResolutionError: "), facts
 
 
 def test_admissibility_evidence_names_the_policy_that_attested() -> None:

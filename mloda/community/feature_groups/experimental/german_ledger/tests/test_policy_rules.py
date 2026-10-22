@@ -240,16 +240,13 @@ def test_an_inverted_period_is_refused_where_it_is_written() -> None:
 def test_a_datev_host_runs_its_rules_through_the_one_policy_slot() -> None:
     """Its own process: the DATEV host's policy registers process-wide, and one may be live."""
     facts = run_isolated("composite_datev")
-    open_batch, locked_batch = facts["open_batch"], facts["locked_batch"]
-    assert open_batch["matched"] == "InadmissibleTotal", open_batch
-    assert open_batch["root"] == "InadmissibleTotal", open_batch
-    assert "outside-scope:all-of" in open_batch["message"], open_batch
-    assert locked_batch["matched"] == "GrossRevenueRefused", locked_batch
-    assert locked_batch["root"] == "GrossRevenueRefused", locked_batch
-    assert "automatic account 8400" in locked_batch["message"], locked_batch
-    assert facts["net_value"] == ["5950.00"], facts
-    [cited] = facts["net_cited"]
+    assert facts["open_batch_revenue"].startswith("InadmissibleTotal: "), facts
+    assert "outside-scope:all-of" in facts["open_batch_revenue"], facts
+    assert facts["locked_batch_revenue"].startswith("GrossRevenueRefused: "), facts
+    assert "automatic account 8400" in facts["locked_batch_revenue"], facts
+    assert facts["net_batch_revenue"] == ["5950.00"], facts
+    [cited] = facts["net_batch_citations"]
     assert cited.endswith(":4/G") and cited.startswith("EXTF_Buchungsstapel.csv@"), cited
-    [stamp] = facts["stamps"]
-    assert facts["stamps_admitted"] == [True], facts
+    [stamp] = facts["locked_batch_stamps"]
+    assert facts["locked_batch_stamps_admitted"] == [True], facts
     assert stamp.startswith("admitted:all-of;rules=period-bound,festschreibung;"), stamp
