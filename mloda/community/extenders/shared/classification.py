@@ -54,8 +54,8 @@ def feature_classifications(steps: Iterable[PlanStep], *, undeclared: str) -> di
         sources = [resolve(source) for source in step.input_feature_edges.get(name, ())]
         if group_rank is not None and getattr(group, MASKING_ATTRIBUTE, None) is True:
             if step.reader_data_access is not None:
-                sources.append(reader_rank if reader_rank is not None else len(LEVELS))
-            return min(group_rank, max(sources)) if sources else group_rank
+                sources.append(group_rank if reader_rank is None else reader_rank)
+            return min(group_rank, max(sources, default=group_rank))
         own = max(ranks) if ranks else undeclared_rank
         return max([own, *sources])
 
