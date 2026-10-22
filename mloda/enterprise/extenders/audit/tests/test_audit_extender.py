@@ -323,10 +323,6 @@ def _reader_probe(**overrides: Any) -> HookContext:
     return make_hook_context(**context)
 
 
-def _clear_public(tenant: str | None, principal: str | None) -> str:
-    return "public"
-
-
 def _clear_internal(tenant: str | None, principal: str | None) -> str:
     return "internal"
 
@@ -5143,14 +5139,13 @@ class TestAuditExtenderClassificationRunAll:
         _declare_csv_level(monkeypatch, "public")
         path = write_csv(tmp_path)
         sink = InMemoryAuditSink()
-        policy = ClassificationPolicy(clearance=_clear_public, undeclared="public")
 
         with verified_context(tenant_id="t", principal="svc"):
             results = mloda.run_all(
                 [Feature(_CSV_MASKED, options={_CSV_PATH_OPTION: str(path)})],
                 compute_frameworks=[PyArrowTable],
                 plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature, MlodaTestingClassCsvMasked}),
-                function_extender={_classified(sink, classification=policy)},
+                function_extender={_classified(sink, "public")},
                 parallelization_modes={ParallelizationMode.SYNC},
             )
 
