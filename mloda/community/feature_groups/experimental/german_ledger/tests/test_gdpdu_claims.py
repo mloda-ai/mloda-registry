@@ -1017,7 +1017,10 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
     # InadmissibleTotal backstop now catches the concept wired past the policy instead.
     assert facts["without_policy"].startswith("FeatureResolutionError: "), facts
     assert facts["bypass"].startswith("InadmissibleTotal: "), facts
-    assert facts["two_policies"].startswith("FeatureResolutionError: "), facts
+    assert "No feature groups found for feature name: 'gdpdu_journal__admitted'" in facts["without_policy"], facts
+    assert facts["two_policies"].startswith("FeatureResolutionError: Multiple feature groups found"), facts
+    assert "Closing2025Again" in facts["two_policies"], facts
+    assert "TestClosing2025" in facts["two_policies"], facts
 
 
 def test_admissibility_evidence_names_the_policy_that_attested() -> None:

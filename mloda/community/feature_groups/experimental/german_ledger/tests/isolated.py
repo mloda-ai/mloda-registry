@@ -8,6 +8,7 @@ import sys
 import tempfile
 from collections.abc import Callable
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +58,7 @@ def run_isolated(name: str) -> dict[str, Any]:
 
 
 def _root(exc: BaseException) -> BaseException:
-    while (deeper := exc.__cause__ or exc.__context__) is not None:
+    while (deeper := exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)) is not None:
         exc = deeper
     return exc
 
@@ -85,12 +86,14 @@ def _run(folder: Path, features: list[str], plugin_collector: Any = None) -> dic
 def _revenue(folder: Path, plugin_collector: Any = None) -> str:
     """The one revenue total of the folder, as text (a refusing step that succeeds reads as this number)."""
     [value] = _run(folder, ["revenue__sources"], plugin_collector)["revenue__sources~value"]
+    assert isinstance(value, Decimal), repr(value)
     return str(value)
 
 
 def collision() -> dict[str, Any]:
     """What happens WITHOUT the match_feature_group_criteria gate."""
 
+    # Registers by being defined; never referenced again.
     class UngatedJournal(JournalFeatureGroup):
         """Identical, except it does not gate on its own name first."""
 
@@ -138,6 +141,7 @@ def profile_shadow() -> dict[str, Any]:
     """A profile modelled as a SkrAccountFeatureGroup subclass: shadowing refuses, a third collides."""
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
 
+    # ExporterB and ExporterD register by being defined; they are never referenced again.
     class ExporterB(SkrAccountFeatureGroup):
         """A second exporter modelled the rejected way: as a subclass carrying one profile."""
 
@@ -323,6 +327,7 @@ def twin() -> dict[str, Any]:
     def total(folder: Path, concept: str) -> tuple[str, list[str]]:
         got = _run(folder, [f"{concept}__sources"])
         [value] = got[f"{concept}__sources~value"]
+        assert isinstance(value, Decimal), repr(value)
         [origins] = got[f"{concept}__sources~origins"]
         return str(value), list(origins or [])
 
