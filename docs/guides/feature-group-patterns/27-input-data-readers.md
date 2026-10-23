@@ -7,7 +7,7 @@ How to point a feature at a source FeatureGroup and how to write your own for a 
 **Why**: Source selection is contract-driven, not guesswork; knowing the contract avoids reading mloda core source.
 **Where**: Connector plugins (a CKAN CSV group, a direct-URL group, a REST JSON group side by side).
 
-Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md). This page keeps only what a plugin author adds on top. `BaseInputData` remains only as the marker base of `DataCreator` and `ApiInputData`; the reader families (`ReadFile`, `ReadDB`, `ReadDocument`, `match_subclass_data_access`, `load_data`) were removed in mloda 0.17.
+Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md). `BaseInputData` remains only as the marker base of `DataCreator` and `ApiInputData`; the reader families (`ReadFile`, `ReadDB`, `ReadDocument`, `match_subclass_data_access`, `load_data`) were removed in mloda 0.17.
 
 ## Pointing a Feature at a Group
 
@@ -170,7 +170,7 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-Core's contract mixins for source groups (`tests/mixins/reader_feature_groups/` in the mloda repository) are not shipped in the wheel and cannot be imported; read them as a checklist of the behavior every group shares. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
+Core's contract mixins for source groups (`tests/mixins/reader_feature_groups/` in the mloda repository) are not shipped in the wheel and cannot be imported. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 
 ```python
 from mloda.steward import resolve_feature
@@ -196,8 +196,6 @@ A group that overrides `match_feature_group_criteria` or probes through `gated_p
 | [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG`: `suffixes`, `column_names` |
 | [read_db_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_db_fg.py) | `ReadDBFG`: credentials, catalogs, optional query route |
 | [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
-
-See also [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md) for the underlying model.
 
 ## Combines With
 
