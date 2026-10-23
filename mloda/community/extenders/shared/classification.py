@@ -24,7 +24,7 @@ def _rank(level: Any, owner: str) -> int:
 
 
 def _declared(owner: Any) -> int | None:
-    """The rank of the level `owner` (a feature group or reader class) declares, else None."""
+    """The rank of the level `owner` (a feature group or source group) declares, else None."""
     level = owner.declared_attributes(None).get(CLASSIFICATION_KEY)
     return None if level is None else _rank(level, owner.__name__)
 
@@ -45,18 +45,10 @@ def feature_classifications(steps: Iterable[PlanStep], *, undeclared: str) -> di
     def step_level(step: PlanStep, name: str) -> int:
         group = step.feature_group
         group_rank = None if group is None else _declared(group)
-        ranks = [rank for rank in (group_rank,) if rank is not None]
-        reader_rank = None
-        if step.reader_data_access is not None:
-            reader_rank = _declared(step.reader_data_access[0])
-            if reader_rank is not None:
-                ranks.append(reader_rank)
         sources = [resolve(source) for source in step.input_feature_edges.get(name, ())]
         if group_rank is not None and getattr(group, MASKING_ATTRIBUTE, None) is True:
-            if step.reader_data_access is not None:
-                sources.append(group_rank if reader_rank is None else reader_rank)
             return min(group_rank, max(sources, default=group_rank))
-        own = max(ranks) if ranks else undeclared_rank
+        own = undeclared_rank if group_rank is None else group_rank
         return max([own, *sources])
 
     def resolve(name: str) -> int:

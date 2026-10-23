@@ -34,7 +34,6 @@ import pyarrow as pa
 import pytest
 import requests
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -48,7 +47,7 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage._facets import (
@@ -83,8 +82,11 @@ from mloda.testing.extenders.openlineage import (
     make_recording_client,
 )
 from mloda.testing.extenders.runners import (
+    CREDENTIALED_URI_IDENTITY,
+    URI_SECRET,
     MlodaTestingValueIntPlusOne,
     expected_value_int,
+    run_credentialed_uri_feature,
     run_csv_feature,
     run_two_features,
     run_until_ready_then_sigterm,
@@ -2617,9 +2619,8 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
         assert data_source_facet.name == "s3://bucket/key.parquet"
 
-    # (raw data_access passed as args[0], expected dataSource name (the core identity), expected input dataset
-    # (namespace, name), secret markers absent from every event). Expected values are hardcoded literals, pinned
-    # once against core's BaseInputData.data_access_identity.
+    # (raw data_access passed as args[0], expected dataSource name (the context identity), expected input dataset
+    # (namespace, name), secret markers absent from every event). Expected values are hardcoded literals.
     @pytest.mark.parametrize(
         ("raw", "expected_name", "expected_dataset", "secrets"),
         [
@@ -2667,7 +2668,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             ),
         ],
     )
-    def test_recorded_input_and_data_source_names_use_the_core_identity_never_the_raw_data_access(
+    def test_recorded_input_and_data_source_names_use_the_context_identity_never_the_raw_data_access(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         raw: str,
@@ -2677,8 +2678,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
-        context_identity = BaseInputData.data_access_identity(raw)
-        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=expected_name)
 
         def inner_func(*_: Any) -> str:
             return "loaded-data"
@@ -2952,7 +2952,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             raise AssertionError(f"non-finite constant {constant} in the event")
 
         monkeypatch.setattr(
-            CsvReader, "declared_attributes", classmethod(lambda cls, features: {"license": "a", "scale": float("nan")})
+            CsvFG, "declared_attributes", classmethod(lambda cls, features: {"license": "a", "scale": float("nan")})
         )
         client, transport = ol_capture
 
@@ -2967,6 +2967,18 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
                     declared.append(dataset["facets"]["mlodaDeclared"]["attributes"])
         assert declared
         assert all(attributes == {"license": "a"} for attributes in declared)
+
+    def test_a_credentialed_uri_read_by_run_all_is_published_without_the_credentials(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        run_credentialed_uri_feature(OpenLineageExtender(client=client))
+
+        input_names = {dataset.name for event in transport.events for dataset in event.inputs or []}
+        assert CREDENTIALED_URI_IDENTITY in input_names
+        for event in transport.events:
+            assert URI_SECRET not in Serde.to_json(event)
 
     @pytest.mark.parametrize(
         ("declarations", "expected", "conflicts"),
@@ -3253,8 +3265,7 @@ class TestOpenLineageExtenderInputDedupe:
         extender = OpenLineageExtender(client=client)
         raw_one = "https://host/p?token=AAA"
         raw_two = "https://host/p?token=BBB"
-        context_identity = BaseInputData.data_access_identity(raw_one)
-        assert context_identity == BaseInputData.data_access_identity(raw_two)
+        context_identity = "https://host/p"
 
         def load(raw: str) -> None:
             with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity).activate():
@@ -3315,7 +3326,7 @@ class TestOpenLineageExtenderInputDedupe:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         raw = "https://host/p?v=1"
-        context_identity = BaseInputData.data_access_identity(raw)  # "https://host/p"
+        context_identity = "https://host/p"
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
 
         def inner_loader(*_: Any) -> str:
@@ -3343,14 +3354,13 @@ class TestOpenLineageExtenderInputDedupe:
         raw_container = f"abfss://raw@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
         curated_container = f"abfss://curated@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
 
-        def load(raw: str) -> None:
-            identity = BaseInputData.data_access_identity(raw)
+        def load(raw: str, identity: str) -> None:
             with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
                 extender(lambda *_: "loaded", raw)
 
         def calculate_body() -> str:
-            load(raw_container)
-            load(curated_container)
+            load(raw_container, "abfss://raw@acct.dfs.core.windows.net/p")
+            load(curated_container, "abfss://curated@acct.dfs.core.windows.net/p")
             return "calculated"
 
         with make_hook_context().activate():

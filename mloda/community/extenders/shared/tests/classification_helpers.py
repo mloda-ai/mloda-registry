@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mloda.provider import BaseInputData, FeatureGroup
+from mloda.provider import FeatureGroup
 from mloda.steward import PlanStep
 from mloda.user import Options
 
@@ -39,7 +39,6 @@ def classified_step(
     names: tuple[str, ...],
     edges: Mapping[str, tuple[str, ...]] | None = None,
     *,
-    reader: type[BaseInputData] | None = None,
     kind: str = "compute",
     options: Options | None = None,
 ) -> PlanStep:
@@ -52,6 +51,5 @@ def classified_step(
         source_compute_framework=None,
         requested_feature_names=names,
         input_feature_edges=edges or {},
-        reader_data_access=None if reader is None else (reader, "access"),
         feature_set_options=options,
     )

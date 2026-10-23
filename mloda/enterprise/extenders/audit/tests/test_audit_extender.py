@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import uuid
+from abc import abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, suppress
 from datetime import datetime, timedelta
@@ -28,7 +29,15 @@ from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pytest
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import (
+    BaseInputData,
+    ComputeFramework,
+    DataCreator,
+    FeatureGroup,
+    FeatureSet,
+    ReadFileFG,
+    SourceFeatureGroup,
+)
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -51,10 +60,8 @@ from mloda.user import (
     mloda,
 )
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from mloda_plugins.feature_group.input_data.read_file import ReadFile
-from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
-from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
-from mloda_plugins.feature_group.input_data.read_files.parquet import ParquetReader
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
+from mloda_plugins.feature_group.input_data.file_formats.parquet_fg import ParquetFG
 
 from mloda.community.extenders.shared import termination
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY
@@ -87,10 +94,14 @@ from mloda.enterprise.extenders.audit.tests.manifest_helpers import _Crash, _cra
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
+    CREDENTIALED_URI_IDENTITY,
+    URI_SECRET,
     CountingExtender,
+    MlodaTestingUriFileFG,
     expected_value_int,
     prepare_csv_feature,
     prepare_value_int,
+    run_credentialed_uri_feature,
     run_csv_feature,
     run_value_int,
     write_csv,
@@ -273,7 +284,7 @@ class MlodaTestingClassCsvMasked(FeatureGroup):
     masking = True
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        return {Feature("alpha", options={CsvReader.__name__: options.get(_CSV_PATH_OPTION)})}
+        return {Feature("alpha", options={CsvFG.__name__: options.get(_CSV_PATH_OPTION)})}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
@@ -299,9 +310,7 @@ def _qualname(cls: type) -> str:
 
 
 def _declare_csv_level(monkeypatch: pytest.MonkeyPatch, level: str) -> None:
-    monkeypatch.setattr(
-        CsvReader, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: level})
-    )
+    monkeypatch.setattr(CsvFG, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: level}))
 
 
 def _reader_probe(**overrides: Any) -> HookContext:
@@ -316,7 +325,7 @@ def _reader_probe(**overrides: Any) -> HookContext:
         "tenant_id": "t",
         "principal": "svc",
         "feature_names": ("alpha",),
-        "reader_class": CsvReader,
+        "reader_class": CsvFG,
         "declared_attributes": {CLASSIFICATION_KEY: "pii"},
         **overrides,
     }
@@ -331,12 +340,12 @@ def _clear_pii(tenant: str | None, principal: str | None) -> str:
     return "pii"
 
 
-class _CsvReaderSubclass(CsvReader):
-    """Not a final reader, so core never discovers it; exemption is by exact class."""
+class _CsvFGSubclass(CsvFG):
+    """Abstract, so core never discovers it; exemption is by exact class."""
 
     @classmethod
-    def _final_reader_requires(cls) -> tuple[str, ...]:
-        return ()
+    @abstractmethod
+    def _never_discovered(cls) -> None: ...
 
 
 def _classified(
@@ -768,8 +777,8 @@ def _assert_logged_no_enclosing_calculate(caplog: pytest.LogCaptureFixture) -> N
     assert len(matching) == 1, [(r.name, r.levelno, r.getMessage()) for r in caplog.records]
 
 
-# (raw data_access passed as args[0], core's recorded identity, secret markers that must not survive anywhere
-# in the record). Expected is a hardcoded literal, pinned once against core's BaseInputData.data_access_identity.
+# (raw data_access passed as args[0], the context identity the extender is given and must record, secret markers that
+# must not survive anywhere in the record). Expected is a hardcoded literal.
 _DATA_ACCESS_IDENTITY_CASES = [
     pytest.param(_BUCKET_KEY, _BUCKET_KEY, (), id="clean_s3_unchanged"),
     pytest.param(
@@ -1058,22 +1067,23 @@ class TestAuditExtenderConstruction:
         policy = ClassificationPolicy(
             clearance=lambda tenant, principal: "pii",
             undeclared="public",
-            exempt_readers=[CsvReader],  # type: ignore[arg-type]
+            exempt_readers=[CsvFG, ParquetFG],  # type: ignore[arg-type]
         )
 
-        assert policy.exempt_readers == frozenset({CsvReader})
+        assert policy.exempt_readers == frozenset({CsvFG, ParquetFG})
         assert isinstance(policy.exempt_readers, frozenset)
 
     @pytest.mark.parametrize(
         "value",
         [
-            ["CsvReader"],
-            "CsvReader",
+            ["CsvFG"],
+            "CsvFG",
             [object()],
-            [CsvReader()],
+            [CsvFG()],
             [MlodaTestingClassCsvMasked],
             [42],
-            [ReadFile],
+            [ReadFileFG],
+            [SourceFeatureGroup],
             [BaseInputData],
         ],
         ids=[
@@ -1083,7 +1093,8 @@ class TestAuditExtenderConstruction:
             "reader_instance",
             "feature_group_class",
             "int",
-            "family_base",
+            "read_file_base",
+            "source_base",
             "base_input_data",
         ],
     )
@@ -1097,7 +1108,7 @@ class TestAuditExtenderConstruction:
                 clearance=lambda tenant, principal: "pii",
                 undeclared="public",
                 gate_readers=False,
-                exempt_readers=frozenset({CsvReader}),
+                exempt_readers=frozenset({CsvFG}),
             )
 
     @pytest.mark.parametrize("value", ["yes", 1, None], ids=["str", "int", "none"])
@@ -1124,7 +1135,7 @@ class TestAuditExtenderConstruction:
         [
             (True, frozenset(), True),
             (False, frozenset(), True),
-            (True, frozenset({CsvReader}), True),
+            (True, frozenset({CsvFG}), True),
             (True, frozenset(), False),
             (False, frozenset(), False),
         ],
@@ -2455,7 +2466,7 @@ class TestAuditExtenderClassificationGate:
         assert record["error_type"] == _qualname(ClassificationDeniedError)
         assert record["deny_reason"] == "classification_above_clearance"
         assert record["classification"] == declared
-        assert record["reader_class"] == _qualname(CsvReader)
+        assert record["reader_class"] == _qualname(CsvFG)
         assert record["feature_names"] == ["alpha"]
         assert record["feature_group_class"] is None
         assert record["compute_framework_name"] is None
@@ -2506,8 +2517,8 @@ class TestAuditExtenderClassificationGate:
     @pytest.mark.parametrize(
         ("exempt_readers", "readers"),
         [
-            (frozenset(), (CsvReader, ParquetReader)),
-            (frozenset({CsvReader}), (_CsvReaderSubclass, ParquetReader)),
+            (frozenset(), (CsvFG, ParquetFG)),
+            (frozenset({CsvFG}), (_CsvFGSubclass, ParquetFG)),
         ],
         ids=["no_exemption", "csv_exempt"],
     )
@@ -2560,9 +2571,7 @@ class TestAuditExtenderClassificationGate:
         self, declared: dict[str, Any] | None
     ) -> None:
         sink = InMemoryAuditSink()
-        policy = ClassificationPolicy(
-            clearance=_clear_internal, undeclared="public", exempt_readers=frozenset({CsvReader})
-        )
+        policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", exempt_readers=frozenset({CsvFG}))
         extender = _classified(sink, classification=policy)
         call = _CountingCall()
 
@@ -2620,7 +2629,7 @@ class TestAuditExtenderClassificationGate:
         assert sink.records[0]["decision"] == "deny"
         assert sink.records[0]["deny_reason"] == "classification_unresolved"
         assert sink.records[0]["classification"] is None
-        assert sink.records[0]["reader_class"] == _qualname(CsvReader)
+        assert sink.records[0]["reader_class"] == _qualname(CsvFG)
 
     def test_a_copy_with_a_dropped_policy_refuses_a_reader_as_unresolved_even_when_it_would_be_cleared(self) -> None:
         duplicated = pickle.loads(pickle.dumps(_classified(InMemoryAuditSink(), "pii")))  # nosec
@@ -2637,7 +2646,7 @@ class TestAuditExtenderClassificationGate:
 
     def test_a_copy_with_a_dropped_policy_refuses_an_exempt_reader_as_unresolved(self) -> None:
         policy = ClassificationPolicy(
-            clearance=lambda tenant, principal: "pii", undeclared="public", exempt_readers=frozenset({CsvReader})
+            clearance=lambda tenant, principal: "pii", undeclared="public", exempt_readers=frozenset({CsvFG})
         )
         duplicated = pickle.loads(pickle.dumps(_classified(InMemoryAuditSink(), classification=policy)))  # nosec
         call = _CountingCall()
@@ -2663,7 +2672,7 @@ class TestAuditExtenderClassificationGate:
         clearance.assert_not_called()
         assert call.calls == 0
         assert [(r["hook"], r["deny_reason"], r["reader_class"]) for r in sink.records] == [
-            ("INPUT_DATA_MATCH", "missing_tenant_id", _qualname(CsvReader))
+            ("INPUT_DATA_MATCH", "missing_tenant_id", _qualname(CsvFG))
         ]
 
     def test_a_reader_deny_record_is_sealed_under_its_plan_id(self, tmp_path: Path) -> None:
@@ -4066,7 +4075,7 @@ class TestAuditExtenderDataAccess:
         results: list[Any] = []
 
         def body() -> None:
-            results.append(_load(extender, _BUCKET_KEY, "ParquetReader"))
+            results.append(_load(extender, _BUCKET_KEY, "ParquetFG"))
 
         _calculate(extender, body)
 
@@ -4076,7 +4085,7 @@ class TestAuditExtenderDataAccess:
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name
         assert record["record_version"] == 2
         assert record["data_access_identity"] == [_BUCKET_KEY]
-        assert record["data_access_format"] == ["ParquetReader"]
+        assert record["data_access_format"] == ["ParquetFG"]
 
     def test_format_none_stays_none_inside_the_list(self) -> None:
         record = _record_for_loads([(_BUCKET_KEY, None)])
@@ -4085,7 +4094,7 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_format"] == [None]
 
     def test_load_without_an_identity_is_skipped(self) -> None:
-        record = _record_for_loads([(None, "CsvReader", True)])
+        record = _record_for_loads([(None, "CsvFG", True)])
 
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
@@ -4103,7 +4112,7 @@ class TestAuditExtenderDataAccess:
             raise RuntimeError("load boom")
 
         def body() -> None:
-            with _load_context(_BUCKET_KEY, "ParquetReader", declared={"license": "a"}).activate():
+            with _load_context(_BUCKET_KEY, "ParquetFG", declared={"license": "a"}).activate():
                 extender(failing_load)
 
         with pytest.raises(RuntimeError, match="load boom"):
@@ -4115,7 +4124,7 @@ class TestAuditExtenderDataAccess:
         assert record["status"] == "error"
         assert record["error_type"] == "builtins.RuntimeError"
         assert record["data_access_identity"] == [_BUCKET_KEY]
-        assert record["data_access_format"] == ["ParquetReader"]
+        assert record["data_access_format"] == ["ParquetFG"]
         assert record["data_access_declared_attributes"] == [{"license": "a"}]
 
     def test_failing_load_swallowed_by_the_calculate_body_is_still_recorded(self) -> None:
@@ -4137,33 +4146,31 @@ class TestAuditExtenderDataAccess:
         assert sink.records[0]["data_access_identity"] == [_BUCKET_KEY]
 
     def test_repeated_identical_loads_are_deduplicated(self) -> None:
-        record = _record_for_loads([(_BUCKET_KEY, "ParquetReader")] * 3)
+        record = _record_for_loads([(_BUCKET_KEY, "ParquetFG")] * 3)
 
         assert record["data_access_identity"] == [_BUCKET_KEY]
-        assert record["data_access_format"] == ["ParquetReader"]
+        assert record["data_access_format"] == ["ParquetFG"]
 
     def test_distinct_loads_keep_first_seen_order_and_stay_index_aligned(self) -> None:
         other = "s3://bucket/other.csv"
 
         record = _record_for_loads(
             [
-                (_BUCKET_KEY, "ParquetReader", False),
-                (other, "CsvReader", True),
-                (_BUCKET_KEY, "ParquetReader", False),
+                (_BUCKET_KEY, "ParquetFG", False),
+                (other, "CsvFG", True),
+                (_BUCKET_KEY, "ParquetFG", False),
             ]
         )
 
         assert record["data_access_identity"] == [_BUCKET_KEY, other]
-        assert record["data_access_format"] == ["ParquetReader", "CsvReader"]
+        assert record["data_access_format"] == ["ParquetFG", "CsvFG"]
         assert record["data_access_identity_is_fallback"] == [False, True]
 
     def test_same_identity_and_format_with_different_flags_gives_two_entries(self) -> None:
-        record = _record_for_loads(
-            [("str", "CsvReader", True), ("str", "CsvReader", False), ("str", "CsvReader", True)]
-        )
+        record = _record_for_loads([("str", "CsvFG", True), ("str", "CsvFG", False), ("str", "CsvFG", True)])
 
         assert record["data_access_identity"] == ["str", "str"]
-        assert record["data_access_format"] == ["CsvReader", "CsvReader"]
+        assert record["data_access_format"] == ["CsvFG", "CsvFG"]
         assert record["data_access_identity_is_fallback"] == [True, False]
 
     def test_load_with_a_declaration_records_a_plain_json_dict(self) -> None:
@@ -4171,7 +4178,7 @@ class TestAuditExtenderDataAccess:
 
         group_declared: dict[str, str | int | float | bool] = {"license": "group-license"}
 
-        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")], declared=[declared], group_declared=group_declared)
+        record = _record_for_loads([(_BUCKET_KEY, "CsvFG")], declared=[declared], group_declared=group_declared)
 
         assert record["data_access_declared_attributes"] == [declared]
         assert record["feature_group_declared_attributes"] == group_declared
@@ -4184,16 +4191,14 @@ class TestAuditExtenderDataAccess:
     def test_load_without_a_readable_declaration_records_it_as_given(
         self, declared: dict[str, str | int | float | bool] | None, expected: list[dict[str, Any] | None]
     ) -> None:
-        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")], declared=[declared])
+        record = _record_for_loads([(_BUCKET_KEY, "CsvFG")], declared=[declared])
 
         assert record["data_access_declared_attributes"] == expected
 
     def test_declarations_stay_index_aligned_across_distinct_loads(self) -> None:
         other = "s3://bucket/other.csv"
 
-        record = _record_for_loads(
-            [(_BUCKET_KEY, "ParquetReader"), (other, "CsvReader")], declared=[{"license": "a"}, None]
-        )
+        record = _record_for_loads([(_BUCKET_KEY, "ParquetFG"), (other, "CsvFG")], declared=[{"license": "a"}, None])
 
         assert record["data_access_identity"] == [_BUCKET_KEY, other]
         assert record["data_access_declared_attributes"] == [{"license": "a"}, None]
@@ -4202,7 +4207,7 @@ class TestAuditExtenderDataAccess:
     def test_repeated_loads_with_equal_declarations_are_deduplicated(
         self, declaration: dict[str, str | int | float | bool]
     ) -> None:
-        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")] * 3, declared=[declaration] * 3)
+        record = _record_for_loads([(_BUCKET_KEY, "CsvFG")] * 3, declared=[declaration] * 3)
 
         assert record["data_access_identity"] == [_BUCKET_KEY]
         assert record["data_access_declared_attributes"] == [declaration]
@@ -4218,7 +4223,7 @@ class TestAuditExtenderDataAccess:
     def test_same_identity_format_and_flag_with_different_declarations_gives_separate_entries(
         self, declarations: list[dict[str, str | int | float | bool]]
     ) -> None:
-        record = _record_for_loads([("str", "CsvReader", True)] * len(declarations), declared=declarations)
+        record = _record_for_loads([("str", "CsvFG", True)] * len(declarations), declared=declarations)
 
         recorded = record["data_access_declared_attributes"]
         assert record["data_access_identity"] == ["str"] * len(declarations)
@@ -4235,7 +4240,7 @@ class TestAuditExtenderDataAccess:
         extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
 
         def body() -> None:
-            _load(extender, _BUCKET_KEY, "CsvReader", declared={"license": "a", "scale": dropped})
+            _load(extender, _BUCKET_KEY, "CsvFG", declared={"license": "a", "scale": dropped})
 
         _calculate(extender, body)
 
@@ -4244,35 +4249,34 @@ class TestAuditExtenderDataAccess:
         assert records[0]["data_access_declared_attributes"] == [{"license": "a"}]
 
     def test_hand_built_context_without_the_flag_records_none(self) -> None:
-        record = _record_for_loads([(_BUCKET_KEY, "CsvReader")])
+        record = _record_for_loads([(_BUCKET_KEY, "CsvFG")])
 
         assert record["data_access_identity_is_fallback"] == [None]
 
     def test_same_identity_under_two_formats_gives_two_entries(self) -> None:
-        record = _record_for_loads([(_BUCKET_KEY, "CsvReader"), (_BUCKET_KEY, "ParquetReader")])
+        record = _record_for_loads([(_BUCKET_KEY, "CsvFG"), (_BUCKET_KEY, "ParquetFG")])
 
         assert record["data_access_identity"] == [_BUCKET_KEY, _BUCKET_KEY]
-        assert record["data_access_format"] == ["CsvReader", "ParquetReader"]
+        assert record["data_access_format"] == ["CsvFG", "ParquetFG"]
 
     def test_loads_whose_core_identity_matches_are_deduplicated_even_when_raw_args_differ(self) -> None:
-        # Raw args[0] differ in userinfo and query; core projects both to the same identity.
+        # Raw args[0] differ in userinfo and query; the context identity is the same for both.
         raw_one = "https://a:1@host/x?sig=one"
         raw_two = "https://b:2@host/x?sig=two"
-        assert BaseInputData.data_access_identity(raw_one) == BaseInputData.data_access_identity(raw_two)
-        context_identity = BaseInputData.data_access_identity(raw_one)
+        context_identity = "https://host/x"
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
 
         def body() -> None:
-            _load(extender, context_identity, "CsvReader", args=(raw_one, _FEATURES_PLACEHOLDER))
-            _load(extender, context_identity, "CsvReader", args=(raw_two, _FEATURES_PLACEHOLDER))
+            _load(extender, context_identity, "CsvFG", args=(raw_one, _FEATURES_PLACEHOLDER))
+            _load(extender, context_identity, "CsvFG", args=(raw_two, _FEATURES_PLACEHOLDER))
 
         _calculate(extender, body)
 
         assert len(sink.records) == 1
         record = sink.records[0]
         assert record["data_access_identity"] == ["https://host/x"]
-        assert record["data_access_format"] == ["CsvReader"]
+        assert record["data_access_format"] == ["CsvFG"]
 
     def test_two_azure_containers_on_one_account_and_path_stay_distinct_entries(self) -> None:
         marker = "SECRET"
@@ -4282,9 +4286,11 @@ class TestAuditExtenderDataAccess:
         extender = AuditExtender(sink=sink)
 
         def body() -> None:
-            for raw in (raw_raw_container, raw_curated_container):
-                context_identity = BaseInputData.data_access_identity(raw)
-                _load(extender, context_identity, "CsvReader", args=(raw, _FEATURES_PLACEHOLDER))
+            for raw, context_identity in (
+                (raw_raw_container, "abfss://raw@acct.dfs.core.windows.net/p"),
+                (raw_curated_container, "abfss://curated@acct.dfs.core.windows.net/p"),
+            ):
+                _load(extender, context_identity, "CsvFG", args=(raw, _FEATURES_PLACEHOLDER))
 
         _calculate(extender, body)
 
@@ -4360,7 +4366,7 @@ class TestAuditExtenderDataAccess:
         call = _CountingCall()
 
         with caplog.at_level(logging.DEBUG):
-            with _load_context(_BUCKET_KEY, "ParquetReader").activate():
+            with _load_context(_BUCKET_KEY, "ParquetFG").activate():
                 result = extender(call)
 
         assert result == 42
@@ -4408,19 +4414,18 @@ class TestAuditExtenderDataAccess:
         assert [r["data_access_identity"] for r in sink_b.records] == [["s3://bucket/both.parquet"]]
 
     @pytest.mark.parametrize(("raw", "expected", "secrets"), _DATA_ACCESS_IDENTITY_CASES)
-    def test_the_core_identity_is_recorded_never_the_raw_data_access(
+    def test_the_context_identity_is_recorded_never_the_raw_data_access(
         self, raw: Any, expected: str, secrets: tuple[str, ...]
     ) -> None:
-        context_identity = BaseInputData.data_access_identity(raw)
-        record = _record_for_loads([(context_identity, "CsvReader")], args=(raw, _FEATURES_PLACEHOLDER))
+        record = _record_for_loads([(expected, "CsvFG")], args=(raw, _FEATURES_PLACEHOLDER))
 
         assert record["data_access_identity"] == [expected]
-        assert record["data_access_format"] == ["CsvReader"]
+        assert record["data_access_format"] == ["CsvFG"]
         for secret in secrets:
             assert secret not in json.dumps(record)
 
     def test_a_load_without_a_context_identity_is_skipped_even_with_a_uri_first_argument(self) -> None:
-        record = _record_for_loads([(None, "CsvReader")], args=("https://host/p?sig=SECRET", _FEATURES_PLACEHOLDER))
+        record = _record_for_loads([(None, "CsvFG")], args=("https://host/p?sig=SECRET", _FEATURES_PLACEHOLDER))
 
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
@@ -4429,7 +4434,7 @@ class TestAuditExtenderDataAccess:
         # Models a reader whose data_access_identity() override diverges from core's own projection of args[0].
         overridden_identity = "https://api.example/x?station=7"
         record = _record_for_loads(
-            [(overridden_identity, "CsvReader")], args=("s3://bucket/raw/key.parquet", _FEATURES_PLACEHOLDER)
+            [(overridden_identity, "CsvFG")], args=("s3://bucket/raw/key.parquet", _FEATURES_PLACEHOLDER)
         )
 
         assert record["data_access_identity"] == [overridden_identity]
@@ -4720,7 +4725,7 @@ class TestAuditExtenderRunAll:
         with verified_context(tenant_id="tenant-42"):
             run_csv_feature(tmp_path, extender, parallelization_modes={mode}, flight_server=flight_server)
 
-        read_class = f"{ReadFileFeature.__module__}.{ReadFileFeature.__qualname__}"
+        read_class = _qualname(CsvFG)
         sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
         records = [record for record in sink_records if record["feature_group_class"] == read_class]
         assert len(records) == 1
@@ -4728,29 +4733,44 @@ class TestAuditExtenderRunAll:
         assert len(run_hashes) == 1
         assert all(run_hashes)
         assert records[0]["data_access_identity"] == [str(tmp_path / "data.csv")]
-        assert records[0]["data_access_format"] == ["CsvReader"]
+        assert records[0]["data_access_format"] == ["CsvFG"]
         assert records[0]["data_access_identity_is_fallback"] == [False]
         assert records[0]["data_access_declared_attributes"] == [{}]
 
     def test_run_all_csv_read_with_a_fallback_identity_records_the_flag_true(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A reader that does not override the identity falls back to the type name of its data access ("str").
-        monkeypatch.setattr(
-            CsvReader, "data_access_identity", classmethod(lambda cls, data_access: type(data_access).__name__)
-        )
+        # A source group whose identity names no source falls back to the type name of its data access.
+        monkeypatch.setattr(CsvFG, "data_access_identity", classmethod(lambda cls, match: type(match).__name__))
         audit_path = tmp_path / "audit.ndjson"
         extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
 
         with verified_context(tenant_id="tenant-42"):
             run_csv_feature(tmp_path, extender)
 
-        read_class = f"{ReadFileFeature.__module__}.{ReadFileFeature.__qualname__}"
+        read_class = _qualname(CsvFG)
         sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
         records = [record for record in sink_records if record["feature_group_class"] == read_class]
         assert len(records) == 1
-        assert records[0]["data_access_identity"] == ["str"]
+        assert records[0]["data_access_identity"] == ["SourceMatch"]
         assert records[0]["data_access_identity_is_fallback"] == [True]
+
+    def test_run_all_read_of_a_credentialed_uri_records_an_identity_without_the_credentials(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+
+        with verified_context(tenant_id="tenant-42"):
+            run_credentialed_uri_feature(extender)
+
+        sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        records = [
+            record for record in sink_records if record["feature_group_class"] == _qualname(MlodaTestingUriFileFG)
+        ]
+        assert len(records) == 1
+        assert records[0]["data_access_identity"] == [CREDENTIALED_URI_IDENTITY]
+        assert URI_SECRET not in json.dumps(sink_records)
 
     @pytest.mark.parametrize(
         ("declared", "expected"),
@@ -4763,14 +4783,14 @@ class TestAuditExtenderRunAll:
     def test_run_all_csv_read_with_a_declaring_reader_records_the_declaration(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declared: dict[str, Any], expected: dict[str, Any]
     ) -> None:
-        monkeypatch.setattr(CsvReader, "declared_attributes", classmethod(lambda cls, features: declared))
+        monkeypatch.setattr(CsvFG, "declared_attributes", classmethod(lambda cls, features: declared))
         audit_path = tmp_path / "audit.ndjson"
         extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
 
         with verified_context(tenant_id="tenant-42"):
             run_csv_feature(tmp_path, extender)
 
-        read_class = f"{ReadFileFeature.__module__}.{ReadFileFeature.__qualname__}"
+        read_class = _qualname(CsvFG)
         sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
         records = [record for record in sink_records if record["feature_group_class"] == read_class]
         assert len(records) == 1
@@ -4987,19 +5007,19 @@ class TestAuditExtenderClassificationRunAll:
             ("RUN_START", "classification_above_clearance", "carol")
         ]
 
-    @pytest.mark.parametrize("exempt_readers", [frozenset(), frozenset({ParquetReader})], ids=["none", "other_reader"])
+    @pytest.mark.parametrize("exempt_readers", [frozenset(), frozenset({ParquetFG})], ids=["none", "other_reader"])
     def test_a_reader_declared_above_the_clearance_is_refused_at_plan_time_before_its_probe(
-        self, exempt_readers: frozenset[type[BaseInputData]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, exempt_readers: frozenset[type[SourceFeatureGroup]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _declare_csv_level(monkeypatch, "pii")
         probes: list[list[str]] = []
-        original = CsvReader.match_subclass_data_access
+        original = CsvFG.column_names
 
-        def spy(data_access: Any, feature_names: list[str], options: Options) -> Any:
-            probes.append(feature_names)
-            return original(data_access, feature_names, options)
+        def spy(cls: type[CsvFG], path: str) -> Any:
+            probes.append([path])
+            return original(path)
 
-        monkeypatch.setattr(CsvReader, "match_subclass_data_access", staticmethod(spy))
+        monkeypatch.setattr(CsvFG, "column_names", classmethod(spy))
         sink = InMemoryAuditSink()
 
         with verified_context(tenant_id="t", principal="svc"):
@@ -5023,7 +5043,7 @@ class TestAuditExtenderClassificationRunAll:
         assert record["deny_reason"] == "classification_above_clearance"
         assert record["classification"] == "pii"
         assert record["feature_names"] == ["alpha"]
-        assert record["reader_class"] == _qualname(CsvReader)
+        assert record["reader_class"] == _qualname(CsvFG)
 
     def test_a_reader_declared_pii_root_is_probed_and_every_record_carries_the_level_for_a_pii_principal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -5040,13 +5060,13 @@ class TestAuditExtenderClassificationRunAll:
 
     @pytest.mark.parametrize(
         ("gate_readers", "exempt_readers"),
-        [(False, frozenset()), (True, frozenset({CsvReader}))],
+        [(False, frozenset()), (True, frozenset({CsvFG}))],
         ids=["gate_readers_off", "exempt_reader"],
     )
     def test_an_ungated_or_exempt_reader_above_the_clearance_falls_back_to_the_run_start_refusal(
         self,
         gate_readers: bool,
-        exempt_readers: frozenset[type[BaseInputData]],
+        exempt_readers: frozenset[type[SourceFeatureGroup]],
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -5069,7 +5089,7 @@ class TestAuditExtenderClassificationRunAll:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            ParquetReader, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
+            ParquetFG, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
         )
         path = write_csv(tmp_path)
         sink = InMemoryAuditSink()
@@ -5078,7 +5098,7 @@ class TestAuditExtenderClassificationRunAll:
             results = mloda.run_all(
                 ["alpha", "beta"],
                 compute_frameworks=[PyArrowTable],
-                plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature}),
+                plugin_collector=PluginCollector.enabled_feature_groups({CsvFG, ParquetFG}),
                 data_access_collection=DataAccessCollection(files={str(path)}),
                 function_extender={_classified(sink, "internal")},
                 parallelization_modes={ParallelizationMode.SYNC},
@@ -5087,19 +5107,19 @@ class TestAuditExtenderClassificationRunAll:
         assert results
         denies = [r for r in sink.records if r["decision"] == "deny"]
         assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=lambda t: t[2]) == [
-            ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["alpha"]),
-            ("INPUT_DATA_MATCH", _qualname(ParquetReader), ["beta"]),
+            ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["alpha"]),
+            ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["beta"]),
         ]
 
     @pytest.mark.parametrize(
         ("gate_readers", "exempt_readers", "allowed"),
-        [(False, frozenset(), True), (True, frozenset(), False), (True, frozenset({CsvReader}), True)],
+        [(False, frozenset(), True), (True, frozenset(), False), (True, frozenset({CsvFG}), True)],
         ids=["gate_readers_off", "gated", "exempt_reader"],
     )
     def test_a_masked_derivative_of_a_reader_declared_pii_source_needs_gate_readers_off_or_an_exempt_reader(
         self,
         gate_readers: bool,
-        exempt_readers: frozenset[type[BaseInputData]],
+        exempt_readers: frozenset[type[SourceFeatureGroup]],
         allowed: bool,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -5116,7 +5136,7 @@ class TestAuditExtenderClassificationRunAll:
             return mloda.run_all(
                 [feature],
                 compute_frameworks=[PyArrowTable],
-                plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature, MlodaTestingClassCsvMasked}),
+                plugin_collector=PluginCollector.enabled_feature_groups({CsvFG, MlodaTestingClassCsvMasked}),
                 function_extender={_classified(sink, classification=policy)},
                 parallelization_modes={ParallelizationMode.SYNC},
             )
@@ -5129,8 +5149,14 @@ class TestAuditExtenderClassificationRunAll:
                     run()
 
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        assert [(r["hook"], r["reader_class"]) for r in denies] == (
-            [] if allowed else [("INPUT_DATA_MATCH", _qualname(CsvReader))]
+        # A source group is probed for the requested name and for its input.
+        assert sorted((r["hook"], r["reader_class"], r["feature_names"][0]) for r in denies) == (
+            []
+            if allowed
+            else [
+                ("INPUT_DATA_MATCH", _qualname(CsvFG), _CSV_MASKED),
+                ("INPUT_DATA_MATCH", _qualname(CsvFG), "alpha"),
+            ]
         )
 
     def test_a_masking_step_over_a_public_source_stays_public_for_a_public_principal(
@@ -5144,7 +5170,7 @@ class TestAuditExtenderClassificationRunAll:
             results = mloda.run_all(
                 [Feature(_CSV_MASKED, options={_CSV_PATH_OPTION: str(path)})],
                 compute_frameworks=[PyArrowTable],
-                plugin_collector=PluginCollector.enabled_feature_groups({ReadFileFeature, MlodaTestingClassCsvMasked}),
+                plugin_collector=PluginCollector.enabled_feature_groups({CsvFG, MlodaTestingClassCsvMasked}),
                 function_extender={_classified(sink, "public")},
                 parallelization_modes={ParallelizationMode.SYNC},
             )

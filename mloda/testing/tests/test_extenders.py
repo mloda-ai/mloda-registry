@@ -175,6 +175,14 @@ class TestMakeHookContextOverrides:
         context = make_hook_context(data_access_identity="s3://bucket/key")
         assert context.data_access_identity == "s3://bucket/key"
 
+    def test_data_access_loader_override(self) -> None:
+        context = make_hook_context(data_access_loader="CsvFG")
+        assert context.data_access_loader == "CsvFG"
+
+    def test_implementation_override(self) -> None:
+        context = make_hook_context(implementation="PyArrowTable", implementation_version="1")
+        assert (context.implementation, context.implementation_version) == ("PyArrowTable", "1")
+
     def test_carrier_override(self) -> None:
         context = make_hook_context(carrier={"traceparent": "00-abc"})
         assert context.carrier == {"traceparent": "00-abc"}
@@ -615,11 +623,12 @@ class TestHasBackendSinkMustBeDeclared:
 
 
 class TestDataChangingExtenderFailsContract:
-    """Self-test: a probe mutating loaded data in place must fail the never-changes-data contract test."""
+    """Self-test: a probe swapping the loaded table must fail the never-changes-data contract test."""
 
     def test_data_changing_load_probe_fails_the_mixin_test(self, tmp_path: Path) -> None:
         class _DataChangingLoadProbeExtender(Extender):
-            """Wraps INPUT_DATA_LOAD; rewrites the loaded CSV in place and returns the wrapped result unchanged."""
+            """Wraps INPUT_DATA_LOAD; skips the wrapped load and returns a different table (a returned value
+            would lose to the wrapped result)."""
 
             def __init__(self) -> None:
                 self.raise_on_error = True
@@ -628,9 +637,7 @@ class TestDataChangingExtenderFailsContract:
                 return {ExtenderHook.INPUT_DATA_LOAD}
 
             def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-                result = func(*args, **kwargs)
-                Path(result.path).write_text("alpha,beta\n9,2\n9,4\n", encoding="utf-8")
-                return result
+                return pa.table({"alpha": [9, 9], "beta": [2, 4]})
 
         class _Host(ExtenderContractTestMixin):
             def make_extender(self, *, raise_on_error: bool | None = None) -> _DataChangingLoadProbeExtender:

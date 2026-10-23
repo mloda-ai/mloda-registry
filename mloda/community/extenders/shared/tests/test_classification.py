@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from mloda.provider import BaseInputData, FeatureGroup
+from mloda.provider import FeatureGroup, SourceFeatureGroup
 from mloda.steward import PlanStep
 from mloda.user import Options
 
@@ -63,26 +63,29 @@ class _MaskingAsString(FeatureGroup):
         return declaring("internal")
 
 
-class _PiiReader(BaseInputData):
+# Abstract source groups: never discovered, but real SourceFeatureGroup subclasses as plan steps' feature groups.
+class _PiiSource(SourceFeatureGroup):
     @classmethod
     def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
         return declaring("pii")
 
 
-class _InternalReader(BaseInputData):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
-        return declaring("internal")
-
-
-class _PublicReader(BaseInputData):
+class _PublicSource(SourceFeatureGroup):
     @classmethod
     def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
         return declaring("public")
 
 
-class _UndeclaredReader(BaseInputData):
+class _UndeclaredSource(SourceFeatureGroup):
     pass
+
+
+class _MaskingSource(SourceFeatureGroup):
+    masking = True
+
+    @classmethod
+    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
+        return declaring("internal")
 
 
 def _derived(group: type[FeatureGroup], name: str, source: str) -> PlanStep:
@@ -107,19 +110,10 @@ def test_a_group_declaration_wins_over_undeclared() -> None:
     assert result == {"a": "internal", "b": "internal"}
 
 
-def test_a_reader_declaration_applies_to_a_group_without_one() -> None:
-    result = feature_classifications([classified_step(_Undeclared, ("a",), reader=_PiiReader)], undeclared="public")
+def test_a_source_group_declaration_wins_over_undeclared() -> None:
+    result = feature_classifications([classified_step(_PiiSource, ("a",))], undeclared="public")
 
     assert result == {"a": "pii"}
-
-
-def test_group_and_reader_merge_to_the_most_restrictive_in_either_direction() -> None:
-    steps = [
-        classified_step(InternalGroup, ("a",), reader=_PiiReader),
-        classified_step(PiiGroup, ("b",), reader=_InternalReader),
-    ]
-
-    assert feature_classifications(steps, undeclared="public") == {"a": "pii", "b": "pii"}
 
 
 def test_a_derived_feature_inherits_the_level_of_its_input() -> None:
@@ -179,27 +173,30 @@ def test_a_masking_group_over_an_undeclared_input_caps_the_undeclared_level() ->
 
 
 @pytest.mark.parametrize(
-    "reader, expected", [(_PublicReader, "public"), (_UndeclaredReader, "internal"), (_PiiReader, "internal")]
+    "source, expected", [(_PublicSource, "public"), (_UndeclaredSource, "public"), (_PiiSource, "internal")]
 )
-def test_a_masking_group_caps_the_level_of_its_reader(reader: type[BaseInputData], expected: str) -> None:
-    steps = [classified_step(_Masking, ("a",), reader=reader)]
+def test_a_masking_group_caps_the_level_of_its_source_group(source: type[FeatureGroup], expected: str) -> None:
+    steps = [classified_step(source, ("raw",)), _derived(_Masking, "masked", "raw")]
 
-    assert feature_classifications(steps, undeclared="public") == {"a": expected}
-
-
-def test_a_reader_declaring_nothing_is_unbounded_even_with_a_public_input() -> None:
-    steps = [
-        classified_step(_Public, ("raw",)),
-        classified_step(_Masking, ("m",), {"m": ("raw",)}, reader=_UndeclaredReader),
-    ]
-
-    assert feature_classifications(steps, undeclared="public")["m"] == "internal"
+    assert feature_classifications(steps, undeclared="public")["masked"] == expected
 
 
-def test_a_masking_root_step_without_reader_or_inputs_gets_its_own_level() -> None:
+def test_a_masking_root_step_without_inputs_gets_its_own_level() -> None:
     result = feature_classifications([classified_step(_Masking, ("a",))], undeclared="public")
 
     assert result == {"a": "internal"}
+
+
+def test_a_masking_source_group_gets_its_own_level() -> None:
+    result = feature_classifications([classified_step(_MaskingSource, ("a",))], undeclared="public")
+
+    assert result == {"a": "internal"}
+
+
+def test_a_masking_source_group_over_a_public_input_stays_public() -> None:
+    steps = [classified_step(_Public, ("raw",)), _derived(_MaskingSource, "m", "raw")]
+
+    assert feature_classifications(steps, undeclared="public")["m"] == "public"
 
 
 def test_a_masking_output_depending_on_itself_raises() -> None:
@@ -215,13 +212,10 @@ def test_masking_without_its_own_level_lowers_nothing() -> None:
     assert feature_classifications(steps, undeclared="public")["masked"] == "pii"
 
 
-def test_masking_cannot_lower_below_a_reader_only_declaration() -> None:
-    class _MaskingReaderOnly(FeatureGroup):
-        masking = True
+def test_a_masking_root_step_without_its_own_level_takes_the_undeclared_level() -> None:
+    steps = [classified_step(_MaskingWithoutLevel, ("a",))]
 
-    steps = [classified_step(_MaskingReaderOnly, ("a",), reader=_PiiReader)]
-
-    assert feature_classifications(steps, undeclared="public") == {"a": "pii"}
+    assert feature_classifications(steps, undeclared="confidential") == {"a": "confidential"}
 
 
 def test_a_masking_declared_attribute_without_the_class_attribute_does_not_lower() -> None:

@@ -27,7 +27,7 @@ from unittest.mock import Mock
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData, FeatureSet
+from mloda.provider import FeatureSet
 from mloda.steward import (
     AsOfJoinConfig,
     CompositeExtender,
@@ -42,7 +42,7 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -79,6 +79,8 @@ from mloda.testing.extenders.otel import (
     single_span_attributes,
 )
 from mloda.testing.extenders.runners import (
+    CREDENTIALED_URI_IDENTITY,
+    URI_SECRET,
     CountingExtender,
     MlodaTestingFailingFeatureGroup,
     MlodaTestingJoinLeft,
@@ -86,6 +88,7 @@ from mloda.testing.extenders.runners import (
     expected_value_int,
     failing_feature_group,
     prepare_value_int,
+    run_credentialed_uri_feature,
     run_csv_feature,
     run_failing_feature,
     run_feature,
@@ -1686,14 +1689,13 @@ class TestOtelExtenderLoadSpanAttributes:
 
         assert single_span_attributes(exporter)["mloda.operation.name"] == "load"
 
-    def test_load_identity_attribute_is_core_type_name_for_keyword_dsn_while_format_is_unaffected(
+    def test_load_identity_attribute_is_the_type_name_identity_for_keyword_dsn_while_format_is_unaffected(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
         raw = "host=db user=u password=pw"
-        context_identity = BaseInputData.data_access_identity(raw)  # "str"
         context = make_hook_context(
-            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity, data_access_format="postgresql"
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="SourceMatch", data_access_format="postgresql"
         )
         otel = OtelExtender(tracer_provider=provider)
 
@@ -1702,17 +1704,16 @@ class TestOtelExtenderLoadSpanAttributes:
             otel(lambda *_: "loaded-data", raw)
 
         attrs = single_span_attributes(exporter)
-        assert attrs["mloda.data_access.identity"] == "str"
+        assert attrs["mloda.data_access.identity"] == "SourceMatch"
         assert "pw" not in str(attrs)
         assert attrs["mloda.data_access.format"] == "postgresql"
 
-    def test_load_identity_attribute_is_the_core_identity(
+    def test_load_identity_attribute_is_the_context_identity(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
         raw = "https://user:pw@host/path?sig=secret"
-        context_identity = BaseInputData.data_access_identity(raw)  # "https://host/path"
-        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="https://host/path")
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -1729,8 +1730,7 @@ class TestOtelExtenderLoadSpanAttributes:
     ) -> None:
         provider, exporter = otel_capture
         raw = {"host": "h", "port": 5432, "api_key": "SECRET"}
-        context_identity = BaseInputData.data_access_identity(raw)  # "{api_key, host, port}"
-        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="{api_key, host, port}")
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -2135,7 +2135,7 @@ class TestOtelExtenderDeclaredAttributes:
     ) -> None:
         provider, exporter = otel_capture
         declared = {"license": "a", "scale": float("nan")}
-        monkeypatch.setattr(CsvReader, "declared_attributes", classmethod(lambda cls, features: declared))
+        monkeypatch.setattr(CsvFG, "declared_attributes", classmethod(lambda cls, features: declared))
 
         run_csv_feature(tmp_path, OtelExtender(tracer_provider=provider))
 
@@ -2144,6 +2144,18 @@ class TestOtelExtenderDeclaredAttributes:
         attrs = load_spans[0].attributes or {}
         assert attrs["mloda.declared.license"] == "a"
         assert "mloda.declared.scale" not in attrs
+
+    def test_a_credentialed_uri_read_by_run_all_is_recorded_without_the_credentials(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+
+        run_credentialed_uri_feature(OtelExtender(tracer_provider=provider))
+
+        load_spans = [span for span in exporter.get_finished_spans() if span.name == "mloda.load"]
+        assert len(load_spans) == 1
+        assert (load_spans[0].attributes or {})["mloda.data_access.identity"] == CREDENTIALED_URI_IDENTITY
+        assert URI_SECRET not in str([span.attributes for span in exporter.get_finished_spans()])
 
     @pytest.mark.parametrize(("field", "prefix"), _ATTRIBUTE_FIELDS)
     def test_long_declared_string_is_truncated(

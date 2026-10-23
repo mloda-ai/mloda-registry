@@ -9,7 +9,7 @@ from mloda.steward import ExtenderHook, HookContext, OutputSchema
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from mloda.provider import BaseInputData
+    from mloda.provider import SourceFeatureGroup
     from mloda.steward import AsOfJoinConfig
 
 
@@ -42,6 +42,9 @@ def make_hook_context(
     worker_index: int | None = None,
     data_access_format: str | None = None,
     data_access_dataset_version: str | None = None,
+    data_access_loader: str | None = None,
+    implementation: str | None = None,
+    implementation_version: str | None = None,
     join_type: str | None = None,
     join_keys: tuple[str, ...] | None = None,
     asof_config: AsOfJoinConfig | None = None,
@@ -51,7 +54,7 @@ def make_hook_context(
     plan_node_count: int | None = None,
     plan_depth: int | None = None,
     declared_attributes: dict[str, str | int | float | bool] | None = None,
-    reader_class: type[BaseInputData] | None = None,
+    reader_class: type[SourceFeatureGroup] | None = None,
     result_attributes: dict[str, str | int | float | bool] | None = None,
 ) -> HookContext:
     """Build a HookContext test fixture; every keyword lands unchanged on the result."""
@@ -83,6 +86,9 @@ def make_hook_context(
         worker_index=worker_index,
         data_access_format=data_access_format,
         data_access_dataset_version=data_access_dataset_version,
+        data_access_loader=data_access_loader,
+        implementation=implementation,
+        implementation_version=implementation_version,
         join_type=join_type,
         join_keys=join_keys,
         asof_config=asof_config,

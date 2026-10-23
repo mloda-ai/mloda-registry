@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pyarrow as pa
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import (
+    BaseInputData,
+    ComputeFramework,
+    DataCreator,
+    FeatureGroup,
+    FeatureSet,
+    Implementation,
+    ReadFileFG,
+    SourceMatch,
+)
 from mloda.steward import Extender, ExtenderHook
 from mloda.user import (
     Feature,
@@ -25,8 +34,7 @@ from mloda.user import (
     mloda,
 )
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
-from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
@@ -214,11 +222,11 @@ def write_csv(directory: Path) -> Path:
 
 
 def _csv_alpha_request(directory: Path) -> tuple[Feature, PluginCollector]:
-    """Write the CSV fixture into `directory`; return its `alpha` Feature and the ReadFileFeature collector."""
+    """Write the CSV fixture into `directory`; return its `alpha` Feature and the CsvFG collector."""
     path = write_csv(directory)
     return (
-        Feature("alpha", options={CsvReader.__name__: str(path)}),
-        PluginCollector.enabled_feature_groups({ReadFileFeature}),
+        Feature("alpha", options={CsvFG.__name__: str(path)}),
+        PluginCollector.enabled_feature_groups({CsvFG}),
     )
 
 
@@ -249,6 +257,68 @@ def run_csv_feature(
         [feature],
         compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
+        function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+        flight_server=flight_server,
+        carrier=carrier,
+    )
+    for table in results:
+        if isinstance(table, pa.Table) and "alpha" in table.column_names:
+            column: list[Any] = table.to_pydict()["alpha"]
+            return column
+    raise AssertionError("No result table with alpha found")
+
+
+# Module-level so MULTIPROCESSING can pickle it by path. The unique suffix keeps it from claiming a host's files.
+class MlodaTestingUriFileFG(ReadFileFG):
+    """File group serving an `alpha` column from a URI pointer; used to read a source whose URI carries credentials."""
+
+    @classmethod
+    def suffixes(cls) -> tuple[str, ...]:
+        return (".mlodatesting",)
+
+    @classmethod
+    def column_names(cls, path: str) -> list[str]:
+        return ["alpha"]
+
+    @classmethod
+    def columns(cls, match: SourceMatch) -> list[str]:
+        return ["alpha"]
+
+    @classmethod
+    def has_column(cls, match: SourceMatch, column: str) -> bool:
+        return column == "alpha"
+
+
+class MlodaTestingUriFilePyArrowTable(Implementation[MlodaTestingUriFileFG]):
+    feature_group = MlodaTestingUriFileFG
+    compute_framework = PyArrowTable
+
+    @classmethod
+    def calculate(
+        cls, group: type[MlodaTestingUriFileFG], data: SourceMatch, features: FeatureSet, framework: Any
+    ) -> Any:
+        return pa.table({"alpha": [1, 3]})
+
+
+URI_SECRET = "hunter2"  # nosec
+CREDENTIALED_URI = f"memory://user:{URI_SECRET}@host/data.mlodatesting"
+CREDENTIALED_URI_IDENTITY = "memory://host/data.mlodatesting"
+
+
+def run_credentialed_uri_feature(
+    *extenders: Extender,
+    parallelization_modes: set[ParallelizationMode] | None = None,
+    flight_server: Any | None = None,
+    carrier: dict[str, str] | None = None,
+) -> list[Any]:
+    """Run `alpha` read from CREDENTIALED_URI through the pipeline, firing a nested INPUT_DATA_LOAD hook whose
+    data_access_identity is CREDENTIALED_URI_IDENTITY (the URI without its userinfo); return the column. Optional
+    parallelization_modes, flight_server and carrier forward straight to mloda.run_all."""
+    results = mloda.run_all(
+        [Feature("alpha", options={MlodaTestingUriFileFG.__name__: CREDENTIALED_URI})],
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups({MlodaTestingUriFileFG}),
         function_extender=set(extenders),
         parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
         flight_server=flight_server,
