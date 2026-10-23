@@ -284,15 +284,16 @@ optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.
 entry_point_groups = ["mloda.feature_groups"]
 
 # --- Experimental ---
-# Bundle-only, no stability guarantee: docs/packaging.md#experimental-packages. Third-party deps ship via
-# mloda-community[german-ledger]; dev repeats them for its tests.
+# Published, no stability guarantee, owned by mloda-community through its german-ledger extra and [all], see
+# docs/packaging.md#experimental-packages.
 
 [packages.mloda-community-german-ledger]
 description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"
 keywords = ["gdpdu", "gobd", "datev", "accounting", "bookkeeping"]
-dependencies = ["{core_dependency}"]
+dependencies = ["{core_dependency}", "pyarrow>=14.0.1"]
 path = "mloda/community/feature_groups/experimental/german_ledger"
-optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3", "pyarrow>=14.0.1"] }
+published = true
+py_typed = true
 
 # --- Bundles ---
 # Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
@@ -332,7 +333,7 @@ dependencies = [
 path = "mloda/community"
 published = true
 entry_point_bundle = true
-optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], german-ledger = ["pyarrow>=14.0.1"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}", "pyarrow>=14.0.1"] }
+optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], german-ledger = ["mloda-community-german-ledger=={version}"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}", "mloda-community-german-ledger=={version}"] }
 py_typed = true
 
 [packages.mloda-enterprise]

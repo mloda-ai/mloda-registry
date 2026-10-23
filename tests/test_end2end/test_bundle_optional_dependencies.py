@@ -44,6 +44,12 @@ _ROWS: list[tuple[str, str, str, str, list[str]]] = [
     ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender", "OtelMetricsExtender"]),
 ]
 
+# german-ledger is outside _ROWS because it has no entry points; the pin-source tests still cover it.
+_PIN_ROWS: list[tuple[str, str, str, str, list[str]]] = [
+    *_ROWS,
+    ("german-ledger", "pyarrow", "mloda-community-german-ledger", "pyarrow", []),
+]
+
 gen = load_script("generate_pyproject", _GEN_PATH)
 
 
@@ -85,7 +91,7 @@ def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
     )
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _PIN_ROWS)
 def test_mloda_community_declares_extra_matching_pin_source(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
@@ -221,7 +227,7 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
         )
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _PIN_ROWS)
 def test_generated_pyproject_lists_distribution_only_under_optional_extra(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:

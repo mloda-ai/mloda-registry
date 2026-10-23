@@ -32,6 +32,7 @@ _TYPED_PACKAGES = [
     "mloda-community-extenders-shared",
     "mloda-community-otel",
     "mloda-community-openlineage",
+    "mloda-community-german-ledger",
 ]
 
 # Confirmed by inspecting the published wheels directly: py.typed first appears in each base's 0.4.1 wheel.
@@ -44,6 +45,7 @@ _MARKER_FLOORS = {
     "mloda-community-extenders-shared": "0.4.6",
     "mloda-community-otel": "0.4.6",
     "mloda-community-openlineage": "0.4.6",
+    "mloda-community-german-ledger": "0.10.0",
 }
 
 
