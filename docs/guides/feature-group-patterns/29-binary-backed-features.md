@@ -154,6 +154,28 @@ class StubExample(BinaryExampleFeatureGroup):
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks=[PyArrowTable]` and `PluginCollector.enabled_feature_groups({StubExample, ApiInputDataFeature})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
 
+For `AnonymizerFeatureGroup` subclasses, `mloda-testing[binary-model]` also ships an `hmac_sha256` fake. `--plugin-id` makes it answer as `anonymizer_binary` (argv, not an env var, because the mixin passes the binary a minimal environment):
+
+```python
+import sys
+
+from mloda.enterprise.feature_groups.anonymizer.anonymizer_feature_group import AnonymizerFeatureGroup
+from mloda.testing.binary_model.license_vectors import valid_license_token
+
+
+class StubAnonymizer(AnonymizerFeatureGroup):
+    BINARY_COMMAND_OVERRIDE = [
+        sys.executable,
+        "-m",
+        "mloda.testing.binary_model.hmac_fake_binary",
+        "--plugin-id",
+        "anonymizer_binary",
+    ]
+    LICENSE_KEY_OVERRIDE = valid_license_token(["anonymizer_binary"])
+```
+
+Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts test-signed licenses only, so it is for tests.
+
 ### Against the real wheel
 
 The stub above stays the fast-tests path; a suite that needs the actual compiled binary points the production class at it directly, no `BINARY_COMMAND_OVERRIDE`. The shared test-signed license is accepted only by a test-key build:
@@ -173,7 +195,7 @@ The full expired/in-grace/valid license state machine is covered against the rea
 
 ## Packaging Rules
 
-- `mloda-testing[binary-model]` (the stub, Arrow helpers, license vectors) is a `dev` extra only; nothing under `mloda/community/` or `mloda/enterprise/` imports `mloda.testing` at runtime.
+- `mloda-testing[binary-model]` (the stub, the HMAC fake, Arrow helpers, license vectors) is a `dev` extra only; nothing under `mloda/community/` or `mloda/enterprise/` imports `mloda.testing` at runtime.
 - The contract rules (constants, line parsing) live in `mloda.community.feature_groups.binary_model.contract`; output stream reading and verification live in the mixin. `mloda-testing[binary-model]` depends on the published `mloda-community-binary-model` to import them, since the kit checks what the mixin accepts; never the reverse. The mixin's own tests import the kit and the kit imports the mixin, a test-time loop only, never a distribution cycle: a binary vendor installing the kit gets only the mixin package, not the `mloda-community` bundle. Binary FeatureGroup authors can depend on `mloda-community-binary-model` (plus its `pyarrow` extra) alone.
 - The wheel is never a hard dependency of the plugin package; without it the call rejects, discovery still works.
 - A binary that implements the contract is verified with `mloda.testing.binary_model.conformance.BinaryModelConformanceBase`, the same kit the simulated binary passes. The mixin may send zero-row record batches between non-empty ones, and a binary must accept them without changing the result; the kit checks this. An operation limited to one input column must set `max_input_columns = 1` (otherwise the kit's schema checks stop at the config stage), and one with required parameters overrides `required_parameters()`. A binary without `utf8` overrides `default_input_schema()` and `default_input_rows()` with advertised types, and a kit check fails fast when they use an unadvertised type. An `hmac_sha256` binary also mixes in `HmacSha256OperationConformanceMixin`; its expected values come from `mloda.testing.binary_model.hmac_sha256_reference`. The kit also rejects malformed license claims (timestamps without seconds or in compact form, an unpadded `max_release_date`, a non-integer `v`); a binary with production keys only overrides those hooks, like the other license vectors.

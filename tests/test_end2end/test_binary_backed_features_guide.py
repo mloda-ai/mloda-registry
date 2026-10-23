@@ -246,3 +246,16 @@ def test_enterprise_readme_quick_start_runs_up_to_the_license_or_wheel_check(tmp
     else:
         assert "BinaryUnavailableError" in proc.stderr, f"stderr was:\n{proc.stderr}"
         assert "mloda-enterprise[anonymizer]" in proc.stderr, f"stderr was:\n{proc.stderr}"
+
+
+def test_test_section_shows_the_shipped_hmac_fake_binary_for_anonymizer_subclasses() -> None:
+    """The "## Test" section names the shipped hmac fake binary and how to launch it as the anonymizer binary."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "## Test", ("\n## ",))
+    for needle in (
+        "mloda.testing.binary_model.hmac_fake_binary",
+        '"--plugin-id"',
+        '"anonymizer_binary"',
+        "AnonymizerFeatureGroup",
+    ):
+        assert needle in section, f"the Test section must contain {needle}; section was:\n" + section

@@ -20,6 +20,7 @@ import sys
 from typing import Any
 
 from mloda.testing.binary_model import simulated_binary
+from mloda.testing.binary_model.simulated_binary import install_fake_identity
 
 # Deliberately not "example_binary" / "hash" / "result" (contract: Identifier, Capabilities,
 # Configuration), so this proves BinaryModelConformanceBase's checks are truly contract-generic.
@@ -42,19 +43,6 @@ def _utf8_output(original: Any) -> Any:
         return schema, [array.cast(pa.string()) for array in arrays]
 
     return compute
-
-
-def install_fake_identity(
-    plugin_id: str, operation: str, output_key: str, column_types: frozenset[str], version: str | None = None
-) -> None:
-    """Point ``simulated_binary``'s identity globals (and optionally ``VERSION``) at a fake binary."""
-    simulated_binary.PLUGIN_ID = plugin_id
-    if version is not None:
-        simulated_binary.VERSION = version
-    simulated_binary.CAPABILITY_OPERATIONS = [operation]
-    simulated_binary._OPERATION_OUTPUTS = {operation: (output_key,)}
-    # setattr because mypy --strict rejects assigning a name the module imports without re-exporting.
-    setattr(simulated_binary, "COLUMN_TYPES", column_types)
 
 
 def _install_second_binary_identity() -> None:

@@ -694,7 +694,7 @@ def test_simulated_binary_light_flags_do_not_import_pyarrow(flag: str) -> None:
             id="second_fake_binary",
         ),
         pytest.param(
-            "mloda.testing.tests._hmac_sha256_fake_binary",
+            "mloda.testing.binary_model.hmac_fake_binary",
             "hmac_fake_binary",
             "hmac_sha256",
             "result",

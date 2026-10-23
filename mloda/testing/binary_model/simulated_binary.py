@@ -600,6 +600,19 @@ def _reconfigure_streams_utf8_lf() -> None:
             pass
 
 
+def install_fake_identity(
+    plugin_id: str, operation: str, output_key: str, column_types: frozenset[str], version: str | None = None
+) -> None:
+    """Point the identity globals at a fake binary; only for fake binaries run as a fresh subprocess."""
+    global PLUGIN_ID, VERSION, CAPABILITY_OPERATIONS, _OPERATION_OUTPUTS, COLUMN_TYPES
+    PLUGIN_ID = plugin_id
+    if version is not None:
+        VERSION = version
+    CAPABILITY_OPERATIONS = [operation]
+    _OPERATION_OUTPUTS = {operation: (output_key,)}
+    COLUMN_TYPES = column_types
+
+
 def main() -> int:
     _reconfigure_streams_utf8_lf()
     try:

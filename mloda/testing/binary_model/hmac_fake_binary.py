@@ -1,7 +1,7 @@
-"""Minimal conforming ``hmac_sha256`` binary (``hmac_fake_binary``) for ``HmacSha256OperationConformanceMixin``.
+"""``hmac_sha256`` binary for tests of plugins built on the binary-model contract. Accepts test-signed licenses only; not a real anonymizer.
 
-Reuses ``simulated_binary`` by patching its module globals (identity, utf8-only types, key validation,
-one input column, HMAC computation). Run only as a fresh subprocess so the patching never leaks."""
+Run: ``python -m mloda.testing.binary_model.hmac_fake_binary [--plugin-id <id>]``. The id goes in argv because the
+mixin runs the binary with a minimal environment. It patches ``simulated_binary`` globals, so run it only as a fresh subprocess."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from mloda.testing.binary_model.hmac_sha256_reference import (
     compute_expected_hmac_sha256_column,
     parse_hmac_key,
 )
-from mloda.testing.tests._second_fake_binary import install_fake_identity
+from mloda.testing.binary_model.simulated_binary import install_fake_identity
 
 PLUGIN_ID = "hmac_fake_binary"
 OPERATION = "hmac_sha256"
@@ -55,13 +55,21 @@ def _compute_hmac_output(table: Any, config: dict[str, Any]) -> Any:
     return pa.schema([pa.field(written_name, pa.string())]), [array_from_values(digests, pa.string())]
 
 
-def _install_hmac_binary_identity() -> None:
-    install_fake_identity(PLUGIN_ID, OPERATION, OUTPUT_KEY, COLUMN_TYPES)
+def _install_hmac_binary_identity(plugin_id: str) -> None:
+    install_fake_identity(plugin_id, OPERATION, OUTPUT_KEY, COLUMN_TYPES)
     simulated_binary._validate_hash_parameters = _validate_hmac_parameters
     simulated_binary._validate_config_structure = _single_input_column(simulated_binary._validate_config_structure)
     simulated_binary._compute_hash_output = _compute_hmac_output
 
 
+def main() -> int:
+    plugin_id = PLUGIN_ID
+    if len(sys.argv) >= 3 and sys.argv[1] == "--plugin-id":
+        plugin_id = sys.argv[2]
+        del sys.argv[1:3]
+    _install_hmac_binary_identity(plugin_id)
+    return simulated_binary.main()
+
+
 if __name__ == "__main__":
-    _install_hmac_binary_identity()
-    sys.exit(simulated_binary.main())
+    sys.exit(main())
