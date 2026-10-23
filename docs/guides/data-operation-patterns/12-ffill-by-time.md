@@ -23,9 +23,34 @@ value__ffill
 | `in_features` | no | Must name the source in the `{col}__ffill` name when given. |
 
 ```python
+from typing import Any
+
+import pandas as pd
+
+from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
+
+
+class PriceData(FeatureGroup):
+    """Source columns for the example."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"ts", "symbol", "price"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pd.DataFrame(
+            {"ts": [1, 2, 3, 4], "symbol": ["A", "A", "B", "B"], "price": [1.0, None, None, 2.0]}
+        )
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type] | bool:
+        return {PandasDataFrame}
+
 
 features = [
     Feature("price__ffill", Options(context={"order_by": "ts", "partition_by": ["symbol"]})),

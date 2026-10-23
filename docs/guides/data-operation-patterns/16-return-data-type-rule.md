@@ -32,7 +32,7 @@ There is no `try/except` around that call, by design. Crucially, `return_data_ty
 
 Each of the eleven rules is a pure extract-then-map, with no catch (here, aggregation):
 
-```python
+```py
 @classmethod
 def return_data_type_rule(cls, feature: Feature) -> DataType | None:
     agg_type = cls._extract_aggregation_type(feature)

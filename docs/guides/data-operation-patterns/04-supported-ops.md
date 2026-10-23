@@ -14,7 +14,7 @@ Not every framework can express every operation. SQLite has no native REVERSE; s
 
 `DataOpsTestBase._skip_if_unsupported` probes four class methods in order and uses whichever is defined:
 
-```python
+```py
 for attr in ("supported_agg_types", "supported_ops", "supported_offset_types", "supported_rank_types"):
     method = getattr(self, attr, None)
     if method is not None:
@@ -33,7 +33,7 @@ If none of the four is defined, the helper raises `TypeError` rather than skippi
 
 SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and would diverge from the PyArrow reference on non-ASCII input (e.g. `UPPER('héllo')` returns `'HéLLO'` instead of `'HÉLLO'`). Rather than silently produce divergent results or emulate in SQL, the framework implementation refuses to match all three at selection time:
 
-```python
+```py
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
 _SQLITE_STRING_EXPRS: dict[str, str] = {
     "trim": "TRIM({col})",
@@ -48,7 +48,7 @@ def _validate_string_match(cls, feature_name, operation_config, source_feature) 
 
 The test class mirrors that decision:
 
-```python
+```py
 # mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py
 class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     @classmethod
@@ -77,7 +77,7 @@ Keep them consistent. If your implementation silently drops an op at runtime but
 
 When you add, say, a Polars-lazy implementation for an operation, copy the test template:
 
-```python
+```py
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import RankTestBase
 

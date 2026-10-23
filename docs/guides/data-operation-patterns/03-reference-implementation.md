@@ -26,7 +26,7 @@ These properties make PyArrow a reasonable ground truth. It is not faster than t
 
 `_compare_with_reference` runs both implementations on equivalent data:
 
-```python
+```py
 # self.test_data is the framework-native test fixture
 # self._arrow_table is the same data as a PyArrow table
 fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by)

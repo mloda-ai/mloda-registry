@@ -23,9 +23,34 @@ product_code__lookup
 | `in_features` | config form only | The source column (when not using the `{col}__lookup` string form). |
 
 ```python
+from typing import Any
+
+import pandas as pd
+
+from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
+
+
+class ProductData(FeatureGroup):
+    """Source columns for the example."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"product_code"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pd.DataFrame(
+            {"product_code": ["A100", "B200", "C300"]}
+        )
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type] | bool:
+        return {PandasDataFrame}
+
 
 features = [
     Feature(
@@ -82,7 +107,7 @@ Use the hook instead of the option for large or external tables.
 | `resolve_mapping(feature)` | Returns the mapping. Validated with the same rules as the option. |
 | `resolve_unmatched_reasons(feature)` | Optional. Returns `{key: reason}` for the error message. |
 
-```python
+```py
 class NutsMapping:
     MAPPING_FROM_OPTION = False
     PREFIX_PATTERN = r".*__nuts2024$"

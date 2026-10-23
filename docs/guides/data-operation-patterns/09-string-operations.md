@@ -32,9 +32,32 @@ PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
 ## Usage
 
 ```python
+from typing import Any
+
+import pandas as pd
+
+from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginLoader, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
+
+
+class TextData(FeatureGroup):
+    """Source columns for the example."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"name", "description"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pd.DataFrame({"name": ["ann", "Bob", None], "description": ["  hi ", "there", "x"]})
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type] | bool:
+        return {PandasDataFrame}
+
 
 features = [
     Feature("name__upper"),
@@ -67,7 +90,7 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 
 SQLite refuses to match `upper`, `lower`, and `reverse` at resolution time. `UPPER`/`LOWER` are ASCII-only in SQLite and would diverge from the PyArrow reference on non-ASCII input; `REVERSE` has no native function. Rather than silently producing divergent results or emulating in SQL, the SQLite feature group excludes all three:
 
-```python
+```py
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
 _SQLITE_STRING_EXPRS: dict[str, str] = {
     "trim": "TRIM({col})",
@@ -82,7 +105,7 @@ def _validate_string_match(cls, feature_name, operation_config, source_feature) 
 
 The SQLite test class mirrors the restriction:
 
-```python
+```py
 class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     @classmethod
     def supported_ops(cls) -> set[str]:

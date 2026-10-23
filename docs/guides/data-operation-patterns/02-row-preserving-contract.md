@@ -14,7 +14,7 @@ Row-preserving operations must return an output whose row count and row order ma
 
 `mloda/testing/feature_groups/data_operations/base.py` contains `_compare_with_reference`, which is the shared harness every row-preserving test uses:
 
-```python
+```py
 # Paraphrased from DataOpsTestBase
 result = calculate_with(self.implementation_class(), self.test_data, fs)
 ref = self.reference_calculate(self._arrow_table, fs)
@@ -59,7 +59,7 @@ DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows 
 
 The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. From `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
 
-```python
+```py
 # PyArrow parity: PyArrow _quantile_bin() assigns bins via index
 # mapping and naturally preserves row order. DuckDB NTILE()
 # reorders rows via ORDER BY; tag positions with a row-number

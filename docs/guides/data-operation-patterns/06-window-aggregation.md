@@ -37,9 +37,33 @@ median, mode, nunique, first, last
 ## Usage
 
 ```python
-from mloda.user import Feature, Options, PluginLoader, mloda
+from typing import Any
+
+import duckdb
+import pyarrow as pa
+
+from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
+from mloda.user import DataAccessCollection, Feature, Options, PluginLoader, mloda
+from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 
 PluginLoader.all()
+
+
+class WindowData(FeatureGroup):
+    """Source columns for the example."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"region", "value_int", "ts"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pa.table({"region": ["A", "A", "B"], "value_int": [10, 20, 30], "ts": [1, 2, 3]})
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type] | bool:
+        return {DuckDBFramework}
+
 
 features = [
     Feature(
@@ -52,7 +76,8 @@ features = [
     ),
 ]
 
-result = mloda.run_all(features, compute_frameworks=["DuckdbRelation"])
+data_access = DataAccessCollection(connections={duckdb.connect()})
+result = mloda.run_all(features, compute_frameworks=["DuckDBFramework"], data_access_collection=data_access)
 ```
 
 Every row in `result` has the same number of columns plus the two new ones. Within each `region`, `value_int__sum_window` holds the same value on every row.
