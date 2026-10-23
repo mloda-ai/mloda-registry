@@ -47,7 +47,7 @@ return outcome.refused is None and bool(outcome.result)
 
 ## Writing a ReadFileFG Subclass
 
-Implement `suffixes()` and `column_names(path)`. The base discovers files and folders, applies the pinned-file rule, caches per run and hands a `FileSource` to the compute framework. A format whose parsing differs from the stock transformers must also override `load_neutral`, otherwise the parent format is parsed. `load_neutral` parses the file itself; calling `column_names` from it lists the file a second time per run.
+Implement `suffixes()` and `column_names(path)`. The base discovers files and folders, applies the pinned-file rule, caches per run and hands a `FileSource` to the compute framework. A format whose parsing differs from the stock transformers must also override `load_neutral`, otherwise the parent format is parsed. `load_neutral` must not call `column_names`, which would list the file a second time.
 
 ```python
 from collections.abc import Collection
@@ -77,7 +77,7 @@ class SensorCsvFG(ReadFileFG):
 
 ### Reader Options
 
-A reader option is a `PROPERTY_MAPPING` key, read with `cls.read_option(key, options)` (an undeclared key raises). Extend the parent's mapping, since it declares `data_access_handle`. A key that must reject some values at match time, such as a collection, takes a `match_guard`, as core's `data_access_handle` does: a value the guard refuses declines the group with a recorded reason instead of reaching the reader.
+An option is a `PROPERTY_MAPPING` key, read with `cls.read_option(key, options)` (an undeclared key raises). Extend the parent's mapping, since it declares `data_access_handle`. A key that must reject some values at match time, such as a collection, takes a `match_guard`, as core's `data_access_handle` does: a value the guard refuses declines the group with a recorded reason instead of reaching the reader.
 
 ```python
 from mloda.provider import property_spec
