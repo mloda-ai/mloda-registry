@@ -1080,9 +1080,8 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
     from mloda.community.feature_groups.experimental.german_ledger.policy import AdmissibilityPolicyGroup
     from mloda.community.feature_groups.experimental.german_ledger.sources import InadmissibleTotal
 
-    # A stand-in policy in the host's place. It was an INPUT_DATA_LOAD extender, and on
-    # mloda 0.14.0 (#1549) core discards what an extender returns: the fake stamp never
-    # reached the aggregation, and this test passed without testing anything.
+    # A stand-in policy in the host's place. It is a policy feature group, not an extender:
+    # core discards what an extender returns, so a stamp from one never reaches the aggregation.
     class FakeStamp(AdmissibilityPolicyGroup):
         STAMP: tuple[object, pa.DataType] | None = None  # set while this test runs
 
@@ -1536,19 +1535,19 @@ def test_implied_accuracy_does_not_round_a_wide_amount_at_parse_time() -> None:
 
 
 def test_reader_answers_get_column_names_from_the_descriptor() -> None:
-    """mloda 0.13.0 made `get_column_names` load-bearing for matching.
+    """`get_column_names` is load-bearing for matching.
 
     `ReadFile._declines_unvalidated_separator_name` declines a chain- or column-separated
     feature name when a reader does NOT override this method, on the grounds that such a
     reader cannot confirm the name. This reader can: index.xml declares every column before
     a byte of data is read. Overriding it is the honest way to be exempt from that guard --
     bypassing it by omission, which is what a `match_subclass_data_access` override does,
-    is the failure mode the 0.13.0 docstring warns about.
+    is the failure mode ReadFile's docstring warns about.
     """
     from mloda_plugins.feature_group.input_data.read_file import ReadFile
 
     assert GdpduReader._is_overridden(ReadFile, "get_column_names"), (
-        "the 0.13.0 separator guard treats a non-overriding reader as unable to confirm names"
+        "ReadFile's separator guard treats a non-overriding reader as unable to confirm names"
     )
 
     # Each dossier answers with ITS OWN declared names -- the second exporter's shape is not
@@ -1586,7 +1585,7 @@ def test_get_column_names_does_not_claim_the_admissibility_column() -> None:
 
 
 def test_the_dossier_identity_names_its_fingerprint_not_a_local_path() -> None:
-    """mloda 0.14.0 (#1577): the reader decides the data_access_identity extenders see.
+    """The reader decides the data_access_identity extenders see.
 
     The default for a local path that exists is the path as given -- here an absolute
     path under the author's home directory, handed to every lineage and audit extender.
@@ -1615,12 +1614,6 @@ def test_the_dossier_identity_names_its_fingerprint_not_a_local_path() -> None:
 
 def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
     """The override is only worth something if core actually hands it to extenders."""
-    from importlib.metadata import version
-
-    import pytest
-
-    if tuple(int(p) for p in version("mloda").split(".")[:2]) < (0, 14):
-        pytest.skip("reader-owned data_access_identity arrives in mloda 0.14.0 (#1577)")
     from mloda.steward import Extender, ExtenderHook, HookContext
 
     seen: list[str | None] = []
