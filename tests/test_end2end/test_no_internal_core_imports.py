@@ -8,6 +8,7 @@ machinery).
 """
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -17,11 +18,8 @@ _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist", "
 
 # (module, name) pairs with no public mloda.user/mloda.provider equivalent yet. Keyed by the
 # exact module too, so a name that merely matches one of these (imported from some other
-# mloda.core module) is not silently exempt.
+# mloda.core module) is not silently exempt. A pair nothing imports fails the guard.
 _ALLOWED_INTERNAL_IMPORTS = {
-    ("mloda.core.abstract_plugins.components.utils", "contained_raise_log_level"),
-    ("mloda.core.abstract_plugins.components.utils", "contained_raise_reason"),
-    ("mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser", "option_key_is_present"),
     ("mloda.core.abstract_plugins.hook_context", "instrument"),
 }
 
@@ -30,9 +28,8 @@ def _is_core_module(name: str) -> bool:
     return name == "mloda.core" or name.startswith("mloda.core.")
 
 
-def find_internal_core_imports(root: Path) -> list[str]:
-    """Return "relpath:lineno: ..." for every non-allowlisted mloda.core import under root."""
-    hits: list[str] = []
+def _parsed_modules(root: Path) -> Iterator[tuple[Path, ast.AST]]:
+    """Yield (relative path, parsed tree) for each scannable .py file under root."""
     for path in root.rglob("*.py"):
         rel = path.relative_to(root)
         if any(part.startswith(".") or part in _SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
@@ -47,6 +44,27 @@ def find_internal_core_imports(root: Path) -> list[str]:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError:
             continue
+        yield rel, tree
+
+
+def find_unused_allowlist_entries(
+    root: Path, allowlist: set[tuple[str, str]] = _ALLOWED_INTERNAL_IMPORTS
+) -> list[tuple[str, str]]:
+    """Return sorted allowlist pairs never imported via `from <module> import <name>` under root."""
+    used = {
+        (node.module, alias.name)
+        for _, tree in _parsed_modules(root)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+        for alias in node.names
+    }
+    return sorted(allowlist - used)
+
+
+def find_internal_core_imports(root: Path) -> list[str]:
+    """Return "relpath:lineno: ..." for every non-allowlisted mloda.core import under root."""
+    hits: list[str] = []
+    for rel, tree in _parsed_modules(root):
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 if node.module is None or not _is_core_module(node.module):
@@ -91,7 +109,8 @@ def test_nested_function_local_import_flagged(tmp_path: Path) -> None:
 
 def test_allowlisted_internal_name_not_flagged(tmp_path: Path) -> None:
     """One of the still-internal-only allowlisted (module, name) pairs is not flagged."""
-    _write(tmp_path / "m.py", "from mloda.core.abstract_plugins.components.utils import contained_raise_log_level\n")
+    module, name = sorted(_ALLOWED_INTERNAL_IMPORTS)[0]
+    _write(tmp_path / "m.py", f"from {module} import {name}\n")
     assert find_internal_core_imports(tmp_path) == []
 
 
@@ -148,3 +167,25 @@ def test_mloda_package_is_clean() -> None:
     """The mloda/ package must currently have zero non-allowlisted mloda.core imports."""
     offenders = find_internal_core_imports(_SCAN_ROOT)
     assert offenders == [], "Non-allowlisted mloda.core import found:\n" + "\n".join(offenders)
+
+
+def test_unused_allowlist_entry_reported(tmp_path: Path) -> None:
+    """Only the allowlist pair that no file imports is reported as unused."""
+    allowlist = {("mloda.core.a", "used"), ("mloda.core.b", "unused")}
+    _write(tmp_path / "m.py", "from mloda.core.a import used\n")
+    assert find_unused_allowlist_entries(tmp_path, allowlist) == [("mloda.core.b", "unused")]
+
+
+def test_unused_allowlist_entry_keyed_by_module_and_name(tmp_path: Path) -> None:
+    """A name imported from a different module does not count as a use of the allowlist pair."""
+    allowlist = {("mloda.core.a", "name")}
+    _write(tmp_path / "m.py", "from mloda.core.other import name\n")
+    assert find_unused_allowlist_entries(tmp_path, allowlist) == [("mloda.core.a", "name")]
+
+
+def test_allowlist_has_no_stale_entries() -> None:
+    """Every allowlisted (module, name) pair must be imported somewhere under mloda/."""
+    stale = find_unused_allowlist_entries(_SCAN_ROOT)
+    assert stale == [], "Stale allowlist entries not imported under mloda/:\n" + "\n".join(
+        f"{module}: {name}" for module, name in stale
+    )
