@@ -9,7 +9,7 @@ for what that guarantees. Install with `pip install "mloda-community[german-ledg
 - **Reads:** GDPdU/GoBD dossiers (`index.xml` + data file) and DATEV-Format EXTF 700
   booking batches.
 - **Answers:** `revenue__sources` returns the total **and** the cited rows it was summed
-  from (`GL.txt@642915ba8de6:6`). A row no admissibility policy cleared never counts.
+  from (`GL.txt@642915ba8de6:1`). A row no admissibility policy cleared never counts.
 - **Refuses by name** instead of guessing: bytes that do not decode (GDPdU: the declared code
   page, cp1252 when none is declared; DATEV: UTF-8 or Windows-1252), a post-cutoff entry into
   a closed period, an old DATEV version, overlapping batches, and so on.
@@ -26,7 +26,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.experimental import german_ledger
 from mloda.community.feature_groups.experimental.german_ledger import AdmissibilityPolicyGroup
 
-# The sample dossier in a source checkout (not in the wheel); point this at your own.
+# The sample dossier exists only in a source checkout (a pip install has no tests/): set your own.
 DOSSIER = Path(german_ledger.__file__).parent / "tests" / "fixtures" / "dossier_a"
 
 
