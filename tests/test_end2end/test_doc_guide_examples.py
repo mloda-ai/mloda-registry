@@ -522,12 +522,25 @@ SKIPPED_DOCS: dict[str, str] = {
     ),
 }
 
+_MARKER_PREFIX = "@@mloda-doc-runner-7f3a@@ "
+
+
+def _marker_line(kind: str, text: str) -> str:
+    return f"{_MARKER_PREFIX}{kind} {text}"
+
+
 _DOC_CHECK_DRIVER = """\
 import inspect
 import sys
 from pathlib import Path
 import mktestdocs
 from mloda.user import PluginLoader
+
+_MARKER_PREFIX = "@@mloda-doc-runner-7f3a@@ "
+
+
+def _marker_line(kind, text):
+    return f"{_MARKER_PREFIX}{kind} {text}"
 
 
 def _run_python(source):
@@ -538,29 +551,32 @@ def _run_python(source):
         if getattr(obj, "__module__", None) != "__main__":
             continue
         if isinstance(obj, type) and name.startswith("Test"):
-            if any(m.startswith("test_") for m in vars(obj)):
+            if any(m.startswith("test_") for m in dir(obj)):
                 _reject(f"{name} is a test class the doc runner cannot call; use test_* functions")
         elif name.startswith("test_") and callable(obj):
+            if inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj) or inspect.isgeneratorfunction(obj):
+                _reject(f"{name} is async or a generator, so the doc runner cannot call it")
             params = inspect.signature(obj).parameters.values()
             if any(p.default is p.empty and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in params):
                 _reject(f"{name} needs arguments, so the doc runner cannot call it")
             tests.append((name, obj))
     for name, func in tests:
-        print(f"CALLING {name}", flush=True)
+        print(_marker_line("CALLING", name), flush=True)
         func()
 
 
 def _reject(message):
-    print(f"REJECTED {message}", flush=True)
+    print(_marker_line("REJECTED", message), flush=True)
     sys.exit(1)
 
 
 mktestdocs.register_executor("python", _run_python)
 PluginLoader.all()
 for path in sys.argv[1:]:
-    print(f"CHECKING {path}", flush=True)
+    print(_marker_line("CHECKING", path), flush=True)
     mktestdocs.check_md_file(fpath=Path(path), memory=True)
-"""
+print(_marker_line("DONE", ""), flush=True)
+""".replace("__MARKER_PREFIX__", repr(_MARKER_PREFIX))
 
 
 def _display_path(path: str) -> str:
@@ -569,23 +585,20 @@ def _display_path(path: str) -> str:
     return path
 
 
-def _last_marker(stdout: str | bytes | None) -> tuple[str, str]:
+def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool]:
+    """Return the last marker kind and text, the last checked file (display form) and whether the run finished."""
     if isinstance(stdout, bytes):
         stdout = stdout.decode(errors="replace")
-    markers = [line for line in (stdout or "").splitlines() if line.startswith(("CHECKING ", "CALLING ", "REJECTED "))]
-    if not markers:
-        return "CHECKING", "<before the first file>"
-    kind, _, rest = markers[-1].partition(" ")
-    return kind, rest
-
-
-def _last_checked(stdout: str | bytes | None) -> str:
-    checking = [
-        line
-        for line in (stdout.decode(errors="replace") if isinstance(stdout, bytes) else (stdout or "")).splitlines()
-        if line.startswith("CHECKING ")
-    ]
-    return _display_path(checking[-1].removeprefix("CHECKING ")) if checking else "<before the first file>"
+    kind, text, checked, done = "CHECKING", "", "<before the first file>", False
+    for line in (stdout or "").splitlines():
+        if not line.startswith(_MARKER_PREFIX):
+            continue
+        kind, _, text = line.removeprefix(_MARKER_PREFIX).partition(" ")
+        if kind == "CHECKING":
+            checked = _display_path(text)
+        elif kind == "DONE":
+            done = True
+    return kind, text, checked, done
 
 
 def run_md_files_isolated(paths: Sequence[Path], cwd: Path) -> None:
@@ -594,15 +607,18 @@ def run_md_files_isolated(paths: Sequence[Path], cwd: Path) -> None:
     try:
         result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300)  # nosec
     except subprocess.TimeoutExpired as exc:
-        raise AssertionError(f"{_last_checked(exc.stdout)}: timed out after {exc.timeout}s") from exc
+        kind, text, where, _ = _parse_stdout(exc.stdout)
+        who = f"{text} " if kind == "CALLING" else ""
+        raise AssertionError(f"{where}: {who}timed out after {exc.timeout}s") from exc
+    kind, text, where, done = _parse_stdout(result.stdout)
     if result.returncode == 0:
-        return
-    kind, rest = _last_marker(result.stdout)
-    where = _last_checked(result.stdout)
-    if kind == "REJECTED":
-        head = f"{where}: {rest}"
+        if done:
+            return
+        head = f"{where}: exited before the doc runner finished"
+    elif kind == "REJECTED":
+        head = f"{where}: {text}"
     elif kind == "CALLING":
-        head = f"{where}: {rest} failed"
+        head = f"{where}: {text} failed"
     else:
         head = f"{where}: python block failed"
     tail = "\n".join(result.stdout.splitlines()[-50:])
@@ -628,12 +644,15 @@ def test_skipped_docs_are_discovered_docs_with_reasons() -> None:
     assert all(reason.strip() for reason in SKIPPED_DOCS.values())
 
 
+_FIXED_TMP = "/tmp/"  # nosec B108
+
+
 def test_doc_python_blocks_do_not_write_to_fixed_tmp_paths() -> None:
     offenders = [
         doc
         for doc in DISCOVERED_DOCS
         for m in _FENCE_RE.finditer((REPO_ROOT / doc).read_text(encoding="utf-8"))
-        if m.group(1) in ("python", "py") and "/tmp/" in m.group(2)
+        if m.group(1) in ("python", "py") and _FIXED_TMP in m.group(2)
     ]
     assert offenders == [], f"use a temp directory instead of a /tmp/ literal in: {sorted(set(offenders))}"
 
@@ -681,6 +700,12 @@ def test_imported_test_functions_are_not_called(tmp_path: Path) -> None:
     [
         ("def test_needs_arg(x):\n    pass\n", "test_needs_arg"),
         ("class TestThing:\n    def test_method(self):\n        pass\n", "TestThing"),
+        (
+            "class Base:\n    def test_method(self):\n        pass\n\nclass TestFromMixin(Base):\n    pass\n",
+            "TestFromMixin",
+        ),
+        ("async def test_async():\n    pass\n", "test_async"),
+        ("def test_gen():\n    yield\n", "test_gen"),
     ],
 )
 def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, source: str, name: str) -> None:
@@ -691,3 +716,35 @@ def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, source: str, name: str
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: "), message
     assert name in message.splitlines()[0], message
+
+
+def test_doc_output_cannot_fake_a_marker(tmp_path: Path) -> None:
+    doc = tmp_path / "fake_marker.md"
+    doc.write_text('```python\nprint("CALLING not_me")\nraise RuntimeError("boom")\n```\n', encoding="utf-8")
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([doc], cwd=tmp_path)
+    message = str(excinfo.value)
+    assert message.startswith(f"{doc}: python block failed"), message
+    assert "not_me" not in message.splitlines()[0], message
+
+
+def test_doc_cannot_pass_by_exiting_early(tmp_path: Path) -> None:
+    doc = tmp_path / "early_exit.md"
+    doc.write_text(
+        '```python\nimport sys\ndef test_never():\n    raise RuntimeError("x")\nsys.exit(0)\n```\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([doc], cwd=tmp_path)
+    assert str(excinfo.value).startswith(f"{doc}: "), str(excinfo.value)
+
+
+def test_timeout_in_a_doc_test_names_the_function(tmp_path: Path) -> None:
+    doc = tmp_path / "slow.md"
+    doc.write_text("```python\ndef test_slow():\n    pass\n```\n", encoding="utf-8")
+    output = _marker_line("CHECKING", str(doc)) + "\n" + _marker_line("CALLING", "test_slow") + "\n"
+    expired = subprocess.TimeoutExpired(cmd="x", timeout=300, output=output)
+    with patch("tests.test_end2end.test_doc_guide_examples.subprocess.run", side_effect=expired):
+        with pytest.raises(AssertionError) as excinfo:
+            run_md_files_isolated([doc], cwd=tmp_path)
+    assert str(excinfo.value).startswith(f"{doc}: test_slow timed out"), str(excinfo.value)
