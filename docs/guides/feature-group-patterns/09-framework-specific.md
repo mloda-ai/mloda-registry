@@ -88,6 +88,7 @@ Capability and differences are declared on the Implementation, next to its code.
 ```python
 from mloda.provider import Implementation
 
+
 class LimitedImplementation(Implementation[MyOperationGroup]):
     feature_group = MyOperationGroup
     compute_framework = PyArrowTable

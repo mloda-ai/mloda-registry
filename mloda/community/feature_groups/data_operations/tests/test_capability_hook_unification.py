@@ -1,8 +1,7 @@
 """Behavioral guard for the unified match-time capability surface (issue #299).
 
 The aggregation, rank, and frame-aggregate families previously hand-rolled their own
-``supports_compute_framework`` plus a differently-shaped supported-types method. Issue
-#299 folded these into one shared ``SubtypeCapabilityHook`` mixin (aggregation has since moved
+``supports_compute_framework`` plus a differently-shaped supported-types method. They were folded into one shared ``SubtypeCapabilityHook`` mixin (aggregation has since moved
 to ``Implementation.supported``; rank and frame-aggregate are still on the hook): a family declares its
 supported subtypes once via ``supported_op_subtypes(secondary)`` and the mixin turns that
 single declaration into match-time rejection through ``supports_compute_framework``.
