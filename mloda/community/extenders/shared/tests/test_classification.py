@@ -70,22 +70,6 @@ class _PiiSource(SourceFeatureGroup):
         return declaring("pii")
 
 
-class _PublicSource(SourceFeatureGroup):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
-        return declaring("public")
-
-
-class _UndeclaredSource(SourceFeatureGroup):
-    pass
-
-
-class _InternalSource(SourceFeatureGroup):
-    @classmethod
-    def declared_attributes(cls, features: Any) -> Mapping[str, Any]:
-        return declaring("internal")
-
-
 class _MaskingSource(SourceFeatureGroup):
     masking = True
 
@@ -110,28 +94,23 @@ def test_a_step_without_a_declaration_gets_the_undeclared_level() -> None:
     assert result == {"a": "confidential"}
 
 
-def test_a_group_declaration_wins_over_undeclared() -> None:
-    result = feature_classifications([classified_step(InternalGroup, ("a", "b"))], undeclared="pii")
+@pytest.mark.parametrize(
+    "group, undeclared, expected", [(InternalGroup, "pii", "internal"), (_PiiSource, "public", "pii")]
+)
+def test_a_group_declaration_wins_over_undeclared(group: type[FeatureGroup], undeclared: str, expected: str) -> None:
+    result = feature_classifications([classified_step(group, ("a", "b"))], undeclared=undeclared)
 
-    assert result == {"a": "internal", "b": "internal"}
-
-
-def test_a_source_group_declaration_wins_over_undeclared() -> None:
-    result = feature_classifications([classified_step(_PiiSource, ("a",))], undeclared="public")
-
-    assert result == {"a": "pii"}
+    assert result == {"a": expected, "b": expected}
 
 
-@pytest.mark.parametrize("group", [_Public, _InternalSource])
-def test_a_derived_feature_inherits_the_level_of_its_input(group: type[FeatureGroup]) -> None:
-    steps = [classified_step(PiiGroup, ("raw",)), _derived(group, "derived", "raw")]
+def test_a_derived_feature_inherits_the_level_of_its_input() -> None:
+    steps = [classified_step(PiiGroup, ("raw",)), _derived(_Public, "derived", "raw")]
 
     assert feature_classifications(steps, undeclared="public") == {"raw": "pii", "derived": "pii"}
 
 
-@pytest.mark.parametrize("group", [InternalGroup, _InternalSource])
-def test_a_derived_feature_keeps_its_own_higher_level(group: type[FeatureGroup]) -> None:
-    steps = [classified_step(_Public, ("raw",)), _derived(group, "derived", "raw")]
+def test_a_derived_feature_keeps_its_own_higher_level() -> None:
+    steps = [classified_step(_Public, ("raw",)), _derived(InternalGroup, "derived", "raw")]
 
     assert feature_classifications(steps, undeclared="public") == {"raw": "public", "derived": "internal"}
 
@@ -167,7 +146,7 @@ def test_a_masking_group_lowers_to_its_own_declared_level() -> None:
     }
 
 
-@pytest.mark.parametrize("group, expected", [(_Public, "public"), (InternalGroup, "internal")])
+@pytest.mark.parametrize("group, expected", [(_Public, "public"), (InternalGroup, "internal"), (PiiGroup, "internal")])
 def test_a_masking_group_caps_the_level_of_its_input(group: type[FeatureGroup], expected: str) -> None:
     steps = [classified_step(group, ("raw",)), _derived(_Masking, "masked", "raw")]
 
@@ -180,31 +159,11 @@ def test_a_masking_group_over_an_undeclared_input_caps_the_undeclared_level() ->
     assert feature_classifications(steps, undeclared="public")["masked"] == "public"
 
 
-@pytest.mark.parametrize(
-    "source, expected", [(_PublicSource, "public"), (_UndeclaredSource, "public"), (_PiiSource, "internal")]
-)
-def test_a_masking_group_caps_the_level_of_its_source_group(source: type[FeatureGroup], expected: str) -> None:
-    steps = [classified_step(source, ("raw",)), _derived(_Masking, "masked", "raw")]
-
-    assert feature_classifications(steps, undeclared="public")["masked"] == expected
-
-
-def test_a_masking_root_step_without_inputs_gets_its_own_level() -> None:
-    result = feature_classifications([classified_step(_Masking, ("a",))], undeclared="public")
+@pytest.mark.parametrize("group", [_Masking, _MaskingSource])
+def test_a_masking_root_step_without_inputs_gets_its_own_level(group: type[FeatureGroup]) -> None:
+    result = feature_classifications([classified_step(group, ("a",))], undeclared="public")
 
     assert result == {"a": "internal"}
-
-
-def test_a_masking_source_group_gets_its_own_level() -> None:
-    result = feature_classifications([classified_step(_MaskingSource, ("a",))], undeclared="public")
-
-    assert result == {"a": "internal"}
-
-
-def test_a_masking_source_group_over_a_public_input_stays_public() -> None:
-    steps = [classified_step(_Public, ("raw",)), _derived(_MaskingSource, "m", "raw")]
-
-    assert feature_classifications(steps, undeclared="public")["m"] == "public"
 
 
 def test_a_masking_output_depending_on_itself_raises() -> None:

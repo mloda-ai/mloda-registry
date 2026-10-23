@@ -15,8 +15,6 @@ from mloda.user import ParallelizationMode
 
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
-    CREDENTIALED_URI_IDENTITY,
-    URI_SECRET,
     CountingExtender,
     expected_value_int,
     failing_feature_group,
@@ -278,6 +276,8 @@ class ExtenderContractTestMixin:
         if declared is None:
             pytest.skip("no identity probe declared")
         extender, probe = declared
+        from mloda.testing.extenders.uri_source import CREDENTIALED_URI_IDENTITY, URI_SECRET
+
         run_credentialed_uri_feature(extender)
         identities, emitted = probe()
         assert identities == [CREDENTIALED_URI_IDENTITY]

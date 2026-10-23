@@ -171,7 +171,11 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
 
     @classmethod
     def _validate_percentile_name_agreement(cls, feature_name: Any, options: Any, resolved_percentile: float) -> None:
-        """Reject an own or forwarded ``percentile`` that contradicts the name (a typed pre-check: core compares element by element, as text or numerically)."""
+        """Reject an own or forwarded ``percentile`` that contradicts the name.
+
+        Typed pre-check: the binding below is a ``str``, so core compares as text only; a declared numeric
+        percentile such as 0.5 must first be matched numerically against the name's resolved value.
+        """
         declared = options.get(cls.PERCENTILE)
         if declared is None or _unit_percentile(declared) == resolved_percentile:
             return

@@ -17,9 +17,6 @@ from mloda.provider import (
     DataCreator,
     FeatureGroup,
     FeatureSet,
-    Implementation,
-    ReadFileFG,
-    SourceMatch,
 )
 from mloda.steward import Extender, ExtenderHook
 from mloda.user import (
@@ -274,43 +271,6 @@ def run_csv_feature(
     return _alpha_column(results)
 
 
-# Module-level so MULTIPROCESSING can pickle it by path. The unique suffix keeps it from claiming a host's files.
-class MlodaTestingUriFileFG(ReadFileFG):
-    """File group serving an `alpha` column from a URI pointer; used to read a source whose URI carries credentials."""
-
-    @classmethod
-    def suffixes(cls) -> tuple[str, ...]:
-        return (".mlodatesting",)
-
-    @classmethod
-    def column_names(cls, path: str) -> list[str]:
-        return ["alpha"]
-
-    @classmethod
-    def columns(cls, match: SourceMatch) -> list[str]:
-        return ["alpha"]
-
-    @classmethod
-    def has_column(cls, match: SourceMatch, column: str) -> bool:
-        return column == "alpha"
-
-
-class MlodaTestingUriFilePyArrowTable(Implementation[MlodaTestingUriFileFG]):
-    feature_group = MlodaTestingUriFileFG
-    compute_framework = PyArrowTable
-
-    @classmethod
-    def calculate(
-        cls, group: type[MlodaTestingUriFileFG], data: SourceMatch, features: FeatureSet, framework: Any
-    ) -> Any:
-        return pa.table({"alpha": [1, 3]})
-
-
-URI_SECRET = "hunter2"  # nosec
-CREDENTIALED_URI = f"memory://user:{URI_SECRET}@host/data.mlodatesting"
-CREDENTIALED_URI_IDENTITY = "memory://host/data.mlodatesting"
-
-
 def run_credentialed_uri_feature(
     *extenders: Extender,
     parallelization_modes: set[ParallelizationMode] | None = None,
@@ -320,6 +280,9 @@ def run_credentialed_uri_feature(
     """Run `alpha` read from CREDENTIALED_URI through the pipeline, firing a nested INPUT_DATA_LOAD hook whose
     data_access_identity is CREDENTIALED_URI_IDENTITY (the URI without its userinfo); return the column. Optional
     parallelization_modes, flight_server and carrier forward straight to mloda.run_all."""
+    # Imported here so importing this module does not register the source group for every unrestricted run.
+    from mloda.testing.extenders.uri_source import CREDENTIALED_URI, MlodaTestingUriFileFG
+
     results = mloda.run_all(
         [Feature("alpha", options={MlodaTestingUriFileFG.__name__: CREDENTIALED_URI})],
         compute_frameworks=[PyArrowTable],

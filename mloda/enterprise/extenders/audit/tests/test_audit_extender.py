@@ -95,7 +95,6 @@ from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
     CountingExtender,
-    MlodaTestingUriFileFG,
     expected_value_int,
     prepare_csv_feature,
     prepare_value_int,
@@ -899,6 +898,8 @@ class TestAuditExtenderContract(ExtenderContractTestMixin):
         assert isinstance(sink, InMemoryAuditSink)
 
         def probe() -> tuple[list[str], str]:
+            from mloda.testing.extenders.uri_source import MlodaTestingUriFileFG
+
             uri_class = _qualname(MlodaTestingUriFileFG)
             records = [record for record in sink.records if record["feature_group_class"] == uri_class]
             identities = [identity for record in records for identity in record["data_access_identity"]]
