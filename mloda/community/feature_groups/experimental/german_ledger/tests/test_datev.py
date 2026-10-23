@@ -350,6 +350,12 @@ REFUSALS: dict[str, tuple[dict[str, Any], list[dict[str, str]], str]] = {
         [dict(umsatz="1,00", sh="S", konto="4400", gegen="10000", belegdatum="1513")],
         "Belegdatum",
     ),
+    "header Festschreibung 2": ({"festschreibung": "2"}, [], "header Festschreibung '2'"),
+    "row Festschreibung 2": (
+        {},
+        [dict(umsatz="1,00", sh="S", konto="4400", gegen="10000", belegdatum="1503", Festschreibung="2")],
+        "record 3: Festschreibung '2'",
+    ),
 }
 
 
