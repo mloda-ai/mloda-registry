@@ -21,7 +21,7 @@ Data lake frameworks work with catalog-based table formats for large-scale data.
 
 Flexible connection - accepts catalog or table:
 
-```python
+```py
 def set_framework_connection_object(self, framework_connection_object: Any | None = None) -> None:
     if self.framework_connection_object is None and framework_connection_object is not None:
         if hasattr(framework_connection_object, "load_table"):
@@ -34,7 +34,7 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
 
 Declare the requirement as in [Category 3](03-stateful-connection.md#declare-the-connection-requirement): `SELF_MANAGED` when the framework still runs without a supplied catalog (Iceberg works on the table objects it is given), `REQUIRED` when it cannot, with `_connection_matches()` accepting a catalog or a table:
 
-```python
+```py
 from mloda.provider import ConnectionRequirement
 
 
@@ -50,7 +50,7 @@ def _connection_matches(cls, conn: Any) -> bool:
 
 Merge typically not supported:
 
-```python
+```py
 @classmethod
 def merge_engine(cls) -> type[BaseMergeEngine]:
     raise NotImplementedError("Use catalog-level operations for merging.")
@@ -58,7 +58,7 @@ def merge_engine(cls) -> type[BaseMergeEngine]:
 
 PyArrow as interchange format:
 
-```python
+```py
 def transform(self, data: Any, feature_names: set[str]) -> Any:
     if isinstance(data, dict):
         return pa.Table.from_pydict(data)  # PyArrow interchange

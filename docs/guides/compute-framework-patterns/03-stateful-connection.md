@@ -21,7 +21,7 @@ Stateful frameworks require a connection or session object to operate.
 
 Compared with Category 1, a stateful framework implements `set_framework_connection_object()` and checks the connection in `transform()`. It also declares `connection_requirement()` and `_connection_matches()`, covered in the next section. First, the connection setter:
 
-```python
+```py
 def set_framework_connection_object(self, framework_connection_object: Any | None = None) -> None:
     """CRITICAL: Set or validate connection object."""
     if self.framework_connection_object is None:
@@ -37,7 +37,7 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
 
 Then `transform()` must check the connection:
 
-```python
+```py
 def transform(self, data: Any, feature_names: set[str]) -> Any:
     if self.framework_connection_object is None:
         raise ValueError("Connection not set.")
@@ -48,7 +48,7 @@ def transform(self, data: Any, feature_names: set[str]) -> Any:
 
 Override `connection_requirement()` and `_connection_matches()`; both default to "no connection" (`NONE`, `False`):
 
-```python
+```py
 from mloda.provider import ConnectionRequirement
 
 
@@ -74,7 +74,7 @@ Planning ranks frameworks by this value (`NONE` first) after any explicit `compu
 
 A connection-backed framework usually materializes its final selection into an in-memory type, so it declares that type and keeps a native selection for runs that ask for its own type (DuckDB and SQLite do this):
 
-```python
+```py
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 
@@ -116,7 +116,7 @@ def select_native_data_by_column_names(
 
 Pass connections via `data_access_collection`. The engine picks the connection your `_connection_matches()` accepts at setup and calls `set_framework_connection_object()` on the framework for you:
 
-```python
+```py
 conn = duckdb.connect()
 result = mloda.run_all(
     features=[...],

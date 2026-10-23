@@ -21,7 +21,7 @@ Stateless lazy frameworks defer execution until results are explicitly requested
 
 Only these methods differ from Category 1:
 
-```python
+```py
 @classmethod
 def extract_column_names(cls, data: Any) -> set[str]:
     # Get schema WITHOUT executing query

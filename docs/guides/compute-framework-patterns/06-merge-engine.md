@@ -26,7 +26,7 @@ point-in-time joins. Its signature differs from the others — it takes an extra
 `asof_config: AsOfJoinConfig` (`left_time_column`, `right_time_column`, `direction`,
 `tolerance`, `allow_exact_matches`):
 
-```python
+```py
 def merge_asof(
     self, left_data, right_data, left_index: Index, right_index: Index, asof_config: AsOfJoinConfig
 ) -> Any: ...
@@ -99,7 +99,7 @@ def test_merge_engine():
 `merge()` can guard equi-joins (inner/left/right/outer) against mixing timezone-aware and
 timezone-naive key columns. Opt in via a class attribute:
 
-```python
+```py
 class MyMergeEngine(BaseMergeEngine):
     provides_column_semantics = True
 

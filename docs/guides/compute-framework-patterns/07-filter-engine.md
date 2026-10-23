@@ -104,7 +104,7 @@ Range/min/max filters with a native `datetime` bound (pandas `Timestamp` counts)
 bound and column timezone-awareness must match. Opt in via a class attribute, mirroring the
 merge-engine flag:
 
-```python
+```py
 class MyFilterEngine(BaseFilterEngine):
     provides_column_semantics = True
 
@@ -138,6 +138,9 @@ See [Filter Concepts](../feature-group-patterns/15-filter-concepts.md) for usage
 ## Test
 
 ```python
+from mloda.user import Feature, SingleFilter
+
+
 def test_filter_engine():
     data = [{"value": 1}, {"value": 5}, {"value": 10}]
     filter_feature = SingleFilter(

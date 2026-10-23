@@ -26,7 +26,7 @@ mloda provides base classes that give you comprehensive tests with minimal code.
 
 For filter engine tests. Set `filter_engine_class` and provide the data fixtures and value hooks; the mixin's tests assert against exactly these values:
 
-```python
+```py
 from decimal import Decimal
 from typing import Any
 
@@ -73,7 +73,7 @@ class TestMyFilterEngine(FilterEngineTestMixin):
 
 `result_row_count(result)` defaults to `len(result)`; override it when `len` does not count rows (a columnar dict, a lazy frame). A framework that cannot support a test overrides it by name and skips it with a reason:
 
-```python
+```py
     def test_categorical_inclusion_decimal(self, filter_engine: Any, decimal_sample_data: Any) -> None:
         pytest.skip("MyFramework has no decimal type")
 ```
@@ -82,7 +82,7 @@ class TestMyFilterEngine(FilterEngineTestMixin):
 
 For mask engine tests - set the mask engine class and provide framework-specific data and mask hooks:
 
-```python
+```py
 from decimal import Decimal
 from typing import Any
 
@@ -136,7 +136,7 @@ to add SQL condition-shape checks on top of the shared mask engine contract.
 
 For merge engine tests with multi-column indexes:
 
-```python
+```py
 from tests.test_plugins.compute_framework.test_tooling.multi_index.multi_index_test_base import (
     MultiIndexMergeEngineTestBase,
 )
@@ -159,7 +159,7 @@ class TestMyMergeEngine(MultiIndexMergeEngineTestBase):
 
 For framework-level merge tests:
 
-```python
+```py
 from tests.test_plugins.compute_framework.test_tooling.dataframe_test_base import DataFrameTestBase
 
 
@@ -181,7 +181,7 @@ class TestMyFrameworkMerge(DataFrameTestBase):
 
 Converts test data to any framework format via PyArrow:
 
-```python
+```py
 from tests.test_plugins.compute_framework.test_tooling.multi_index.test_data_converter import DataConverter
 
 converter = DataConverter()
@@ -192,7 +192,7 @@ df = converter.to_framework([{"col": 1}, {"col": 2}], my_lib.DataFrame, connecti
 
 Framework-agnostic merge scenarios, a `dict[str, MergeScenario]` keyed by scenario name. `MergeScenario` is a `TypedDict` with keys `left`, `right`, `index`, `expected_rows`, `expected_columns`, `description`:
 
-```python
+```py
 from tests.test_plugins.compute_framework.test_tooling.multi_index.test_scenarios import SCENARIOS
 
 
@@ -210,7 +210,7 @@ def test_merge_scenario(scenario_key, converter, engine):
 
 ### Availability Testing
 
-```python
+```py
 from tests.test_plugins.compute_framework.test_tooling.availability_test_helper import (
     assert_unavailable_when_import_blocked,
 )
@@ -224,7 +224,7 @@ def test_unavailable_when_not_installed():
 
 For testing transformer chains:
 
-```python
+```py
 from tests.test_plugins.compute_framework.test_tooling.shared_compute_frameworks import SecondCfw, ThirdCfw, FourthCfw
 ```
 
@@ -232,7 +232,7 @@ from tests.test_plugins.compute_framework.test_tooling.shared_compute_frameworks
 
 The compute framework conftest provides:
 
-```python
+```py
 # tests/test_plugins/compute_framework/base_implementations/conftest.py
 @pytest.fixture
 def index_obj() -> Any:
@@ -246,7 +246,7 @@ def dict_data() -> dict[str, list[int]]:
 
 Framework-specific fixtures:
 
-```python
+```py
 # DuckDB conftest.py
 @pytest.fixture
 def connection():
@@ -269,7 +269,7 @@ When not using base classes:
 
 ### Framework Tests
 
-```python
+```py
 @pytest.mark.skipif(my_lib is None, reason="my_lib not installed")
 class TestMyFramework:
     def test_is_available(self):
@@ -286,7 +286,7 @@ class TestMyFramework:
 
 ### Transformer Tests
 
-```python
+```py
 @pytest.mark.skipif(my_lib is None or pa is None, reason="deps not installed")
 class TestMyTransformer:
     def test_roundtrip(self):

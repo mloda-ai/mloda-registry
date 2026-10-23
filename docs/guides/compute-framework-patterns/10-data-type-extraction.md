@@ -10,7 +10,7 @@ Compute framework plugins expose their native column types to mloda through `_ex
 
 ## Signature
 
-```python
+```py
 def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | None: ...
 ```
 
@@ -36,7 +36,7 @@ the framework; otherwise return `None`.
 The predicates below (`_is_int32`, `_is_integer`, ...) are framework-supplied placeholders. Replace
 them with your library's own type checks.
 
-```python
+```py
 from typing import Any
 
 from mloda.user import DataType
@@ -79,7 +79,7 @@ def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | N
 
 ## Collapsed-Precision Example
 
-```python
+```py
 def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | None:
     native_type = data.schema[column_name]
 
@@ -116,7 +116,7 @@ Compatibility is checked in one of two modes, selected per run via `strict_type_
 
 A feature declares `DataType.INT32` and the framework produces a `DOUBLE` column:
 
-```python
+```py
 result = mloda.run_all(features)  # lenient: INT32 vs DOUBLE → OK (both numeric)
 result = mloda.run_all(
     features, strict_type_enforcement=True

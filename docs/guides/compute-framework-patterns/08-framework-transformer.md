@@ -76,7 +76,7 @@ class MyPyArrowTransformer(BaseTransformer):
 
 ## Test
 
-```python
+```py
 def test_transformer():
     assert MyPyArrowTransformer.framework() == mf.DataFrame
     assert MyPyArrowTransformer.other_framework() == pa.Table
@@ -93,7 +93,7 @@ def test_transformer():
 
 For frameworks needing a connection (like Spark):
 
-```python
+```py
 @classmethod
 def transform_other_fw_to_fw(cls, data: Any, framework_connection_object: Any | None = None) -> Any:
     if framework_connection_object is None:

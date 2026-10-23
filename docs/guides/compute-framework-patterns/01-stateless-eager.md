@@ -65,7 +65,7 @@ class MyEagerFramework(ComputeFramework):
 
 ## Test
 
-```python
+```py
 def test_my_eager_framework():
     assert MyEagerFramework.is_available()
     assert MyEagerFramework.expected_data_framework() == ml.DataFrame

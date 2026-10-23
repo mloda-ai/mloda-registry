@@ -29,6 +29,11 @@ Zero dependency frameworks use pure Python with no external libraries.
 ## What's Different
 
 ```python
+from typing import Any
+
+from mloda.provider import ComputeFramework
+
+
 class MyZeroDependencyFramework(ComputeFramework):
     # No is_available() needed - always available
 
