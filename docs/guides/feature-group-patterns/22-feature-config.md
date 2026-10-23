@@ -41,13 +41,20 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 | `propagate_context_keys` | array | No | Context keys pushed to the feature's direct input features |
 | `cascade_context_keys` | array | No | Context keys pushed to every input down the chain (mloda 0.16.0+) |
 | `feature_group` | string | No | Class name to scope resolution to (matches that class and its subclasses) |
+| `implementation` | string or array | No | Implementation class name(s) that must serve the feature (operation groups with one Implementation per framework) |
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
 
 `feature_group` is the class **name** as a string, also valid inside a nested `in_features` dict:
 
 ```json
-{ "name": "sales__sum_agg", "feature_group": "PandasAggregation", "context_options": {"partition_by": ["region"]} }
+{ "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "context_options": {"partition_by": ["region"]} }
+```
+
+`implementation` pins an `Implementation` class by name (one `Implementation` per framework on an operation group):
+
+```json
+{ "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "implementation": "PandasAggregation", "context_options": {"partition_by": ["region"]} }
 ```
 
 Rejects non-strings, empty strings, and the root `FeatureGroup` base name.

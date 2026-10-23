@@ -1,6 +1,6 @@
 """Regression test: Polars Lazy aggregation must not use map_batches for mode.
 
-Behavior-level guard: drives the mode path through ``calculate_feature`` and
+Behavior-level guard: drives the mode path through the group's ``calculate_feature`` and
 inspects the resulting LazyFrame's query plan (``.explain()``). The plan must
 not reference ``map_batches`` (Python per-group callback) nor the legacy
 ``_mode_with_insertion_order`` helper. This catches regressions even if the
@@ -18,7 +18,7 @@ import polars as pl
 from mloda.community.feature_groups.data_operations.aggregation.polars_lazy_aggregation import (
     PolarsLazyAggregation,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 
 
 def test_polars_lazy_aggregation_mode_plan_has_no_map_batches() -> None:
@@ -31,7 +31,7 @@ def test_polars_lazy_aggregation_mode_plan_has_no_map_batches() -> None:
     )
     fs = make_feature_set("value_int__mode_agg", ["region"])
 
-    result = PolarsLazyAggregation.calculate_feature(lf, fs)
+    result = calculate_with(PolarsLazyAggregation, lf, fs)
 
     assert isinstance(result, pl.LazyFrame)
 

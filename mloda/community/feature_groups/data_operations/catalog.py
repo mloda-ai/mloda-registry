@@ -20,6 +20,7 @@ from functools import lru_cache
 from types import MappingProxyType, ModuleType
 from typing import Any
 
+from mloda.provider import OperationFeatureGroup
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.errors import (
@@ -409,9 +410,10 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
 
     frameworks: dict[str, frozenset[str] | None] = {}
     op_dirname = spec.package.rsplit(".", 1)[-1]
+    is_operation_group = issubclass(base_cls, OperationFeatureGroup)
     for prefix in _FRAMEWORK_MODULE_PREFIXES:
         backend_module = _import_optional(f"{spec.package}.{prefix}_{op_dirname}")
-        if backend_module is None:
+        if backend_module is None or is_operation_group:
             continue
         concrete = _module_local_subclass(backend_module, base_cls)
         if concrete is None:
@@ -422,6 +424,9 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
                 frameworks[key] = None
             else:
                 frameworks[key] = _supported_subtypes(concrete, framework, base_module, subtypes, spec.probe)
+
+    if is_operation_group:
+        frameworks = dict(base_cls.subtype_support_matrix())
 
     return OperationInfo(
         name=spec.name,

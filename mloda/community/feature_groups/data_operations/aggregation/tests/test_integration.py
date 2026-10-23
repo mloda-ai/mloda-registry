@@ -13,22 +13,41 @@ integration tests verify values as sets (not keyed by partition columns).
 
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.aggregation.base import (
+    AggregationFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowAggregation,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.aggregation.reference import (
-    ReferenceAggregation,
-)
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
+
+
+@functools.cache
+def _pandas_creator() -> type:
+    """A data source holding the canonical rows in a Pandas frame (built lazily: pandas is optional)."""
+    pd = pytest.importorskip("pandas")
+    from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+    from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+
+    class _PandasDataOpsTestDataCreator(DataOperationsTestDataCreator):
+        compute_framework = PandasDataFrame
+
+        @classmethod
+        def create(cls) -> Any:
+            return pd.DataFrame(cls.get_raw_data())
+
+    return _PandasDataOpsTestDataCreator
 
 
 class TestAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
@@ -36,7 +55,7 @@ class TestAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTes
 
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowAggregation
+        return AggregationFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -137,7 +156,9 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_min_agg_through_pipeline(self) -> None:
         """Run value_int__min_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         feature = Feature(
             "value_int__min_agg",
@@ -163,7 +184,9 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_max_agg_through_pipeline(self) -> None:
         """Run value_int__max_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         feature = Feature(
             "value_int__max_agg",
@@ -189,7 +212,9 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_std_agg_through_pipeline(self) -> None:
         """Run value_int__std_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         feature = Feature(
             "value_int__std_agg",
@@ -213,7 +238,9 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_nunique_agg_through_pipeline(self) -> None:
         """Run value_int__nunique_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         feature = Feature(
             "value_int__nunique_agg",
@@ -236,20 +263,22 @@ class TestIntegrationAdditionalAggTypes:
         assert result_table.num_rows == 4
 
 
-class TestIntegrationReferenceOnlyAggTypes:
-    """Pipeline test for aggregation types not natively supported by PyArrow.
+class TestIntegrationMedianAggType:
+    """Median through the pipeline: PyArrow has no grouped median, so another framework must serve it.
 
-    PyArrow lacks native grouped median and mode, so those operations were
-    removed from PyArrowAggregation. The ReferenceAggregation (a test utility
-    that computes in Python) still supports them. This test verifies that
-    median continues to work end-to-end through mloda's pipeline, ensuring
-    no regression for frameworks that do support it natively (Pandas, Polars,
-    SQLite, DuckDB).
+    PyArrowAggregation does not declare median in ``supported``, so a PyArrow-only run is rejected at
+    match time. With Pandas enabled as well, the group is served by the Pandas implementation instead.
     """
 
-    def test_median_agg_through_pipeline(self) -> None:
-        """Run median aggregation through run_all using the reference implementation."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceAggregation})
+    def test_median_agg_through_pipeline_on_a_supporting_framework(self) -> None:
+        """Median runs end-to-end on Pandas when it is enabled next to PyArrow."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         feature = Feature(
             "value_int__median_agg",
@@ -258,23 +287,125 @@ class TestIntegrationReferenceOnlyAggTypes:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks=[PyArrowTable],
+            compute_frameworks=[PyArrowTable, PandasDataFrame],
             plugin_collector=plugin_collector,
         )
 
-        result_table = None
-        for table in results:
-            if isinstance(table, pa.Table) and "value_int__median_agg" in table.column_names:
-                result_table = table
+        result_frame = None
+        for frame in results:
+            if isinstance(frame, pd.DataFrame) and "value_int__median_agg" in frame.columns:
+                result_frame = frame
                 break
 
-        assert result_table is not None
-        assert result_table.num_rows == 4
+        assert result_frame is not None
+        assert len(result_frame) == 4
 
-        median_col = sorted(result_table.column("value_int__median_agg").to_pylist())
-        # Regions: A=[−5,0,10,20] median=5.0, B=[30,50,60,None] median=50.0,
-        #          C=[15,15,40] median=15.0, None=[−10] median=−10.0
+        median_col = sorted(result_frame["value_int__median_agg"].tolist())
+        # Regions: A=[-5,0,10,20] median=5.0, B=[30,50,60,None] median=50.0,
+        #          C=[15,15,40] median=15.0, None=[-10] median=-10.0
         assert median_col == pytest.approx(sorted([-10.0, 5.0, 15.0, 50.0]))
+
+    def test_median_agg_is_rejected_at_match_time_on_pyarrow_only(self) -> None:
+        """PyArrow alone cannot serve median: the group is dropped at match time, not at compute time."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
+
+        feature = Feature(
+            "value_int__median_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        with pytest.raises(FeatureResolutionError, match="supports_compute_framework rejected"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[PyArrowTable],
+                plugin_collector=plugin_collector,
+            )
+
+
+class TestIntegrationSeveralFrameworks:
+    """One AggregationFeatureGroup is served by one Implementation per framework, chosen per feature.
+
+    Before the operation-group shape every framework was its own feature group, so enabling several
+    frameworks failed with "Multiple feature groups".
+    """
+
+    @staticmethod
+    def _collector() -> PluginCollector:
+        return PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
+
+    @staticmethod
+    def _feature(**kwargs: Any) -> Feature:
+        return Feature(
+            "value_int__sum_agg",
+            options=Options(context={"partition_by": ["region"]}),
+            **kwargs,
+        )
+
+    @staticmethod
+    def _aggregation_step(features: list[Feature], frameworks: list[Any], collector: PluginCollector) -> Any:
+        plan = mloda.explain(features, compute_frameworks=frameworks, plugin_collector=collector)
+        steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is AggregationFeatureGroup]
+        assert len(steps) == 1
+        return steps[0]
+
+    def test_several_frameworks_enabled_runs_sum(self) -> None:
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        results = mloda.run_all(
+            [self._feature()],
+            compute_frameworks=[PyArrowTable, PandasDataFrame],
+            plugin_collector=self._collector(),
+        )
+
+        tables = [t for t in results if isinstance(t, pa.Table) and "value_int__sum_agg" in t.column_names]
+        assert len(tables) == 1
+        assert sorted(tables[0].column("value_int__sum_agg").to_pylist()) == sorted([25, 140, 70, -10])
+
+    def test_divergent_pandas_sum_is_served_by_pyarrow(self) -> None:
+        """Pandas declares sum divergent (it skips NaN), so data already in Pandas is still aggregated by PyArrow.
+
+        max is not divergent on Pandas, so the same data stays on Pandas without a framework transform.
+        """
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
+
+        collector = PluginCollector.enabled_feature_groups({_pandas_creator(), AggregationFeatureGroup})
+        frameworks = [PandasDataFrame, PyArrowTable]
+        options = Options(context={"partition_by": ["region"]})
+
+        sum_step = self._aggregation_step([Feature("value_int__sum_agg", options=options)], frameworks, collector)
+        assert sum_step.implementation is PyArrowAggregation
+        assert sum_step.compute_framework is PyArrowTable
+
+        max_step = self._aggregation_step([Feature("value_int__max_agg", options=options)], frameworks, collector)
+        assert max_step.implementation is PandasAggregation
+        assert max_step.compute_framework is PandasDataFrame
+
+    @pytest.mark.parametrize("pin", ["PandasAggregation", "class"], ids=["by_name", "by_class"])
+    def test_implementation_pin_runs_on_pandas(self, pin: str) -> None:
+        """Feature(..., implementation=...) overrides the ranking and runs the pinned implementation."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
+
+        feature = self._feature(implementation="PandasAggregation" if pin == "PandasAggregation" else PandasAggregation)
+        frameworks = [PyArrowTable, PandasDataFrame]
+
+        step = self._aggregation_step([feature], frameworks, self._collector())
+        assert step.implementation is PandasAggregation
+        assert step.compute_framework is PandasDataFrame
+
+        results = mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=self._collector())
+        frames = [frame for frame in results if isinstance(frame, pd.DataFrame)]
+        assert len(frames) == 1
+        assert sorted(frames[0]["value_int__sum_agg"].tolist()) == sorted([25, 140, 70, -10])
 
 
 class TestIntegrationMultipleFeatures:
@@ -289,7 +420,9 @@ class TestIntegrationMultipleFeatures:
 
     def test_sum_and_avg_consistent(self) -> None:
         """Run sum and avg separately and verify both produce correct results."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         f_sum = Feature(
             "value_int__sum_agg",
@@ -334,7 +467,9 @@ class TestIntegrationMultipleFeatures:
 
     def test_min_and_max_consistent(self) -> None:
         """Run min and max separately and verify both produce correct results."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
 
         f_min = Feature(
             "value_int__min_agg",

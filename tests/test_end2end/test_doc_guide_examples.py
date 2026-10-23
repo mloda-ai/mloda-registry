@@ -153,12 +153,29 @@ def test_feature_config_guide_blocks_are_resolvable() -> None:
     assert problems == [], "\n".join(problems)
 
 
+def test_feature_config_guide_scopes_aggregation_to_its_group_and_pins_an_implementation() -> None:
+    """Per-framework aggregation classes are Implementations: scope to the group, pin with ``implementation``."""
+    markdown = FEATURE_CONFIG_GUIDE.read_text(encoding="utf-8")
+    assert "| `implementation` |" in markdown, "the field table must document `implementation`"
+    items = [item for block in extract_config_blocks(markdown) for item in block if isinstance(item, dict)]
+    scopes = {item["feature_group"] for item in items if "feature_group" in item}
+    assert "AggregationFeatureGroup" in scopes
+    assert "PandasAggregation" not in scopes, "PandasAggregation is an Implementation, not a feature_group scope"
+
+    pinned = [item for item in items if item.get("implementation") == "PandasAggregation"]
+    assert len(pinned) == 1, "the guide must show exactly one implementation pin example"
+    assert pinned[0].get("feature_group") == "AggregationFeatureGroup"
+    (feature,) = load_features_from_config(json.dumps([pinned[0]]))
+    assert isinstance(feature, Feature)
+    assert feature.implementation_pin == ("PandasAggregation",)
+
+
 def test_wrong_suffix_regression_is_rejected() -> None:
     """Historical bug: ``_aggr`` never matched ``AggregationFeatureGroup.PREFIX_PATTERN`` (``_agg``)."""
     block = [
         {
             "name": "sales__sum_aggr",
-            "feature_group": "PandasAggregation",
+            "feature_group": "AggregationFeatureGroup",
             "context_options": {"partition_by": ["region"]},
         }
     ]
@@ -166,17 +183,17 @@ def test_wrong_suffix_regression_is_rejected() -> None:
     problems = find_unresolved_features(block, registry, "synthetic[wrong_suffix]")
     assert problems != [], "wrong-suffix regression was not caught; the validation logic is vacuous"
     assert "sales__sum_aggr" in problems[0]
-    assert "PandasAggregation" in problems[0]
+    assert "AggregationFeatureGroup" in problems[0]
 
 
 def test_missing_partition_by_regression_is_rejected() -> None:
     """Historical bug: no ``partition_by`` means AggregationFeatureGroup's required option is absent."""
-    block = [{"name": "sales__sum_agg", "feature_group": "PandasAggregation"}]
+    block = [{"name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup"}]
     registry = build_feature_group_registry()
     problems = find_unresolved_features(block, registry, "synthetic[missing_partition_by]")
     assert problems != [], "missing-partition_by regression was not caught; the validation logic is vacuous"
     assert "sales__sum_agg" in problems[0]
-    assert "PandasAggregation" in problems[0]
+    assert "AggregationFeatureGroup" in problems[0]
 
 
 def _python_fences(heading: str) -> list[str]:

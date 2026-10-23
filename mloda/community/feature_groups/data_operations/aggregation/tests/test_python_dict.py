@@ -50,7 +50,7 @@ class TestPythonDictNanPartitionKeyGrouping:
     Verified empirically: PyArrow's own ``Table.group_by()`` merges all NaN
     keys of a column into a single group (distinct from a null/None group),
     so "one shared NaN group" -- not "one singleton group per NaN row" -- is
-    the correct target behavior. ``ReferenceAggregation`` drives its grouping
+    the correct target behavior. ``reference_aggregation`` drives its grouping
     through PyArrow's real ``group_by().aggregate()``, so it reproduces that
     same live-PyArrow behavior and is a valid oracle here.
     """
@@ -58,10 +58,12 @@ class TestPythonDictNanPartitionKeyGrouping:
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.aggregation.reference import (
-            ReferenceAggregation,
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
         )
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
         arrow_table = pa.table(
             {
@@ -72,8 +74,8 @@ class TestPythonDictNanPartitionKeyGrouping:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__sum_agg", ["grp"])
 
-        result = PythonDictAggregation.calculate_feature(data, fs)
-        oracle = ReferenceAggregation.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictAggregation, data, fs)
+        oracle = reference_aggregation(arrow_table, fs)
 
         result_val_col = extract_column(result, "val__sum_agg")
         oracle_val_col = extract_column(oracle, "val__sum_agg")
@@ -100,7 +102,7 @@ class TestPythonDictMinMaxSkipsNan:
     134-137) reduces a group's non-null values with Python's builtin
     ``min()``/``max()``. Python's builtins short-circuit to NaN the moment
     any element is NaN (``min([nan, 1.0, 3.0]) == nan``), but PyArrow's
-    ``pc.min``/``pc.max`` (exercised here through ``ReferenceAggregation``'s
+    ``pc.min``/``pc.max`` (exercised here through ``reference_aggregation``'s
     ``group_by().aggregate()`` call) skip NaN and return the true minimum/
     maximum among the non-NaN values.
     """
@@ -109,10 +111,12 @@ class TestPythonDictMinMaxSkipsNan:
     def _agg_via(agg_type: str) -> tuple[Any, Any]:
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.aggregation.reference import (
-            ReferenceAggregation,
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
         )
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
         arrow_table = pa.table(
             {
@@ -123,8 +127,8 @@ class TestPythonDictMinMaxSkipsNan:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"val__{agg_type}_agg", ["grp"])
 
-        result = PythonDictAggregation.calculate_feature(data, fs)
-        oracle = ReferenceAggregation.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictAggregation, data, fs)
+        oracle = reference_aggregation(arrow_table, fs)
 
         result_val = extract_column(result, f"val__{agg_type}_agg")[0]
         oracle_val = extract_column(oracle, f"val__{agg_type}_agg")[0]

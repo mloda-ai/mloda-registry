@@ -117,6 +117,7 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "max": {"A": 2.0, "B": 3.0},
     "sum": {"A": float("nan"), "B": float("nan")},
     "avg": {"A": float("nan"), "B": float("nan")},
+    "mean": {"A": float("nan"), "B": float("nan")},
     "count": {"A": 3, "B": 4},
     "std": {"A": float("nan"), "B": float("nan")},
     "var": {"A": float("nan"), "B": float("nan")},
@@ -125,13 +126,14 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "std_samp": {"A": float("nan"), "B": float("nan")},
     "var_samp": {"A": float("nan"), "B": float("nan")},
 }
-# Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas' mode()
+# Known per-backend divergences, declared by the implementation's ``divergent``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
 # both skip it in sum/avg/count; pandas also skips NaN in std/var.
 NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "mode": {"A": 2.0, "B": 1.0},
     "sum": {"A": 3.0, "B": 4.0},
     "avg": {"A": 1.5, "B": 2.0},
+    "mean": {"A": 1.5, "B": 2.0},
     "count": {"A": 2, "B": 2},
     "std": {"A": 0.5, "B": 1.0},
     "std_pop": {"A": 0.5, "B": 1.0},
@@ -340,13 +342,16 @@ class AggregationTestBase(
     # -- Reference implementation (for cross-framework comparison) -------------------
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        """Return the reference implementation class for cross-framework comparison."""
-        from mloda.testing.feature_groups.data_operations.aggregation.reference import (
-            ReferenceAggregation,
-        )
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the PyArrow-backed reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
 
-        return ReferenceAggregation
+        return reference_aggregation(table, features)
+
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """The agg types the implementation declares as NaN-divergent via ``divergent``."""
+        return frozenset(cls.implementation_class().divergent)
 
     # -- Concrete test methods (inherited for free) --------------------------
 

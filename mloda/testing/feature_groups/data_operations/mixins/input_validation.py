@@ -19,7 +19,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import FeatureName, Options
 
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 # The input-rejection kinds every op test base must address (declare, opt
@@ -143,4 +143,4 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
 
         options = Options(context=case.context)
         with pytest.raises(ValueError, match=case.match):
-            self.implementation_class()().input_features(options, FeatureName(case.feature_name))  # type: ignore[attr-defined]
+            feature_group_of(self.implementation_class())().input_features(options, FeatureName(case.feature_name))  # type: ignore[attr-defined]

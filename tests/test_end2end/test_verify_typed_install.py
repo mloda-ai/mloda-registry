@@ -22,24 +22,26 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_typed_install.py"
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 
-# The probe targets supported_op_subtypes, a symbol the leaf itself defines; supported_subtypes
-# comes from mloda core, so revealing it proves less about the leaf's own typing.
+# PyArrowAggregation is an Implementation: the probe reveals and miscalls `calculate`, which the leaf itself
+# defines, and misassigns `supported`, which the leaf declares. Inherited names (e.g. `divergent`) would prove less.
 _PROBE_MODULE = "mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation"
 _PROBE_LEAF = "mloda-community-aggregation"
 _PROBE_BASE = "mloda-community-data-operations"
 
-# Shaped like a real mypy run over the probe against a typed install (line 4 reveals, line 5 miscalls);
-# the Green agent replaces these with genuinely captured lines.
+# Shaped like a real mypy run over the probe against a typed install (line 5 reveals, line 6 misassigns,
+# line 7 miscalls); captured from a real mypy run.
 _TYPED_REVEAL = (
-    "probe.py:4: note: Revealed type is "
-    '"def (secondary: Union[builtins.str, None] =) -> Union[frozenset[builtins.str], None]"'
+    "probe.py:5: note: Revealed type is "
+    '"def (group: type[mloda.community.feature_groups.data_operations.aggregation.base.AggregationFeatureGroup], '
+    "data: Any, features: mloda.core.abstract_plugins.components.feature_set.FeatureSet, "
+    'framework: mloda.core.abstract_plugins.compute_framework.ComputeFramework | None) -> Any"'
 )
 _ARG_TYPE_ERROR = (
-    'probe.py:5: error: Argument "secondary" to "supported_op_subtypes" of "PyArrowAggregation" '
-    'has incompatible type "int"; expected "str | None"  [arg-type]'
+    'probe.py:7: error: Argument 1 to "calculate" of "PyArrowAggregation" '
+    'has incompatible type "int"; expected "type[AggregationFeatureGroup]"  [arg-type]'
 )
 _ASSIGNMENT_ERROR = (
-    'probe.py:5: error: Incompatible types in assignment (expression has type "frozenset[str] | None", '
+    'probe.py:6: error: Incompatible types in assignment (expression has type "frozenset[str]", '
     'variable has type "int")  [assignment]'
 )
 
@@ -48,7 +50,7 @@ _GOOD_OUTPUT = "\n".join(
 )
 
 # The silent-untyped case: mypy reveals bare Any, reports nothing, and exits 0.
-_UNTYPED_OUTPUT = "\n".join(['probe.py:4: note: Revealed type is "Any"', "Success: no issues found in 1 source file"])
+_UNTYPED_OUTPUT = "\n".join(['probe.py:5: note: Revealed type is "Any"', "Success: no issues found in 1 source file"])
 
 _NO_REVEAL_OUTPUT = "Success: no issues found in 1 source file"
 
@@ -63,7 +65,7 @@ _MISSING_ASSIGNMENT_OUTPUT = "\n".join(
 # Any as a parameter annotation inside the revealed signature, not the bare 'Revealed type is "Any"'.
 _ANY_IN_SIGNATURE_OUTPUT = "\n".join(
     [
-        'probe.py:4: note: Revealed type is "def (secondary: Any =) -> Union[frozenset[builtins.str], None]"',
+        'probe.py:5: note: Revealed type is "def (group: Any, data: Any, features: Any, framework: Any) -> Any"',
         _ARG_TYPE_ERROR,
         _ASSIGNMENT_ERROR,
         "Found 2 errors in 1 file (checked 1 source file)",
@@ -96,12 +98,15 @@ def test_probe_source_imports_reveals_and_miscalls_the_plugin() -> None:
     source = _probe_source()
     assert _PROBE_MODULE in source, f"PROBE_SOURCE must import from {_PROBE_MODULE}"
     assert "PyArrowAggregation" in source, "PROBE_SOURCE must import PyArrowAggregation"
-    assert "supported_op_subtypes" in source, (
-        "PROBE_SOURCE must probe supported_op_subtypes, the symbol the leaf itself defines"
+    assert "supported_op_subtypes" not in source, "supported_op_subtypes is gone from the Implementation leaf"
+    assert "reveal_type(PyArrowAggregation.calculate)" in source, (
+        "PROBE_SOURCE must reveal_type PyArrowAggregation.calculate, the classmethod the leaf itself defines"
     )
-    assert "reveal_type(" in source, "PROBE_SOURCE must reveal_type the supported_op_subtypes attribute"
-    assert "secondary=123" in source, (
-        "PROBE_SOURCE must call supported_op_subtypes(secondary=123) to provoke [arg-type]"
+    assert "BAD: int = PyArrowAggregation.supported\n" in source, (
+        "PROBE_SOURCE must assign PyArrowAggregation.supported to an int to provoke [assignment]"
+    )
+    assert "PyArrowAggregation.calculate(123," in source, (
+        "PROBE_SOURCE must call PyArrowAggregation.calculate(123, ...) to provoke [arg-type]"
     )
 
 

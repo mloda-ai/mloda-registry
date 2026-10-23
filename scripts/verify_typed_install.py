@@ -31,13 +31,15 @@ venv_python: Callable[[Path], Path] = _common.venv_python
 # The leaf under probe plus the base distribution that ships the py.typed marker.
 PROBE_DISTRIBUTIONS = ("mloda-community-aggregation", "mloda-community-data-operations")
 
-# Line 4 reveals the leaf-defined classmethod; line 5 provokes [arg-type] and [assignment] on a typed install.
+# reveal_type shows the leaf-defined classmethod; the last two lines provoke [assignment] and [arg-type] on a typed install.
 PROBE_SOURCE = '''\
 """Probe: a typed install reveals a concrete signature and yields both provoked errors."""
+from mloda.provider import FeatureSet
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import PyArrowAggregation
 
-reveal_type(PyArrowAggregation.supported_op_subtypes)
-BAD: int = PyArrowAggregation.supported_op_subtypes(secondary=123)
+reveal_type(PyArrowAggregation.calculate)
+BAD: int = PyArrowAggregation.supported
+PyArrowAggregation.calculate(123, [], FeatureSet(), None)
 '''
 
 
@@ -49,7 +51,9 @@ def mypy_output_problems(output: str) -> list[str]:
     elif "Revealed type is" not in output:
         problems.append("no 'Revealed type is' line: the probe never ran")
     if "[arg-type]" not in output:
-        problems.append("missing the provoked '[arg-type]' error on secondary=123 (int vs str | None)")
+        problems.append(
+            "missing the provoked '[arg-type]' error on the calculate(123, ...) call (int vs type[AggregationFeatureGroup])"
+        )
     if "[assignment]" not in output:
         problems.append("missing the provoked '[assignment]' error")
     return problems

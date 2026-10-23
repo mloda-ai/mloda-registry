@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, property_spec
+from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, Implementation, property_spec
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import (
@@ -94,9 +94,14 @@ def _package_of_module(module: str, packages: dict[str, str]) -> str:
 
 
 def _manifest_classes(prefix: str) -> list[Any]:
+    """The manifests' FeatureGroup classes; Implementations never match names, their group does."""
     classes: list[Any] = []
     for dotted in _feature_group_packages(prefix).values():
-        classes += importlib.import_module(f"{dotted}.manifest").FEATURE_GROUPS
+        classes += [
+            cls
+            for cls in importlib.import_module(f"{dotted}.manifest").FEATURE_GROUPS
+            if not issubclass(cls, Implementation)
+        ]
     return classes
 
 

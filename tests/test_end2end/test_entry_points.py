@@ -25,10 +25,12 @@ from typing import Any
 
 import pytest
 from mloda.core.abstract_plugins.plugin_loader.plugin_loader import ENTRY_POINT_GROUPS
+from mloda.provider import Implementation, OperationFeatureGroup
 
 from tests.script_loader import load_script
 from tests.toml_loader import loads_toml
 
+_FEATURE_GROUPS = "mloda.feature_groups"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
@@ -168,12 +170,17 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
             for cls in plugins:
                 assert inspect.isclass(cls), f"{manifest_name}.{attr_name}: {cls!r} is not a class"
                 assert not inspect.isabstract(cls), f"{manifest_name}.{attr_name}: {cls!r} is abstract"
-                assert issubclass(cls, base_type), (
+                is_implementation = group == _FEATURE_GROUPS and issubclass(cls, Implementation)
+                assert is_implementation or issubclass(cls, base_type), (
                     f"{manifest_name}.{attr_name}: {cls!r} is not a subclass of {base_type.__name__}"
                 )
-                assert not (cls.__module__.endswith(".base") or cls.__module__.endswith("_base")), (
-                    f"{manifest_name}.{attr_name}: {cls!r} is a shared base class ({cls.__module__})"
-                )
+                # An operation group is the one concrete class a "base" module may list: its Implementations serve it.
+                is_operation_group = issubclass(cls, OperationFeatureGroup)
+                assert is_operation_group or not (
+                    cls.__module__.endswith(".base") or cls.__module__.endswith("_base")
+                ), f"{manifest_name}.{attr_name}: {cls!r} is a shared base class ({cls.__module__})"
+                if is_implementation:
+                    assert not cls.__module__.endswith(".base"), f"{manifest_name}.{attr_name}: {cls!r} lives in a base"
 
 
 def test_bundle_and_groups_are_mutually_exclusive() -> None:

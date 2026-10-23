@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -29,10 +29,15 @@ from mloda.community.feature_groups.data_operations.python_dict_helpers import (
 )
 
 
-class PythonDictAggregation(AggregationFeatureGroup):
+class PythonDictAggregation(Implementation[AggregationFeatureGroup]):
+    feature_group = AggregationFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls, group: type[AggregationFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
     def _compute_group(

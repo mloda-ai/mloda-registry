@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation, _next_table_name
@@ -26,14 +26,20 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
 }
 
 
-class SqliteAggregation(AggregationFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+class SqliteAggregation(Implementation[AggregationFeatureGroup]):
+    feature_group = AggregationFeatureGroup
+    compute_framework = SqliteFramework
+    supported = frozenset(_SQLITE_AGG_FUNCS)
+    divergent = {
+        **{op: "skips NaN" for op in ("sum", "avg", "mean")},
+        "count": "does not count NaN",
+    }
 
     @classmethod
-    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
-        return frozenset(_SQLITE_AGG_FUNCS)
+    def calculate(
+        cls, group: type[AggregationFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
     def _compute_group(

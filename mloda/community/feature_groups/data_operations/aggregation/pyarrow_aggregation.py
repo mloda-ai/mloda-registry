@@ -10,7 +10,7 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
@@ -49,14 +49,16 @@ _ORDERED_FUNCS: dict[str, str] = {
 _SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS}
 
 
-class PyArrowAggregation(AggregationFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
+    feature_group = AggregationFeatureGroup
+    compute_framework = PyArrowTable
+    supported = frozenset(_SUPPORTED_AGG_TYPES)
 
     @classmethod
-    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
-        return frozenset(_SUPPORTED_AGG_TYPES)
+    def calculate(
+        cls, group: type[AggregationFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
     def _compute_group(

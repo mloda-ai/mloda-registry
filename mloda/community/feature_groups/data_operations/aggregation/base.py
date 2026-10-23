@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    property_spec,
+)
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,
@@ -21,7 +28,7 @@ from mloda.community.feature_groups.data_operations.base import (
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
-class AggregationFeatureGroup(AggregationFeatureGroupBase):
+class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
     """Base class for aggregation operations that reduce rows.
 
     Aggregation computes an aggregate over partitioned groups and
@@ -85,7 +92,15 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
     - ``aggregation_type``: The type of aggregation to perform
     - ``in_features``: The source feature to aggregate
     - ``partition_by``: List of columns to partition by; ``[]`` aggregates the whole table into one row
+
+    ## Reference Contract
+
+    Null is skipped. NaN propagates in sum/avg/mean/std/var, is counted by count, is skipped by min/max/median
+    and counts as a value in mode (the suite's ``NAN_POLICY_AGG``). Zero rows or ``partition_by=[]`` give one
+    row. count and nunique declare INT64. Float results match the reference at rel 1e-6.
     """
+
+    SUBTYPES = SubtypeDeclaration(key=AggregationFeatureGroupBase.AGGREGATION_TYPE)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "mask")
 
@@ -150,8 +165,14 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
         return True
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Shared loop: extract params from each feature, delegate to _compute_group.
+    def aggregate(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_group: Callable[[Any, str, str, list[str], str, list[tuple[str, str, Any]] | None], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_group``.
 
         Supports both string-based features (e.g. "value_int__sum_agg") and
         configuration-based features (via Options with aggregation_type, in_features,
@@ -169,19 +190,6 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
             assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
 
-            table = cls._compute_group(table, feature_name, source_col, partition_by, agg_type, mask_spec)
+            table = compute_group(table, feature_name, source_col, partition_by, agg_type, mask_spec)
 
         return table
-
-    @classmethod
-    def _compute_group(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> Any:
-        """Subclasses must implement the actual group computation."""
-        raise NotImplementedError

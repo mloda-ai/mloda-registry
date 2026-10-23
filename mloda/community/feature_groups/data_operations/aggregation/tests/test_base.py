@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import inspect
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureGroup, Implementation, OperationFeatureGroup
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
@@ -16,6 +20,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -51,6 +56,207 @@ class TestClassAttributes:
     def test_max_in_features_is_one(self) -> None:
         """MAX_IN_FEATURES should be 1 (single source column)."""
         assert AggregationFeatureGroup.MAX_IN_FEATURES == 1
+
+
+_IMPLEMENTATIONS = [
+    pytest.param(
+        "pyarrow_aggregation",
+        "PyArrowAggregation",
+        "mloda_plugins.compute_framework.base_implementations.pyarrow.table",
+        "PyArrowTable",
+        id="pyarrow",
+    ),
+    pytest.param(
+        "pandas_aggregation",
+        "PandasAggregation",
+        "mloda_plugins.compute_framework.base_implementations.pandas.dataframe",
+        "PandasDataFrame",
+        id="pandas",
+    ),
+    pytest.param(
+        "polars_lazy_aggregation",
+        "PolarsLazyAggregation",
+        "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe",
+        "PolarsLazyDataFrame",
+        id="polars_lazy",
+    ),
+    pytest.param(
+        "duckdb_aggregation",
+        "DuckdbAggregation",
+        "mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework",
+        "DuckDBFramework",
+        id="duckdb",
+    ),
+    pytest.param(
+        "sqlite_aggregation",
+        "SqliteAggregation",
+        "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework",
+        "SqliteFramework",
+        id="sqlite",
+    ),
+    pytest.param(
+        "python_dict_aggregation",
+        "PythonDictAggregation",
+        "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework",
+        "PythonDictFramework",
+        id="python_dict",
+    ),
+]
+
+_AGG_PACKAGE = "mloda.community.feature_groups.data_operations.aggregation"
+
+
+def _implementation(module: str, name: str) -> Any:
+    """The named aggregation Implementation; skips when its optional backend is not installed."""
+    return getattr(pytest.importorskip(f"{_AGG_PACKAGE}.{module}"), name)
+
+
+class TestOperationGroupShape:
+    """AggregationFeatureGroup is one OperationFeatureGroup served by one Implementation per framework."""
+
+    def test_group_is_a_concrete_operation_group(self) -> None:
+        assert issubclass(AggregationFeatureGroup, OperationFeatureGroup)
+        assert not inspect.isabstract(AggregationFeatureGroup)
+
+    def test_group_declares_the_aggregation_type_subtype_key(self) -> None:
+        declaration = AggregationFeatureGroup.SUBTYPES
+        assert declaration is not None
+        assert declaration.key == "aggregation_type"
+
+    def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
+        assert callable(AggregationFeatureGroup.aggregate)
+        assert not hasattr(AggregationFeatureGroup, "_compute_group")
+
+    def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
+        """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
+        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        fs = make_feature_set("value_int__sum_agg", ["region"])
+        with pytest.raises(ValueError, match="no implementation"):
+            AggregationFeatureGroup.calculate_feature(PyArrowDataOpsTestDataCreator.create(), fs)
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_implementation_names_its_pair(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        impl = _implementation(module, name)
+        framework = getattr(pytest.importorskip(framework_module), framework_name)
+        assert issubclass(impl, Implementation)
+        assert not issubclass(impl, FeatureGroup)
+        assert impl.feature_group is AggregationFeatureGroup
+        assert impl.compute_framework is framework
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_implementation_keeps_its_compute_group(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert callable(_implementation(module, name)._compute_group)
+
+
+class TestSupportedAndDivergent:
+    """Capability and NaN-divergence are declared on the shipped Implementations."""
+
+    @staticmethod
+    def _sqlite() -> Any:
+        return _implementation("sqlite_aggregation", "SqliteAggregation")
+
+    @staticmethod
+    def _pandas() -> Any:
+        return _implementation("pandas_aggregation", "PandasAggregation")
+
+    def test_pyarrow_supported_excludes_median_and_mode(self) -> None:
+        supported = _implementation("pyarrow_aggregation", "PyArrowAggregation").supported
+        assert supported is not None
+        assert {"sum", "avg", "mean", "count", "min", "max", "std", "var", "nunique", "first", "last"} <= supported
+        assert supported.isdisjoint({"median", "mode"})
+
+    def test_sqlite_supported_is_the_basic_aggregates(self) -> None:
+        assert self._sqlite().supported == frozenset({"sum", "avg", "mean", "count", "min", "max"})
+
+    @pytest.mark.parametrize(
+        ("module", "name"),
+        [
+            ("pandas_aggregation", "PandasAggregation"),
+            ("polars_lazy_aggregation", "PolarsLazyAggregation"),
+            ("duckdb_aggregation", "DuckdbAggregation"),
+            ("python_dict_aggregation", "PythonDictAggregation"),
+        ],
+    )
+    def test_other_implementations_are_unrestricted(self, module: str, name: str) -> None:
+        assert _implementation(module, name).supported is None
+
+    def test_pandas_divergent_agg_types(self) -> None:
+        expected = {"mode", "sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
+        assert set(self._pandas().divergent) == expected
+
+    def test_sqlite_divergent_agg_types(self) -> None:
+        assert set(self._sqlite().divergent) == {"sum", "avg", "mean", "count"}
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_divergent_is_inside_the_universe_with_a_reason(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        divergent = _implementation(module, name).divergent
+        assert set(divergent) <= AggregationFeatureGroup.subtype_universe()
+        assert all(isinstance(reason, str) and reason for reason in divergent.values())
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_divergent_avg_implies_mean(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        """mean is an alias of avg, so a backend that diverges on one diverges on the other."""
+        divergent = _implementation(module, name).divergent
+        assert ("avg" in divergent) == ("mean" in divergent)
+
+    def test_supported_stays_inside_the_universe(self) -> None:
+        """supported stays inside the universe, so a typo cannot silently hide a real agg type."""
+        for module, name in (
+            ("pyarrow_aggregation", "PyArrowAggregation"),
+            ("sqlite_aggregation", "SqliteAggregation"),
+        ):
+            assert _implementation(module, name).supported <= AggregationFeatureGroup.subtype_universe()
+
+
+class TestSubtypeResolution:
+    """supported and divergent apply only if the group resolves the agg type; a miss is silent None."""
+
+    def test_resolves_from_the_feature_name(self) -> None:
+        assert AggregationFeatureGroup.resolve_subtype("x__sum_agg", Options()) == "sum"
+
+    def test_resolves_from_the_config_option(self) -> None:
+        options = Options(context={"aggregation_type": "median", "in_features": "x", "partition_by": ["g"]})
+        assert AggregationFeatureGroup.resolve_subtype("my_result", options) == "median"
+
+    def test_sqlite_rejects_median_by_name_and_by_config(self) -> None:
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        _implementation("sqlite_aggregation", "SqliteAggregation")
+        by_config = Options(context={"aggregation_type": "median", "in_features": "x", "partition_by": ["g"]})
+        assert AggregationFeatureGroup.supports_compute_framework("x__median_agg", Options(), SqliteFramework) is False
+        assert AggregationFeatureGroup.supports_compute_framework("my_result", by_config, SqliteFramework) is False
+        assert AggregationFeatureGroup.supports_compute_framework("x__sum_agg", Options(), SqliteFramework) is True
+
+
+class TestManifest:
+    """The entry-point manifest lists the group and its Implementations."""
+
+    def test_manifest_lists_the_group_and_every_installed_implementation(self) -> None:
+        from mloda.community.feature_groups.data_operations.aggregation.manifest import FEATURE_GROUPS
+
+        assert AggregationFeatureGroup in FEATURE_GROUPS
+        listed = {cls.__name__ for cls in FEATURE_GROUPS if issubclass(cls, Implementation)}
+        expected = {"PyArrowAggregation", "SqliteAggregation", "PythonDictAggregation"}
+        for module, name, dependency in (
+            ("pandas_aggregation", "PandasAggregation", "pandas"),
+            ("polars_lazy_aggregation", "PolarsLazyAggregation", "polars"),
+            ("duckdb_aggregation", "DuckdbAggregation", "duckdb"),
+        ):
+            if importlib.util.find_spec(dependency) is not None:
+                expected.add(name)
+        assert listed == expected
+        implementations: list[Any] = [cls for cls in FEATURE_GROUPS if cls is not AggregationFeatureGroup]
+        assert all(cls.feature_group is AggregationFeatureGroup for cls in implementations)
 
 
 class TestPatternMatching:
@@ -269,7 +475,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowAggregation.calculate_feature(table, fs)
+        result = calculate_with(PyArrowAggregation, table, fs)
         assert isinstance(result, pa.Table)
         assert "my_sum_result" in result.column_names
         assert result.num_rows == 4
