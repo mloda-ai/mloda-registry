@@ -44,7 +44,7 @@ _ROWS: list[tuple[str, str, str, str, list[str]]] = [
     ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender", "OtelMetricsExtender"]),
 ]
 
-# german-ledger is outside _ROWS because it has no entry points; the pin-source tests still cover it.
+# german-ledger has no entry points, so it joins only the pin tests, via _PIN_ROWS.
 _PIN_ROWS: list[tuple[str, str, str, str, list[str]]] = [
     *_ROWS,
     ("german-ledger", "pyarrow", "mloda-community-german-ledger", "pyarrow", []),
@@ -77,7 +77,7 @@ def _external_dependency_names(deps: list[str], packages: dict[str, dict[str, An
     return names
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _PIN_ROWS)
 def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
