@@ -701,9 +701,9 @@ def test_main_calls_with_different_binaries_do_not_affect_each_other(
     op = simulated_binary.FakeOperation("shout", ("result",), lambda table, config: (pa.schema([]), []))
     custom = simulated_binary.FakeBinary("custom_binary", (op,), frozenset({"utf8"}), "9.9.9")
 
-    def report(binary: Any) -> list[str]:
+    def report(binary: simulated_binary.FakeBinary | None) -> list[str]:
         monkeypatch.setattr("sys.argv", ["prog", flag])
-        assert (simulated_binary.main(binary) if binary else simulated_binary.main()) == 0
+        assert (simulated_binary.main(binary) if binary is not None else simulated_binary.main()) == 0
         return capsys.readouterr().out.splitlines()
 
     first = report(custom)
@@ -720,11 +720,23 @@ def test_main_calls_with_different_binaries_do_not_affect_each_other(
         assert json.loads(default[0])["column_types"] == sorted(COLUMN_TYPES)
 
 
-@pytest.mark.parametrize("fail_validate", [False, True], ids=["computes", "validate_raises_usage_error"])
+@pytest.mark.parametrize(
+    ("validate_error", "dummy_first"),
+    [
+        pytest.param(None, False, id="computes"),
+        pytest.param(None, True, id="computes_as_second_of_two_operations"),
+        pytest.param("usage", False, id="validate_raises_usage_error"),
+        pytest.param("unexpected", False, id="validate_raises_unexpected_error"),
+    ],
+)
 def test_main_runs_a_custom_fake_operation(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, fail_validate: bool
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    validate_error: str | None,
+    dummy_first: bool,
 ) -> None:
-    """A custom `FakeOperation` computes into the output file; a `FakeUsageError` from `validate` exits 1."""
+    """A custom `FakeOperation` computes; `validate` raising `FakeUsageError` exits 1, anything else exits 6 unleaked."""
     from mloda.testing.binary_model import simulated_binary
 
     def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
@@ -733,10 +745,13 @@ def test_main_runs_a_custom_fake_operation(
         return pa.schema([pa.field(name, pa.string())]), [pa.array(values, type=pa.string())]
 
     def validate(config: dict[str, Any]) -> None:
-        raise simulated_binary.FakeUsageError("shout refuses this config")
+        if validate_error == "usage":
+            raise simulated_binary.FakeUsageError("shout refuses this config")
+        raise ValueError("secret-value")
 
-    op = simulated_binary.FakeOperation("shout", ("result",), compute, validate if fail_validate else None)
-    binary = simulated_binary.FakeBinary("shout_binary", (op,))
+    op = simulated_binary.FakeOperation("shout", ("result",), compute, validate if validate_error else None)
+    dummy = simulated_binary.FakeOperation("dummy", ("result",), lambda table, config: (pa.schema([]), []))
+    binary = simulated_binary.FakeBinary("shout_binary", (dummy, op) if dummy_first else (op,))
     config_path = write_json(
         tmp_path / "config.json",
         {
@@ -759,12 +774,40 @@ def test_main_runs_a_custom_fake_operation(
     code = simulated_binary.main(binary)
 
     err = capsys.readouterr().err
-    if fail_validate:
+    if validate_error == "usage":
         assert code == 1
         assert json.loads(err.strip().splitlines()[-1]) == {"code": 1, "message": "shout refuses this config"}
+    elif validate_error == "unexpected":
+        assert code == 6
+        assert json.loads(err.strip().splitlines()[-1]) == {"code": 6, "message": "internal error: ValueError"}
+        assert "secret-value" not in err
     else:
         assert code == 0, err
         assert read_arrow_stream(output_path.read_bytes()).to_pydict() == {"out": ["X", "Y"]}
+
+
+@pytest.mark.parametrize(
+    "operations",
+    [
+        pytest.param("empty", id="no_operations"),
+        pytest.param("duplicate", id="duplicate_names"),
+        pytest.param("reserved", id="reserved_internal_error_name"),
+    ],
+)
+def test_fake_binary_rejects_invalid_operations(operations: str) -> None:
+    """A `FakeBinary` with no operations, duplicate names, or the reserved internal-error name raises `ValueError`."""
+    from mloda.testing.binary_model import simulated_binary
+
+    def make(name: str) -> simulated_binary.FakeOperation:
+        return simulated_binary.FakeOperation(name, ("result",), lambda table, config: (pa.schema([]), []))
+
+    cases = {
+        "empty": (),
+        "duplicate": (make("shout"), make("shout")),
+        "reserved": (make(simulated_binary.RESERVED_INTERNAL_ERROR_OPERATION),),
+    }
+    with pytest.raises(ValueError):
+        simulated_binary.FakeBinary("bad_binary", cases[operations])
 
 
 @pytest.mark.parametrize(

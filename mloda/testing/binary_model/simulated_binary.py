@@ -183,12 +183,15 @@ class _ReservedConformanceInternalError(Exception):
 
 
 class FakeUsageError(Exception):
-    """Raised by a ``FakeOperation.validate``; reported as a usage error (code 1) with its message."""
+    """Raised by a ``FakeOperation.validate``; reported as a usage error (code 1) with its message.
+    The message reaches stderr verbatim, so never put parameter values in it."""
 
 
 @dataclass(frozen=True)
 class FakeOperation:
-    """One operation a fake binary runs (contract: Capabilities, Configuration)."""
+    """One operation a fake binary runs (contract: Capabilities, Configuration). ``validate`` gets the
+    config after the structure and unsupported-operation checks and raises ``FakeUsageError`` for a usage
+    error; ``compute`` returns columns under the config's written output names."""
 
     name: str
     outputs: tuple[str, ...]
@@ -204,6 +207,15 @@ class FakeBinary:
     operations: tuple[FakeOperation, ...]
     column_types: frozenset[str] = COLUMN_TYPES
     version: str = VERSION
+
+    def __post_init__(self) -> None:
+        names = [op.name for op in self.operations]
+        if not names:
+            raise ValueError("FakeBinary needs at least one operation")
+        if len(set(names)) != len(names):
+            raise ValueError("FakeBinary operation names must be unique")
+        if RESERVED_INTERNAL_ERROR_OPERATION in names:
+            raise ValueError(f"operation name {RESERVED_INTERNAL_ERROR_OPERATION!r} is reserved")
 
 
 @dataclass
@@ -504,7 +516,8 @@ def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
     field order), producing the operation's single output column under its configured name, typed int64
     (contract: Data, Configuration). Uses ``compute_expected_hash_column`` -- the same algorithm
     ``HashOperationConformanceMixin`` computes expected values with, so the two can't drift. Builds
-    a fresh output schema, so no input Arrow metadata is ever propagated to the output."""
+    a fresh output schema, so no input Arrow metadata is ever propagated to the output. Single-output
+    operations only: it reads the one written name."""
     import pyarrow as pa
 
     from mloda.testing.binary_model.arrow_arrays import array_from_values

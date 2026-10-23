@@ -176,7 +176,7 @@ class StubAnonymizer(AnonymizerFeatureGroup):
 
 Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts test-signed licenses only.
 
-To fake a binary with another operation, build a `FakeBinary` of `FakeOperation`s and call `simulated_binary.main(binary)` from your own module's `__main__`. A `validate` raises `FakeUsageError` for a usage error; `hmac_fake_binary` is the worked example.
+To fake a binary with another operation, build a `FakeBinary` of `FakeOperation`s and call `simulated_binary.main(binary)` from your own module's `__main__`. A `validate` raises `FakeUsageError` for a usage error, and its message goes to stderr as-is, so it must not carry parameter values; `hmac_fake_binary` is the worked example.
 
 ### Against the real wheel
 
