@@ -185,7 +185,7 @@ def test_pointer_reaches_the_group() -> None:
     assert result.feature_group is UbaAirFG, result.error
 ```
 
-A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert `FeatureResolutionError` names the refusal (or that a sibling serves the feature). Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
+A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
 
 ## Real Implementations
 

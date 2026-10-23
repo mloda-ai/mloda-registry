@@ -5081,11 +5081,14 @@ class TestAuditExtenderClassificationRunAll:
         ]
         assert sink.records[0]["feature_names"] == ["alpha"]
 
-    def test_a_refused_global_scope_reader_writes_a_deny_record_per_feature_when_a_sibling_serves_the_run(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("sibling_refused", [False, True], ids=["sibling_serves", "no_sibling_left"])
+    def test_a_refused_global_scope_reader_writes_a_deny_record_per_probed_feature(
+        self, sibling_refused: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from mloda_plugins.feature_group.input_data.file_formats.json_fg import JsonFG
 
+        if sibling_refused:
+            _declare_csv_level(monkeypatch, "pii")
         monkeypatch.setattr(
             ParquetFG, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
         )
@@ -5096,8 +5099,8 @@ class TestAuditExtenderClassificationRunAll:
         path = write_csv(tmp_path)
         sink = InMemoryAuditSink()
 
-        with verified_context(tenant_id="t", principal="svc"):
-            results = mloda.run_all(
+        def run() -> Any:
+            return mloda.run_all(
                 ["alpha", "beta"],
                 compute_frameworks=[PyArrowTable],
                 plugin_collector=PluginCollector.enabled_feature_groups({CsvFG, ParquetFG}),
@@ -5106,12 +5109,32 @@ class TestAuditExtenderClassificationRunAll:
                 parallelization_modes={ParallelizationMode.SYNC},
             )
 
-        assert results
+        with verified_context(tenant_id="t", principal="svc"):
+            if sibling_refused:
+                with pytest.raises(FeatureResolutionError) as excinfo:
+                    run()
+                assert [type(refusal) for refusal in excinfo.value.refusals] == [
+                    ClassificationDeniedError,
+                    ClassificationDeniedError,
+                ]
+                assert excinfo.value.__cause__ is excinfo.value.refusals[0]
+            else:
+                assert run()
+
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=lambda t: t[2]) == [
-            ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["alpha"]),
-            ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["beta"]),
-        ]
+        # Planning stops at the first unservable feature, so only "alpha" is recorded when no sibling is left.
+        expected = (
+            [
+                ("INPUT_DATA_MATCH", _qualname(CsvFG), ["alpha"]),
+                ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["alpha"]),
+            ]
+            if sibling_refused
+            else [
+                ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["alpha"]),
+                ("INPUT_DATA_MATCH", _qualname(ParquetFG), ["beta"]),
+            ]
+        )
+        assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=repr) == expected
 
     @pytest.mark.parametrize(
         ("gate_readers", "exempt_readers", "allowed"),
