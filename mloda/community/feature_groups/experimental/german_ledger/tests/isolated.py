@@ -91,9 +91,18 @@ def _revenue(folder: Path, plugin_collector: Any = None) -> str:
 
 
 def collision() -> dict[str, Any]:
-    """What happens WITHOUT the match_feature_group_criteria gate."""
+    """A reader that claims every name: the journal's name gate yields a total, without it resolution collides."""
+    from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
 
-    # Registers by being defined; never referenced again.
+    # A GdpduReader subclass replaces the stock reader process-wide.
+    class PermissiveReader(GdpduReader):
+        @classmethod
+        def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Any) -> Any:
+            return super().match_subclass_data_access(data_access, [JOURNAL], options)
+
+    gated = outcome(lambda: _revenue(FIX / "dossier_a"))
+
+    # Shadows JournalFeatureGroup (mloda keeps a matching subclass over its parent).
     class UngatedJournal(JournalFeatureGroup):
         """Identical, except it does not gate on its own name first."""
 
@@ -104,7 +113,8 @@ def collision() -> dict[str, Any]:
             unbound: Any = FeatureGroup.match_feature_group_criteria
             return bool(unbound.__func__(cls, feature_name, options, data_access_collection))
 
-    return {"revenue": outcome(lambda: _revenue(FIX / "dossier_a"))}
+    ungated = outcome(lambda: _revenue(FIX / "dossier_a"))
+    return {"gated": gated, "ungated": ungated}
 
 
 def plugin_loader_all() -> dict[str, Any]:
