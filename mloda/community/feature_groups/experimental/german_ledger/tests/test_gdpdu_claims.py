@@ -73,16 +73,20 @@ FIX = HERE / "fixtures"
 
 
 def test_collision_gate() -> None:
-    """The gate is load-bearing, and the failure it prevents is reproducible."""
+    """With a reader that claims every name, the journal's name gate is what keeps it off revenue__sources."""
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue", Options()) is True
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue__sources", Options()) is False
-    # The reader-backed root is now the journal, so that is where the gate has to hold.
+    # The stock reader declines this on its own; the collision scenario below is what pins the gate.
     dossier = DataAccessCollection(folders={str(FIX / "dossier_a")})
     assert JournalFeatureGroup.match_feature_group_criteria("gdpdu_journal", Options(), dossier) is True
     assert JournalFeatureGroup.match_feature_group_criteria("revenue__sources", Options(), dossier) is False
 
     facts = run_isolated("collision")
-    assert facts["revenue"].startswith("FeatureResolutionError: "), facts
+    assert facts["gated"] == "45385.06", facts
+    ungated = facts["ungated"]
+    assert ungated.startswith("FeatureResolutionError: Multiple feature groups found"), facts
+    for name in ("UngatedJournal", "SourcesFeatureGroup", "PermissiveReader"):
+        assert name in ungated, facts
 
 
 def test_plugin_loader_all() -> None:

@@ -288,9 +288,8 @@ class SkrAccountFeatureGroup(FeatureGroup):
     ) -> bool:
         """Gate on the semantic catalog BEFORE the inherited rules.
 
-        This group used to be the root, and the gate kept its reader from claiming every name
-        (tests/isolated.py:collision). The root is now JournalFeatureGroup, which carries that gate;
-        this one stays so the catalogue, not the inherited rules, decides what it answers.
+        The root is JournalFeatureGroup, which gates on its own name; this group stays so the
+        catalogue, not the inherited rules, decides what it answers.
         """
         if cls.get_column_base_feature(str(feature_name)) not in cls.feature_names_supported():
             return False
