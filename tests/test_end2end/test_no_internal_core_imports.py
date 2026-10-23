@@ -21,6 +21,13 @@ _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist", "
 # mloda.core module) is not silently exempt. A pair nothing imports fails the guard.
 _ALLOWED_INTERNAL_IMPORTS = {
     ("mloda.core.abstract_plugins.hook_context", "instrument"),
+    # Used by the shipped source-group contract mixins (mloda/testing/source_feature_groups).
+    ("mloda.core.abstract_plugins.implementation", "loaded_implementations"),
+    ("mloda.core.abstract_plugins.components.credential", "RegisteredCredential"),
+    ("mloda.core.abstract_plugins.components.input_data.match_cache", "run_match_cache"),
+    ("mloda.core.abstract_plugins.components.input_data.base_input_data", "RESERVED_READER_OPTION_KEY"),
+    ("mloda.core.prepare.identify_feature_group", "IdentifyFeatureGroupClass"),
+    ("mloda.core.prepare.identify_feature_group", "resolve_or_raise"),
 }
 
 

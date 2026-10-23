@@ -7,7 +7,7 @@ How to point a feature at a source FeatureGroup and how to write your own for a 
 **Why**: Source selection is contract-driven, not guesswork; knowing the contract avoids reading mloda core source.
 **Where**: Connector plugins (a CKAN CSV group, a direct-URL group, a REST JSON group side by side).
 
-Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md). `BaseInputData` remains only as the marker base of `DataCreator` and `ApiInputData`; the reader families (`ReadFile`, `ReadDB`, `ReadDocument`, `match_subclass_data_access`, `load_data`) were removed in mloda 0.17.
+Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md). `BaseInputData` remains only as the marker base of `DataCreator` and `ApiInputData`; mloda 0.17 removed the 0.16 reader classes.
 
 ## Pointing a Feature at a Group
 
@@ -24,6 +24,8 @@ scoped = Feature("customer_id", feature_group=CsvFG)
 
 A pointer makes the other source groups skip the collection; `feature_group=` scopes resolution to the group and its subclasses without choosing a source; `data_access_handle` only narrows among the sources the `DataAccessCollection` holds. A subclass also answers to its parent's name. Details: core's "Pointing a feature at a source".
 
+`DataAccessCollection(files={"a": "a.csv", "b": "b.csv"}, column_to_file={"customer_id": "b"})` pins a column to one file handle; a pinned file that cannot serve the column aborts instead of falling back to another file.
+
 ### Several Accepting Readers
 
 Without a pointer, every source group searches the `DataAccessCollection`. One group finding a name in several sources aborts naming them; two groups finding the same column fail as ordinary feature-group ambiguity. Resolve an overlap, with your own groups or with a stock one owning the same suffix, by one of:
@@ -34,11 +36,18 @@ Without a pointer, every source group searches the `DataAccessCollection`. One g
 
 ### Overriding the selection
 
-Customize discovery through `CLAIM_ROUTES` and `find_sources`; both run behind the `INPUT_DATA_MATCH` extender hook, so a gate can refuse a source before anything is read (see [Reader match hook](../11-create-extender.md#reader-match-hook)). Overriding `match_feature_group_criteria` is rarely needed: call `super()` and run any extra I/O through `cls.gated_probe(feature_name, options, data_access_collection, probe)`. A probe run any other way is never gated.
+Customize discovery through `CLAIM_ROUTES` and `find_sources`. Put source I/O in `find_sources`, `columns` or `has_column`: they run behind the `INPUT_DATA_MATCH` extender hook, so a gate can refuse a source before anything is read (see [Reader match hook](../11-create-extender.md#reader-match-hook)). Overriding `match_feature_group_criteria` is rarely needed: call `super()` and run any extra I/O through `cls.gated_probe(feature_name, options, data_access_collection, probe)`. A probe run any other way is never gated.
+
+`gated_probe` returns a `SourceProbeOutcome` (from `mloda.provider`), which is always truthy: `refused` is the refusal reason or `None`, `result` the probe's value. Decline when `refused` is set:
+
+```python
+outcome = cls.gated_probe(feature_name, options, data_access_collection, lambda: cls.catalog_has(feature_name))
+return outcome.refused is None and bool(outcome.result)
+```
 
 ## Writing a ReadFileFG Subclass
 
-Implement `suffixes()` and `column_names(path)`. The base discovers files and folders, applies the pinned-file rule, caches per run and hands a `FileSource` to the compute framework. A format whose parsing differs from the stock transformers must also override `load_neutral`, otherwise the parent format is parsed.
+Implement `suffixes()` and `column_names(path)`. The base discovers files and folders, applies the pinned-file rule, caches per run and hands a `FileSource` to the compute framework. A format whose parsing differs from the stock transformers must also override `load_neutral`, otherwise the parent format is parsed. `load_neutral` parses the file itself; calling `column_names` from it lists the file a second time per run.
 
 ```python
 from collections.abc import Collection
@@ -65,6 +74,27 @@ class SensorCsvFG(ReadFileFG):
 ```
 
 `suffixes()` runs at class definition and must return a non-empty tuple of non-empty strings. `column_names` raises `OSError` or `ValueError` for an unreadable file (declined with a recorded reason) and `ImportError` for a missing backend; any other exception ends matching for that candidate. A subclass that raises `NotImplementedError` from `column_names` is eliminated for every name.
+
+### Reader Options
+
+A reader option is a `PROPERTY_MAPPING` key, read with `cls.read_option(key, options)` (an undeclared key raises). Extend the parent's mapping, since it declares `data_access_handle`. A key that must reject some values at match time, such as a collection, takes a `match_guard`, as core's `data_access_handle` does: a value the guard refuses declines the group with a recorded reason instead of reaching the reader.
+
+```python
+from mloda.provider import property_spec
+
+
+class UnitSensorCsvFG(SensorCsvFG):
+    PROPERTY_MAPPING = {
+        **SensorCsvFG.PROPERTY_MAPPING,
+        "sensor_unit": property_spec(
+            "Unit of the sensor values", default="si", match_guard=lambda v: isinstance(v, str), expected="a str unit"
+        ),
+    }
+```
+
+### Document Groups
+
+A `ReadDocumentFG` subclass implements `suffixes()` (optionally `read_text` and `handover_suffixes`) and claims three names, `<Group>`, `<Group>~source` and `<Group>~file_type`, one row per document. By default a document group skips suffixes a `ReadFileFG` group owns; the `document_suffixes` context option hands such suffixes over to it.
 
 ### Decline Names You Cannot Confirm
 
@@ -170,7 +200,29 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-Core's contract mixins for source groups (`tests/mixins/reader_feature_groups/` in the mloda repository) are not shipped in the wheel and cannot be imported. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
+`mloda-testing` ships core's source-group contract tests as mixins in `mloda.testing.source_feature_groups`: `SourceFeatureGroupTestMixin` (pointers, handles, declines and their reasons, `INPUT_DATA_LOAD` / `INPUT_DATA_MATCH` facts), `ReadFileFGTestMixin` (files, folders, `column_to_file`, caching) and `ReadDBFGTestMixin` (credentials, catalogs, connection lifecycle). A host sets the class attributes and writes sample data; no conftest is needed:
+
+```python
+from pathlib import Path
+from typing import Any
+
+from mloda.testing.source_feature_groups import ReadFileFGTestMixin
+
+
+class TestSensorCsvFG(ReadFileFGTestMixin):
+    feature_group_class = SensorCsvFG
+    present_column = "pm10"
+    missing_column = "no2"
+
+    def write_file(self, path: Path, columns: dict[str, list[Any]]) -> None:
+        rows = zip(*columns.values())
+        lines = ["#sensor-schema" + ",".join(columns), *(",".join(map(str, row)) for row in rows)]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+```
+
+A `ReadDBFGTestMixin` host sets `credential_key` and `write_database` instead. `SourceFeatureGroupTestMixin` assumes a group that searches the `DataAccessCollection`; a pointed-only group like `UbaAirFG` below overrides or skips the tests that claim from `own_dac()`. The `ReadDocumentFG` mixin is not shipped yet. Reference hosts: [test_source_feature_groups.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/tests/test_source_feature_groups.py).
+
+Test pointers end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 
 ```python
 from mloda.steward import resolve_feature
@@ -185,7 +237,7 @@ def test_pointer_reaches_the_group() -> None:
     assert result.feature_group is UbaAirFG, result.error
 ```
 
-A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
+A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
 
 ## Real Implementations
 

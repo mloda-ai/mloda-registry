@@ -17,52 +17,12 @@ Root features have no input dependencies - they are pipeline entry points.
 
 ## Complete Example
 
+A `DataCreator` generates data in place, without an external source (test data, synthetic data). It lists the feature names the group creates.
+
 ```python
 from typing import Any
-from mloda.provider import FeatureGroup
-from mloda.provider import BaseInputData, FeatureSet
 
-
-class MyInputData(BaseInputData):
-    """Configuration for data source."""
-
-    pass
-
-
-class MyRootFeature(FeatureGroup):
-    """Load data from external source."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return MyInputData()
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return {"my_column": [1, 2, 3]}
-```
-
-The return shape is a contract, not a style choice. On `PythonDictFramework` it is columnar `dict[str, list]`, and a root feature group must return its columns even when it has no rows: `{"my_column": []}`, never `[]` or `{}`. An empty source directory or a query with no hits is a zero-row result, and a result with zero columns raises `EmptyResultError`. See [calculate_feature](12-calculate-feature.md#return-contract).
-
-Files, documents and databases are read by source FeatureGroups, which load the data themselves; a root group with its own `BaseInputData` family is no longer a loading mechanism. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
-
-## Test
-
-```python
-def test_root_feature():
-    # Verify it's a root feature (has input_data, no input_features)
-    assert isinstance(MyRootFeature.input_data(), MyInputData)
-
-    # Verify calculation
-    result = MyRootFeature.calculate_feature(None, None)
-    assert "my_column" in result
-```
-
-## DataCreator (In-Place Generation)
-
-Use `DataCreator` to generate data without external sources (test data, synthetic data).
-
-```python
-from mloda.provider import DataCreator
+from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 
 
 class OrderSyntheticData(FeatureGroup):
@@ -75,6 +35,22 @@ class OrderSyntheticData(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         return {"order_id": [1, 2, 3], "product_id": [101, 102, 103], "quantity": [5, 3, 7]}
+```
+
+The return shape is a contract, not a style choice. On `PythonDictFramework` it is columnar `dict[str, list]`, and a root feature group must return its columns even when it has no rows: `{"my_column": []}`, never `[]` or `{}`. An empty source directory or a query with no hits is a zero-row result, and a result with zero columns raises `EmptyResultError`. See [calculate_feature](12-calculate-feature.md#return-contract).
+
+Files, documents and databases are read by source FeatureGroups, which load the data themselves; a root group with its own `BaseInputData` family is no longer a loading mechanism. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
+
+## Test
+
+```python
+def test_root_feature():
+    # Verify it's a root feature (has input_data, no input_features)
+    assert isinstance(OrderSyntheticData.input_data(), DataCreator)
+
+    # Verify calculation
+    result = OrderSyntheticData.calculate_feature(None, None)
+    assert result["order_id"] == [1, 2, 3]
 ```
 
 ## CsvFG (File-Based Data)
