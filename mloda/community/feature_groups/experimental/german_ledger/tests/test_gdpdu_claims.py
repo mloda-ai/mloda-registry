@@ -96,7 +96,7 @@ def test_plugin_loader_all() -> None:
     columns = ["revenue~basis", "revenue~origins", "revenue~value"]
     assert facts["scoped"] == columns, facts
     unscoped = facts["unscoped"]
-    if isinstance(unscoped, str) and unscoped.startswith("FeatureResolutionError: "):
+    if isinstance(unscoped, str) and unscoped.startswith("FeatureResolutionError: Multiple feature groups found"):
         pytest.xfail(
             "mloda-ai/mloda#1745: the stock read roots still claim an unscoped `revenue` after "
             "PluginLoader.all(); scope it with feature_group="

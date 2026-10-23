@@ -50,7 +50,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     Totals are where provenance normally dies: sum reduces rows, and mloda 0.13.0's
     built-in aggregations do not carry row-level origins. Outputs are subcolumns of the
     *requested* name (``revenue__sources~value`` / ``~origins``), which is what column
-    selection keeps.
+    selection keeps. The input resolves only through ``SkrAccountFeatureGroup`` or a subclass.
     """
 
     PREFIX_PATTERN = r".*__sources$"

@@ -66,6 +66,7 @@ revenue, receivables     SkrAccountFeatureGroup                           concep
 revenue__sources         SourcesFeatureGroup                              total + citations
 ```
 
+A `__sources` total is built only over a concept from `SkrAccountFeatureGroup` or a subclass.
 The policy is a step in the resolution graph, so it shows in `RunResult.plan`. Removing it is a
 resolution failure, not an unvetted total.
 
