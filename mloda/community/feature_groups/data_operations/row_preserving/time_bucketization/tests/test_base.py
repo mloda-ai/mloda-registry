@@ -13,6 +13,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     TimeBucketizationFeatureGroup,
     _parse_bucket_op,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (
+    PyArrowTimeBucketization,
+)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -178,7 +181,7 @@ class TestSingleColumnEnforcement:
                 "in_features": ["timestamp_a", "timestamp_b"],
             }
         )
-        instance = TimeBucketizationFeatureGroup()
+        instance = PyArrowTimeBucketization()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -212,7 +215,7 @@ class TestSingleColumnEnforcement:
         assert source_features == ["event_time"]
 
     def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
-        instance = TimeBucketizationFeatureGroup()
+        instance = PyArrowTimeBucketization()
         result = instance.input_features(Options(), FeatureName("timestamp__floor_1_day"))
         assert result is not None
         assert len(result) == 1
@@ -225,7 +228,7 @@ class TestSingleColumnEnforcement:
                 "in_features": "event_time",
             }
         )
-        instance = TimeBucketizationFeatureGroup()
+        instance = PyArrowTimeBucketization()
         result = instance.input_features(options, FeatureName("my_result"))
         assert result is not None
         assert len(result) == 1

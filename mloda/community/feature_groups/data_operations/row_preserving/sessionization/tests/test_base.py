@@ -28,6 +28,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
     PandasSessionization,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
+    PyArrowSessionization,
+)
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 SESSIONIZE_FEATURE_NAME = "ts__sessionize_30_minute"
@@ -204,7 +207,7 @@ class TestSourceExtraction:
                 "partition_by": ["user"],
             }
         )
-        instance = SessionizationFeatureGroup()
+        instance = PyArrowSessionization()
         with pytest.raises(ValueError, match=r"(?i)feature name"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -239,5 +242,5 @@ class TestSourceExtraction:
 
     def test_input_features_returns_source_feature_from_name(self) -> None:
         """``input_features`` extracts the source feature ``a__b`` from ``a__b__sessionize_1_hour``."""
-        result = SessionizationFeatureGroup().input_features(Options(), FeatureName("a__b__sessionize_1_hour"))
+        result = PyArrowSessionization().input_features(Options(), FeatureName("a__b__sessionize_1_hour"))
         assert result == {Feature("a__b")}

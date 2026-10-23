@@ -11,6 +11,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     AGGREGATION_TYPES,
     ScalarAggregateFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
+    PyArrowScalarAggregate,
+)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -149,7 +152,7 @@ class TestSingleColumnEnforcement:
                 "in_features": ["col_a", "col_b"],
             }
         )
-        instance = ScalarAggregateFeatureGroup()
+        instance = PyArrowScalarAggregate()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -191,7 +194,7 @@ class TestSingleColumnEnforcement:
 
     def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
         options = Options()
-        instance = ScalarAggregateFeatureGroup()
+        instance = PyArrowScalarAggregate()
         result = instance.input_features(options, FeatureName("value_int__sum_scalar"))
         assert result is not None
         assert len(result) == 1
@@ -205,7 +208,7 @@ class TestSingleColumnEnforcement:
                 "in_features": "revenue",
             }
         )
-        instance = ScalarAggregateFeatureGroup()
+        instance = PyArrowScalarAggregate()
         result = instance.input_features(options, FeatureName("my_max_result"))
         assert result is not None
         assert len(result) == 1

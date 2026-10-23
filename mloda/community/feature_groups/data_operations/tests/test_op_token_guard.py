@@ -73,12 +73,12 @@ class TestSingletonMatchesEndToEnd:
         options = Options(
             context={"aggregation_type": ("sum",), "in_features": "value_int", "partition_by": ["region"]}
         )
-        result = AggregationFeatureGroup().match_feature_group_criteria("my_result", options, None)
+        result = AggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is True
 
     def test_multi_element_list_still_rejected(self) -> None:
         options = Options(
             context={"aggregation_type": ["sum", "max"], "in_features": "value_int", "partition_by": ["region"]}
         )
-        result = AggregationFeatureGroup().match_feature_group_criteria("my_result", options, None)
+        result = AggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False

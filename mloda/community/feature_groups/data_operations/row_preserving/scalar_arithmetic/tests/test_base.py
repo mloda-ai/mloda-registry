@@ -232,7 +232,7 @@ class TestSingleColumnEnforcement:
                 "constant": 5,
             }
         )
-        instance = ScalarArithmeticFeatureGroup()
+        instance = PyArrowScalarArithmetic()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -269,7 +269,7 @@ class TestSingleColumnEnforcement:
 
     def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
         options = Options(context={"constant": 5})
-        instance = ScalarArithmeticFeatureGroup()
+        instance = PyArrowScalarArithmetic()
         result = instance.input_features(options, FeatureName("value_int__add_constant"))
         assert result is not None
         assert len(result) == 1
@@ -284,7 +284,7 @@ class TestSingleColumnEnforcement:
                 "constant": 5,
             }
         )
-        instance = ScalarArithmeticFeatureGroup()
+        instance = PyArrowScalarArithmetic()
         result = instance.input_features(options, FeatureName("my_add_result"))
         assert result is not None
         assert len(result) == 1

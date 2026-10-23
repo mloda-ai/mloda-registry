@@ -38,6 +38,16 @@ from mloda.provider import PropertySpec
 from mloda.user import FeatureName, Options
 
 
+def _instance_of(group: Any) -> Any:
+    """An instance of ``group``, even when it is an abstract family base (only its non-abstract methods are used)."""
+    abstract = group.__abstractmethods__
+    group.__abstractmethods__ = frozenset()
+    try:
+        return group()
+    finally:
+        group.__abstractmethods__ = abstract
+
+
 def _is_container(value: Any) -> bool:
     """True for the sequence containers core unpacks element-wise; a str is one scalar, not a sequence."""
     return isinstance(value, (list, tuple, set, frozenset))
@@ -246,7 +256,9 @@ class ScalarArityTestBase:
     def _declared_names(self, context: dict[str, Any]) -> set[str]:
         """Input feature names declared for ``context``; input_features is called directly, so match is not run."""
         group = self.feature_group_class()
-        declared = group().input_features(Options(context=dict(context)), FeatureName(self.match_feature_name()))
+        declared = _instance_of(group).input_features(
+            Options(context=dict(context)), FeatureName(self.match_feature_name())
+        )
         return {str(feature.name) for feature in declared or set()}
 
     def test_input_features_declare_key_columns(self) -> None:
@@ -630,7 +642,8 @@ class MatchValidationTestBase(ScalarArityTestBase):
         name, base, agreeing = self._name_source_options()
         group = self.feature_group_class()
         assert group.match_feature_group_criteria(name, agreeing, None) is True
-        assert group().input_features(agreeing, FeatureName(name)) == group().input_features(base, FeatureName(name))
+        instance = _instance_of(group)
+        assert instance.input_features(agreeing, FeatureName(name)) == instance.input_features(base, FeatureName(name))
 
     def test_disagreeing_in_features_option_rejected_for_name_source(self) -> None:
         """An in_features option that differs from the name's direct sources is rejected as a mismatch."""

@@ -12,6 +12,7 @@ from mloda.user import DataType, Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     ResampleFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import PyArrowResample
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
@@ -97,7 +98,7 @@ class TestOptionsPathInFeatureCount:
                 "in_features": ["value_a", "value_b"],
             }
         )
-        instance = ResampleFeatureGroup()
+        instance = PyArrowResample()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
