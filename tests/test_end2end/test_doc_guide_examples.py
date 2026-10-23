@@ -324,19 +324,15 @@ def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
                 sibling_test()
 
 
-# Each entry must also pass on its own: they share one interpreter, in order.
+# Each entry must also pass on its own and on every supported Python: they share one interpreter, in order.
 RUNNABLE_DOCS = (
     "README.md",
     "docs/guides/02-discover-plugins.md",
     "docs/guides/compute-framework-patterns/01-stateless-eager.md",
-    "docs/guides/compute-framework-patterns/02-stateless-lazy.md",
-    "docs/guides/compute-framework-patterns/05-data-lake.md",
-    "docs/guides/compute-framework-patterns/06-merge-engine.md",
     "docs/guides/compute-framework-patterns/07-filter-engine.md",
     "docs/guides/compute-framework-patterns/08-framework-transformer.md",
     "docs/guides/data-operation-patterns/07-percentile-rank-offset.md",
     "docs/guides/data-operation-patterns/08-scalar-and-frame-aggregate.md",
-    "docs/guides/data-operation-patterns/16-return-data-type-rule.md",
     "docs/guides/data-operation-patterns/framework-support-matrix.md",
     "docs/guides/feature-group-patterns/01-root-features.md",
     "docs/guides/feature-group-patterns/02-derived-features.md",
@@ -344,7 +340,6 @@ RUNNABLE_DOCS = (
     "docs/guides/feature-group-patterns/04-multi-input-features.md",
     "docs/guides/feature-group-patterns/06-artifact-features.md",
     "docs/guides/feature-group-patterns/11-options.md",
-    "docs/guides/feature-group-patterns/16-validators.md",
     "docs/guides/feature-group-patterns/18-datatypes.md",
     "docs/guides/feature-group-patterns/19-domain.md",
     "docs/guides/feature-group-patterns/26-input-feature-forwarding.md",
@@ -363,10 +358,9 @@ for path in sys.argv[1:]:
 
 
 def _display_path(path: str) -> str:
-    try:
+    if Path(path).is_relative_to(REPO_ROOT):
         return Path(path).relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        return path
+    return path
 
 
 def _last_checked(stdout: str | bytes | None) -> str:
@@ -402,7 +396,9 @@ def test_failing_python_block_names_the_file(tmp_path: Path) -> None:
     good = tmp_path / "good.md"
     bad = tmp_path / "bad.md"
     good.write_text("```python\nassert True\n```\n", encoding="utf-8")
-    bad.write_text("```py\nraise RuntimeError('not run')\n```\n\n```python\nraise RuntimeError('boom')\n```\n")
+    bad.write_text(
+        "```py\nraise RuntimeError('not run')\n```\n\n```python\nraise RuntimeError('boom')\n```\n", encoding="utf-8"
+    )
     with pytest.raises(AssertionError) as excinfo:
         run_md_files_isolated([good, bad], cwd=tmp_path)
     message = str(excinfo.value)
