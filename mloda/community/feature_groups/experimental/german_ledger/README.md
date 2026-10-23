@@ -18,11 +18,16 @@ for what that guarantees. Install with `pip install "mloda-community[german-ledg
 
 ```python
 from datetime import date
+from pathlib import Path
 
 from mloda.user import DataAccessCollection, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.experimental import german_ledger
 from mloda.community.feature_groups.experimental.german_ledger import AdmissibilityPolicyGroup
+
+# The sample dossier in a source checkout (not in the wheel); point this at your own.
+DOSSIER = Path(german_ledger.__file__).parent / "tests" / "fixtures" / "dossier_a"
 
 
 class Closing2025(AdmissibilityPolicyGroup):
@@ -35,7 +40,7 @@ class Closing2025(AdmissibilityPolicyGroup):
 results = mloda.run_all(
     features=["revenue__sources"],
     compute_frameworks=[PyArrowTable],
-    data_access_collection=DataAccessCollection(folders={"path/to/dossier"}),
+    data_access_collection=DataAccessCollection(folders={str(DOSSIER)}),
 )
 for table in results:
     print(table.column("revenue__sources~value")[0], table.column("revenue__sources~origins")[0])
@@ -210,8 +215,9 @@ pip install -e ".[dev]"
 pytest                                   # from the registry root
 ```
 
-Tests: `test_gdpdu_claims.py` (one claim per test), `test_datev.py`, `test_gdpdu_reader.py`,
-`test_policy_rules.py` (the composite policy) and `test_readme.py`, which runs the quickstart above.
+Tests: `test_gdpdu_claims.py` (one claim per test), `test_datev.py`, `test_gdpdu_reader.py` and
+`test_policy_rules.py` (the composite policy). The quickstart above runs in the repo doc runner
+`tests/test_end2end/test_doc_guide_examples.py`.
 Scenarios that register classes process-wide (a shadowing subclass, a second policy,
 `PluginLoader.all()`) live in `tests/isolated.py`, each run in a fresh process by its test. Run
 one by hand: `python -c "from mloda.community.feature_groups.experimental.german_ledger.tests.isolated import inseparable; print(inseparable())"`.
