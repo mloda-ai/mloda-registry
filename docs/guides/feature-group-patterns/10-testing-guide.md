@@ -109,6 +109,51 @@ def test_derived_feature_isolated():
 
 Use when upstream features are slow (API calls, ML inference) or you need controlled test data.
 
+## Operation Groups: Conformance to the Reference Contract
+
+Each implementation must match the group's reference contract except where `divergent` says otherwise, so test that the result differs from a reference exactly when declared. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#operation-groups-one-group-one-implementation-per-framework) (in the same namespace, not imported again).
+
+```python
+import math
+
+import pandas as pd
+import pyarrow as pa
+import pytest
+
+VALUES = [1.0, math.nan, 3.0]
+
+RESULT_OF = {
+    PandasColumnTotal: lambda op: PandasColumnTotal._perform(pd.DataFrame({"x": VALUES}), op, "x"),
+    PyArrowColumnTotal: lambda op: PyArrowColumnTotal._perform(pa.table({"x": VALUES}), op, "x"),
+}
+
+EXPECTED = {
+    PandasColumnTotal: {"sum": "skips NaN in sum"},
+    PyArrowColumnTotal: {},
+}
+
+
+def reference(op, values):
+    """The documented reference contract: NaN propagates in sum, max skips NaN."""
+    if op == "sum":
+        return math.nan if any(math.isnan(v) for v in values) else sum(values)
+    return max(v for v in values if not math.isnan(v))
+
+
+def same(a, b):
+    return (math.isnan(a) and math.isnan(b)) or a == b
+
+
+@pytest.mark.parametrize("implementation", [PandasColumnTotal, PyArrowColumnTotal])
+@pytest.mark.parametrize("op", ["sum", "max"])
+def test_result_differs_from_the_reference_exactly_when_declared(implementation, op):
+    assert dict(implementation.divergent) == EXPECTED[implementation]
+    differs = not same(RESULT_OF[implementation](op), reference(op, VALUES))
+    assert differs == (op in implementation.divergent)
+```
+
+Pin the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
+
 ## Locking a Shipped Plan
 
 An integration-scope check that resolves a request without running it: for a plugin that ships request definitions (recipes, demos), lock the resolved plan so a planner, compute framework or source group change fails a test. `mloda.explain` takes `run_all`'s planning arguments as keywords; pass the ones the shipped request uses, an ordered `compute_frameworks` list, a pinned `plugin_collector` so other installed plugins cannot change the plan, and `parallelization_modes={ParallelizationMode.SYNC}`, which `run_all` defaults to and `explain` does not:
@@ -189,6 +234,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 | Artifact | `artifact()` returns class | Save/load cycle |
 | Index | `index_columns()` correct | Ordering respected |
 | Framework | `compute_framework_rule()` | Framework-specific ops |
+| Operation group | Implementations load; `supported` / `accepts` | Conformance to the reference contract |
 
 ## Real Test Examples
 

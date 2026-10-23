@@ -141,6 +141,115 @@ arrow_out = mloda.run_all([by_qualified], compute_frameworks=frameworks)[0]
 assert arrow_out["value__doubled"].to_pylist() == [2, 4]
 ```
 
+## Reference Contract and Divergence
+
+`divergent` is measured against a reference contract documented on the group, keyed by the subtypes it declares in `SUBTYPES`. Implementations that follow the contract declare nothing:
+
+```python
+from collections.abc import Callable
+from typing import Any, ClassVar
+
+import pyarrow as pa
+import pyarrow.compute as pc
+
+from mloda.provider import (
+    ComputeFramework,
+    FeatureChainParserMixin,
+    FeatureSet,
+    Implementation,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    property_spec,
+)
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+
+class ColumnTotal(FeatureChainParserMixin, OperationFeatureGroup):
+    """price__sum_total, price__max_total. Reference contract: a missing value (NaN or null) propagates in sum; max skips missing values."""
+
+    OP = "total_op"
+    SUBTYPES = SubtypeDeclaration(key=OP)
+    PREFIX_PATTERN = r".*__(?P<total_op>sum|max)_total$"
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+    PROPERTY_MAPPING: ClassVar = {
+        OP: property_spec("Total to compute", strict=True, allowed_values={"sum": "Sum", "max": "Maximum"}),
+    }
+
+    @classmethod
+    def total(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        perform: Callable[[Any, str, str], Any],
+        add_column: Callable[[Any, str, Any], Any],
+    ) -> Any:
+        """Shared loop: the keyword-only callables are the per-framework contract."""
+        for feature in features.get_sorted_features():
+            op = cls._resolve_operation(feature, cls.OP)
+            source = cls._extract_source_features(feature)[0]
+            data = add_column(data, feature.name, perform(data, str(op), source))
+        return data
+
+
+class PandasColumnTotal(Implementation[ColumnTotal]):
+    feature_group = ColumnTotal
+    compute_framework = PandasDataFrame
+    divergent = {"sum": "skips NaN in sum"}
+
+    @classmethod
+    def calculate(
+        cls, group: type[ColumnTotal], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.total(data, features, perform=cls._perform, add_column=cls._add_result_to_data)
+
+    @classmethod
+    def _perform(cls, data: Any, op: str, source: str) -> Any:
+        return getattr(data[source], op)()
+
+    @classmethod
+    def _add_result_to_data(cls, data: Any, name: str, result: Any) -> Any:
+        data[name] = result
+        return data
+
+
+class PyArrowColumnTotal(Implementation[ColumnTotal]):
+    feature_group = ColumnTotal
+    compute_framework = PyArrowTable
+
+    @classmethod
+    def calculate(
+        cls, group: type[ColumnTotal], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.total(data, features, perform=cls._perform, add_column=cls._add_result_to_data)
+
+    @classmethod
+    def _perform(cls, data: pa.Table, op: str, source: str) -> Any:
+        column = data[source]
+        if op == "sum":
+            return pc.sum(column, skip_nulls=False, min_count=0).as_py()
+        return pc.max(pc.if_else(pc.is_nan(column), None, column)).as_py()
+
+    @classmethod
+    def _add_result_to_data(cls, data: pa.Table, name: str, result: Any) -> pa.Table:
+        return data.append_column(name, pa.array([result] * data.num_rows))
+```
+
+- NaN can arrive as null after a framework transfer, so state the contract over missing values, not NaN alone
+- Divergence is declared per operation, not detected from the data
+- Besides `supported`, the classmethod `accepts(feature_name, options)` (default `True`) can decline a feature; a framework whose implementation declines it is not a candidate
+- The same `Implementation[G]` serves source groups: `data` is then the `SourceMatch`, see [27-input-data-readers.md](27-input-data-readers.md)
+
+With Pandas and PyArrow both enabled, a sum runs on PyArrow with the reason `prefers a matching version`. A pin overrides that choice:
+
+```python
+Feature("price__sum_total", implementation="PandasColumnTotal")
+```
+
+The pinned step records `pinned; runs a version that differs: skips NaN in sum`. The pin is part of the feature's identity and is not passed to input features. An unknown or ambiguous name, a disabled implementation, a conflict with `compute_framework=` or a wrong entry count raises `ImplementationPinError` (a `ValueError`). A steward disables one implementation with `PluginCollector.add_disabled_implementation_classes`. See core's [Operation Groups](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/compute-framework-integration.md#operation-groups-one-group-one-implementation-per-framework).
+
 ## Test
 
 Set `features.implementation`, then call the group's `calculate_feature`. The data-operation test kit wraps this as `calculate_with` (`mloda.testing.feature_groups.data_operations.helpers`), which also accepts a plain FeatureGroup class.

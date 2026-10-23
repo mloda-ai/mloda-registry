@@ -100,13 +100,73 @@ PROPERTY_MAPPING = {
 
 `context` defaults to `True`, so `context=False` is how you declare a group-scoped key, one that lands in group options and therefore affects resolution and splitting. A caller who passes the key explicitly under `group=` or `context=` overrides that declaration.
 
-`property_spec` also accepts `element_validator`, `required_when`, `match_guard`, `allow_explicit_none`, and `deferred_binding`. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
+`property_spec` also accepts `element_validator`, `required_when`, `match_guard`, `name_converter` (see [Converting a captured value](#converting-a-captured-value-name_converter)), `allow_explicit_none`, and `deferred_binding`. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
 
 Omitting `default` declares no default, so the key is required; `default=None` declares a default of `None`, which makes the key optional.
 
 ### Strict defaults are checked at construction
 
 A spec validates itself when it is built, so a `strict=True` `default` outside the accepted set (or one the key's `element_validator` rejects) raises `ValueError` from the `property_spec(...)` call, not from the `FeatureGroup` class definition that reads the mapping. The message names the spec's explanation and the rejected default. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict=False`.
+
+### Converting a captured value: name_converter
+
+A `PREFIX_PATTERN` capture is text. `name_converter` turns it into the typed value before validation:
+
+```python
+from typing import Any, ClassVar
+
+from mloda.user import mloda
+from mloda.provider import DataCreator, DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, FeatureSet, property_spec
+from mloda.user import PluginCollector
+
+
+class Guide11Prices(FeatureGroup):
+    @classmethod
+    def input_data(cls) -> DataCreator:
+        return DataCreator({"guide11_price"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"guide11_price": [1, 2, 3]}
+
+
+class Guide11Shift(FeatureChainParserMixin, FeatureGroup):
+    PREFIX_PATTERN = r".*__shift_(?P<periods>\d+)$"
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+    PROPERTY_MAPPING: ClassVar = {
+        "periods": property_spec(
+            "Rows to shift by",
+            strict=True,
+            element_validator=lambda value: isinstance(value, int) and value > 0,
+            name_converter=int,
+        ),
+        DefaultOptionKeys.in_features: property_spec("Source feature"),
+    }
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        feature = features.get_sorted_features()[0]
+        periods = feature.options.get("periods")  # an int, converted from the captured text
+        source = cls._extract_source_features(feature)[0]
+        return {feature.name: data[source].shift(periods).tolist()}
+
+
+result = mloda.run_all(
+    ["guide11_price__shift_1"],
+    compute_frameworks=["PandasDataFrame"],
+    plugin_collector=PluginCollector.enabled_feature_groups({Guide11Prices, Guide11Shift}),
+)
+assert result[0]["guide11_price__shift_1"].tolist()[1:] == [1, 2]
+```
+
+- The converter runs before validation, so `allowed_values`, `element_validator`, `match_guard` and `required_when` see the converted value, and `feature.options` holds it
+- A converter that raises or returns `None` makes the value rejected, a recorded non-match; here `__shift_0` is rejected by the validator after conversion
+- Explicit options and the legacy positional fallback are never converted: an explicit `"2"` string reaches validation as text
+- `_resolve_operation` and `value_for` still return the captured text
+- Keep the converter pure and cheap: it runs on every resolution
+
+See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
 
 ### Annotate with ClassVar
 
