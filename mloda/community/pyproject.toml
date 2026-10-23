@@ -20,8 +20,8 @@ requires-python = ">=3.10,<3.15"
 [project.optional-dependencies]
 otel = ["mloda-community-otel==0.10.0"]
 openlineage = ["mloda-community-openlineage==0.10.0"]
-german-ledger = ["pyarrow>=14.0.1"]
-all = ["mloda-community-otel==0.10.0", "mloda-community-openlineage==0.10.0", "pyarrow>=14.0.1"]
+german-ledger = ["mloda-community-german-ledger==0.10.0"]
+all = ["mloda-community-otel==0.10.0", "mloda-community-openlineage==0.10.0", "mloda-community-german-ledger==0.10.0"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
@@ -29,7 +29,7 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.community", "mloda.community.feature_groups.experimental.german_ledger"]
+packages = ["mloda.community"]
 
 [tool.setuptools.package-data]
 "mloda.community" = ["py.typed"]
@@ -46,6 +46,7 @@ mloda-community-example-a = { workspace = true }
 mloda-community-extenders-shared = { workspace = true }
 mloda-community-ffill = { workspace = true }
 mloda-community-frame-aggregate = { workspace = true }
+mloda-community-german-ledger = { workspace = true }
 mloda-community-lookup = { workspace = true }
 mloda-community-offset = { workspace = true }
 mloda-community-openlineage = { workspace = true }

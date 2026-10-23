@@ -162,8 +162,7 @@ points, so each shipped path keeps exactly one published owner (`pip install mlo
 mloda-community-aggregation` then `pip uninstall mloda-community-aggregation` must never delete
 files the bundle still needs). An unpublished nested package ships inside the bundle wheel; a
 published one the bundle does not name fails generation. Either bundle may ship such bundle-only
-packages (the enterprise plugins are, a community plugin may be, an
-[experimental package](#experimental-packages) must be). A nested plugin that imports a sibling outside
+packages (the enterprise plugins are, a community plugin may be). A nested plugin that imports a sibling outside
 the bundle's path (`mloda-enterprise-audit` uses `mloda-community-extenders-shared`) needs that
 sibling in the bundle's own `dependencies` too, at the ordinary `">={version}"` floor: it is not
 nested, so it cannot be owned.
@@ -176,24 +175,21 @@ does not remove a dependency's dependencies; their entry points still register.
 ```text
 mloda-community (bundled)
   └── ships: mloda.community   (the namespace's own files)
-             └── feature_groups.experimental.german_ledger   (unpublished, so not owned)
 
-every other feature group and every extender is owned by its own published
-distribution (example, example-a, binary-model, data_operations and its plugin leaves,
-extenders shared, otel and openlineage, ...) and excluded from the wheel
+every feature group, extender and the experimental german-ledger is owned by its own
+published distribution (example, example-a, binary-model, data_operations and its plugin leaves,
+extenders shared, otel, openlineage, german-ledger, ...) and excluded from the wheel
 ```
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
 hard dependency (today `mloda-community[otel]`, `mloda-community[openlineage]` and
 `mloda-community[german-ledger]`, or all three via `mloda-community[all]`; also `mloda-enterprise[ed25519]`,
 `mloda-enterprise[otel]` and `mloda-enterprise[openlineage]`, though the audit plugin still loads
-without the first two). `mloda-community[otel]` and `mloda-community[openlineage]` are also how the
-bundle owns `mloda-community-otel` and `mloda-community-openlineage`: each extra pins the leaf
-exactly, and the leaf's own `dependencies` carry the third-party pin, so a bare `mloda-community`
-install ships neither extender; each installs, and is probed, only through its own distribution or
-the matching extra. `mloda-community[german-ledger]` differs: the package is unpublished and ships
-in the bare bundle, so the extra carries its third-party floor (`pyarrow`) itself,
-and importing the package without it raises `ModuleNotFoundError`. Every extra member that
+without the first two). `mloda-community[otel]`, `mloda-community[openlineage]` and `mloda-community[german-ledger]` are also
+how the bundle owns `mloda-community-otel`, `mloda-community-openlineage` and the experimental
+`mloda-community-german-ledger`: each extra pins the leaf exactly, and the leaf's own `dependencies`
+carry the third-party pin, so a bare `mloda-community` install ships none of them; each installs, and
+is probed, only through its own distribution or the matching extra. Every extra member that
 declares entry points must have a manifest that imports cleanly without that dependency, so
 entry-point loading of the rest of the bundle stays intact. The config steps are in
 [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin).
@@ -232,8 +228,8 @@ py_typed = true
 | `pip install mloda-community` | All community plugins (bundled) |
 | `pip install mloda-community[otel]` | The bundle plus `mloda-community-otel` (owned by the bundle, so a bare install skips it) |
 | `pip install mloda-community[openlineage]` | The bundle plus `mloda-community-openlineage` (owned by the bundle, so a bare install skips it) |
-| `pip install mloda-community[german-ledger]` | The bundle plus `pyarrow`, which the experimental german-ledger package needs |
-| `pip install mloda-community[all]` | The bundle plus both extenders and `pyarrow`: `[all]` installs every optional capability of the bundle |
+| `pip install mloda-community[german-ledger]` | The bundle plus `mloda-community-german-ledger` (owned by the bundle, so a bare install skips it) |
+| `pip install mloda-community[all]` | The bundle plus both extenders and german-ledger: `[all]` installs every optional capability of the bundle |
 | `pip install mloda-enterprise[ed25519]` | The bundle plus the Ed25519 manifest signer's dependency |
 | `pip install mloda-enterprise[otel]` | The bundle plus the OTel audit log sink's dependency |
 | `pip install mloda-enterprise[openlineage]` | The bundle plus the OpenLineage emitter the lineage facets extender builds on |
@@ -252,13 +248,11 @@ only `mloda-community-german-ledger`; unrelated to core's `mloda_plugins.feature
 
 - **No stability guarantee.** Its import path, API and outputs may change in any release, including
   a patch release. The repository version makes no promise for it.
-- **Bundle-only.** It is never `published = true`: it ships inside the `mloda-community` wheel, and
-  its third-party dependencies sit behind a bundle extra named after it, and in `[all]` (see
-  [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin)).
+- **Extra-only.** It is published as its own distribution, owned by `mloda-community` through an
+  extra named after it and through `[all]`; a bare `mloda-community` install carries none of its code.
 - **Leaving the tier.** Once a maintainer agrees its API is stable and none of its tests is skipped
   in CI (for example behind an environment variable), a
-  `minor:` PR moves it out of `experimental/` to its permanent path, the one import-path change, and
-  may set `published = true`.
+  `minor:` PR moves it out of `experimental/` to its permanent path, the one import-path change.
 
 ## Entry points
 
@@ -357,9 +351,8 @@ member's `dev` extra (`--all-packages` plus `extras = dev`), so root
 
 For a plugin that ships only inside `mloda-community` or `mloda-enterprise` (today `cryptography`
 behind `mloda-enterprise[ed25519]` and `opentelemetry-api` behind `mloda-enterprise[otel]`, both
-used by `mloda-enterprise-audit`, and `pyarrow` behind
-`mloda-community[german-ledger]`). A plugin with entry points must load without the dependency;
-one without, like german-ledger, may require it on import:
+used by `mloda-enterprise-audit`). A plugin with entry points must load without the dependency;
+one without may require it on import:
 
 1. Add the extra to the bundle's `optional_dependencies` in `config/packages.toml`. For
    `mloda-community`, also add it to the `all` extra.

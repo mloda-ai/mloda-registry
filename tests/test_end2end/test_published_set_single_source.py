@@ -44,7 +44,7 @@ _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
 # The released set, in config order: registry, the shared extenders package, the examples, the otel and
-# openlineage extenders, the data-operations base plus its plugin packages, the two bundles, which own
+# openlineage extenders, the data-operations base plus its plugin packages, german-ledger, the two bundles, which own
 # (dependencies/extras) every published package nested under their path, and finally testing, whose
 # binary-model extra pins the mloda-community-binary-model package.
 _EXPECTED_PUBLISHED = [
@@ -74,6 +74,7 @@ _EXPECTED_PUBLISHED = [
     "mloda-community-sessionization",
     "mloda-community-resample",
     "mloda-community-lookup",
+    "mloda-community-german-ledger",
     "mloda-community",
     "mloda-enterprise",
     "mloda-testing",
@@ -85,7 +86,6 @@ _BUNDLE_ONLY = [
     "mloda-enterprise-anonymizer",
     "mloda-enterprise-audit",
     "mloda-enterprise-lineage",
-    "mloda-community-german-ledger",
 ]
 
 _DATA_OPERATIONS = "mloda-community-data-operations"
@@ -997,7 +997,12 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
         (_DATA_OPERATIONS, "all", _published_children()),
         ("mloda-community", "otel", ["mloda-community-otel"]),
         ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
-        ("mloda-community", "all", ["mloda-community-otel", "mloda-community-openlineage"]),
+        ("mloda-community", "german-ledger", ["mloda-community-german-ledger"]),
+        (
+            "mloda-community",
+            "all",
+            ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
+        ),
         ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
         ("mloda-testing", "binary-model", ["mloda-community-binary-model"]),
     ]
@@ -1050,14 +1055,20 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
         (_COMMUNITY_EXAMPLE, f"{_COMMUNITY_EXAMPLE}[all]==9.9.9", True, ["mloda-community-example-a"]),
         (_DATA_OPERATIONS, f"{_DATA_OPERATIONS}==9.9.9", False, _published_children()),
         (_DATA_OPERATIONS, f"{_DATA_OPERATIONS}[all]==9.9.9", True, _published_children()),
-        ("mloda-community", "mloda-community==9.9.9", False, ["mloda-community-otel", "mloda-community-openlineage"]),
+        (
+            "mloda-community",
+            "mloda-community==9.9.9",
+            False,
+            ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
+        ),
         ("mloda-community", "mloda-community[otel]==9.9.9", True, ["mloda-community-otel"]),
         ("mloda-community", "mloda-community[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
+        ("mloda-community", "mloda-community[german-ledger]==9.9.9", True, ["mloda-community-german-ledger"]),
         (
             "mloda-community",
             "mloda-community[all]==9.9.9",
             True,
-            ["mloda-community-otel", "mloda-community-openlineage"],
+            ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
         ),
         ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
         ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
@@ -1196,8 +1207,6 @@ def test_external_bundle_extras_yields_exactly_the_third_party_bundle_extras() -
     """The bundle extras that name third-party distributions are the ones never installed by the internal jobs."""
     entries = _external_extra_entries(_packages())
     expected = [
-        ("mloda-community", "german-ledger", ["pyarrow"], []),
-        ("mloda-community", "all", ["pyarrow"], []),
         ("mloda-enterprise", "ed25519", ["cryptography"], []),
         ("mloda-enterprise", "otel", ["opentelemetry-api"], []),
         ("mloda-enterprise", "anonymizer", ["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"]),
@@ -1473,7 +1482,7 @@ def _bundle_dependency_names(bundle: str, packages: dict[str, dict[str, Any]]) -
     return named
 
 
-@pytest.mark.parametrize(("bundle", "has_unowned_nested"), [("mloda-community", True), ("mloda-enterprise", True)])
+@pytest.mark.parametrize(("bundle", "has_unowned_nested"), [("mloda-community", False), ("mloda-enterprise", True)])
 def test_bundle_wheel_still_ships_every_nested_package(bundle: str, has_unowned_nested: bool) -> None:
     """Bundles ship all nested code, published or not, except a nested package the bundle owns through its
     own dependencies or a non-dev extra."""
