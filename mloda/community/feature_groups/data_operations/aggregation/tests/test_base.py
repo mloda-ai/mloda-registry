@@ -20,7 +20,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -130,7 +130,6 @@ class TestOperationGroupShape:
     def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
         """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         fs = make_feature_set("value_int__sum_agg", ["region"])
         with pytest.raises(ValueError, match="no implementation"):
@@ -236,6 +235,10 @@ class TestSubtypeResolution:
         assert AggregationFeatureGroup.supports_compute_framework("x__median_agg", Options(), SqliteFramework) is False
         assert AggregationFeatureGroup.supports_compute_framework("my_result", by_config, SqliteFramework) is False
         assert AggregationFeatureGroup.supports_compute_framework("x__sum_agg", Options(), SqliteFramework) is True
+
+    def test_unrestricted_implementation_accepts_median(self) -> None:
+        impl = _implementation("pandas_aggregation", "PandasAggregation")
+        assert AggregationFeatureGroup.supports_compute_framework("x__median_agg", Options(), impl.compute_framework)
 
 
 class TestManifest:
