@@ -66,43 +66,22 @@ All patterns, subtypes, and per-framework support are also queryable at runtime 
 ## A minimal example
 
 ```python
-from typing import Any
-
-import pandas as pd
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
 
-
-class OverviewData(FeatureGroup):
-    """Source columns for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"region", "value_int", "name"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pd.DataFrame({"region": ["A", "A", "B"], "value_int": [10, 20, 30], "name": ["ann", "bob", "cy"]})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PandasDataFrame}
-
+data = {"region": ["A", "A", "B"], "value_int": [10, 20, 30], "name": ["ann", "bob", "cy"]}
 
 # Row-preserving operations share one run.
 features = [
     Feature("value_int__p95_percentile", Options(context={"partition_by": ["region"]})),
     Feature("name__upper"),
 ]
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 
 # An aggregation reduces to one row per group, so it runs on its own.
 grouped = [Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]}))]
-grouped_result = mloda.run_all(grouped, compute_frameworks=["PandasDataFrame"])
+grouped_result = mloda.run_all(grouped, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space.

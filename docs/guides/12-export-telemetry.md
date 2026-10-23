@@ -216,7 +216,7 @@ transport:
   append: true
 ```
 
-```python
+```py
 OpenLineageExtender(use_sdk_defaults=True)
 ```
 
@@ -257,7 +257,7 @@ When a scheduler launches the process, attach the run to the scheduler's trace a
 
 Airflow `KubernetesPodOperator` (`env_vars` is templated; the root macro needs `apache-airflow-providers-openlineage>=2.4.0`; set `TRACEPARENT` too only if your launcher provides one; on older providers omit the root variable and the root defaults to the parent):
 
-```python
+```py
 KubernetesPodOperator(
     ...,
     env_vars={
@@ -285,7 +285,7 @@ Spark steps in the same pipeline read `spark.openlineage.parentJobNamespace`, `p
 
 Eviction, preemption and rollouts send SIGTERM. Python's default action exits without running `atexit` (as PID 1 it ignores SIGTERM until the SIGKILL at the end of the grace period), so the run keeps a START event with no terminal event and its open spans are lost. Opt in from the batch entrypoint (never from a library, and not in a server such as uvicorn, whose own graceful drain it would preempt):
 
-```python
+```py
 from mloda.community.extenders.shared.termination import install_sigterm_handler
 
 if __name__ == "__main__":

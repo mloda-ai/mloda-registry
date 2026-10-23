@@ -61,39 +61,16 @@ PyArrow, DuckDB, and SQLite ship no EMA backend rather than emulating the recurr
 ## Usage
 
 ```python
-from typing import Any
-
-import pandas as pd
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
 
-
-class PriceData(FeatureGroup):
-    """Source columns for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"ts", "symbol", "price"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pd.DataFrame(
-            {"ts": [1, 2, 3, 4], "symbol": ["A", "A", "B", "B"], "price": [1.0, 2.0, None, 4.0]}
-        )
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PandasDataFrame}
-
+data = {"ts": [1, 2, 3, 4], "symbol": ["A", "A", "B", "B"], "price": [1.0, 2.0, None, 4.0]}
 
 features = [
     Feature("price__ema_10", Options(context={"order_by": "ts", "partition_by": ["symbol"]})),
 ]
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 ---

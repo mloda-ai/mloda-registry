@@ -53,7 +53,7 @@ class LagFeature(FeatureChainParserMixin, FeatureGroup):
 
 ```python
 import pandas as pd
-from mloda.user import Index
+from mloda.user import FeatureName, Index
 
 
 def test_lag_feature():
@@ -63,7 +63,7 @@ def test_lag_feature():
     df = pd.DataFrame({"timestamp": pd.date_range("2024-01-01", periods=5), "price": [10, 20, 30, 40, 50]})
 
     class MockFeatures:
-        name_of_one_feature = "price__lag_1"
+        name_of_one_feature = FeatureName("price__lag_1")
 
     result = LagFeature.calculate_feature(df, MockFeatures())
     assert list(result[1:]) == [10.0, 20.0, 30.0, 40.0]
@@ -109,19 +109,19 @@ from mloda.user import Link
 class UserFeatures(FeatureGroup):
     @classmethod
     def index_columns(cls) -> list[Index] | None:
-        return [Index(("user_id",)), Index(("order_id",))]
+        return [Index(("user_id",))]
 
 
 class OrderFeatures(FeatureGroup):
     @classmethod
     def index_columns(cls) -> list[Index] | None:
-        return [Index(("user_id",)), Index(("order_id",))]
+        return [Index(("order_id",)), Index(("user_id",))]
 
 
 # Both sides must define index_columns()
 link = Link.left_on(UserFeatures, OrderFeatures)
 
-# Select specific index position
+# Select specific index positions: user_id (index 0) on the left, user_id (index 1) on the right
 link = Link.inner_on(UserFeatures, OrderFeatures, left_index=0, right_index=1)
 ```
 

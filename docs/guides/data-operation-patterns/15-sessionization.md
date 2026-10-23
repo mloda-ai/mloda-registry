@@ -70,42 +70,21 @@ The gap-diff plus cumulative-sum is expressible natively on every backend, so no
 ## Usage
 
 ```python
-from typing import Any
+from datetime import datetime
 
-import pandas as pd
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
 
-
-class EventData(FeatureGroup):
-    """Source columns for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"ts", "user_id"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pd.DataFrame(
-            {
-                "ts": pd.to_datetime(["2023-01-01 10:00", "2023-01-01 10:10", "2023-01-01 12:00"]),
-                "user_id": [1, 1, 1],
-            }
-        )
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PandasDataFrame}
-
+data = {
+    "ts": [datetime(2023, 1, 1, 10, 0), datetime(2023, 1, 1, 10, 10), datetime(2023, 1, 1, 12, 0)],
+    "user_id": [1, 1, 1],
+}
 
 features = [
     Feature("ts__sessionize_30_minute", Options(context={"partition_by": ["user_id"]})),
 ]
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 ---

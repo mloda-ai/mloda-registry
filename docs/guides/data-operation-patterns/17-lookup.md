@@ -23,34 +23,11 @@ product_code__lookup
 | `in_features` | config form only | The source column (when not using the `{col}__lookup` string form). |
 
 ```python
-from typing import Any
-
-import pandas as pd
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
 
-
-class ProductData(FeatureGroup):
-    """Source columns for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"product_code"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pd.DataFrame(
-            {"product_code": ["A100", "B200", "C300"]}
-        )
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PandasDataFrame}
-
+data = {"product_code": ["A100", "B200", "C300"]}
 
 features = [
     Feature(
@@ -58,7 +35,7 @@ features = [
         Options(context={"lookup_mapping": {"A100": "tools", "B200": "toys"}, "on_unmatched": "null"}),
     ),
 ]
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 ---

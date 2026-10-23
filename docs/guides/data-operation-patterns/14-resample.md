@@ -66,43 +66,22 @@ The all-null `sum` cell is the one place backends disagree by default (pandas â†
 ## Usage
 
 ```python
-from typing import Any
+from datetime import datetime
 
-import pandas as pd
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
 
-
-class PriceData(FeatureGroup):
-    """Source columns for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"ts", "symbol", "price"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pd.DataFrame(
-            {
-                "ts": pd.to_datetime(["2023-01-01 10:05", "2023-01-01 10:35", "2023-01-01 11:10"]),
-                "symbol": ["A", "A", "A"],
-                "price": [1.0, 3.0, 5.0],
-            }
-        )
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PandasDataFrame}
-
+data = {
+    "ts": [datetime(2023, 1, 1, 10, 5), datetime(2023, 1, 1, 10, 35), datetime(2023, 1, 1, 11, 10)],
+    "symbol": ["A", "A", "A"],
+    "price": [1.0, 3.0, 5.0],
+}
 
 features = [
     Feature("price__resample_1_hour_mean", Options(context={"time_column": "ts", "partition_by": ["symbol"]})),
 ]
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 The result has one row per occupied hour per symbol, not one row per input event.

@@ -174,18 +174,71 @@ The join fires when a consumer feature group requests features that resolve to b
 linked sides; mloda hands the merged frame to that group's `calculate_feature`. Pass
 the link to `run_all` (the `links` parameter is a `set`):
 
-```py
+```python
+import pandas as pd
+from mloda.provider import DataCreator
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+
+class RunEvents(EventFeatureGroup):
+    @classmethod
+    def input_data(cls) -> DataCreator | None:
+        return DataCreator({"id", "symbol", "event_ts"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        ts = pd.to_datetime(["2023-01-01 10:15", "2023-01-01 10:45"])
+        return pd.DataFrame({"id": [0, 1], "symbol": ["AAA", "AAA"], "event_ts": ts})
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PandasDataFrame}
+
+
+class RunQuotes(QuoteFeatureGroup):
+    @classmethod
+    def input_data(cls) -> DataCreator | None:
+        return DataCreator({"symbol", "quote_ts", "price"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        ts = pd.to_datetime(["2023-01-01 10:00", "2023-01-01 10:30"])
+        return pd.DataFrame({"symbol": ["AAA", "AAA"], "quote_ts": ts, "price": [100, 110]})
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PandasDataFrame}
+
+
+class EventPriceFeatureGroup(FeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"asof_event_id", "asof_event_price"}
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature("id"), Feature("event_ts"), Feature("quote_ts"), Feature("price")}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pd.DataFrame({"asof_event_id": data["id"], "asof_event_price": data["price"]})
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PandasDataFrame}
+
+
+link = Link.asof_on(
+    RunEvents, RunQuotes, left_time_column="event_ts", right_time_column="quote_ts", direction="backward"
+)
 
 results = mloda.run_all(
     [Feature("asof_event_id"), Feature("asof_event_price")],
     compute_frameworks=[PandasDataFrame],
     links={link},
-    plugin_collector=PluginCollector.enabled_feature_groups(
-        {EventFeatureGroup, QuoteFeatureGroup, EventPriceFeatureGroup}
-    ),
+    plugin_collector=PluginCollector.enabled_feature_groups({RunEvents, RunQuotes, EventPriceFeatureGroup}),
 )
+assert list(results[0]["asof_event_price"]) == [100, 110]
 ```
 
 A complete, runnable version (two `DataCreator`-backed source feature groups, a small

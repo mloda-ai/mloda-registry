@@ -49,6 +49,7 @@ class DiffFeature(FeatureGroup):
 
 ```python
 import pandas as pd
+from mloda.user import FeatureName
 
 
 def test_diff_feature():
@@ -58,7 +59,7 @@ def test_diff_feature():
     df = pd.DataFrame({"revenue": [100, 200], "cost": [30, 50]})
 
     class MockFeatures:
-        name_of_one_feature = "revenue&cost__diff"
+        name_of_one_feature = FeatureName("revenue&cost__diff")
 
     result = DiffFeature.calculate_feature(df, MockFeatures())
     assert list(result) == [70, 150]

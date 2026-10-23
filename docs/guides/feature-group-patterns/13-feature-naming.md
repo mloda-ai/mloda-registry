@@ -24,6 +24,7 @@ The class name becomes the feature name automatically.
 ```python
 from mloda.provider import FeatureGroup
 
+
 class IsHoliday(FeatureGroup):
     # Provides feature: "IsHoliday"
     pass
@@ -37,6 +38,7 @@ Define a set of supported feature names.
 
 ```python
 from mloda.provider import FeatureGroup
+
 
 class HolidayFeature(FeatureGroup):
     @classmethod
@@ -52,6 +54,7 @@ Define a regex pattern for dynamic feature names.
 
 ```python
 from mloda.provider import FeatureChainParserMixin, FeatureGroup
+
 
 class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r"^.+__scaled$"
@@ -90,6 +93,7 @@ By default, `ClassName_anything` also matches via `prefix()`:
 
 ```python
 from mloda.provider import FeatureGroup
+
 
 class RiskScore(FeatureGroup):
     # Provides: "RiskScore", "RiskScore_v1", "RiskScore_high"

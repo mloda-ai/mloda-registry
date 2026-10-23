@@ -115,33 +115,17 @@ For SQLite, all timestamps are stored as TEXT in ISO 8601. The bucketization SQL
 
 ```python
 from datetime import datetime, timezone
-from typing import Any
 
-import pyarrow as pa
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 PluginLoader.all()
 
-
-class EventData(FeatureGroup):
-    """Source column for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"event_time"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        times = [datetime(2023, 1, 1, 14, 37, tzinfo=timezone.utc), datetime(2023, 1, 2, 9, 5, tzinfo=timezone.utc)]
-        return pa.table({"event_time": pa.array(times, type=pa.timestamp("us", tz="UTC"))})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PyArrowTable}
-
+data = {
+    "event_time": [
+        datetime(2023, 1, 1, 14, 37, tzinfo=timezone.utc),
+        datetime(2023, 1, 2, 9, 5, tzinfo=timezone.utc),
+    ]
+}
 
 features = [
     Feature("event_time__floor_1_hour"),  # bucket events per hour
@@ -150,7 +134,7 @@ features = [
     Feature("event_time__round_5_minute"),  # nearest 5-minute boundary, half-up
 ]
 
-result = mloda.run_all(features, compute_frameworks=["PyArrowTable"])
+result = mloda.run_all(features, compute_frameworks=["PyArrowTable"], api_data={"Src": data})
 ```
 
 Row count matches the input; each new column has the same timestamp type (resolution and tz) as the source.

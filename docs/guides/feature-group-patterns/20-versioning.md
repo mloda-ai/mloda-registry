@@ -32,7 +32,7 @@ from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregat
 
 # Get version of any FeatureGroup
 version = PyArrowAggregation.version()
-# e.g., "0.15.0-my_package.features-a1b2c3d4..."
+# e.g., "0.17.0-mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation-5f61d8cf..."
 ```
 
 ## Third-Party Dependencies

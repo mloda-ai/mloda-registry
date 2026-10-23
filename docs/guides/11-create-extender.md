@@ -124,9 +124,7 @@ class OtherExtender(MyExtender):
 
 
 api_data = {"MyKey": {"my_feature": [1, 2]}}
-results = mloda.run_all(
-    features=["my_feature"], function_extender={MyExtender(), OtherExtender()}, api_data=api_data
-)
+results = mloda.run_all(features=["my_feature"], function_extender={MyExtender(), OtherExtender()}, api_data=api_data)
 ```
 
 Extenders are session-level: pass them to `run_all` or when preparing the session. `Session.run()` takes none.

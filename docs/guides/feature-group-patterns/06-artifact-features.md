@@ -24,10 +24,10 @@ from mloda.provider import FeatureGroup
 from mloda.provider import FeatureChainParserMixin, BaseArtifact, FeatureSet
 from mloda.user import Feature, Options, FeatureName
 import pickle
-import tempfile
 from pathlib import Path
 
-SCALER_DIR = Path(tempfile.mkdtemp())
+# A real plugin would take this location from an option
+ARTIFACT_DIR = Path("artifacts")
 
 
 class ScalerArtifact(BaseArtifact):
@@ -35,14 +35,15 @@ class ScalerArtifact(BaseArtifact):
 
     @classmethod
     def custom_saver(cls, features: FeatureSet, artifact: Any) -> str | None:
-        path = str(SCALER_DIR / f"scaler_{features.name_of_one_feature}.pkl")
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        path = str(ARTIFACT_DIR / f"scaler_{features.name_of_one_feature}.pkl")
         with open(path, "wb") as f:
             pickle.dump(artifact, f)
         return path
 
     @classmethod
     def custom_loader(cls, features: FeatureSet) -> Any | None:
-        path = str(SCALER_DIR / f"scaler_{features.name_of_one_feature}.pkl")
+        path = str(ARTIFACT_DIR / f"scaler_{features.name_of_one_feature}.pkl")
         if Path(path).exists():
             with open(path, "rb") as f:
                 return pickle.load(f)
@@ -82,6 +83,7 @@ class StandardScaledFeature(FeatureChainParserMixin, FeatureGroup):
 
 ```python
 import pandas as pd
+from mloda.user import FeatureName
 
 
 def test_standard_scaled_feature():
@@ -90,7 +92,7 @@ def test_standard_scaled_feature():
     df = pd.DataFrame({"price": [10, 20, 30]})
 
     class MockFeatures:
-        name_of_one_feature = "price__standard_scaled"
+        name_of_one_feature = FeatureName("price__standard_scaled")
 
     result = StandardScaledFeature.calculate_feature(df, MockFeatures())
     assert abs(result.mean()) < 0.01

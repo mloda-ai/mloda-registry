@@ -81,7 +81,7 @@ Every backend now picks provably collision-free helper names at runtime, so user
 
 Write the test by inheriting from the operation's test base and the relevant framework mixin. You do not need to add row-count assertions yourself; they are inherited from `DataOpsTestBase`.
 
-```python
+```py
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,

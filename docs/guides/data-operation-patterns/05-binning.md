@@ -89,39 +89,18 @@ Any framework whose native operation reorders will need an analogous workaround.
 ## Usage
 
 ```python
-from typing import Any
-
-import pandas as pd
-
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 PluginLoader.all()
 
-
-class ValueData(FeatureGroup):
-    """Source column for the example."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"value_int"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pd.DataFrame({"value_int": [10, -5, 0, 20, 50, 30, 60, 15]})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {PandasDataFrame}
-
+data = {"value_int": [10, -5, 0, 20, 50, 30, 60, 15]}
 
 features = [
     Feature("value_int__bin_5"),  # equal-width, 5 bins
     Feature("value_int__qbin_4"),  # quartiles
 ]
 
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 Row count matches the input; each new column contains integers in `[0, N-1]` (or NULL for unbinnable rows).

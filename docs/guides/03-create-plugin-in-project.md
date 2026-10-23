@@ -48,7 +48,7 @@ class CustomerScoring(FeatureGroup):
 
 ```py
 from mloda.user import mloda, Feature
-from my_features.scoring import CustomerScoring
+from my_features.scoring.customer import CustomerScoring
 
 result = mloda.run_all([Feature("CustomerScoring")])
 ```
