@@ -10,13 +10,11 @@ booked GROSS: DATEV splits the tax out on its own. Summing it would report VAT a
 so the concept refuses it by name until a tax-key table exists.
 
 These tests call `_map_accounts` on the reader's rows directly; the chain is proven in
-proofs/proof_composite_datev.py.
+isolated.composite_datev.
 """
 
 import json
 import shutil
-import subprocess  # nosec
-import sys
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -41,6 +39,7 @@ from mloda.community.feature_groups.experimental.german_ledger.skr import (
 )
 
 from . import make_twin
+from .isolated import run_isolated
 
 LEDERMANN = Path(__file__).parent / "fixtures" / "datev_ledermann"
 TWIN = Path(__file__).parent / "fixtures" / "twin_2025"
@@ -338,12 +337,13 @@ def test_an_unknown_sign_convention_is_refused(chart: None) -> None:
 
 def test_the_same_books_in_both_formats_give_the_same_cited_totals() -> None:
     """Its own process: the twin host's policy registers process-wide, and one may be live."""
-    # Runs our own proof script, not external input.
-    script = str(Path(__file__).parent / "proofs" / "proof_twin.py")
-    proof = subprocess.run([sys.executable, script], capture_output=True, text=True)  # nosec B603
-    assert proof.returncode == 0, proof.stdout + proof.stderr[-2000:]
-    assert "SAME revenue: GDPdU 22485.06 / DATEV 22485.06" in proof.stdout, proof.stdout
-    assert "SAME receivables: GDPdU 7500.00 / DATEV 7500.00" in proof.stdout, proof.stdout
+    facts = run_isolated("twin")
+    expected = {"revenue": "22485.06", "receivables": "7500.00"}
+    assert set(facts) == set(expected), facts
+    for concept, want in expected.items():
+        f = facts[concept]
+        assert f["gdpdu"] == f["datev"] == want, (concept, f)
+        assert f["gdpdu_cited"] and len(f["gdpdu_cited"]) == len(f["datev_cited"]), (concept, f)
 
 
 def test_the_twin_fixture_is_what_its_generator_writes(tmp_path: Path) -> None:

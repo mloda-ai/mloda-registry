@@ -196,7 +196,7 @@ A folder holding both formats is refused, not resolved to one of them.
   hold uses a longer Sachkontenlänge.
 - **Twin fixture:** `tests/fixtures/twin_2025`, written by `tests/make_twin.py`, holds the same
   four bookings as a GDPdU dossier and a DATEV batch. Under one `PeriodBound` policy both give
-  revenue 22 485,06 and receivables 7 500,00, each with its own citations (`proofs/proof_twin.py`).
+  revenue 22 485,06 and receivables 7 500,00, each with its own citations (`tests/isolated.py:twin`).
 - **DATEV totals:** the late-entry cutoff needs an `Erfassungsdatum`, which DATEV does not
   carry, so it refuses every DATEV journal (fail closed). A DATEV host runs `PeriodBound` +
   `Festschreibung` instead.
@@ -211,10 +211,10 @@ GERMAN_LEDGER_CORPUS=/path/to/datev/files pytest   # also run third-party DATEV 
 ```
 
 Tests: `test_gdpdu_claims.py` (one claim per test), `test_datev.py`, `test_gdpdu_reader.py`,
-`test_policy_rules.py` (the composite policy) and `test_readme.py`, which runs the quickstart above. `tests/proofs/` holds scripts that each
-register classes process-wide (a shadowing subclass, a second policy, `PluginLoader.all()`),
-so the tests run them in a subprocess. Each one prints what it reproduced and can be run on
-its own.
+`test_policy_rules.py` (the composite policy) and `test_readme.py`, which runs the quickstart above.
+Scenarios that register classes process-wide (a shadowing subclass, a second policy,
+`PluginLoader.all()`) live in `tests/isolated.py`, each run in a fresh process by its test. Run
+one by hand: `python -c "from mloda.community.feature_groups.experimental.german_ledger.tests.isolated import inseparable; print(inseparable())"`.
 
 The other third-party DATEV files are not committed: not all of them are licensed for
 redistribution. The ledermann sample in `tests/fixtures/` is MIT: its NOTICE carries the

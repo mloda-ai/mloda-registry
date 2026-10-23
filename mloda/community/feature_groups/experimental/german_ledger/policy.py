@@ -105,7 +105,7 @@ class _ReaderJournal(FeatureGroup):
         FeatureGroup.match_feature_group_criteria tries _is_root_and_matches_input_data first,
         so a reader that claims the dossier folder would make this group match *any* name --
         including revenue__sources -- and resolution would fail with "Multiple feature groups
-        found" before anything loaded (proof_collision.py).
+        found" before anything loaded (tests/isolated.py:collision).
         """
         if cls.READER is None or str(feature_name) != JOURNAL:
             return False
