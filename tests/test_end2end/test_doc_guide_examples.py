@@ -570,7 +570,6 @@ def _display_path(path: str) -> str:
 
 
 def _last_marker(stdout: str | bytes | None) -> tuple[str, str]:
-    """The last driver marker line in *stdout* as (kind, rest)."""
     if isinstance(stdout, bytes):
         stdout = stdout.decode(errors="replace")
     markers = [line for line in (stdout or "").splitlines() if line.startswith(("CHECKING ", "CALLING ", "REJECTED "))]
