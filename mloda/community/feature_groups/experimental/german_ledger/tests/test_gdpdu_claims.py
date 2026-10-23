@@ -90,19 +90,18 @@ def test_collision_gate() -> None:
 
 
 def test_plugin_loader_all() -> None:
-    """mloda#1745 pinned: after PluginLoader.all(), stock read feature groups claim our names.
-
-    GdpduReader declines every name but gdpdu_journal, yet the stock TextFileReader still
-    accepts the dossier's GL.txt. On mloda 0.16 the collision is between SkrAccountFeatureGroup
-    and ReadDocumentFeature, the latter resolved through TextFileReader. Entry-point plugins
-    are only discovered through PluginLoader.all(), so this is the packaged path, not an
-    edge case. When #1745 lands upstream this fails on purpose: flip it to assert the total.
-    """
+    """After PluginLoader.all() the revenue__sources total resolves; a bare `revenue` waits on mloda#1745."""
     facts = run_isolated("plugin_loader_all")
-    assert facts["revenue"].startswith("FeatureResolutionError: "), facts
-    claimants = " ".join(facts["claimants"])
-    assert "ReadDocumentFeature" in claimants, "the second claimant must be the stock document family"
-    assert "SkrAccountFeatureGroup" in claimants and "TextFileReader" in claimants, facts["claimants"]
+    assert facts["revenue"] == "45385.06", facts
+    columns = ["revenue~basis", "revenue~origins", "revenue~value"]
+    assert facts["scoped"] == columns, facts
+    unscoped = facts["unscoped"]
+    if isinstance(unscoped, str) and unscoped.startswith("FeatureResolutionError: Multiple feature groups found"):
+        pytest.xfail(
+            "mloda-ai/mloda#1745: the stock read roots still claim an unscoped `revenue` after "
+            "PluginLoader.all(); scope it with feature_group="
+        )
+    assert unscoped == columns, facts
 
 
 def test_german_decimal() -> None:

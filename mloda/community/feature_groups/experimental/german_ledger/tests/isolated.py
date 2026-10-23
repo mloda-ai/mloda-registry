@@ -73,7 +73,7 @@ def outcome(call: Callable[[], Any]) -> Any:
         return f"{named}: {root}"
 
 
-def _run(folder: Path, features: list[str], plugin_collector: Any = None) -> dict[str, Any]:
+def _run(folder: Path, features: list[str | Feature], plugin_collector: Any = None) -> dict[str, Any]:
     results = mloda.run_all(
         features=features,
         compute_frameworks=[PyArrowTable],
@@ -118,13 +118,20 @@ def collision() -> dict[str, Any]:
 
 
 def plugin_loader_all() -> dict[str, Any]:
-    """The same request after `PluginLoader.all()` (mloda#1745): which groups claim the name."""
+    """After `PluginLoader.all()` (mloda#1745): the total, a scoped and an unscoped direct `revenue`."""
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
 
     PluginLoader.all()
-    revenue = outcome(lambda: _revenue(FIX / "dossier_a"))
-    # The refusal lists every claimant as a "- " line.
-    return {"revenue": revenue, "claimants": [ln.strip() for ln in revenue.splitlines() if ln.strip().startswith("- ")]}
+    dossier = FIX / "dossier_a"
+
+    def direct(feature: Feature | str) -> list[str]:
+        return sorted(_run(dossier, [feature]))
+
+    return {
+        "revenue": outcome(lambda: _revenue(dossier)),
+        "scoped": outcome(lambda: direct(Feature("revenue", feature_group=SkrAccountFeatureGroup))),
+        "unscoped": outcome(lambda: direct("revenue")),
+    }
 
 
 def dossier_c() -> dict[str, Any]:
