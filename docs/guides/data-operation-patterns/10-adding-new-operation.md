@@ -104,6 +104,8 @@ class PyArrowYourOp(YourOpFeatureGroup):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
+The per-framework-subclass shape above is the one the families other than aggregation use. Aggregation uses one `OperationFeatureGroup` plus an `Implementation` per framework (`supported` for capability, `divergent` for declared differences) and a function reference (`reference_aggregation`); see [Framework-Specific](../feature-group-patterns/09-framework-specific.md) and `aggregation/pandas_aggregation.py`.
+
 ---
 
 ## Step 4: Write the operation's test base

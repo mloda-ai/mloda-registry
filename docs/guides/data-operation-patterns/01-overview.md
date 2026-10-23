@@ -57,6 +57,8 @@ AggregationFeatureGroup.PREFIX_PATTERN  # r".*__([\w]+)_agg$"
 StringFeatureGroup.PREFIX_PATTERN  # r".+__(upper|lower|trim|length|reverse)$"
 ```
 
+Aggregation is one `AggregationFeatureGroup` (an `OperationFeatureGroup`) with one `Implementation` per framework, named like `PandasAggregation`; pin one with `Feature(..., implementation="PandasAggregation")`. Other families still use one FeatureGroup subclass per framework.
+
 All patterns, subtypes, and per-framework support are also queryable at runtime via `DataOperationsCatalog`; see [Framework support matrix](framework-support-matrix.md#querying-capabilities-at-runtime).
 
 ---

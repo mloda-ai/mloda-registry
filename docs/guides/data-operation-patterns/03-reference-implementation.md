@@ -38,6 +38,8 @@ ref_col = _extract_column(ref, feature_name)
 assert result_col == ref_col  # or pytest.approx for floats
 ```
 
+Aggregation is the exception: it is one `OperationFeatureGroup` served by one `Implementation` per framework, so `AggregationTestBase` has no `reference_implementation_class`. Its reference is the function `reference_aggregation(table, features)` in `mloda/testing/feature_groups/data_operations/aggregation/reference.py`, reached through `reference_calculate`, and the test kit runs the implementation with `calculate_with` (`mloda/testing/feature_groups/data_operations/helpers.py`). Its NaN divergences come from the implementation's shipped `divergent` mapping.
+
 `self.test_data` is produced by the framework mixin's `create_test_data(pa.Table)`. The canonical input is always PyArrow; the mixin converts it once per test. This keeps the fixtures aligned: both sides compute from the *same* starting values, just in different native representations.
 
 ---
