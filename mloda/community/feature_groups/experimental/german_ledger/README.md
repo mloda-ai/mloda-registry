@@ -95,7 +95,7 @@ All rules run in the one policy step. If any rule refuses, the refusal names eve
 refused. Otherwise each row gets **one** stamp: `admitted:all-of;rules=…` only when every rule
 admitted it, and `outside-scope:all-of;…;outside=<rule>` as soon as one did not. A total
 needs every journal row admitted: a single row that is not, outside-scope included, refuses it
-(`InadmissibleTotal`). A single rule stamps under its own name, as before.
+(`InadmissibleTotal`). A single rule stamps under its own name.
 
 **One host, both formats.** The late-entry cutoff needs an `Erfassungsdatum` that DATEV does
 not carry, and `Festschreibung` needs a flag that GDPdU does not carry. `ForFormat` scopes a

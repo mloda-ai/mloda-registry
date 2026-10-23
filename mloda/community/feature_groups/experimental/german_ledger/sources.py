@@ -37,17 +37,14 @@ class AmbiguousSourceColumns(Exception):
 
 
 def _is_citation(origin: object) -> bool:
-    """A citation names a line, and a blank string names nothing.
-
-    Membership was decided by ``is not None`` alone, which let "" stand as a source.
-    """
+    """A citation names a line, and a blank string names nothing."""
     return isinstance(origin, str) and origin.strip() != ""
 
 
 class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """``<feature>__sources`` -> the total AND the attested rows behind it.
 
-    Totals are where provenance normally dies: sum reduces rows, and mloda 0.13.0's
+    Totals are where provenance normally dies: sum reduces rows, and mloda's
     built-in aggregations do not carry row-level origins. Outputs are subcolumns of the
     *requested* name (``revenue__sources~value`` / ``~origins``), which is what column
     selection keeps. The input resolves only through ``SkrAccountFeatureGroup`` or a subclass.
@@ -102,10 +99,8 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             source = requested.rsplit("__", 1)[0]
             columns = cls.resolve_multi_column_feature(source, available)
 
-            # EXACT names, not the first column that happens to end in ~value. Taking
-            # `next(c for c in columns if c.endswith("~value"))` over a sorted list meant a
-            # sibling subcolumn -- `revenue~other~value` sorts before `revenue~value` --
-            # silently became the total, carried by the right concept's citations. A
+            # EXACT names, not the first column that happens to end in ~value. A
+            # sibling subcolumn such as `revenue~other~value` must never become the total. A
             # plausible number under a valid-looking origin is the precise failure this
             # aggregation exists to prevent, so ambiguity is refused rather than resolved.
             value_col, origin_col = f"{source}~value", f"{source}~origins"
@@ -143,12 +138,11 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             citations = data.column(origin_col).to_pylist()
 
             # An amount whose line cannot be named must never enter a total that claims to
-            # know its rows. Keying contribution on the origin alone made a priced row with
-            # a null origin vanish from its own sum -- a SMALLER number, still cited to a
-            # complete-looking list. That is the known-subtotal failure arriving from the
-            # other side. Unlike an unpriced line, this is a broken producer contract rather
-            # than a dossier nobody could price, so it is refused here: nulling would let a
-            # producer bug pass as an unpriceable source.
+            # know its rows. A priced row with a null origin would vanish from its own sum,
+            # giving a smaller number still cited to a complete-looking list. Unlike an
+            # unpriced line, this is a broken producer contract rather than a dossier nobody
+            # could price, so it is refused: nulling would let a producer bug pass as an
+            # unpriceable source.
             uncited = [v for v, o in zip(values, citations) if v is not None and not _is_citation(o)]
             if uncited:
                 raise UncitedValue(

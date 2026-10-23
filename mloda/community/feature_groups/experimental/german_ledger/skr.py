@@ -19,7 +19,7 @@ from .reader import ADMISSIBILITY_COLUMN, GdpduReader, is_admitted
 # Explicit, versioned, deliberately narrow -- and *stated*, not cited: these are two ranges
 # chosen and written down here, not a DATEV catalogue reproduced under licence. "Which
 # definition did you use?" is the auditor's next question, and this comment is the whole
-# answer. Two ranges and str.isdigit() is a spike's chart of accounts, not a chart of accounts.
+# answer. Two ranges and str.isdigit() would not be a chart of accounts.
 #
 #   revenue      A published narrow slice: SKR04 Umsatzerloese 4000-4499. NOT all of class 4,
 #                which also carries Sonderbetriebseinnahmen (4500-4505), Erloesschmaelerungen
@@ -121,13 +121,11 @@ class AmbiguousProfile(Exception):
 def select_profile(profiles: tuple[LedgerProfile, ...], declared: set[str]) -> LedgerProfile:
     """Pick the profile the DOSSIER fits, not the one class resolution happens to reach.
 
-    Modelling one exporter as one FeatureGroup subclass made profile identity a property of
-    the class graph, and mloda keeps a matching subclass over its parent: a second profile
-    silently shadowed the first, and the run returned a plausible total under the wrong
-    mapping (tests/isolated.py:profile_shadow). Three profiles collided outright. Both are the same
-    mistake -- asking resolution order a question only the data can answer.
+    One exporter is not one FeatureGroup subclass: mloda keeps a matching subclass over its
+    parent, so a subclass per profile would let resolution order silently pick the mapping
+    (tests/isolated.py:profile_shadow). Only the data can answer which profile fits.
 
-    Selection here is a property of the dossier: a profile fits when the dossier declares
+    Selection is a property of the dossier: a profile fits when the dossier declares
     both of the columns it names. One fit is the answer, none is a configuration error that
     names what was declared, and more than one is refused rather than resolved -- two
     profiles that both fit are indistinguishable on names alone, and picking either is how
@@ -319,13 +317,11 @@ class SkrAccountFeatureGroup(FeatureGroup):
     def _map_accounts(cls, table: Any, features: FeatureSet) -> Any:
         """The catalogue mapping, split out so it can be exercised on a table directly.
 
-        One class serves every known exporter, so testing a second profile no longer means
-        registering a second subclass -- which is what used to shadow this group for every
-        later resolution in the process (tests/isolated.py:profile_shadow).
+        One class serves every known exporter, so testing a second profile needs no second
+        subclass, which would shadow this group process-wide (tests/isolated.py:profile_shadow).
         """
-        # A dossier no profile fits is a configuration error, and it has to say so. Reading
-        # straight through gave a bare KeyError('Field "Konto" does not exist in schema')
-        # from inside Arrow, naming neither the profile nor the dossier.
+        # A dossier no profile fits is a configuration error, and it has to say so. A bare
+        # KeyError from inside Arrow would name neither the profile nor the dossier.
         declared = set(table.column_names)
         profile = select_profile(cls.PROFILES, declared)
 

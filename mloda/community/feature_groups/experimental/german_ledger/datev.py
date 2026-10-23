@@ -1,7 +1,6 @@
 """DatevExtfReader: DATEV-Format EXTF 700 Buchungsstapel -> one signed row per leg.
 
-Grown out of a spike that tested the design against DATEV files we did not write. Decided on
-30 Sep 2026:
+Tested against DATEV files we did not write. Decided on 30 Sep 2026:
 
 - Only Versionsnummer 700 has a checked field table. 510 and 300 are refused by name.
 - Soll/Haben is modelled: `Umsatz` is unsigned and the flag refers to `Konto`.
