@@ -668,17 +668,103 @@ _SIMULATED_BINARY_MODULE = "mloda.testing.binary_model.simulated_binary"
 
 
 @pytest.mark.parametrize(
+    ("module", "plugin_id"),
+    [
+        pytest.param(_SIMULATED_BINARY_MODULE, "example_binary", id="simulated_binary"),
+        pytest.param("mloda.testing.tests._second_fake_binary", "second_fake_binary", id="second_fake_binary"),
+        pytest.param("mloda.testing.binary_model.hmac_fake_binary", "hmac_fake_binary", id="hmac_fake_binary"),
+    ],
+)
+@pytest.mark.parametrize(
     "flag", [pytest.param("--version", id="version"), pytest.param("--capabilities", id="capabilities")]
 )
-def test_simulated_binary_light_flags_do_not_import_pyarrow(flag: str) -> None:
+def test_simulated_binary_light_flags_do_not_import_pyarrow(flag: str, module: str, plugin_id: str) -> None:
     """`--version` and `--capabilities` must not import pyarrow, numpy, or cryptography; those load only when needed."""
-    completed, summary = run_module_probe(_SIMULATED_BINARY_MODULE, [flag], ("pyarrow", "numpy", "cryptography"))
+    completed, summary = run_module_probe(module, [flag], ("pyarrow", "numpy", "cryptography"))
     lines = completed.stdout.splitlines()
     if flag == "--version":
-        assert lines[0].startswith("example_binary "), lines
+        assert lines[0].startswith(f"{plugin_id} "), lines
     else:
         assert isinstance(json.loads(lines[0]), dict), lines
     assert summary == {"code": 0, "loaded": []}, summary
+
+
+@pytest.mark.parametrize(
+    "flag", [pytest.param("--version", id="version"), pytest.param("--capabilities", id="capabilities")]
+)
+def test_main_calls_with_different_binaries_do_not_affect_each_other(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flag: str
+) -> None:
+    """`main(binary)` reports the given identity and leaves the default `main()` identity untouched."""
+    from mloda.testing.binary_model import simulated_binary
+
+    op = simulated_binary.FakeOperation("shout", ("result",), lambda table, config: (pa.schema([]), []))
+    custom = simulated_binary.FakeBinary("custom_binary", (op,), frozenset({"utf8"}), "9.9.9")
+
+    def report(binary: Any) -> list[str]:
+        monkeypatch.setattr("sys.argv", ["prog", flag])
+        assert (simulated_binary.main(binary) if binary else simulated_binary.main()) == 0
+        return capsys.readouterr().out.splitlines()
+
+    first = report(custom)
+    default = report(None)
+    if flag == "--version":
+        assert first == ["custom_binary 9.9.9"]
+        assert default == [f"example_binary {simulated_binary.VERSION}"]
+    else:
+        assert json.loads(first[0])["plugin_id"] == "custom_binary"
+        assert json.loads(first[0])["operations"] == ["shout"]
+        assert json.loads(first[0])["column_types"] == ["utf8"]
+        assert json.loads(default[0])["plugin_id"] == "example_binary"
+        assert json.loads(default[0])["operations"] == ["hash"]
+        assert json.loads(default[0])["column_types"] == sorted(COLUMN_TYPES)
+
+
+@pytest.mark.parametrize("fail_validate", [False, True], ids=["computes", "validate_raises_usage_error"])
+def test_main_runs_a_custom_fake_operation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, fail_validate: bool
+) -> None:
+    """A custom `FakeOperation` computes into the output file; a `FakeUsageError` from `validate` exits 1."""
+    from mloda.testing.binary_model import simulated_binary
+
+    def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
+        name = config["output_columns"]["result"]
+        values = [v.upper() for v in table.column(config["input_columns"][0]).to_pylist()]
+        return pa.schema([pa.field(name, pa.string())]), [pa.array(values, type=pa.string())]
+
+    def validate(config: dict[str, Any]) -> None:
+        raise simulated_binary.FakeUsageError("shout refuses this config")
+
+    op = simulated_binary.FakeOperation("shout", ("result",), compute, validate if fail_validate else None)
+    binary = simulated_binary.FakeBinary("shout_binary", (op,))
+    config_path = write_json(
+        tmp_path / "config.json",
+        {
+            "input_columns": ["col_a"],
+            "operation": "shout",
+            "parameters": {},
+            "output_columns": {"result": "out"},
+        },
+    )
+    input_path = tmp_path / "input.arrows"
+    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
+    output_path = tmp_path / "output.arrows"
+    monkeypatch.setenv("MLODA_LICENSE_KEY", valid_license_token(["shout_binary"]))
+    monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)],
+    )
+
+    code = simulated_binary.main(binary)
+
+    err = capsys.readouterr().err
+    if fail_validate:
+        assert code == 1
+        assert json.loads(err.strip().splitlines()[-1]) == {"code": 1, "message": "shout refuses this config"}
+    else:
+        assert code == 0, err
+        assert read_arrow_stream(output_path.read_bytes()).to_pydict() == {"out": ["X", "Y"]}
 
 
 @pytest.mark.parametrize(

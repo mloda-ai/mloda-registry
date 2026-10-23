@@ -1,20 +1,23 @@
 """Fake ``hmac_sha256`` binary for tests only; accepts test-signed licenses only.
 
 Run: ``python -m mloda.testing.binary_model.hmac_fake_binary [--plugin-id <id>]``. The id is argv because the mixin
-passes a minimal environment. It patches ``simulated_binary`` globals, so run it only as a fresh subprocess."""
+passes a minimal environment."""
 
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mloda.testing.binary_model import USAGE_ERROR, simulated_binary
+from mloda.testing.binary_model import simulated_binary
 from mloda.testing.binary_model.hmac_sha256_reference import (
     KEY_PARAMETER,
     compute_expected_hmac_sha256_column,
     parse_hmac_key,
 )
-from mloda.testing.binary_model.simulated_binary import install_fake_identity
+from mloda.testing.binary_model.simulated_binary import FakeBinary, FakeOperation, FakeUsageError
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 PLUGIN_ID = "hmac_fake_binary"
 OPERATION = "hmac_sha256"
@@ -22,29 +25,21 @@ OUTPUT_KEY = "result"
 COLUMN_TYPES = frozenset({"utf8"})
 
 
-def _validate_hmac_parameters(operation: str, parameters: dict[str, Any]) -> None:
-    """Only ``hmac_sha256`` is checked; the error text never contains the key value."""
-    if operation != OPERATION:
-        return
+def _validate_hmac_config(config: dict[str, Any]) -> None:
+    """The error text never contains the key value."""
+    if len(config["input_columns"]) != 1:
+        raise FakeUsageError("hmac_sha256 takes exactly one input column")
+    parameters = config["parameters"]
     unknown = set(parameters) - {KEY_PARAMETER}
     if unknown:
-        raise simulated_binary._CliError(USAGE_ERROR, f"unknown parameters: {sorted(unknown)}")
+        raise FakeUsageError(f"unknown parameters: {sorted(unknown)}")
     try:
         parse_hmac_key(parameters.get(KEY_PARAMETER))
     except ValueError:
-        raise simulated_binary._CliError(USAGE_ERROR, "parameters.key must be a 64-character hex string") from None
+        raise FakeUsageError("parameters.key must be a 64-character hex string") from None
 
 
-def _single_input_column(original: Any) -> Any:
-    def validate(config: dict[str, Any]) -> None:
-        original(config)
-        if config["operation"] == OPERATION and len(config["input_columns"]) != 1:
-            raise simulated_binary._CliError(USAGE_ERROR, "hmac_sha256 takes exactly one input column")
-
-    return validate
-
-
-def _compute_hmac_output(table: Any, config: dict[str, Any]) -> Any:
+def _compute_hmac_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
     import pyarrow as pa
 
     from mloda.testing.binary_model.arrow_arrays import array_from_values
@@ -55,11 +50,7 @@ def _compute_hmac_output(table: Any, config: dict[str, Any]) -> Any:
     return pa.schema([pa.field(written_name, pa.string())]), [array_from_values(digests, pa.string())]
 
 
-def _install_hmac_binary_identity(plugin_id: str) -> None:
-    install_fake_identity(plugin_id, OPERATION, OUTPUT_KEY, COLUMN_TYPES)
-    simulated_binary._validate_hash_parameters = _validate_hmac_parameters
-    simulated_binary._validate_config_structure = _single_input_column(simulated_binary._validate_config_structure)
-    simulated_binary._compute_hash_output = _compute_hmac_output
+HMAC_OPERATION = FakeOperation(OPERATION, (OUTPUT_KEY,), _compute_hmac_output, _validate_hmac_config)
 
 
 def main() -> int:
@@ -67,8 +58,7 @@ def main() -> int:
     if len(sys.argv) >= 3 and sys.argv[1] == "--plugin-id":
         plugin_id = sys.argv[2]
         del sys.argv[1:3]
-    _install_hmac_binary_identity(plugin_id)
-    return simulated_binary.main()
+    return simulated_binary.main(FakeBinary(plugin_id, (HMAC_OPERATION,), COLUMN_TYPES))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import json
 import os
 import struct
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -42,11 +43,7 @@ VERSION = "1.0.0"
 RELEASE_DATE = date(2026, 9, 1)
 """The stub's own release date, the build-time constant compared against the license's
 ``max_release_date`` claim (spec: Verification step 8)."""
-CAPABILITY_OPERATIONS = ["hash"]
 RESERVED_INTERNAL_ERROR_OPERATION = "_conformance_internal_error"
-
-# Outputs each operation defines, in the order they must be written (contract: Configuration).
-_OPERATION_OUTPUTS: dict[str, tuple[str, ...]] = {"hash": ("result",)}
 
 _REQUIRED_CONFIG_KEYS = frozenset({"input_columns", "operation", "parameters", "output_columns"})
 
@@ -185,6 +182,30 @@ class _ReservedConformanceInternalError(Exception):
     than a hand-written message that bypasses it (contract: Data handling, Errors, Conformance)."""
 
 
+class FakeUsageError(Exception):
+    """Raised by a ``FakeOperation.validate``; reported as a usage error (code 1) with its message."""
+
+
+@dataclass(frozen=True)
+class FakeOperation:
+    """One operation a fake binary runs (contract: Capabilities, Configuration)."""
+
+    name: str
+    outputs: tuple[str, ...]
+    compute: Callable[[pa.Table, dict[str, Any]], tuple[pa.Schema, list[pa.Array]]]
+    validate: Callable[[dict[str, Any]], None] | None = None
+
+
+@dataclass(frozen=True)
+class FakeBinary:
+    """A fake binary's identity and operations, passed to ``main``."""
+
+    plugin_id: str
+    operations: tuple[FakeOperation, ...]
+    column_types: frozenset[str] = COLUMN_TYPES
+    version: str = VERSION
+
+
 @dataclass
 class _RunArgs:
     config_path: Path
@@ -192,12 +213,12 @@ class _RunArgs:
     output_path: Path | None
 
 
-def _capabilities() -> dict[str, Any]:
+def _capabilities(binary: FakeBinary) -> dict[str, Any]:
     return {
         "contract": CONTRACT_VERSION,
-        "plugin_id": PLUGIN_ID,
-        "operations": list(CAPABILITY_OPERATIONS),
-        "column_types": sorted(COLUMN_TYPES),
+        "plugin_id": binary.plugin_id,
+        "operations": [op.name for op in binary.operations],
+        "column_types": sorted(binary.column_types),
     }
 
 
@@ -261,7 +282,7 @@ def _license_source() -> tuple[str, str]:
     raise _CliError(LICENSE_MISSING, "no license source set (MLODA_LICENSE_FILE or MLODA_LICENSE_KEY)")
 
 
-def _check_license() -> None:
+def _check_license(binary: FakeBinary) -> None:
     """Verify the signed license token from the resolved source (contract: License; spec:
     Verification). The stub embeds only the published test key map, never a production key (spec:
     Keys, kid, rotation). A token past ``exp`` but inside ``grace_days`` is accepted with one
@@ -276,7 +297,7 @@ def _check_license() -> None:
         verified = license_token.verify_license_token(
             text,
             keys=license_vectors.TEST_PUBLIC_KEYS,
-            plugin_id=PLUGIN_ID,
+            plugin_id=binary.plugin_id,
             release_date=RELEASE_DATE,
         )
     except license_token.LicenseVerificationError as exc:
@@ -337,33 +358,31 @@ def _validate_config_structure(config: dict[str, Any]) -> None:
         raise _CliError(USAGE_ERROR, "output_columns written names must not collide with input_columns")
 
 
-def _check_operation_capability(operation: str) -> None:
+def _lookup_operation(binary: FakeBinary, operation: str) -> FakeOperation | None:
+    """The binary's operation, or ``None`` for the reserved conformance-only operation, which has no
+    defined parameter shape or output list and bypasses those checks."""
     if operation == RESERVED_INTERNAL_ERROR_OPERATION:
-        return
-    if operation not in CAPABILITY_OPERATIONS:
-        raise _CliError(UNSUPPORTED, f"unsupported operation: {operation!r}")
+        return None
+    for candidate in binary.operations:
+        if candidate.name == operation:
+            return candidate
+    raise _CliError(UNSUPPORTED, f"unsupported operation: {operation!r}")
 
 
-def _validate_hash_parameters(operation: str, parameters: dict[str, Any]) -> None:
-    """ "hash"-specific ``parameters`` validation (contract: Configuration, Errors): rejects any key
-    beyond what it recognizes. The reserved conformance-only operation has no defined parameter
-    shape and bypasses this, same as the operation-output checks."""
-    if operation != "hash":
-        return
+def _validate_hash_parameters(config: dict[str, Any]) -> None:
+    """The "hash" ``parameters`` validation (contract: Configuration, Errors): rejects any key
+    beyond what it recognizes."""
+    parameters = config["parameters"]
     unknown = set(parameters) - {"key"}
     if unknown:
-        raise _CliError(USAGE_ERROR, f"unknown hash parameters: {sorted(unknown)}")
+        raise FakeUsageError(f"unknown hash parameters: {sorted(unknown)}")
     key = parameters.get("key")
     if key is not None and not isinstance(key, str):
-        raise _CliError(USAGE_ERROR, "parameters.key must be a string")
+        raise FakeUsageError("parameters.key must be a string")
 
 
-def _check_output_columns_completeness(operation: str, output_columns: dict[str, str]) -> None:
-    """The reserved conformance operation bypasses this too: it has no defined output list, and
-    its purpose is to reach the data stage regardless of what output_columns the kit supplies."""
-    if operation == RESERVED_INTERNAL_ERROR_OPERATION:
-        return
-    expected = set(_OPERATION_OUTPUTS.get(operation, ()))
+def _check_output_columns_completeness(operation: FakeOperation, output_columns: dict[str, str]) -> None:
+    expected = set(operation.outputs)
     actual = set(output_columns)
     if actual != expected:
         raise _CliError(
@@ -463,7 +482,7 @@ def _assert_no_compressed_record_batch(raw: bytes) -> None:
         raise _CliError(DATA_ERROR, f"malformed input while scanning for compressed record batches: {exc}") from exc
 
 
-def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
+def _validate_input_schema(schema: pa.Schema, input_columns: list[str], column_types: frozenset[str]) -> None:
     """The stream's schema must contain exactly ``input_columns``, in any order, without
     duplicates (data error); each field's type must then be from the vocabulary (unsupported
     error); presence errors precede type errors (contract: Data)."""
@@ -476,13 +495,13 @@ def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
             f"input schema must contain exactly input_columns {sorted(input_columns)}, got {sorted(names)}",
         )
     for field in schema:
-        if _classify_column_type(field.type) not in COLUMN_TYPES:
+        if _classify_column_type(field.type) not in column_types:
             raise _CliError(UNSUPPORTED, f"column {field.name!r} has an unsupported type: {field.type!r}")
 
 
 def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
     """Runs "hash" row by row, reading each row's values in ``input_columns`` order (not stream
-    field order), producing the operation's first output column under its configured name, typed int64
+    field order), producing the operation's single output column under its configured name, typed int64
     (contract: Data, Configuration). Uses ``compute_expected_hash_column`` -- the same algorithm
     ``HashOperationConformanceMixin`` computes expected values with, so the two can't drift. Builds
     a fresh output schema, so no input Arrow metadata is ever propagated to the output."""
@@ -492,11 +511,15 @@ def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
 
     input_columns = config["input_columns"]
     key: str | None = config["parameters"].get("key")
-    written_name = config["output_columns"][_OPERATION_OUTPUTS[config["operation"]][0]]
+    written_name = next(iter(config["output_columns"].values()))
     columns = {name: table.column(name).to_pylist() for name in input_columns}
     values = compute_expected_hash_column(columns, input_columns, key)
     output_schema = pa.schema([pa.field(written_name, pa.int64())])
     return output_schema, [array_from_values(values, pa.int64())]
+
+
+HASH_OPERATION = FakeOperation("hash", ("result",), _compute_hash_output, _validate_hash_parameters)
+EXAMPLE_BINARY = FakeBinary(PLUGIN_ID, (HASH_OPERATION,))
 
 
 def _build_ipc_stream_bytes(schema: pa.Schema, arrays: list[pa.Array]) -> bytes:
@@ -523,7 +546,9 @@ def _write_output_bytes(data: bytes, output_path: Path | None) -> None:
     sys.stdout.buffer.flush()
 
 
-def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None) -> None:
+def _run_data_stage(
+    binary: FakeBinary, operation: FakeOperation | None, raw: bytes, config: dict[str, Any], output_path: Path | None
+) -> None:
     """Parse the input as an Arrow IPC stream and run the configured operation, writing the result
     to stdout or ``--output`` (contract: Data). Reads the whole input into memory first; a real
     Rust binary should stream batches instead (contract: Invocation), acceptable for this stub.
@@ -533,8 +558,7 @@ def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None
     if len(raw) == 0:
         raise _CliError(DATA_ERROR, "input is zero bytes, not an Arrow IPC stream")
 
-    operation = config["operation"]
-    if operation == RESERVED_INTERNAL_ERROR_OPERATION:
+    if operation is None:
         # Reserved conformance-only operation: reaches the data stage and deliberately fails via a
         # genuine, distinctly-named exception, letting it fall through to main()'s generic
         # catch-all -- the same path any other unexpected exception takes -- so the kit can
@@ -543,40 +567,44 @@ def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None
 
     buffer_reader = pa.BufferReader(pa.py_buffer(raw))
     reader = _open_ipc_stream_reader(buffer_reader)
-    _validate_input_schema(reader.schema, config["input_columns"])
+    _validate_input_schema(reader.schema, config["input_columns"], binary.column_types)
     _assert_ends_with_eos_marker(raw)
     _assert_no_compressed_record_batch(raw)
     table = _read_all_batches(reader)
     _assert_no_trailing_data(buffer_reader, raw)
 
-    output_schema, output_arrays = _compute_hash_output(table, config)
+    output_schema, output_arrays = operation.compute(table, config)
     _write_output_bytes(_build_ipc_stream_bytes(output_schema, output_arrays), output_path)
 
 
-def _run_command(args: list[str]) -> int:
+def _run_command(binary: FakeBinary, args: list[str]) -> int:
     run_args = _parse_run_args(args)
-    _check_license()
+    _check_license(binary)
     config = _load_config(run_args.config_path)
     _validate_config_structure(config)
-    operation = config["operation"]
-    _check_operation_capability(operation)
-    _validate_hash_parameters(operation, config["parameters"])
-    _check_output_columns_completeness(operation, config["output_columns"])
+    operation = _lookup_operation(binary, config["operation"])
+    if operation is not None:
+        if operation.validate is not None:
+            try:
+                operation.validate(config)
+            except FakeUsageError as exc:
+                raise _CliError(USAGE_ERROR, str(exc)) from exc
+        _check_output_columns_completeness(operation, config["output_columns"])
     _open_input_output(run_args.input_path, run_args.output_path)
     raw = _read_input_bytes(run_args.input_path)
-    _run_data_stage(raw, config, run_args.output_path)
+    _run_data_stage(binary, operation, raw, config, run_args.output_path)
     return 0
 
 
-def _dispatch(argv: list[str]) -> int:
+def _dispatch(binary: FakeBinary, argv: list[str]) -> int:
     if argv == ["--version"]:
-        print(f"{PLUGIN_ID} {VERSION}")
+        print(f"{binary.plugin_id} {binary.version}")
         return 0
     if argv == ["--capabilities"]:
-        print(json.dumps(_capabilities()))
+        print(json.dumps(_capabilities(binary)))
         return 0
     if argv and argv[0] == "run":
-        return _run_command(argv[1:])
+        return _run_command(binary, argv[1:])
     raise _CliError(
         USAGE_ERROR, "usage: --version | --capabilities | run --config <path> [--input <path>] [--output <path>]"
     )
@@ -600,23 +628,10 @@ def _reconfigure_streams_utf8_lf() -> None:
             pass
 
 
-def install_fake_identity(
-    plugin_id: str, operation: str, output_key: str, column_types: frozenset[str], version: str | None = None
-) -> None:
-    """Point the identity globals at a fake binary; only for fake binaries run as a fresh subprocess."""
-    global PLUGIN_ID, VERSION, CAPABILITY_OPERATIONS, _OPERATION_OUTPUTS, COLUMN_TYPES
-    PLUGIN_ID = plugin_id
-    if version is not None:
-        VERSION = version
-    CAPABILITY_OPERATIONS = [operation]
-    _OPERATION_OUTPUTS = {operation: (output_key,)}
-    COLUMN_TYPES = column_types
-
-
-def main() -> int:
+def main(binary: FakeBinary = EXAMPLE_BINARY) -> int:
     _reconfigure_streams_utf8_lf()
     try:
-        return _dispatch(sys.argv[1:])
+        return _dispatch(binary, sys.argv[1:])
     except _CliError as exc:
         _emit_error(exc.code, exc.message)
         return exc.code

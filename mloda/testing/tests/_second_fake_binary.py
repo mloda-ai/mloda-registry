@@ -2,25 +2,23 @@
 ``frobnicate``), used by ``test_second_binary_conformance.py`` to prove
 ``BinaryModelConformanceBase``'s checks are truly operation/output-name agnostic.
 
-Reuses ``simulated_binary.py``'s CLI/license/Arrow-IPC mechanics unchanged by monkeypatching only
-the module globals that carry "hash"'s own identity (``PLUGIN_ID``, ``CAPABILITY_OPERATIONS``
-and ``_OPERATION_OUTPUTS``, from which the shared hash computation reads its output key), plus the
-column vocabulary (utf8 only) and the output column type (utf8): every
-``simulated_binary.py`` function looks these up as a module global at call time, so patching them via
-``simulated_binary.install_fake_identity`` is sufficient.
+Passes a ``FakeBinary`` to ``simulated_binary.main``: the shared hash computation under another
+operation name and output key, a utf8-only column vocabulary and a utf8 output column type.
 
-Not a test module: run only via ``python -m mloda.testing.tests._second_fake_binary``, one fresh
-subprocess per invocation, so the monkeypatching never leaks into other tests' own
-``simulated_binary.py`` subprocess runs.
+Not a test module: run via ``python -m mloda.testing.tests._second_fake_binary``.
 """
 
 from __future__ import annotations
 
 import sys
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from mloda.testing.binary_model import simulated_binary
-from mloda.testing.binary_model.simulated_binary import install_fake_identity
+from mloda.testing.binary_model.simulated_binary import HASH_OPERATION, FakeBinary, FakeOperation
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # Deliberately not "example_binary" / "hash" / "result" (contract: Identifier, Capabilities,
 # Configuration), so this proves BinaryModelConformanceBase's checks are truly contract-generic.
@@ -34,8 +32,10 @@ VERSION = "1.2.3-rc.1+build.7"
 COLUMN_TYPES = frozenset({"utf8"})
 
 
-def _utf8_output(original: Any) -> Any:
-    def compute(table: Any, config: dict[str, Any]) -> Any:
+def _utf8_output(
+    original: Callable[[pa.Table, dict[str, Any]], tuple[pa.Schema, list[pa.Array]]],
+) -> Callable[[pa.Table, dict[str, Any]], tuple[pa.Schema, list[pa.Array]]]:
+    def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
         import pyarrow as pa
 
         schema, arrays = original(table, config)
@@ -45,11 +45,10 @@ def _utf8_output(original: Any) -> Any:
     return compute
 
 
-def _install_second_binary_identity() -> None:
-    install_fake_identity(PLUGIN_ID, OPERATION, OUTPUT_KEY, COLUMN_TYPES, VERSION)
-    simulated_binary._compute_hash_output = _utf8_output(simulated_binary._compute_hash_output)
+SECOND_BINARY = FakeBinary(
+    PLUGIN_ID, (FakeOperation(OPERATION, (OUTPUT_KEY,), _utf8_output(HASH_OPERATION.compute)),), COLUMN_TYPES, VERSION
+)
 
 
 if __name__ == "__main__":
-    _install_second_binary_identity()
-    sys.exit(simulated_binary.main())
+    sys.exit(simulated_binary.main(SECOND_BINARY))

@@ -2,7 +2,7 @@
 binary shaped differently from the "hash" worked example, not just superficially generic.
 
 Stands up a second, minimal binary (``second_fake_binary``, operation "frobnicate", output key
-"value") via the monkeypatch shim in ``_second_fake_binary.py``, then points every overridable
+"value") via ``_second_fake_binary.py``, then points every overridable
 class attribute at it, the same way ``TestBinaryModelConformance`` targets the hash example.
 """
 

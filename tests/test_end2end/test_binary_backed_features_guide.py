@@ -257,5 +257,8 @@ def test_test_section_shows_the_shipped_hmac_fake_binary_for_anonymizer_subclass
         '"--plugin-id"',
         '"anonymizer_binary"',
         "AnonymizerFeatureGroup",
+        "FakeBinary",
+        "FakeOperation",
+        "simulated_binary.main",
     ):
         assert needle in section, f"the Test section must contain {needle}; section was:\n" + section
