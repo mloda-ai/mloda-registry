@@ -90,7 +90,7 @@ def test_the_identity_of_a_refused_descriptor_is_still_a_name(tmp_path: Path, ra
     assert GdpduReader.data_access_identity(str(tmp_path)) == f"gdpdu:{tmp_path.name}"
 
 
-# --- reader overlap through the resolution chain (mloda 0.16) -------------------------------
+# --- reader overlap through the resolution chain ------------------------------------------------
 
 
 def _resolve(folders: list[Path], name: str, options: dict[str, str] | None = None, journals: bool = False) -> Any:
