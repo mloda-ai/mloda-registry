@@ -6,8 +6,8 @@ Reuses ``simulated_binary.py``'s CLI/license/Arrow-IPC mechanics unchanged by mo
 the module globals that carry "hash"'s own identity (``PLUGIN_ID``, ``CAPABILITY_OPERATIONS``
 and ``_OPERATION_OUTPUTS``, from which the shared hash computation reads its output key), plus the
 column vocabulary (utf8 only) and the output column type (utf8): every
-``simulated_binary.py`` function looks these up as a module global at call time, so patching them from
-outside is sufficient.
+``simulated_binary.py`` function looks these up as a module global at call time, so patching them via
+``simulated_binary.install_fake_identity`` is sufficient.
 
 Not a test module: run only via ``python -m mloda.testing.tests._second_fake_binary``, one fresh
 subprocess per invocation, so the monkeypatching never leaks into other tests' own

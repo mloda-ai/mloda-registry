@@ -34,7 +34,13 @@ from mloda.testing.binary_model.hmac_sha256_reference import (
 )
 from mloda.testing.binary_model.license_vectors import valid_license_token
 
-STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.hmac_fake_binary", "--plugin-id", "anonymizer_binary"]
+STUB_CMD = [
+    sys.executable,
+    "-m",
+    "mloda.testing.binary_model.hmac_fake_binary",
+    "--plugin-id",
+    AnonymizerFeatureGroup.BINARY_PLUGIN_ID,
+]
 VALID_LICENSE_KEY = valid_license_token([AnonymizerFeatureGroup.BINARY_PLUGIN_ID])
 KEY_ENV = "ANONYMIZER_TEST_PII_KEY"
 UNSET_KEY_ENV = "ANONYMIZER_TEST_UNSET_PII_KEY"

@@ -8,6 +8,8 @@ import os
 import sys
 from typing import ClassVar
 
+import pytest
+
 from mloda.testing.binary_model import simulated_binary
 from mloda.testing.binary_model.conformance import (
     USAGE_ERROR,
@@ -48,16 +50,17 @@ _PLUGIN_ID_CMD = [
 ]
 
 
-def test_plugin_id_flag_renames_the_version_line() -> None:
-    result = run_binary(_PLUGIN_ID_CMD, ["--version"], dict(os.environ))
+@pytest.mark.parametrize(
+    "flag", [pytest.param("--version", id="version"), pytest.param("--capabilities", id="capabilities")]
+)
+def test_plugin_id_flag_renames_the_reported_identity(flag: str) -> None:
+    """`--plugin-id` renames the identity in both the `--version` line and the `--capabilities` JSON."""
+    result = run_binary(_PLUGIN_ID_CMD, [flag], dict(os.environ))
     assert result.returncode == 0
-    assert result.stdout.decode().strip() == f"anonymizer_binary {simulated_binary.VERSION}"
-
-
-def test_plugin_id_flag_renames_the_capabilities_plugin_id() -> None:
-    result = run_binary(_PLUGIN_ID_CMD, ["--capabilities"], dict(os.environ))
-    assert result.returncode == 0
-    assert json.loads(result.stdout)["plugin_id"] == "anonymizer_binary"
+    if flag == "--version":
+        assert result.stdout.decode().strip() == f"anonymizer_binary {simulated_binary.VERSION}"
+    else:
+        assert json.loads(result.stdout)["plugin_id"] == "anonymizer_binary"
 
 
 def test_bare_plugin_id_flag_is_a_usage_error_without_a_traceback() -> None:
