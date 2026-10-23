@@ -374,8 +374,8 @@ def test_reader_loads_dossier_without_second_clock() -> None:
 def test_both_concepts_in_one_request() -> None:
     """mloda is about declaring SETS of features: two concepts must share one request.
 
-    Filtering per concept gave each a different length and Arrow rejected the table with
-    "expected length 1 but got length 5". Common ledger grain + null pairs fixes it.
+    Filtering per concept would give each a different length, which Arrow rejects ("expected
+    length 1 but got length 5"). The shared ledger grain with null pairs keeps them aligned.
     """
     res = mloda.run_all(
         features=["revenue__sources", "receivables__sources"],
@@ -474,11 +474,9 @@ def test_descriptor_is_dtd_shaped() -> None:
 def test_an_unpriced_contributing_line_makes_the_total_unstateable() -> None:
     """A matching line with an empty amount is an attested row whose amount nobody knows.
 
-    This test previously asserted the opposite -- that the total stayed 45385.06 while the
-    unpriced row kept its citation. That is the known subtotal wearing the authority of a
-    complete answer: SQL's SUM skips the null, so the caller sees a confident number cited
-    to a row that was never priced. It is the sourceless-zero failure with better manners,
-    treating unknown as zero. The total is now null; the citations still say what was found.
+    The total is null and the citations still say what was found. SUM skips the null, so a
+    known subtotal would pose as a complete answer cited to a row that was never priced:
+    the sourceless-zero failure with better manners, treating unknown as zero.
     """
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "gap_amount"
@@ -496,7 +494,7 @@ def test_an_unpriced_contributing_line_makes_the_total_unstateable() -> None:
             plugin_collector=PLUGINS,
         )
         got = {c: t.column(c).to_pylist()[0] for t in res for c in t.column_names}
-        # six revenue lines now, one of them unpriced: no stateable total, six citations
+        # six revenue lines, one of them unpriced: no stateable total, six citations
         assert got["revenue__sources~value"] is None, got["revenue__sources~value"]
         assert len(got["revenue__sources~origins"]) == 6, got["revenue__sources~origins"]
 
@@ -735,20 +733,14 @@ def test_citation_binds_the_descriptor_not_only_the_data() -> None:
 
 
 def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
-    """This test previously asserted the contradiction at the heart of the chain.
+    """A booking after the closed period is out of the policy's scope: neither refused nor admitted.
 
-    It added a February 2026 revenue line and asserted the total ROSE to 52385.06. So the
-    guard protected 2025 rows from late keying while 2026 revenue walked into the answer
-    under that same cutoff's authority. Either `revenue` is the period's total, and that
-    was wrong, or it is an all-time total, and the cutoff story described nothing.
-
-    An empty Erfassungsdatum is still only the guard's business on a line booked into the
-    closed period -- a 2026 booking is not a late entry into 2025, and is not refused.
-    But it is not admitted either: the policy had no jurisdiction, says so with an
-    out-of-scope verdict, and the aggregation totals only rows a policy affirmatively
-    vouched for. So the request returns no number rather than a total mixing vetted and
-    unvetted rows. Scoping a total to a period the feature name carries is the work this
-    points at, and it is not in this spike.
+    An empty Erfassungsdatum is only the guard's business on a line booked into the closed
+    period -- a 2026 booking is not a late entry into 2025, so it is not refused. But it is
+    not admitted either: the policy has no jurisdiction and says so with an out-of-scope
+    verdict, and the aggregation totals only rows a policy affirmatively vouched for. So the
+    request returns no number rather than a total mixing vetted and unvetted rows. Scoping a
+    total to a period the feature name carries is not built here.
     """
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "after_period"
@@ -883,8 +875,9 @@ def test_second_exporter_profile_reads_without_reader_changes() -> None:
 def test_second_profile_reaches_the_same_total_end_to_end() -> None:
     """Same decoded column is not the same claim as same cited total.
 
-    Run in a subprocess: configuring a second profile registers it globally and would
-    shadow the base group for every later resolution here.
+    Run in a subprocess: dossier_c declares its clocks under other names, so it needs its
+    own policy class, which registers process-wide and would compete with the host's policy
+    for every later resolution here.
     """
     facts = run_isolated("dossier_c")
     assert facts["revenue"] == "45385.06", facts
@@ -898,7 +891,7 @@ def test_second_profile_reaches_the_same_total_end_to_end() -> None:
 def test_a_profile_naming_undeclared_columns_refuses_by_name() -> None:
     """The mapping from declared column to meaning is per exporter, so it can be wrong.
 
-    Reading straight through gave KeyError('Field "Konto" does not exist in schema')
+    Reading straight through would raise KeyError('Field "Konto" does not exist in schema')
     from inside Arrow, which names neither the profile nor the dossier.
     """
     from mloda.provider import FeatureSet
@@ -931,13 +924,12 @@ def test_a_profile_naming_undeclared_columns_refuses_by_name() -> None:
 
 
 def test_profile_shadowing_refuses_instead_of_answering_wrongly() -> None:
-    """The framework rule is unchanged; the design no longer turns it into a number.
+    """A shadowing subclass refuses by name instead of mapping the wrong dossier.
 
-    mloda keeps a matching subclass over its parent, so modelling one exporter per
-    subclass let a second profile shadow the first and answer under the wrong mapping.
-    Profiles are no longer subclasses: `select_profile` picks the one the DOSSIER fits.
-    A shadowing subclass therefore cannot map the wrong dossier -- it refuses, naming the
-    columns the dossier actually declares. Three siblings still collide outright.
+    mloda keeps a matching subclass over its parent, so the shadowing subclass wins
+    resolution. `select_profile` picks the profile the DOSSIER fits, so a shadowing
+    subclass cannot map the wrong dossier: it refuses, naming the columns the dossier
+    actually declares. Three siblings collide outright.
 
     Still not solved, and disclosed: two profiles whose columns are named identically but
     mean different things are indistinguishable on names alone.
@@ -1016,8 +1008,8 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
     facts = run_isolated("inseparable")
     assert facts["with_policy_revenue"] == "45385.06", facts
     assert len(facts["with_policy_origins"]) == 5, facts
-    # Option A: with no policy class the verdict feature does not resolve at all; the
-    # InadmissibleTotal backstop now catches the concept wired past the policy instead.
+    # with no policy class the verdict feature does not resolve at all; the
+    # InadmissibleTotal backstop catches the concept wired past the policy.
     assert facts["without_policy"].startswith("FeatureResolutionError: "), facts
     assert facts["bypass"].startswith("InadmissibleTotal: "), facts
     assert "No feature groups found for feature name: 'gdpdu_journal__admitted'" in facts["without_policy"], facts
@@ -1069,7 +1061,7 @@ def test_the_evidence_column_name_is_reserved_against_a_descriptor() -> None:
 
 
 def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
-    """Checking only for non-null admitted "", "DENIED" and False alike.
+    """A non-null check alone would admit "", "DENIED" and False alike.
 
     An affirmative verdict naming its policy is the contract. This is an in-process
     convention, not authentication -- a producer inside the process can still write a
@@ -1095,7 +1087,7 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
             value, arrow_type = cls.STAMP
             return table.append_column(ADMISSIBILITY_COLUMN, pa.array([value] * table.num_rows, type=arrow_type))
 
-    # the last three are the grammar cases: prefix-plus-length admitted all of them
+    # the last three are the grammar cases: a prefix-plus-length check would admit all of them
     try:
         for value, arrow_type in (
             ("", pa.string()),
@@ -1142,9 +1134,9 @@ def test_two_policies_collide_where_the_cause_is_visible() -> None:
 def test_an_attested_dossier_with_no_matching_rows_still_returns_null() -> None:
     """Presence of the evidence column is the contract, not a non-empty one.
 
-    Requiring non-empty evidence made a zero-contribution concept raise instead of
-    returning the promised null -- re-breaking the sourceless-zero guarantee from the
-    other direction.
+    Requiring non-empty evidence would make a zero-contribution concept raise instead of
+    returning the promised null, breaking the sourceless-zero guarantee from the other
+    direction.
     """
     import pyarrow as pa
     from mloda.provider import FeatureSet
@@ -1264,9 +1256,9 @@ def _total(values: list[Any], origins: list[Any], scale: int = 2) -> Any:
 def test_a_priced_line_with_no_citation_is_refused() -> None:
     """The mirror of the unpriced line, and the one the title depends on.
 
-    Keying contribution on the origin alone made a priced row with no citation vanish from
-    its own total: values [10.00, 20.00] with origins ["GL.txt@abc:1", None] returned 10.00
-    cited to one row. That is a smaller number wearing the authority of a complete one --
+    Keying contribution on the origin alone would make a priced row with no citation vanish
+    from its own total: values [10.00, 20.00] with origins ["GL.txt@abc:1", None] would give
+    10.00 cited to one row. That is a smaller number wearing the authority of a complete one,
     the same failure as the known subtotal, arriving from the other side. A value the
     producer cannot cite is a broken contract, not a data condition, so it raises rather
     than nulling: nulling would let a producer bug pass as an unpriceable dossier.
@@ -1284,7 +1276,7 @@ def test_a_priced_line_with_no_citation_is_refused() -> None:
 
 
 def test_a_blank_citation_is_not_a_citation() -> None:
-    """ "" is not a source. Non-null was the whole test, so an empty string cited a total."""
+    """ "" is not a source: a non-null check alone would let an empty string cite a total."""
     from decimal import Decimal
 
     from mloda.community.feature_groups.experimental.german_ledger.sources import UncitedValue
@@ -1313,8 +1305,8 @@ def test_a_blank_citation_does_not_make_a_row_contribute() -> None:
 def test_the_total_is_summed_at_the_declared_precision() -> None:
     """Python's default Decimal context rounds at 28 significant digits.
 
-    decimal128(38, 2) money is wider than that, so the default context silently rounded
-    cents away on large ledgers: 123456789012345678901234567890.11 + 0.02 came back as
+    decimal128(38, 2) money is wider than that, so the default context would silently round
+    cents away on large ledgers: 123456789012345678901234567890.11 + 0.02 would give
     ...900.00. A total that quietly loses cents is worse than one that refuses.
     """
     from decimal import Decimal
@@ -1327,10 +1319,9 @@ def test_a_line_outside_the_closed_period_is_stamped_as_outside_it() -> None:
     """The guard must not stamp a period test onto a row it declined to apply it to.
 
     A 2026 booking is outside the cutoff's reach: the policy sees it and does not refuse
-    it, but it never tested it against the closed period. Stamping it with the same
-    verdict as a cleared 2025 line made the evidence claim an examination that never
-    happened. The row stays admissible -- this guard has no grounds to refuse it -- and
-    the stamp now says which of the two it is.
+    it, but never tested it against the closed period. It carries an outside-scope stamp,
+    not the cleared one, which would claim an examination that never happened. The row is
+    not refused (this guard has no grounds to refuse it), but it is not admitted either.
     """
     import datetime
 
@@ -1353,13 +1344,12 @@ def test_a_line_outside_the_closed_period_is_stamped_as_outside_it() -> None:
 
 
 def test_omitted_accuracy_and_encapsulator_take_the_standards_defaults() -> None:
-    """The reader shipped two wrong GDPdU defaults, and both fixtures hid them.
+    """An omitted Accuracy or TextEncapsulator takes the standard's defaults, 0 and '"'.
 
-    The standard's defaults are Accuracy 0 and TextEncapsulator '"'. This reader used 2
-    and none, so a conforming dossier that omitted either element was misread: amounts
-    divided by a hundred, and quoted fields containing the delimiter split down the
-    middle. Every fixture declares both elements explicitly, which is exactly why 45
-    tests passed over a reader that would misread a conforming file.
+    Defaulting Accuracy to 2 would divide every amount by a hundred; defaulting to no
+    encapsulator would split quoted fields containing the delimiter down the middle. Every
+    fixture declares both elements explicitly, so only a dossier omitting them exercises
+    the defaults.
     """
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "bare_defaults"
@@ -1396,13 +1386,11 @@ def test_a_declared_range_is_refused_rather_than_disregarded() -> None:
 
 
 def test_a_sibling_subcolumn_cannot_become_the_total() -> None:
-    """The worst defect found in review: a plausible total under a valid-looking citation.
+    """Exact column names are required and ambiguity is refused, never resolved by sort order.
 
-    Column selection took the first name ending in `~value` from a SORTED list, so
-    `revenue~other~value` -- which sorts before `revenue~value` -- silently became the
-    answer, carrying the right concept's citations. That is precisely the failure this
-    aggregation exists to prevent, arriving through its own column resolution. Exact
-    names are now required and ambiguity is refused rather than resolved.
+    `revenue~other~value` sorts before `revenue~value`, so taking the first sorted `~value`
+    match would total the sibling under the right concept's citations: a plausible total
+    under a valid-looking citation, the failure this aggregation exists to prevent.
     """
     from decimal import Decimal
 
@@ -1430,7 +1418,7 @@ def test_a_sibling_subcolumn_cannot_become_the_total() -> None:
 
 
 def test_a_binary_float_amount_is_refused_by_name() -> None:
-    """`Decimal(0) + float` raised a TypeError from inside the sum, which says nothing.
+    """`Decimal(0) + float` would raise a TypeError from inside the sum, which says nothing.
 
     A stock CSV reader infers double, so this is the first thing a producer over an
     independent source hits. The refusal has to name the column and say who is
@@ -1457,13 +1445,12 @@ def test_a_binary_float_amount_is_refused_by_name() -> None:
 
 
 def test_both_exporter_shapes_resolve_through_one_class_in_one_process() -> None:
-    """The architecture fix: profile identity is a property of the dossier, not the class.
+    """Profile identity comes from the dossier, not the class.
 
-    This is the test the old design could not have. Registering a second profile meant
-    registering a second subclass, which shadowed the first for every later resolution in
-    the process -- so the suite could only ever exercise one shape per process, and the
-    second had to be proved in a subprocess. One class now serves both, and the two shapes
-    reach the same total in the same interpreter.
+    Both exporter shapes resolve through one class in one interpreter and reach the same
+    total. A second profile registered as a subclass would shadow the first for every later
+    resolution in the process, so a subclass per profile would allow only one shape per
+    process.
     """
     from mloda.provider import FeatureSet
     from mloda.user import Feature
@@ -1481,7 +1468,7 @@ def test_both_exporter_shapes_resolve_through_one_class_in_one_process() -> None
 
 
 def test_two_profiles_fitting_one_dossier_are_refused_not_ranked() -> None:
-    """Where the old design guessed, this one stops.
+    """Two fitting profiles are refused, not ranked.
 
     If two known shapes both fit the columns a dossier declares, nothing in the names says
     which exporter wrote it. Picking either is how a wrong mapping reaches a citation list
@@ -1515,8 +1502,8 @@ def test_implied_accuracy_does_not_round_a_wide_amount_at_parse_time() -> None:
     """`scaleb` is arithmetic, so it obeys the context: 28 digits by default.
 
     That is narrower than the decimal128(38, s) this reader may produce, so a wide
-    <ImpliedAccuracy> amount was rounded where it was parsed. Nothing downstream could
-    recover it -- the aggregation's wider context only protects the sum, not the addend.
+    <ImpliedAccuracy> amount would be rounded at parse. Nothing downstream can recover it --
+    the aggregation's wider context only protects the sum, not the addend.
     """
     from decimal import Decimal
 
@@ -1641,10 +1628,9 @@ def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
 def test_a_declared_skip_num_bytes_is_refused_rather_than_disregarded() -> None:
     """<SkipNumBytes> declares a byte header in front of the data -- OrgaMon writes 154 bytes.
 
-    It was neither honoured nor refused: the header was split into fields and, if its field
-    count happened to match, read as a booking. That is a silent misread, the worst of the
-    three reader defects in the corpus notes. The reader does not implement it, so it
-    refuses by name at descriptor parse, the same way it refuses <Range>.
+    Disregarded, the header would be split into fields and, if its field count happened to
+    match, read as a booking. The reader does not implement it, so it refuses it by name at
+    descriptor parse, the same way it refuses <Range>.
     """
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "declares_skip"
@@ -1699,7 +1685,7 @@ def test_bytes_invalid_in_the_declared_encoding_are_refused_with_their_offset() 
 
 
 def test_each_declared_code_page_decodes_its_own_bytes() -> None:
-    """_CODEPAGES had no tests: UTF-16, OEM and Macintosh are pinned on self-made bytes.
+    """UTF-16, OEM and Macintosh code pages are pinned on self-made bytes.
 
     The same booking text is written in each code page and must come back identical, with
     the umlaut intact -- a wrong mapping reads it as mojibake, not as an error.
