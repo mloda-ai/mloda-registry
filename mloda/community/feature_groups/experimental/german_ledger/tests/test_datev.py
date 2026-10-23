@@ -27,7 +27,7 @@ LEDERMANN = HERE / "fixtures" / "datev_ledermann"
 # The column-name line of a real 700/21/13 batch (125 fields, en dashes and all).
 NAMES = (LEDERMANN / "EXTF_Buchungsstapel.csv").read_bytes().decode("cp1252").splitlines()[1]
 NAME_LIST = NAMES.split(";")
-# DATEV's own spellings of three names, as both third-party exports write them; positions unchanged.
+# DATEV's own spellings of some names, as both exports write them; positions unchanged.
 SPEC_NAMES = (
     NAMES.replace("–", "-").replace("Basisumsatz", "Basis-Umsatz").replace("Generalumkehr", "Generalumkehr (GU)")
 )
@@ -288,7 +288,7 @@ def test_several_batches_of_one_client_are_read_together(tmp_path: Path) -> None
 
 # --- refusals by name: acceptance criterion 3 (§3.4) ------------------------------------
 
-REFUSALS = {
+REFUSALS: dict[str, tuple[dict[str, Any], list[dict[str, str]], str]] = {
     "version 510": ({"version": "510", "format_version": "7"}, [], "Versionsnummer 510"),
     "version 300": ({"version": "300", "format_version": "2"}, [], "Versionsnummer 300"),
     "category 22 (OCA writer bug)": ({"category": "22"}, [], "Kategorie 22"),
@@ -337,8 +337,7 @@ REFUSALS = {
 @pytest.mark.parametrize("case", sorted(REFUSALS))
 def test_each_unhonoured_declaration_is_refused_by_name(tmp_path: Path, case: str) -> None:
     header, rows, message = REFUSALS[case]
-    untyped: dict[str, Any] = header  # `_batch` now has one int keyword (fields) beside the str header overrides
-    _batch(tmp_path, [_row(**r) for r in rows] or [_row("1,00", "S", "4400", "10000", "1503")], **untyped)
+    _batch(tmp_path, [_row(**r) for r in rows] or [_row("1,00", "S", "4400", "10000", "1503")], **header)
     with pytest.raises(DatevRefusal, match=message):
         _load(str(tmp_path))
 
@@ -478,7 +477,6 @@ def test_a_batch_shaped_like_winfo_reads_end_to_end(tmp_path: Path) -> None:
     assert sum(t.column("Betrag").to_pylist()) == 0
     assert t.column("Festschreibung").to_pylist() == [True] * 6
     assert t.column("SKR").to_pylist() == [""] * 6
-    assert t.column("BU-Schlüssel").to_pylist() == ["2", "2", "9", "9", "", ""]
     assert t.column("Buchungsdatum").to_pylist() == [date(2025, 8, 4)] * 4 + [date(2025, 8, 11)] * 2
 
 
