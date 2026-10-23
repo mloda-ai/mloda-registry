@@ -94,14 +94,11 @@ from mloda.enterprise.extenders.audit.tests.manifest_helpers import _Crash, _cra
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
-    CREDENTIALED_URI_IDENTITY,
-    URI_SECRET,
     CountingExtender,
     MlodaTestingUriFileFG,
     expected_value_int,
     prepare_csv_feature,
     prepare_value_int,
-    run_credentialed_uri_feature,
     run_csv_feature,
     run_value_int,
     write_csv,
@@ -895,6 +892,19 @@ class TestAuditExtenderContract(ExtenderContractTestMixin):
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(InMemoryAuditSink, "write", side_effect=RuntimeError("extender boom"))
+
+    def make_extender_with_identity_probe(self) -> tuple[Extender, Callable[[], tuple[list[str], str]]] | None:
+        extender = self.make_extender()
+        sink = extender.sink
+        assert isinstance(sink, InMemoryAuditSink)
+
+        def probe() -> tuple[list[str], str]:
+            uri_class = _qualname(MlodaTestingUriFileFG)
+            records = [record for record in sink.records if record["feature_group_class"] == uri_class]
+            identities = [identity for record in records for identity in record["data_access_identity"]]
+            return identities, json.dumps(sink.records)
+
+        return extender, probe
 
     def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
         marker_path = tmp_path / "audit.ndjson"
@@ -4754,23 +4764,6 @@ class TestAuditExtenderRunAll:
         assert len(records) == 1
         assert records[0]["data_access_identity"] == ["SourceMatch"]
         assert records[0]["data_access_identity_is_fallback"] == [True]
-
-    def test_run_all_read_of_a_credentialed_uri_records_an_identity_without_the_credentials(
-        self, tmp_path: Path
-    ) -> None:
-        audit_path = tmp_path / "audit.ndjson"
-        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
-
-        with verified_context(tenant_id="tenant-42"):
-            run_credentialed_uri_feature(extender)
-
-        sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
-        records = [
-            record for record in sink_records if record["feature_group_class"] == _qualname(MlodaTestingUriFileFG)
-        ]
-        assert len(records) == 1
-        assert records[0]["data_access_identity"] == [CREDENTIALED_URI_IDENTITY]
-        assert URI_SECRET not in json.dumps(sink_records)
 
     @pytest.mark.parametrize(
         ("declared", "expected"),

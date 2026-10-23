@@ -51,12 +51,6 @@ from mloda.testing.extenders.openlineage import (
     assert_openlineage_extender_seams,
     make_recording_client,
 )
-from mloda.testing.extenders.runners import (
-    CREDENTIALED_URI,
-    CREDENTIALED_URI_IDENTITY,
-    URI_SECRET,
-    MlodaTestingUriFileFG,
-)
 
 _LINEAGE_PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
 _CUSTOM_PRODUCER = "https://example.invalid/custom-lineage-producer"
@@ -1183,22 +1177,6 @@ class TestLineageFacetsRootSourceColumns:
         assert len(warnings) == 1
         assert "not_a_column" in warnings[0]
         assert str(path) not in warnings[0]
-
-    def test_run_all_read_of_a_credentialed_uri_names_the_dataset_without_the_credentials(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        options = Options(group={MlodaTestingUriFileFG.__name__: CREDENTIALED_URI})
-
-        _run(
-            LineageFacetsExtender(client=client, dataset_namespace="lineage-ds"),
-            [Feature("alpha", options=options)],
-            MlodaTestingUriFileFG,
-        )
-
-        complete = _complete(transport.events, _job(MlodaTestingUriFileFG))
-        assert [dataset.name for dataset in complete.inputs or []] == [CREDENTIALED_URI_IDENTITY]
-        assert URI_SECRET not in Serde.to_json(complete)
 
     def test_run_all_data_creator_root_step_has_no_column_lineage_even_when_declared(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

@@ -392,6 +392,21 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         extender = self.make_otel_extender(provider)
         return extender, lambda: [span.name for span in exporter.get_finished_spans()]
 
+    def make_extender_with_identity_probe(self) -> tuple[Extender, Callable[[], tuple[list[str], str]]] | None:
+        provider, exporter = make_span_capture()
+        extender = self.make_otel_extender(provider)
+
+        def probe() -> tuple[list[str], str]:
+            spans = exporter.get_finished_spans()
+            identities = [
+                str(span.attributes["mloda.data_access.identity"])
+                for span in spans
+                if span.name == "mloda.load" and span.attributes and "mloda.data_access.identity" in span.attributes
+            ]
+            return identities, str([span.attributes for span in spans])
+
+        return extender, probe
+
     def sink_probe_expected_content(self) -> set[str] | None:
         if self.expected_span_names() is None:
             return None

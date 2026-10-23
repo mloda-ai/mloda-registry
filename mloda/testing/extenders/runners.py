@@ -230,6 +230,15 @@ def _csv_alpha_request(directory: Path) -> tuple[Feature, PluginCollector]:
     )
 
 
+def _alpha_column(results: list[Any]) -> list[Any]:
+    """The `alpha` column of the first result table holding it."""
+    for table in results:
+        if isinstance(table, pa.Table) and "alpha" in table.column_names:
+            column: list[Any] = table.to_pydict()["alpha"]
+            return column
+    raise AssertionError("No result table with alpha found")
+
+
 def prepare_csv_feature(directory: Path, *extenders: Extender) -> mloda:
     """Write the CSV fixture into `directory` and prepare (but do not run) its `alpha` column; call
     session.run() to execute it."""
@@ -262,11 +271,7 @@ def run_csv_feature(
         flight_server=flight_server,
         carrier=carrier,
     )
-    for table in results:
-        if isinstance(table, pa.Table) and "alpha" in table.column_names:
-            column: list[Any] = table.to_pydict()["alpha"]
-            return column
-    raise AssertionError("No result table with alpha found")
+    return _alpha_column(results)
 
 
 # Module-level so MULTIPROCESSING can pickle it by path. The unique suffix keeps it from claiming a host's files.
@@ -324,11 +329,7 @@ def run_credentialed_uri_feature(
         flight_server=flight_server,
         carrier=carrier,
     )
-    for table in results:
-        if isinstance(table, pa.Table) and "alpha" in table.column_names:
-            column: list[Any] = table.to_pydict()["alpha"]
-            return column
-    raise AssertionError("No result table with alpha found")
+    return _alpha_column(results)
 
 
 class CountingExtender(Extender):

@@ -818,9 +818,20 @@ class TestExtenderContractTestMixinShape:
     def test_ambient_sink_captured_defaults_to_none_opt_out(self) -> None:
         assert ExtenderContractTestMixin().ambient_sink_captured([]) is None
 
+    def test_make_extender_with_identity_probe_defaults_to_none_opt_out(self) -> None:
+        assert ExtenderContractTestMixin().make_extender_with_identity_probe() is None
+
+    def test_undeclared_identity_probe_skips_the_credentialed_uri_test(self) -> None:
+        class _UndeclaredHost(ExtenderContractTestMixin):
+            pass
+
+        with pytest.raises(pytest.skip.Exception):
+            _UndeclaredHost().test_contract_run_all_credentialed_uri_is_recorded_without_the_credentials()
+
     @pytest.mark.parametrize(
         "name",
         [
+            "test_contract_run_all_credentialed_uri_is_recorded_without_the_credentials",
             "test_contract_wraps_expected_hooks",
             "test_contract_raise_on_error_is_configurable",
             "test_contract_call_without_hook_context_passes_through",

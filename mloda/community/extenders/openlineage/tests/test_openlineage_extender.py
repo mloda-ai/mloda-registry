@@ -82,11 +82,8 @@ from mloda.testing.extenders.openlineage import (
     make_recording_client,
 )
 from mloda.testing.extenders.runners import (
-    CREDENTIALED_URI_IDENTITY,
-    URI_SECRET,
     MlodaTestingValueIntPlusOne,
     expected_value_int,
-    run_credentialed_uri_feature,
     run_csv_feature,
     run_two_features,
     run_until_ready_then_sigterm,
@@ -2967,18 +2964,6 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
                     declared.append(dataset["facets"]["mlodaDeclared"]["attributes"])
         assert declared
         assert all(attributes == {"license": "a"} for attributes in declared)
-
-    def test_a_credentialed_uri_read_by_run_all_is_published_without_the_credentials(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-
-        run_credentialed_uri_feature(OpenLineageExtender(client=client))
-
-        input_names = {dataset.name for event in transport.events for dataset in event.inputs or []}
-        assert CREDENTIALED_URI_IDENTITY in input_names
-        for event in transport.events:
-            assert URI_SECRET not in Serde.to_json(event)
 
     @pytest.mark.parametrize(
         ("declarations", "expected", "conflicts"),

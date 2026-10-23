@@ -79,8 +79,6 @@ from mloda.testing.extenders.otel import (
     single_span_attributes,
 )
 from mloda.testing.extenders.runners import (
-    CREDENTIALED_URI_IDENTITY,
-    URI_SECRET,
     CountingExtender,
     MlodaTestingFailingFeatureGroup,
     MlodaTestingJoinLeft,
@@ -88,7 +86,6 @@ from mloda.testing.extenders.runners import (
     expected_value_int,
     failing_feature_group,
     prepare_value_int,
-    run_credentialed_uri_feature,
     run_csv_feature,
     run_failing_feature,
     run_feature,
@@ -2144,18 +2141,6 @@ class TestOtelExtenderDeclaredAttributes:
         attrs = load_spans[0].attributes or {}
         assert attrs["mloda.declared.license"] == "a"
         assert "mloda.declared.scale" not in attrs
-
-    def test_a_credentialed_uri_read_by_run_all_is_recorded_without_the_credentials(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, exporter = otel_capture
-
-        run_credentialed_uri_feature(OtelExtender(tracer_provider=provider))
-
-        load_spans = [span for span in exporter.get_finished_spans() if span.name == "mloda.load"]
-        assert len(load_spans) == 1
-        assert (load_spans[0].attributes or {})["mloda.data_access.identity"] == CREDENTIALED_URI_IDENTITY
-        assert URI_SECRET not in str([span.attributes for span in exporter.get_finished_spans()])
 
     @pytest.mark.parametrize(("field", "prefix"), _ATTRIBUTE_FIELDS)
     def test_long_declared_string_is_truncated(

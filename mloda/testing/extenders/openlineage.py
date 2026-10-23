@@ -319,6 +319,17 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         extender = self.make_openlineage_extender(client)
         return extender, lambda: [event.eventType.value for event in transport.events if event.eventType is not None]
 
+    def make_extender_with_identity_probe(self) -> tuple[Extender, Callable[[], tuple[list[str], str]]] | None:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        def probe() -> tuple[list[str], str]:
+            events = self.calculate_run_events(transport.events)
+            names = {dataset.name for event in events for dataset in event.inputs or []}
+            return sorted(names), "".join(Serde.to_json(event) for event in transport.events)
+
+        return extender, probe
+
     def sink_probe_expected_content(self) -> set[str] | None:
         return {"START", "COMPLETE"}
 
