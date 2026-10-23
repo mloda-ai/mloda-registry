@@ -102,10 +102,9 @@ class _ReaderJournal(FeatureGroup):
     ) -> bool:
         """Gate on the name BEFORE the inherited root/input-data rules.
 
-        FeatureGroup.match_feature_group_criteria tries _is_root_and_matches_input_data first,
-        so a reader that claims the dossier folder would make this group match *any* name --
-        including revenue__sources -- and resolution would fail with "Multiple feature groups
-        found" before anything loaded (tests/isolated.py:collision).
+        The stock readers already decline every name but JOURNAL (decline_unconfirmed); this gate
+        keeps a READER that does not from making this group match any name, e.g. revenue__sources,
+        which resolution refuses as "Multiple feature groups found" (tests/isolated.py:collision).
         """
         if cls.READER is None or str(feature_name) != JOURNAL:
             return False
