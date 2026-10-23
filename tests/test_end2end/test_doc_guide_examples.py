@@ -13,6 +13,8 @@ actually accepts it via ``match_feature_group_criteria`` (the real runtime match
 small, named, importable helpers so the regression tests below can feed the two historical-bug
 variants through the exact same validation logic used against the real guide, instead of
 re-implementing the check inline.
+
+It also runs the python blocks of the allowlisted docs in ``RUNNABLE_DOCS`` in one fresh interpreter.
 """
 
 from __future__ import annotations
@@ -21,6 +23,9 @@ import importlib
 import json
 import pkgutil
 import re
+import subprocess  # nosec
+import sys
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
@@ -317,3 +322,90 @@ def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
         for sibling_test in tests:
             with pytest.raises(AssertionError):
                 sibling_test()
+
+
+# Each entry must also pass on its own: they share one interpreter, in order.
+RUNNABLE_DOCS = (
+    "README.md",
+    "docs/guides/02-discover-plugins.md",
+    "docs/guides/compute-framework-patterns/01-stateless-eager.md",
+    "docs/guides/compute-framework-patterns/02-stateless-lazy.md",
+    "docs/guides/compute-framework-patterns/05-data-lake.md",
+    "docs/guides/compute-framework-patterns/06-merge-engine.md",
+    "docs/guides/compute-framework-patterns/07-filter-engine.md",
+    "docs/guides/compute-framework-patterns/08-framework-transformer.md",
+    "docs/guides/data-operation-patterns/07-percentile-rank-offset.md",
+    "docs/guides/data-operation-patterns/08-scalar-and-frame-aggregate.md",
+    "docs/guides/data-operation-patterns/16-return-data-type-rule.md",
+    "docs/guides/data-operation-patterns/framework-support-matrix.md",
+    "docs/guides/feature-group-patterns/01-root-features.md",
+    "docs/guides/feature-group-patterns/02-derived-features.md",
+    "docs/guides/feature-group-patterns/03-chained-features.md",
+    "docs/guides/feature-group-patterns/04-multi-input-features.md",
+    "docs/guides/feature-group-patterns/06-artifact-features.md",
+    "docs/guides/feature-group-patterns/11-options.md",
+    "docs/guides/feature-group-patterns/16-validators.md",
+    "docs/guides/feature-group-patterns/18-datatypes.md",
+    "docs/guides/feature-group-patterns/19-domain.md",
+    "docs/guides/feature-group-patterns/26-input-feature-forwarding.md",
+)
+
+_DOC_CHECK_DRIVER = """\
+import sys
+from pathlib import Path
+from mloda.user import PluginLoader
+from mktestdocs import check_md_file
+PluginLoader.all()
+for path in sys.argv[1:]:
+    print(f"CHECKING {path}", flush=True)
+    check_md_file(fpath=Path(path), memory=True)
+"""
+
+
+def _display_path(path: str) -> str:
+    try:
+        return Path(path).relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path
+
+
+def _last_checked(stdout: str | bytes | None) -> str:
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    lines = [line for line in (stdout or "").splitlines() if line.startswith("CHECKING ")]
+    return _display_path(lines[-1].removeprefix("CHECKING ")) if lines else "<before the first file>"
+
+
+def run_md_files_isolated(paths: Sequence[Path], cwd: Path) -> None:
+    """Run the python blocks of *paths* in one fresh interpreter; fail with a message starting with the failing file."""
+    cmd = [sys.executable, "-c", _DOC_CHECK_DRIVER, *map(str, paths)]
+    try:
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300)  # nosec
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(f"{_last_checked(exc.stdout)}: timed out after {exc.timeout}s") from exc
+    if result.returncode != 0:
+        tail = "\n".join(result.stdout.splitlines()[-50:])
+        raise AssertionError(
+            f"{_last_checked(result.stdout)}: python block failed\nstdout (tail):\n{tail}\nstderr:\n{result.stderr}"
+        )
+
+
+def test_runnable_docs_execute(tmp_path: Path) -> None:
+    for doc in RUNNABLE_DOCS:
+        text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+        has_python = any(m.group(1) == "python" for m in _FENCE_RE.finditer(text))
+        assert has_python, f"{doc} has no ```python fence, so it would be checked for nothing"
+    run_md_files_isolated([REPO_ROOT / doc for doc in RUNNABLE_DOCS], cwd=tmp_path)
+
+
+def test_failing_python_block_names_the_file(tmp_path: Path) -> None:
+    good = tmp_path / "good.md"
+    bad = tmp_path / "bad.md"
+    good.write_text("```python\nassert True\n```\n", encoding="utf-8")
+    bad.write_text("```py\nraise RuntimeError('not run')\n```\n\n```python\nraise RuntimeError('boom')\n```\n")
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([good, bad], cwd=tmp_path)
+    message = str(excinfo.value)
+    assert message.startswith(str(bad)), message
+    assert "boom" in message
+    assert "not run" not in message

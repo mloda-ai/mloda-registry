@@ -1,6 +1,6 @@
 """Doc-drift guard for ``docs/guides/feature-group-patterns/29-binary-backed-features.md``, for the tox.ini and
-ci.yaml wiring of the real-wheel suite, and for the documented ``uv sync`` setup commands. No mktestdocs/sybil-style
-execution of guide code fences is wired in this repo, so the checks are mostly grep-based; only the
+ci.yaml wiring of the real-wheel suite, and for the documented ``uv sync`` setup commands. Guide 29 is not among the
+docs ``test_doc_guide_examples.py`` executes, so the checks are mostly grep-based; only the
 ``mloda-enterprise`` README quick-start snippet is executed."""
 
 from __future__ import annotations

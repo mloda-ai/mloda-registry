@@ -104,6 +104,8 @@ If you want to add a new plugin to the community registry:
 
 The guides under [`docs/guides/`](docs/guides/index.md) are a primary on-ramp for new mloda contributors. Clarifications, missing patterns, and new pattern catalogs are all valuable contributions. Start with the [Plugin Journey overview](docs/guides/index.md) to find the right entry point.
 
+Tag code blocks by intent: ` ```python ` for runnable code, ` ```py ` for illustrative snippets that are not run (`scripts/lint_docs.py` still reads both), ` ```text ` for output. The test suite runs the `python` blocks of every file in `RUNNABLE_DOCS` (`tests/test_end2end/test_doc_guide_examples.py`) in order, in one fresh interpreter. Keep new guides runnable and add them to that list; files not on it are not run yet.
+
 ### Fix Registry Tooling
 
 The non-plugin packages support discovery and testing:

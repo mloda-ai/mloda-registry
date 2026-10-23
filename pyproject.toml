@@ -23,6 +23,7 @@ dev = [
     "tox-uv",
     "pytest",
     "pytest-xdist",
+    "mktestdocs",
     "ruff",
     "mypy",
     "bandit",
