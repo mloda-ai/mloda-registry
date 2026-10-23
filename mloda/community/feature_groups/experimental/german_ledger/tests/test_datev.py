@@ -6,7 +6,6 @@ does not decide admissibility or concepts -- it produces one row per LEG, signed
 point of view of that leg's account, each carrying its own citation.
 """
 
-import os
 import re
 import shutil
 from datetime import date
@@ -24,13 +23,14 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import JOU
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
-# Third-party DATEV files, kept outside this repository: not all are licensed for
-# redistribution, so they are never committed here. Point GERMAN_LEDGER_CORPUS at them to run.
-CORPUS = Path(os.environ.get("GERMAN_LEDGER_CORPUS", HERE / "corpus-not-configured"))
 
 # The column-name line of a real 700/21/13 batch (125 fields, en dashes and all).
 NAMES = (LEDERMANN / "EXTF_Buchungsstapel.csv").read_bytes().decode("cp1252").splitlines()[1]
 NAME_LIST = NAMES.split(";")
+# DATEV's own spellings of three names, as both third-party exports write them; positions unchanged.
+SPEC_NAMES = (
+    NAMES.replace("–", "-").replace("Basisumsatz", "Basis-Umsatz").replace("Generalumkehr", "Generalumkehr (GU)")
+)
 
 
 def _load(folder: Path | str) -> pa.Table:
@@ -133,10 +133,21 @@ def _row(
     return ";".join(fields)
 
 
-def _batch(folder: Path, rows: list[str], name: str = "EXTF_Buchungsstapel.csv", **header: str) -> Path:
+def _batch(
+    folder: Path,
+    rows: list[str],
+    name: str = "EXTF_Buchungsstapel.csv",
+    *,
+    encoding: str = "cp1252",
+    newline: str = "\r\n",
+    names: str = NAMES,
+    fields: int = 31,
+    **header: str,
+) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / name
-    path.write_bytes(("\r\n".join([_header(**header), NAMES, *rows]) + "\r\n").encode("cp1252"))
+    head = ";".join(_header(**header).split(";")[:fields])
+    path.write_bytes((newline.join([head, names, *rows]) + newline).encode(encoding))
     return path
 
 
@@ -326,7 +337,8 @@ REFUSALS = {
 @pytest.mark.parametrize("case", sorted(REFUSALS))
 def test_each_unhonoured_declaration_is_refused_by_name(tmp_path: Path, case: str) -> None:
     header, rows, message = REFUSALS[case]
-    _batch(tmp_path, [_row(**r) for r in rows] or [_row("1,00", "S", "4400", "10000", "1503")], **header)
+    untyped: dict[str, Any] = header  # `_batch` now has one int keyword (fields) beside the str header overrides
+    _batch(tmp_path, [_row(**r) for r in rows] or [_row("1,00", "S", "4400", "10000", "1503")], **untyped)
     with pytest.raises(DatevRefusal, match=message):
         _load(str(tmp_path))
 
@@ -431,38 +443,79 @@ def test_the_identity_moves_when_a_batch_is_edited(tmp_path: Path) -> None:
     assert DatevExtfReader.data_access_identity(str(d)) != before
 
 
-# --- the corpus: files we did not write --------------------------------------------------
+# --- third-party export shapes, on invented bookings -------------------------------------
 
 
-@pytest.mark.skipif(not CORPUS.is_dir(), reason="GERMAN_LEDGER_CORPUS not set")
-@pytest.mark.parametrize(
-    "path, legs",
-    [
-        ("datev-extf-ledermann", 4),
-        ("datev-winfo", 10),
-        ("datev-nolicence/strobelm", 108),  # DATEV's own sample client: carries GU and BU 20
-    ],
-)
-def test_collected_batches_read(path: str, legs: int) -> None:
-    folder = CORPUS / path
-    if not folder.is_dir():
-        pytest.skip(f"{path} not collected here")
-    t = _load(str(folder))
-    assert t.num_rows == legs
-    assert sum(v for v in t.column("Betrag").to_pylist() if v is not None) == 0
+def test_a_batch_shaped_like_winfo_reads_end_to_end(tmp_path: Path) -> None:
+    """The shape of https://github.com/Winfo2024Kuhn/ERP-System-fuer-Handwerksbetriebe/blob/ae43e8c/src/test/resources/datev/buchungsstapel-golden.csv"""
+    quoted_names = ";".join(f'"{n}"' for n in SPEC_NAMES.split(";"))  # csv handles it (shape only)
+    rows = [
+        _row("321,00", "S", "1000", "8300", "0408", bu="2", wkz="EUR", Festschreibung="1"),
+        _row("18,50", "S", "4910", "1000", "0408", bu="9", wkz="EUR", Festschreibung="1"),
+        _row("400,00", "S", "1000", "1360", "1108", wkz="EUR", Festschreibung="1"),
+    ]
+    _batch(
+        tmp_path,
+        [r.replace('"', "") for r in rows],  # no quoting in the rows (shape only)
+        encoding="utf-8",  # no BOM
+        newline="\n",  # LF line ends (shape only)
+        names=quoted_names,
+        fields=22,  # header ends at WKZ: no SKR field
+        festschreibung="1",
+        zweck="",
+        von="20250801",
+        bis="20250831",
+    )
+    t = _load(str(tmp_path))
+    assert _legs(t) == [
+        ("1000", "8300", Decimal("321.00"), "K"),
+        ("8300", "1000", Decimal("-321.00"), "G"),
+        ("4910", "1000", Decimal("18.50"), "K"),
+        ("1000", "4910", Decimal("-18.50"), "G"),
+        ("1000", "1360", Decimal("400.00"), "K"),
+        ("1360", "1000", Decimal("-400.00"), "G"),
+    ]
+    assert sum(t.column("Betrag").to_pylist()) == 0
+    assert t.column("Festschreibung").to_pylist() == [True] * 6
+    assert t.column("SKR").to_pylist() == [""] * 6
+    assert t.column("BU-Schlüssel").to_pylist() == ["2", "2", "9", "9", "", ""]
+    assert t.column("Buchungsdatum").to_pylist() == [date(2025, 8, 4)] * 4 + [date(2025, 8, 11)] * 2
 
 
-@pytest.mark.skipif(not CORPUS.is_dir(), reason="GERMAN_LEDGER_CORPUS not set")
-@pytest.mark.parametrize(
-    "path, message",
-    [
-        ("datev-banana", "Versionsnummer 300"),
-        ("datev-kontor", "Versionsnummer 510"),
-    ],
-)
-def test_collected_old_versions_stay_refused(path: str, message: str) -> None:
-    with pytest.raises(DatevRefusal, match=message):
-        _load(str(CORPUS / path))
+def test_a_batch_shaped_like_strobelm_reads_end_to_end(tmp_path: Path) -> None:
+    """The shape of https://github.com/strobelm/datev/blob/8abf388/data/EXTF_Buchungsstapel.csv (DATEV's sample client)."""
+    # `_row(**by_name)` keys resolve against NAME_LIST, so Generalumkehr lands in the column
+    # SPEC_NAMES calls "Generalumkehr (GU)".
+    rows = [
+        _row("750", "S", "4500", "75", "2701", wkz='""'),  # Umsatz without decimal comma; 2-digit Sachkonto
+        _row("42,30", "S", "4650", "410", "2701", wkz='""'),  # 3-digit Sachkonto
+        # GU written quoted "0"/"1": a reversed S row paired with an H row
+        _row("60,00", "H", "70500", "4980", "1502", bu="503", wkz='""', Generalumkehr='"0"'),
+        _row("60,00", "S", "70500", "4980", "1502", bu="503", wkz='""', Generalumkehr='"1"'),
+        # Leistungsdatum years before the batch period: carried, not refused
+        _row("95,00", "H", "70600", "3200", "0904", wkz='""', Leistungsdatum="03062019"),
+    ]
+    _batch(tmp_path, rows, encoding="utf-8", names=SPEC_NAMES, skr='"03"', von="20250101", bis="20250831")
+    t = _load(str(tmp_path))
+    assert _legs(t) == [
+        ("4500", "75", Decimal("750"), "K"),
+        ("75", "4500", Decimal("-750"), "G"),
+        ("4650", "410", Decimal("42.30"), "K"),
+        ("410", "4650", Decimal("-42.30"), "G"),
+        ("70500", "4980", Decimal("-60.00"), "K"),
+        ("4980", "70500", Decimal("60.00"), "G"),
+        ("70500", "4980", Decimal("-60.00"), "K"),
+        ("4980", "70500", Decimal("60.00"), "G"),
+        ("70600", "3200", Decimal("-95.00"), "K"),
+        ("3200", "70600", Decimal("95.00"), "G"),
+    ]
+    assert sum(t.column("Betrag").to_pylist()) == 0
+    assert t.column("Generalumkehr").to_pylist() == [False] * 6 + [True, True] + [False, False]
+    kinds = dict(zip(t.column("Konto").to_pylist(), t.column("Kontoart").to_pylist()))
+    assert (kinds["75"], kinds["410"]) == ("Sachkonto", "Sachkonto")
+    assert (kinds["70500"], kinds["70600"]) == ("Personenkonto", "Personenkonto")
+    assert t.column("SKR").to_pylist() == ["03"] * 10
+    assert t.column("Leistungsdatum").to_pylist() == [None] * 8 + [date(2019, 6, 3)] * 2
 
 
 # --- through the resolution chain ---------------------------------------------------------
