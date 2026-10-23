@@ -181,8 +181,8 @@ published distribution (example, example-a, binary-model, data_operations and it
 extenders shared, otel, openlineage, german-ledger, ...) and excluded from the wheel
 ```
 
-A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
-hard dependency (today `mloda-community[otel]`, `mloda-community[openlineage]` and
+A plugin whose runtime dependency is heavy, or that is experimental, sits behind a bundle extra
+instead of a hard dependency (today `mloda-community[otel]`, `mloda-community[openlineage]` and
 `mloda-community[german-ledger]`, or all three via `mloda-community[all]`; also
 `mloda-enterprise[ed25519]`, `mloda-enterprise[otel]` and `mloda-enterprise[openlineage]`, though
 the audit plugin still loads without the first two). The three community extras are also
@@ -375,7 +375,8 @@ bundle's workspace source. PluginLoader re-raises a missing module whose root eq
 point's own root (`mloda`), so such a leaf's manifest must catch the missing sibling itself.
 
 A published community leaf goes behind a bundle extra the same way, spelled `"<leaf>=={version}"`
-(as `mloda-community-otel` and `mloda-community-openlineage` do): the extra both owns the leaf (see
+(as `mloda-community-otel`, `mloda-community-openlineage` and `mloda-community-german-ledger` do): the
+extra both owns the leaf (see
 [Bundled packages](#bundled-packages)) and gates its third-party dependency.
 
 ### Add a variant to an existing plugin

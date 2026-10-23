@@ -1,6 +1,7 @@
 """Admissibility as a chained feature group: journal -> journal__admitted -> concept.
 
-The verdict is a feature in its own right, not an extender's side effect:
+Core discards an extender's return value, so a policy cannot stamp rows from `INPUT_DATA_LOAD`.
+The verdict is a feature in its own right instead:
 
     gdpdu_journal            JournalFeatureGroup     the dossier's rows, every declared column
                              DatevJournalFeatureGroup  or a DATEV folder's legs
@@ -79,7 +80,7 @@ class _ReaderJournal(FeatureGroup):
     """Root: reads a dossier via READER and serves its rows as `gdpdu_journal~<column>`.
 
     Carries no meaning and no verdict. It exists so that the policy can sit between the
-    reader and every concept, not inside the reader's load.
+    reader and every concept, not inside the reader's load, where it could not change the rows.
 
     One sibling per reader, never a subclass of another: mloda keeps a matching subclass over
     its parent, so a DATEV journal subclassing the GDPdU one would silently win on a folder

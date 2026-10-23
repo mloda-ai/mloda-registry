@@ -19,7 +19,7 @@ from .reader import ADMISSIBILITY_COLUMN, GdpduReader, is_admitted
 # Explicit, versioned, deliberately narrow -- and *stated*, not cited: these are two ranges
 # chosen and written down here, not a DATEV catalogue reproduced under licence. "Which
 # definition did you use?" is the auditor's next question, and this comment is the whole
-# answer. Two ranges and str.isdigit() would not be a chart of accounts.
+# answer. Two ranges and str.isdigit() are a stated slice, not a full chart of accounts.
 #
 #   revenue      A published narrow slice: SKR04 Umsatzerloese 4000-4499. NOT all of class 4,
 #                which also carries Sonderbetriebseinnahmen (4500-4505), Erloesschmaelerungen
