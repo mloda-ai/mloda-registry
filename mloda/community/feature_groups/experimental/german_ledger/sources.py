@@ -13,6 +13,7 @@ from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from .reader import ADMISSIBILITY_COLUMN, describe_verdicts, is_admitted, verdict_kind
+from .skr import SkrAccountFeatureGroup
 
 
 class InadmissibleTotal(Exception):
@@ -49,7 +50,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     Totals are where provenance normally dies: sum reduces rows, and mloda 0.13.0's
     built-in aggregations do not carry row-level origins. Outputs are subcolumns of the
     *requested* name (``revenue__sources~value`` / ``~origins``), which is what column
-    selection keeps.
+    selection keeps. The input resolves only through ``SkrAccountFeatureGroup`` or a subclass.
     """
 
     PREFIX_PATTERN = r".*__sources$"
@@ -61,7 +62,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
         source = str(feature_name).rsplit("__", 1)[0]
-        return {Feature(source)}
+        return {Feature(source, feature_group=SkrAccountFeatureGroup)}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
