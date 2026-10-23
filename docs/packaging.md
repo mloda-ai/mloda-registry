@@ -162,10 +162,10 @@ points, so each shipped path keeps exactly one published owner (`pip install mlo
 mloda-community-aggregation` then `pip uninstall mloda-community-aggregation` must never delete
 files the bundle still needs). An unpublished nested package ships inside the bundle wheel; a
 published one the bundle does not name fails generation. Either bundle may ship such bundle-only
-packages (the enterprise plugins are, a community plugin may be). A nested plugin that imports a sibling outside
-the bundle's path (`mloda-enterprise-audit` uses `mloda-community-extenders-shared`) needs that
-sibling in the bundle's own `dependencies` too, at the ordinary `">={version}"` floor: it is not
-nested, so it cannot be owned.
+packages (the enterprise plugins are, a community plugin may be). A nested plugin that imports a
+sibling outside the bundle's path (`mloda-enterprise-audit` uses
+`mloda-community-extenders-shared`) needs that sibling in the bundle's own `dependencies` too, at
+the ordinary `">={version}"` floor: it is not nested, so it cannot be owned.
 
 Uninstalling one owned package (`pip uninstall mloda-community-aggregation`) removes only its own
 files; the bundle still needs it, so `pip check` then reports the missing dependency. Uninstalling
@@ -183,9 +183,9 @@ extenders shared, otel, openlineage, german-ledger, ...) and excluded from the w
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
 hard dependency (today `mloda-community[otel]`, `mloda-community[openlineage]` and
-`mloda-community[german-ledger]`, or all three via `mloda-community[all]`; also `mloda-enterprise[ed25519]`,
-`mloda-enterprise[otel]` and `mloda-enterprise[openlineage]`, though the audit plugin still loads
-without the first two). `mloda-community[otel]`, `mloda-community[openlineage]` and `mloda-community[german-ledger]` are also
+`mloda-community[german-ledger]`, or all three via `mloda-community[all]`; also
+`mloda-enterprise[ed25519]`, `mloda-enterprise[otel]` and `mloda-enterprise[openlineage]`, though
+the audit plugin still loads without the first two). The three community extras are also
 how the bundle owns `mloda-community-otel`, `mloda-community-openlineage` and the experimental
 `mloda-community-german-ledger`: each extra pins the leaf exactly, and the leaf's own `dependencies`
 carry the third-party pin, so a bare `mloda-community` install ships none of them; each installs, and

@@ -35,9 +35,8 @@ _ORIGIN_COLUMN = "__origin"
 ADMISSIBILITY_COLUMN = "__admissibility"
 
 # A stamp must be an AFFIRMATIVE verdict naming its policy, not merely a non-null value,
-# so "", "DENIED" and False do not read as admitted. This is an in-process contract, not authentication: a
-# determined producer inside the process can still write a conforming string. What it buys is
-# that blank, negative and malformed verdicts are rejected rather than silently admitted.
+# so "", "DENIED" and False do not read as admitted. This is an in-process contract, not
+# authentication: a determined producer inside the process can still write a conforming string.
 ADMITTED_PREFIX = "admitted:"
 
 # Both readers write `<file>@<sha12>:<record>`, DATEV adding `/<K|G>` for the leg. The
@@ -539,13 +538,14 @@ class GdpduReader(ClassifiedReader, ReadFile):
     def get_column_names(cls, file_name: str) -> list[str]:
         """The columns the DESCRIPTOR declares, plus the origin column this reader adds.
 
-        ReadFile treats a class that does not override this as unable to confirm a chain- or column-separated feature name, and
-        declines such a name while matching. This reader CAN confirm one -- index.xml names
-        every column before a byte of data is read -- so it answers rather than bypassing the
-        guard by omission. (Matching itself still confirms only `gdpdu_journal`; this method
-        answers for the columns a loaded dossier carries.) `__admissibility` is deliberately
-        absent: a policy adds it, not the reader, and claiming a column this class does not produce would be the same silent
-        overstatement the rest of this package exists to prevent.
+        ReadFile treats a class that does not override this as unable to confirm a chain- or
+        column-separated feature name, and declines such a name while matching. This reader CAN
+        confirm one -- index.xml names every column before a byte of data is read -- so it
+        answers rather than bypassing the guard by omission. (Matching itself still confirms only
+        `gdpdu_journal`; this method answers for the columns a loaded dossier carries.)
+        `__admissibility` is deliberately absent: a policy adds it, not the reader, and claiming a
+        column this class does not produce would be the same silent overstatement the rest of this
+        package exists to prevent.
         """
         index_path = os.path.join(file_name, INDEX_NAME) if os.path.isdir(file_name) else file_name
         spec = parse_descriptor_bytes(Path(index_path).read_bytes(), index_path)
