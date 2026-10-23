@@ -24,7 +24,7 @@ scoped = Feature("customer_id", feature_group=CsvFG)
 
 A pointer makes the other source groups skip the collection; `feature_group=` scopes resolution to the group and its subclasses without choosing a source; `data_access_handle` only narrows among the sources the `DataAccessCollection` holds. A subclass also answers to its parent's name. Details: core's "Pointing a feature at a source".
 
-`DataAccessCollection(files={"a": "a.csv", "b": "b.csv"}, column_to_file={"customer_id": "b"})` pins a column to one file handle; a pinned file that cannot serve the column aborts instead of falling back to another file.
+`DataAccessCollection(files={"a": "a.csv", "b": "b.csv"}, column_to_file={"customer_id": "b"})` pins a column to one file handle; a pinned file that cannot serve the column aborts or declines, never falling back to another file.
 
 ### Several Accepting Readers
 
@@ -94,7 +94,7 @@ class UnitSensorCsvFG(SensorCsvFG):
 
 ### Document Groups
 
-A `ReadDocumentFG` subclass implements `suffixes()` (optionally `read_text` and `handover_suffixes`) and claims three names, `<Group>`, `<Group>~source` and `<Group>~file_type`, one row per document. By default a document group skips suffixes a `ReadFileFG` group owns; the `document_suffixes` context option hands such suffixes over to it.
+A `ReadDocumentFG` subclass implements `suffixes()` (optionally `read_text` and `handover_suffixes`) and claims three names, `<Group>`, `<Group>~source` and `<Group>~file_type`, one row per document. A document group skips the suffixes its `handover_suffixes()` lists (none by default). Listing a suffix in the `document_suffixes` context option gives it to document groups and makes `ReadFileFG` groups decline it.
 
 ### Decline Names You Cannot Confirm
 
@@ -220,7 +220,7 @@ class TestSensorCsvFG(ReadFileFGTestMixin):
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 ```
 
-A `ReadDBFGTestMixin` host sets `credential_key` and `write_database` instead. `SourceFeatureGroupTestMixin` assumes a group that searches the `DataAccessCollection`; a pointed-only group like `UbaAirFG` below overrides or skips the tests that claim from `own_dac()`. The `ReadDocumentFG` mixin is not shipped yet. Reference hosts: [test_source_feature_groups.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/tests/test_source_feature_groups.py).
+The group's `load_neutral` must return a real table with typed values, since several contract tests run the feature end to end. A `ReadDBFGTestMixin` host sets `credential_key` and `write_database` instead (the mixin assumes a file-backed database; override `make_credential` and `identity_of` for a server). A direct `SourceFeatureGroupTestMixin` host sets `expected_source` and implements `own_dac`, `foreign_dac`, `own_pointer`, `other_pointer`, `foreign_handle_dac` and `known_handles_dac`; the mixin assumes a group that searches the `DataAccessCollection`, so a pointed-only group like `UbaAirFG` below overrides or skips the tests that claim from `own_dac()`. The `ReadDocumentFG` mixin is not shipped yet. Reference hosts: [test_source_feature_groups.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/tests/test_source_feature_groups.py).
 
 Test pointers end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 

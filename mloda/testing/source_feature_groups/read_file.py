@@ -30,7 +30,6 @@ from mloda.provider import (
 from mloda.user import DataAccessCollection, Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.experimental.aggregated_feature_group.base import AggregatedFeatureGroup
-from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import PyArrowAggregation  # noqa: F401
 
 from mloda.testing.source_feature_groups.source import SourceFeatureGroupTestMixin
 
@@ -332,6 +331,11 @@ class ReadFileFGTestMixin(SourceFeatureGroupTestMixin):
     # per-run cache
 
     def test_file_one_run_lists_the_file_at_most_once_per_listing_kind(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Loads the PyArrow implementation the chained aggregation needs.
+        from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import (
+            PyArrowAggregation,  # noqa: F401
+        )
+
         columns = [f"{self.present_column}_cache_{n}" for n in ("a", "b", "c")]
         path = self._make("cache_file", {name: [1, 2, 3] for name in columns})
         names, samples = self._spy_reads(monkeypatch)

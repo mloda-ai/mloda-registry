@@ -64,6 +64,8 @@ def write_sqlite(path: Path, tables: dict[str, dict[str, list[Any]]]) -> None:
 
 
 class TestSensorCsvFGContract(ReadFileFGTestMixin):
+    """The example ReadFileFG from guide 27 running the ReadFileFG contract."""
+
     feature_group_class = SensorCsvFG
     present_column = "sensor_present"
     missing_column = "sensor_missing"
@@ -79,6 +81,8 @@ class TestSensorCsvFGContract(ReadFileFGTestMixin):
 
 
 class TestSqliteFGContract(ReadDBFGTestMixin):
+    """Runs the ported ReadDBFG contract against core's stock SqliteFG to prove the shipped mixin works."""
+
     feature_group_class = SqliteFG
     credential_key = "sqlite"
     present_column = "impl_sqlite_present"

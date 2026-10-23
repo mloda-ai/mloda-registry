@@ -30,7 +30,6 @@ from mloda.provider import (
 from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.experimental.aggregated_feature_group.base import AggregatedFeatureGroup
-from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import PyArrowAggregation  # noqa: F401
 
 from mloda.testing.source_feature_groups.source import (
     SourceFeatureGroupTestMixin,
@@ -416,6 +415,11 @@ class ReadDBFGTestMixin(SourceFeatureGroupTestMixin):
         assert spy.all_closed()
 
     def test_db_a_run_lists_the_tables_of_a_database_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Loads the PyArrow implementation the chained aggregation needs.
+        from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import (
+            PyArrowAggregation,  # noqa: F401
+        )
+
         columns = [f"{self.present_column}_run_{n}" for n in ("a", "b", "c")]
         path = self._make("run_db", {"run_table": {name: [1, 2, 3] for name in columns}})
         spy = self._spy(monkeypatch)
@@ -586,6 +590,11 @@ class ReadDBFGTestMixin(SourceFeatureGroupTestMixin):
 
     @pytest.mark.parametrize("variant", ["unpointed", "query_and_pointer", "query_only"])
     def test_db_a_chain_shaped_name_resolves_to_the_aggregation_only(self, variant: str) -> None:
+        # Loads the PyArrow implementation the chained aggregation needs.
+        from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import (
+            PyArrowAggregation,  # noqa: F401
+        )
+
         column = f"{self.present_column}_agg"
         name = f"{column}{CHAIN_SEPARATOR}sum_aggr"
         path = self._make("agg_db", {"agg_table": {column: [1, 2, 3]}})
