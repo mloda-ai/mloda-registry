@@ -1225,6 +1225,7 @@ def test_a_fully_priced_concept_still_totals() -> None:
     got = {c: t.column(c).to_pylist()[0] for t in res for c in t.column_names}
     assert str(got["revenue__sources~value"]) == "45385.06", got["revenue__sources~value"]
     assert len(got["revenue__sources~origins"]) == 5
+    assert all(o.startswith("GL.txt@") for o in got["revenue__sources~origins"]), got["revenue__sources~origins"]
 
 
 def _one_concept_table(

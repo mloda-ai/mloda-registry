@@ -343,6 +343,7 @@ RUNNABLE_DOCS = (
     "docs/guides/feature-group-patterns/18-datatypes.md",
     "docs/guides/feature-group-patterns/19-domain.md",
     "docs/guides/feature-group-patterns/26-input-feature-forwarding.md",
+    "mloda/community/feature_groups/experimental/german_ledger/README.md",  # defines a live policy: keep it last
 )
 
 _DOC_CHECK_DRIVER = """\
