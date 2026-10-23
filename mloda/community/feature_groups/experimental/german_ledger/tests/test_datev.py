@@ -27,9 +27,9 @@ LEDERMANN = HERE / "fixtures" / "datev_ledermann"
 # The column-name line of a real 700/21/13 batch (125 fields, en dashes and all).
 NAMES = (LEDERMANN / "EXTF_Buchungsstapel.csv").read_bytes().decode("cp1252").splitlines()[1]
 NAME_LIST = NAMES.split(";")
-# DATEV's own spellings of some names, as both exports write them; positions unchanged.
+# DATEV's spelling of the names the reader checks, as both exports write them; positions unchanged.
 SPEC_NAMES = (
-    NAMES.replace("–", "-").replace("Basisumsatz", "Basis-Umsatz").replace("Generalumkehr", "Generalumkehr (GU)")
+    NAMES.replace("\u2013", "-").replace("Basisumsatz", "Basis-Umsatz").replace("Generalumkehr", "Generalumkehr (GU)")
 )
 
 
@@ -455,7 +455,7 @@ def test_a_batch_shaped_like_winfo_reads_end_to_end(tmp_path: Path) -> None:
     ]
     _batch(
         tmp_path,
-        [r.replace('"', "") for r in rows],  # no quoting in the rows (shape only)
+        [r.replace('"', "") for r in rows],  # S/H, WKZ, BU and Belegfeld 1 unquoted (shape only)
         encoding="utf-8",  # no BOM
         newline="\n",  # LF line ends (shape only)
         names=quoted_names,
