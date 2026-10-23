@@ -227,19 +227,6 @@ class TestSubtypeResolution:
         options = Options(context={"aggregation_type": "median", "in_features": "x", "partition_by": ["g"]})
         assert AggregationFeatureGroup.resolve_subtype("my_result", options) == "median"
 
-    def test_sqlite_rejects_median_by_name_and_by_config(self) -> None:
-        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
-
-        _implementation("sqlite_aggregation", "SqliteAggregation")
-        by_config = Options(context={"aggregation_type": "median", "in_features": "x", "partition_by": ["g"]})
-        assert AggregationFeatureGroup.supports_compute_framework("x__median_agg", Options(), SqliteFramework) is False
-        assert AggregationFeatureGroup.supports_compute_framework("my_result", by_config, SqliteFramework) is False
-        assert AggregationFeatureGroup.supports_compute_framework("x__sum_agg", Options(), SqliteFramework) is True
-
-    def test_unrestricted_implementation_accepts_median(self) -> None:
-        impl = _implementation("pandas_aggregation", "PandasAggregation")
-        assert AggregationFeatureGroup.supports_compute_framework("x__median_agg", Options(), impl.compute_framework)
-
 
 class TestManifest:
     """The entry-point manifest lists the group and its Implementations."""

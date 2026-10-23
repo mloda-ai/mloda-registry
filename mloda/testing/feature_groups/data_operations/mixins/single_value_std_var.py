@@ -56,7 +56,7 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
     - ``create_test_data(arrow_table)``
-    - ``reference_implementation_class()``
+    - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
     - ``extract_column(result, column_name)``
     - ``_skip_if_unsupported(op)`` (used by the default skip hook)
     """

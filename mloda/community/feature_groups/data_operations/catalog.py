@@ -20,7 +20,7 @@ from functools import lru_cache
 from types import MappingProxyType, ModuleType
 from typing import Any
 
-from mloda.provider import OperationFeatureGroup
+from mloda.provider import Implementation, OperationFeatureGroup
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.errors import (
@@ -371,12 +371,16 @@ def _import_optional(module_name: str) -> ModuleType | None:
         return None
 
 
-def _module_local_subclass(module: ModuleType, base_cls: type[Any]) -> type[Any] | None:
-    """Return the concrete subclass of *base_cls* defined in *module*, or None."""
+def _module_local_subclass(
+    module: ModuleType, base_cls: type[Any], feature_group: type[Any] | None = None
+) -> type[Any] | None:
+    """Return the subclass of *base_cls* defined in *module* (serving *feature_group* if given), or None."""
     for _, obj in inspect.getmembers(module, inspect.isclass):
         if obj.__module__ != module.__name__:
             continue
         if issubclass(obj, base_cls) and obj is not base_cls:
+            if feature_group is not None and getattr(obj, "feature_group", None) is not feature_group:
+                continue
             return obj
     return None
 
@@ -413,20 +417,25 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
     is_operation_group = issubclass(base_cls, OperationFeatureGroup)
     for prefix in _FRAMEWORK_MODULE_PREFIXES:
         backend_module = _import_optional(f"{spec.package}.{prefix}_{op_dirname}")
-        if backend_module is None or is_operation_group:
+        if backend_module is None:
             continue
-        concrete = _module_local_subclass(backend_module, base_cls)
-        if concrete is None:
-            continue
-        for framework in concrete.compute_framework_definition():
+        if is_operation_group:
+            # Only this module's own Implementation counts, never user subclasses or other loaded ones.
+            impl = _module_local_subclass(backend_module, Implementation, base_cls)
+            if impl is None:
+                continue
+            concrete, backend_frameworks = base_cls, (impl.compute_framework,)
+        else:
+            family = _module_local_subclass(backend_module, base_cls)
+            if family is None:
+                continue
+            concrete, backend_frameworks = family, tuple(family.compute_framework_definition())
+        for framework in backend_frameworks:
             key = str(framework.__name__)
             if subtypes is None or spec.probe is None:
                 frameworks[key] = None
             else:
                 frameworks[key] = _supported_subtypes(concrete, framework, base_module, subtypes, spec.probe)
-
-    if is_operation_group:
-        frameworks = dict(base_cls.subtype_support_matrix())
 
     return OperationInfo(
         name=spec.name,

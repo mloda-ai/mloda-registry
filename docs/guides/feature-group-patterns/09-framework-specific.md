@@ -12,12 +12,12 @@ An operation that runs on several frameworks is one `OperationFeatureGroup` plus
 
 | Piece | Behavior |
 |-------|----------|
-| `OperationFeatureGroup` | Frameworks are the ones its loaded Implementations serve; no `compute_framework_rule()` |
+| `OperationFeatureGroup` | Frameworks are the ones its loaded Implementations serve; core intersects `compute_framework_rule()` with them, so leave the rule unset |
 | `Implementation.feature_group` / `compute_framework` | The pair it serves; required, checked at class definition |
 | `Implementation.calculate(group, data, features, framework)` | Runs the feature; call the group's shared loop |
 | `Implementation.supported` | `frozenset` of subtypes it can run; `None` (default) = all |
 | `Implementation.divergent` | `{subtype: reason}` where it differs from the reference result |
-| `Feature(..., implementation=...)` | Pin by class name, class or list of either |
+| `Feature(..., implementation=...)` | Pin by class, qualified `module:Class` string, bare name (only if unique among loaded classes) or list of these |
 
 ## Complete Example
 
@@ -30,19 +30,27 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework, FeatureSet, Implementation, OperationFeatureGroup
-from mloda.user import Feature, FeatureName, Options
+from mloda.provider import (
+    BaseInputData,
+    ComputeFramework,
+    DataCreator,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    Implementation,
+    OperationFeatureGroup,
+)
+from mloda.user import Feature, PluginLoader, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 
-class DoubledFeatureGroup(OperationFeatureGroup):
+class DoubledFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """One operation: `<source>__doubled`. Frameworks are the Implementations below."""
 
-    PREFIX_PATTERN = r"^.+__doubled$"
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        return {Feature.not_typed(feature_name.name.removesuffix("__doubled"))}
+    PREFIX_PATTERN = r"^.+__doubled$"  # the mixin matches names and derives input_features from it
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
 
     @classmethod
     def double_all(cls, data: Any, features: FeatureSet, *, double: Callable[[Any, str, str], Any]) -> Any:
@@ -81,11 +89,25 @@ class PyArrowDoubled(Implementation[DoubledFeatureGroup]):
     @staticmethod
     def _double(data: pa.Table, name: str, source: str) -> pa.Table:
         return data.append_column(name, pc.multiply(data[source], 2))
+
+
+class ValueSource(FeatureGroup):
+    """Root data for the run below."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"value"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"value": [1, 2]}
 ```
 
-Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype (see Pattern 3 and Pattern 14), so they need a group with `SUBTYPES`:
+`FeatureChainParserMixin` (Pattern 3) is what makes the group match `value__doubled`; `OperationFeatureGroup` alone does not.
 
-```python
+Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)):
+
+```py
 from mloda.provider import Implementation
 
 
@@ -103,12 +125,20 @@ class LimitedImplementation(Implementation[MyOperationGroup]):
 
 With several frameworks enabled, mloda picks one. Pin it per feature:
 
-```python
-from mloda.user import Feature
+Pin by class or by the qualified string `"module:Class"`. A bare name (`"PandasDoubled"`) works only when it is unique among loaded classes; two loaded classes with the same name raise `ImplementationPinError`.
 
-by_name = Feature("value__doubled", implementation="PandasDoubled")
+```python
+PluginLoader.all()
+
 by_class = Feature("value__doubled", implementation=PandasDoubled)
-by_list = Feature("value__doubled", implementation=[PandasDoubled, PyArrowDoubled])
+by_qualified = Feature("value__doubled", implementation=f"{PyArrowDoubled.__module__}:{PyArrowDoubled.__qualname__}")
+by_list = Feature("value__doubled", implementation=[PandasDoubled])
+
+frameworks = ["PandasDataFrame", "PyArrowTable"]
+pandas_out = mloda.run_all([by_class], compute_frameworks=frameworks)[0]
+assert list(pandas_out["value__doubled"]) == [2, 4]
+arrow_out = mloda.run_all([by_qualified], compute_frameworks=frameworks)[0]
+assert arrow_out["value__doubled"].to_pylist() == [2, 4]
 ```
 
 ## Test
@@ -132,6 +162,9 @@ def test_each_implementation_computes_the_operation():
     arrow_fs.implementation = PyArrowDoubled
     out = DoubledFeatureGroup.calculate_feature(pa.table({"value": [1, 2]}), arrow_fs)
     assert out["value__doubled"].to_pylist() == [2, 4]
+
+
+test_each_implementation_computes_the_operation()
 ```
 
 ## Single-Framework Groups
@@ -150,6 +183,61 @@ class PandasOnlyGroup(FeatureGroup):
 ```
 
 `None` (the default) allows any framework. Other data-operation families are not yet converted and still use one FeatureGroup subclass per framework.
+
+## Column-Wise Data Hooks
+
+For groups that still use per-framework subclasses (a live `mloda.provider` API), a base built on `FeatureChainParserMixin` (Pattern 3) that touches columns directly, rather than returning a whole new frame, owes its framework subclasses the column-wise data hooks its `calculate_feature` calls, drawn from `_get_available_columns`, `_check_source_features_exist`, `_add_result_to_data`. The mixin defines all three as non-abstract classmethods that raise `NotImplementedError` naming the class and hook, so a framework subclass that skips one fails at compute time rather than at class-definition time.
+
+Declare which of the three your base's `calculate_feature` actually calls with `REQUIRED_COLUMNWISE_HOOKS`, normally set to one of two constants from `mloda.provider`:
+
+| Constant | Declares |
+|----------|----------|
+| `COLUMNWISE_HOOKS` | `_check_source_features_exist`, `_add_result_to_data` |
+| `COLUMN_DISCOVERY_HOOKS` | those two plus `_get_available_columns`, for a base that resolves column names against the data |
+
+```py
+from mloda.provider import COLUMN_DISCOVERY_HOOKS, FeatureChainParserMixin, FeatureGroup
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+
+class MyFeatureBase(FeatureChainParserMixin, FeatureGroup):
+    PREFIX_PATTERN = r"^.+__my_op$"
+    REQUIRED_COLUMNWISE_HOOKS = COLUMN_DISCOVERY_HOOKS
+
+
+class MyFeaturePandas(MyFeatureBase):
+    @classmethod
+    def compute_framework_rule(cls):
+        return {PandasDataFrame}
+
+    @classmethod
+    def _get_available_columns(cls, data):
+        return PandasDataFrame.extract_column_names(data)
+
+    @classmethod
+    def _check_source_features_exist(cls, data, feature_names):
+        available = PandasDataFrame.extract_column_names(data)
+        if set(feature_names) - available:
+            raise ValueError(f"Missing source features, available: {sorted(available)}")
+
+    @classmethod
+    def _add_result_to_data(cls, data, feature_name, result):
+        data[feature_name] = result
+        return data
+```
+
+Assert the contract holds in your own test suite instead of discovering a gap mid-run. `missing_columnwise_hooks` only checks the hooks a class declares, so pin the declaration too or a class that never sets `REQUIRED_COLUMNWISE_HOOKS` passes vacuously:
+
+```py
+from mloda.provider import COLUMN_DISCOVERY_HOOKS, missing_columnwise_hooks
+
+
+def test_my_feature_pandas_implements_its_hooks():
+    assert MyFeaturePandas.REQUIRED_COLUMNWISE_HOOKS == COLUMN_DISCOVERY_HOOKS
+    assert missing_columnwise_hooks(MyFeaturePandas) == []
+```
+
+A hook that is not a `@classmethod` or `@staticmethod` counts as missing: `cls._hook(data, ...)` passes the class into the first parameter, so a plain function never receives the data. Assert `missing_columnwise_hooks` on the framework-bound class, not the base: the base declares the contract but implements none of it itself, so it reports every hook it declares as missing.
 
 ## Available Frameworks
 

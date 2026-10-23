@@ -31,7 +31,9 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
     compute_framework = SqliteFramework
     supported = frozenset(_SQLITE_AGG_FUNCS)
     divergent = {
-        **{op: "skips NaN" for op in ("sum", "avg", "mean")},
+        "sum": "skips NaN",
+        "avg": "skips NaN",
+        "mean": "skips NaN",
         "count": "does not count NaN",
     }
 

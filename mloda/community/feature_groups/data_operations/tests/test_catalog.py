@@ -212,6 +212,45 @@ class TestAggregationCell:
         assert len(pyarrow_set) == 15
 
 
+class TestAggregationFrameworksIgnoreUserSubclasses:
+    def test_user_compute_framework_subclass_is_not_a_catalog_framework(self) -> None:
+        """Only the real frameworks key the catalog, not a user subclass reached through an Implementation."""
+        import gc
+
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+        from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+        from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
+            PythonDictFramework,
+        )
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.catalog import _load_catalog
+
+        real = (
+            DuckDBFramework,
+            PandasDataFrame,
+            PolarsLazyDataFrame,
+            PyArrowTable,
+            PythonDictFramework,
+            SqliteFramework,
+        )
+        expected = {fw.__name__ for fw in real if fw.is_available()}
+
+        _load_catalog.cache_clear()
+        try:
+
+            class _MyPandas(PandasDataFrame):
+                pass
+
+            assert set(DataOperationsCatalog.get("aggregation").frameworks) == expected
+        finally:
+            _load_catalog.cache_clear()
+            del _MyPandas
+            gc.collect()
+
+
 class TestStringCell:
     def test_sqlite_supports_only_trim_and_length(self) -> None:
         """SQLite string refuses upper/lower/reverse at match time; the catalog must reflect it."""

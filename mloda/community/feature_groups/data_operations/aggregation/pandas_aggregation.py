@@ -32,9 +32,15 @@ class PandasAggregation(Implementation[AggregationFeatureGroup]):
     feature_group = AggregationFeatureGroup
     compute_framework = PandasDataFrame
     divergent = {
-        **{
-            op: "skips NaN" for op in ("sum", "avg", "mean", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp")
-        },
+        "sum": "skips NaN",
+        "avg": "skips NaN",
+        "mean": "skips NaN",
+        "std": "skips NaN",
+        "var": "skips NaN",
+        "std_pop": "skips NaN",
+        "var_pop": "skips NaN",
+        "std_samp": "skips NaN",
+        "var_samp": "skips NaN",
         "count": "does not count NaN",
         "mode": "does not count NaN as a value",
     }

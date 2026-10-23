@@ -48,6 +48,9 @@ from tests.test_end2end.test_binary_backed_features_guide import _section
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_CONFIG_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "22-feature-config.md"
 BACKEND_FAMILIES_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "28-backend-families.md"
+PANDAS_AGGREGATION_PIN = (
+    "mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation:PandasAggregation"
+)
 WAY_2_HEADING = "## Way 2: Discriminator Option (Sibling FeatureGroups)"
 WAY_2_MODULE = "guide_28_way_2"
 WAY_3_HEADING = "## Way 3: Reader Delegation (Sibling Readers)"
@@ -162,12 +165,12 @@ def test_feature_config_guide_scopes_aggregation_to_its_group_and_pins_an_implem
     assert "AggregationFeatureGroup" in scopes
     assert "PandasAggregation" not in scopes, "PandasAggregation is an Implementation, not a feature_group scope"
 
-    pinned = [item for item in items if item.get("implementation") == "PandasAggregation"]
+    pinned = [item for item in items if item.get("implementation") == PANDAS_AGGREGATION_PIN]
     assert len(pinned) == 1, "the guide must show exactly one implementation pin example"
     assert pinned[0].get("feature_group") == "AggregationFeatureGroup"
     (feature,) = load_features_from_config(json.dumps([pinned[0]]))
     assert isinstance(feature, Feature)
-    assert feature.implementation_pin == ("PandasAggregation",)
+    assert feature.implementation_pin == (PANDAS_AGGREGATION_PIN,)
 
 
 def test_wrong_suffix_regression_is_rejected() -> None:
@@ -356,6 +359,7 @@ RUNNABLE_DOCS = (
     "docs/guides/feature-group-patterns/03-chained-features.md",
     "docs/guides/feature-group-patterns/04-multi-input-features.md",
     "docs/guides/feature-group-patterns/06-artifact-features.md",
+    "docs/guides/feature-group-patterns/09-framework-specific.md",
     "docs/guides/feature-group-patterns/11-options.md",
     "docs/guides/feature-group-patterns/18-datatypes.md",
     "docs/guides/feature-group-patterns/19-domain.md",

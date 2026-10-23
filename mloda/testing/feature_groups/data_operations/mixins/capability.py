@@ -113,6 +113,7 @@ class CapabilityHookTestMixin:
         backend = self.implementation_class()  # type: ignore[attr-defined]
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
         if issubclass(backend, Implementation):
+            assert framework is backend.compute_framework
             assert backend.compute_framework in backend.feature_group.compute_framework_definition()
         else:
             assert framework in backend.compute_framework_definition()

@@ -30,7 +30,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``nan_policy_table()``
-    - ``reference_implementation_class()``
+    - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
     - ``implementation_class()``
     - ``create_test_data(arrow_table)``
     - ``extract_column(result, column_name)``

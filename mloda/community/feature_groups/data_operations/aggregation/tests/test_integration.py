@@ -13,7 +13,7 @@ integration tests verify values as sets (not keyed by partition columns).
 
 from __future__ import annotations
 
-import functools
+import importlib
 from typing import Any
 
 import pyarrow as pa
@@ -27,27 +27,10 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowAggregation,
 )
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
-
-
-@functools.cache
-def _pandas_creator() -> type:
-    """A data source holding the canonical rows in a Pandas frame (built lazily: pandas is optional)."""
-    pd = pytest.importorskip("pandas")
-    from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-    from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-
-    class _PandasDataOpsTestDataCreator(DataOperationsTestDataCreator):
-        compute_framework = PandasDataFrame
-
-        @classmethod
-        def create(cls) -> Any:
-            return pd.DataFrame(cls.get_raw_data())
-
-    return _PandasDataOpsTestDataCreator
 
 
 class TestAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
@@ -374,7 +357,7 @@ class TestIntegrationSeveralFrameworks:
 
         from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
 
-        collector = PluginCollector.enabled_feature_groups({_pandas_creator(), AggregationFeatureGroup})
+        collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
         frameworks = [PandasDataFrame, PyArrowTable]
         options = Options(context={"partition_by": ["region"]})
 
@@ -386,16 +369,21 @@ class TestIntegrationSeveralFrameworks:
         assert max_step.implementation is PandasAggregation
         assert max_step.compute_framework is PandasDataFrame
 
-    @pytest.mark.parametrize("pin", ["PandasAggregation", "class"], ids=["by_name", "by_class"])
+    @pytest.mark.parametrize("pin", ["qualified", "class"], ids=["by_qualified_name", "by_class"])
     def test_implementation_pin_runs_on_pandas(self, pin: str) -> None:
-        """Feature(..., implementation=...) overrides the ranking and runs the pinned implementation."""
+        """Feature(..., implementation=...) overrides the ranking and runs the pinned implementation.
+
+        Core ships a PandasAggregation too, so the bare name is ambiguous once core's module is loaded.
+        """
         pytest.importorskip("pandas")
         import pandas as pd
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
         from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
 
-        feature = self._feature(implementation="PandasAggregation" if pin == "PandasAggregation" else PandasAggregation)
+        importlib.import_module("mloda_plugins.feature_group.experimental.aggregated_feature_group.pandas")
+        qualified = "mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation:PandasAggregation"
+        feature = self._feature(implementation=qualified if pin == "qualified" else PandasAggregation)
         frameworks = [PyArrowTable, PandasDataFrame]
 
         step = self._aggregation_step([feature], frameworks, self._collector())
@@ -406,6 +394,17 @@ class TestIntegrationSeveralFrameworks:
         frames = [frame for frame in results if isinstance(frame, pd.DataFrame)]
         assert len(frames) == 1
         assert sorted(frames[0]["value_int__sum_agg"].tolist()) == sorted([25, 140, 70, -10])
+
+    def test_bare_implementation_name_is_ambiguous_with_core(self) -> None:
+        """Core's PandasAggregation shares the bare name, so pinning by it names several loaded classes."""
+        pytest.importorskip("pandas")
+        from mloda.provider import ImplementationPinError
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        importlib.import_module("mloda_plugins.feature_group.experimental.aggregated_feature_group.pandas")
+        feature = self._feature(implementation="PandasAggregation")
+        with pytest.raises(ImplementationPinError, match="names several loaded classes"):
+            self._aggregation_step([feature], [PyArrowTable, PandasDataFrame], self._collector())
 
 
 class TestIntegrationMultipleFeatures:

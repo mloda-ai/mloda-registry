@@ -51,13 +51,11 @@ Items can be plain strings (`"feature_name"`) or feature objects. `options` and 
 { "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "context_options": {"partition_by": ["region"]} }
 ```
 
-`implementation` pins an `Implementation` class by name (one `Implementation` per framework on an operation group):
+`implementation` pins an `Implementation` class (one per framework on an operation group) by qualified `module:Class` string. A bare class name works only when it is unique among loaded classes, and core ships Implementations named `PandasAggregation` too, so qualify it. A string array pins one per chained step. Rejects non-strings, empty strings, and the root `FeatureGroup` base name.
 
 ```json
-{ "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "implementation": "PandasAggregation", "context_options": {"partition_by": ["region"]} }
+{ "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "implementation": "mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation:PandasAggregation", "context_options": {"partition_by": ["region"]} }
 ```
-
-Rejects non-strings, empty strings, and the root `FeatureGroup` base name.
 
 ## Window / Rank / Percentile Requests
 

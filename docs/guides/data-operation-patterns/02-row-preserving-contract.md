@@ -16,8 +16,8 @@ Row-preserving operations must return an output whose row count and row order ma
 
 ```python
 # Paraphrased from DataOpsTestBase
-result = self.implementation_class().calculate_feature(self.test_data, fs)
-ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+result = calculate_with(self.implementation_class(), self.test_data, fs)
+ref = self.reference_calculate(self._arrow_table, fs)
 
 result_col = self.extract_column(result, feature_name)
 ref_col = _extract_column(ref, feature_name)

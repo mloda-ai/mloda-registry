@@ -250,7 +250,7 @@ def test_feature_group_of_returns_a_feature_group_class_itself() -> None:
 def test_calculate_with_and_feature_group_of_for_an_implementation() -> None:
     import gc
 
-    from mloda.provider import Implementation, OperationFeatureGroup
+    from mloda.provider import Implementation, OperationFeatureGroup, get_all_subclasses
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
     class _ProbeGroup(OperationFeatureGroup):
@@ -270,8 +270,9 @@ def test_calculate_with_and_feature_group_of_for_an_implementation() -> None:
         assert helpers.calculate_with(_ProbeImpl, "data", fs) == ("implementation", _ProbeGroup, "data")
         assert fs.implementation is _ProbeImpl
     finally:
-        del _ProbeImpl, _ProbeGroup
+        del fs, _ProbeImpl, _ProbeGroup
         gc.collect()
+    assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
 
 
 def test_reference_calculate_defaults_to_the_reference_class_calculate_feature() -> None:

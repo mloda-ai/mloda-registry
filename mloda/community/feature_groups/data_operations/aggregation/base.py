@@ -96,8 +96,8 @@ class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase
     ## Reference Contract
 
     Null is skipped. NaN propagates in sum/avg/mean/std/var, is counted by count, is skipped by min/max/median
-    and counts as a value in mode (the suite's ``NAN_POLICY_AGG``). Zero rows or ``partition_by=[]`` give one
-    row. count and nunique declare INT64. Float results match the reference at rel 1e-6.
+    and counts as a value in mode (the suite's ``NAN_POLICY_AGG``). ``partition_by=[]`` gives one
+    row, also on zero input rows. count and nunique declare INT64. Float results match the reference at rel 1e-6.
     """
 
     SUBTYPES = SubtypeDeclaration(key=AggregationFeatureGroupBase.AGGREGATION_TYPE)

@@ -35,7 +35,8 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import (
     PandasEma,
 )
-from mloda.testing.data_creator.base import DataOperationsTestDataCreator, column_selective
+from mloda.testing.data_creator.base import column_selective
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,
@@ -68,21 +69,6 @@ _EMA_3_BY_REGION: list[Any] = [
     25.0,
     None,
 ]
-
-
-class PandasDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Local pandas data source for the canonical 12-row dataset.
-
-    EMA has no PyArrow backend, so the PyArrow data creator cannot feed the
-    compute test. This test-only creator returns the canonical data as a pandas
-    DataFrame.
-    """
-
-    compute_framework = PandasDataFrame
-
-    @classmethod
-    def create(cls) -> Any:
-        return pd.DataFrame(cls.get_raw_data())
 
 
 def _ema_values(name: str, context: dict[str, Any]) -> list[Any]:
