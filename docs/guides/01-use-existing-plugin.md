@@ -16,8 +16,9 @@ from mloda.user import PluginLoader, mloda, Feature
 # Auto-discover installed plugins
 PluginLoader.all()
 
-# Use features from the plugin
-result = mloda.run_all([Feature("example_feature")])
+# Use features from the plugin (here the data comes from api_data)
+api_data = {"MyKey": {"example_feature": [1, 2]}}
+result = mloda.run_all([Feature("example_feature")], api_data=api_data)
 ```
 
 ## Compute Frameworks
@@ -25,7 +26,9 @@ result = mloda.run_all([Feature("example_feature")])
 Pass `compute_frameworks` as an ordered list; a set is rejected. mloda picks the cheapest plan, and among equal plans the first listed framework is preferred:
 
 ```python
-result = mloda.run_all([Feature("example_feature")], compute_frameworks=["PolarsLazyDataFrame", "PandasDataFrame"])
+result = mloda.run_all(
+    [Feature("example_feature")], compute_frameworks=["PandasDataFrame", "PyArrowTable"], api_data=api_data
+)
 ```
 
 ## Column Ordering
@@ -33,16 +36,22 @@ result = mloda.run_all([Feature("example_feature")], compute_frameworks=["Polars
 Control result column arrangement with the `column_ordering` parameter:
 
 ```python
+prices = {"MyKey": {"price": [1, 2], "quantity": [3, 4], "total": [3, 8]}}
+
 # Preserve feature request order
-result = mloda.run_all([Feature("price"), Feature("quantity"), Feature("total")], column_ordering="request_order")
+result = mloda.run_all(
+    [Feature("price"), Feature("quantity"), Feature("total")], api_data=prices, column_ordering="request_order"
+)
 # Columns: price, quantity, total (in request order)
 
 # Sort columns alphabetically
-result = mloda.run_all([Feature("price"), Feature("quantity"), Feature("total")], column_ordering="alphabetical")
+result = mloda.run_all(
+    [Feature("price"), Feature("quantity"), Feature("total")], api_data=prices, column_ordering="alphabetical"
+)
 # Columns: price, quantity, total (A-Z sorted)
 
 # Default: no guaranteed ordering
-result = mloda.run_all([Feature("price"), Feature("quantity")])
+result = mloda.run_all([Feature("price"), Feature("quantity")], api_data=prices)
 ```
 
 | Option | Behavior |
@@ -60,7 +69,9 @@ from mloda.user import PluginLoader, stream_all, Feature
 
 PluginLoader.all()
 
-for result in stream_all([Feature("feature_a"), Feature("feature_b")]):
+api_data = {"MyKey": {"feature_a": [1, 2], "feature_b": [3, 4]}}
+
+for result in stream_all([Feature("feature_a"), Feature("feature_b")], api_data=api_data):
     print(result)
 ```
 
@@ -75,7 +86,9 @@ from mloda.user import PluginLoader, mloda, Feature
 
 PluginLoader.all()
 
-session = mloda.prepare([Feature("my_feature")], compute_frameworks=["PandasDataFrame"])
+session = mloda.prepare(
+    [Feature("col")], compute_frameworks=["PandasDataFrame"], api_data={"MyKey": {"col": [0]}}
+)
 result = session.run(api_data={"MyKey": {"col": [1, 2]}})
 ```
 

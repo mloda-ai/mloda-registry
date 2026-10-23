@@ -118,7 +118,15 @@ For OpenLineage, `use_sdk_defaults=True` honours these ambient sources in preced
 ```python
 from mloda.user import mloda
 
-results = mloda.run_all(features=["my_feature"], function_extender={MyExtender(), OtherExtender()})
+
+class OtherExtender(MyExtender):
+    pass
+
+
+api_data = {"MyKey": {"my_feature": [1, 2]}}
+results = mloda.run_all(
+    features=["my_feature"], function_extender={MyExtender(), OtherExtender()}, api_data=api_data
+)
 ```
 
 Extenders are session-level: pass them to `run_all` or when preparing the session. `Session.run()` takes none.
@@ -212,7 +220,7 @@ A load's declarations also reach the lineage and audit records. `OpenLineageExte
 
 `OpenLineageExtender` (and `LineageFacetsExtender`) emit the standard OpenLineage `ownership` facets. The job owner is a code fact the feature group declares; a dataset owner is an organisational fact the deployer passes in:
 
-```python
+```py
 class FraudScore(FeatureGroup):
     @classmethod
     def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
@@ -244,7 +252,7 @@ from mloda.steward import verified_context
 from mloda.user import mloda
 
 with verified_context(tenant_id="tenant-42", project_id="project-7", principal="service-account"):
-    results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()})
+    results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()}, api_data=api_data)
 ```
 
 `AuditExtender(sink, fail_closed=True)` (`mloda-enterprise-audit`) turns a missing required identity into a refusal: it writes the deny record, then raises `IdentityRequiredError` before the wrapped call runs, so no feature is calculated. It sets `priority = 0` so the gate runs outermost; an extender at priority 0 or lower may still run outside it. It gates two hooks:
@@ -303,7 +311,7 @@ Verification does not depend on the record version, so a v2 log seals and verifi
 
 `user.hash` is omitted unless `OtelLogAuditSink(user_hash_key=b"...")` (bytes, at least 32) is given, because an unkeyed hash of a low-entropy principal (email, username) can be confirmed offline by dictionary. With a key it is `hmac.new(key, json.dumps([tenant_id, principal], separators=(",", ":"), ensure_ascii=True).encode("utf-8"), hashlib.sha256).hexdigest()` (tenant_id is None when blank; the key must be at least 32 bytes, shorter raises `ValueError`): pseudonymous, not anonymous, and the same principal under two tenants hashes differently. Use one key per deployment and a key of its own, never the manifest signing key. Join by computing the same HMAC over the NDJSON record's `tenant_id` and `principal`; the NDJSON record stays the identifying copy. Rotating the key changes every `user.hash`, so older records no longer join. `mloda.run.id` joins to `OtelExtender` spans. Data-access identities, feature values and exception messages are never included. Emitting is best effort: a failure is logged at WARNING and never fails the run. The sink looks up the global logger provider on every write and logs one WARNING per process while only the API default provider is installed. Under `MULTIPROCESSING` a spawned worker has no SDK logger provider unless `child_bootstrap` installs one (see [Pickle Compatibility](#pickle-compatibility)), and a synchronous exporter blocks the calculation thread. The OTel copy is not sealed or tamper-evident, so keep the NDJSON log and its manifest as the retained record and compose them:
 
-```python
+```py
 import os
 
 from mloda.enterprise.extenders.audit import AuditExtender, NdjsonAuditSink, OtelLogAuditSink, TeeAuditSink
@@ -339,7 +347,7 @@ extender = AuditExtender(sink, fail_closed=True)
 - An interrupted rotation blocks sealing until `rotate_ndjson_segment` runs again, unless auto-rotation is on. Safe only for `NdjsonAuditSink` writers (shared flock, needs fcntl). A hard crash can leave `.<name>.*` temp files beside the logs; delete them once no rotation runs.
 - Manifest logs written by earlier releases (version 1 lines) still verify; new lines appended to them are version 2.
 
-```python
+```py
 import os
 
 from mloda.enterprise.extenders.audit import AuditExtender, HmacSha256Signer, NdjsonAuditSink, NdjsonHeadAnchor
@@ -446,7 +454,7 @@ A host with `has_backend_sink() == True` must also implement `make_injected_and_
 
 The real-worker test needs `ParallelRunnerFlightServer`, which has no public re-export and cannot be imported anywhere under `mloda/` (this repo's internal-import guard forbids it). Its `flight_server` fixture instead lives in a `conftest.py` at the repo root, outside the guard's scan, and the contract test reaches it lazily via `request.getfixturevalue("flight_server")` rather than a parameter or an import. A downstream host outside this repo that opts into `supports_real_worker_sink()` must supply its own `flight_server` fixture: this repo's lives in its root `conftest.py`, but the published `mloda-testing` package does not ship one.
 
-```python
+```py
 from contextlib import AbstractContextManager
 from typing import Any
 from unittest.mock import patch
@@ -499,7 +507,7 @@ Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_ext
 
 `own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
-```python
+```py
 from opentelemetry.sdk.trace import TracerProvider
 
 from mloda.testing.extenders.otel import OtelExtenderTestMixin
@@ -542,7 +550,7 @@ There is no metrics counterpart of `OtelExtenderTestMixin`. A metrics extender h
 - `RebuildingMetricCaptureProvider`: picklable provider for `make_real_worker_extender_and_marker`, writes metric names to the marker file only on `force_flush()`, so `close()` must flush
 - `FileMetricExporter`: the marker-file exporter behind it
 
-```python
+```py
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any
@@ -611,7 +619,7 @@ Optional on top: `expected_hooks`, `sink_probe_expected_content` (metric names t
 
 Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising the picklable injected sink preservation. Optional: `calculate_run_events(events)` returns only the events of the calculate runs (the default drops the root-job parent run events); override it in a host that also emits other runs, such as nested validation runs, so the `run_all` tests that count COMPLETE events or inputs ignore them. A subclass of `OpenLineageExtender` can call `assert_openlineage_extender_seams(MyExtender, OpenLineageExtender)` to check that the subclass body keeps the declared seams and touches no other private base member (`MyExtender` must be constructible with no arguments).
 
-```python
+```py
 from openlineage.client.client import OpenLineageClient
 
 from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin
@@ -657,7 +665,7 @@ Record the context's `data_access_identity`, not `args[0]`: a host that records 
 
 Count only the WARNING records of the logger that emits the warning under test, never every record in `caplog.records`. Core logs some warnings once per process (for example "not registered in the plugin registry" under `MLODA_PLUGIN_REGISTRY_STRICT=warn`), so under pytest-xdist such a record appears only if no earlier test in the worker triggered it. For your extender's own warnings, filter by its module's logger:
 
-```python
+```py
 import logging
 
 import pytest

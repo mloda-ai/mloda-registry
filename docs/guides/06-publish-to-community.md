@@ -35,6 +35,6 @@ pip install mloda-community
 
 Users can then import your plugin:
 
-```python
+```py
 from mloda.community.feature_groups.your_plugin import YourFeatureGroup
 ```

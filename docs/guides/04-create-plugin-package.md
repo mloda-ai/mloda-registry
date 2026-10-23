@@ -71,7 +71,7 @@ See the [template README](https://github.com/mloda-ai/mloda-plugin-template#setu
 
 `PluginLoader.all()` discovers an installed package only through entry points. The template wires them up: each kind's `manifest.py` lists its concrete classes (`FEATURE_GROUPS`, `COMPUTE_FRAMEWORKS`, `EXTENDERS`), and `pyproject.toml` points one entry per group at it. Add a plugin by appending it to the list:
 
-```python
+```py
 # acme/feature_groups/manifest.py
 from mloda.provider import FeatureGroup
 

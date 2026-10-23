@@ -32,7 +32,7 @@ pip install "acme-scoring @ git+ssh://git@github.com/mycompany/acme-plugins.git#
 
 Then use in code:
 
-```python
+```py
 from acme.feature_groups.scoring import CustomerScoring
 ```
 
