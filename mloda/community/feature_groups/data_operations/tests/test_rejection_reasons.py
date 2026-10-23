@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mloda.provider import PropertySpec
+from mloda.provider import PropertySpec, collect_match_rejections
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
@@ -168,16 +168,12 @@ class TestFrameAggregateNamePathReportsNothing:
 class TestFrameAggregateInheritedFrameTypeReported:
     """An inherited frame_type declines frame_aggregate's config path with a reason naming the fix."""
 
-    def test_inherited_group_frame_type_records_a_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_inherited_group_frame_type_records_a_reason(self) -> None:
         options = Options(context={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})
         options.inherit_from(Options(group={"frame_type": "rolling"}))
-        recorded: dict[str, str] = {}
-        monkeypatch.setattr(
-            "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base.record_match_rejection",
-            lambda name, reason: recorded.__setitem__(name, reason),
-        )
-        assert PandasFrameAggregate.match_feature_group_criteria("my_result", options, None) is False
-        reason = recorded[PandasFrameAggregate.get_class_name()]
+        with collect_match_rejections() as reasons:
+            assert PandasFrameAggregate.match_feature_group_criteria("my_result", options, None) is False
+        reason = reasons[PandasFrameAggregate.get_class_name()].reason
         assert "frame_type" in reason
         assert "inherited" in reason
 

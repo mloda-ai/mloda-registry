@@ -7,6 +7,7 @@ import pickle  # nosec
 from typing import Any
 
 import pytest
+from mloda.provider import is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -211,8 +212,9 @@ class TestMatchAbort:
     @pytest.mark.parametrize("mapping", [STR_TO_INT_MAP, INT_TO_STR_MAP, STR_TO_BOOL_MAP])
     def test_keep_with_mismatched_families_aborts_match(self, mapping: dict[Any, Any]) -> None:
         options = _opts(lookup_mapping=mapping, on_unmatched="keep")
-        with pytest.raises(ValueError, match="keep"):
+        with pytest.raises(ValueError, match="keep") as exc_info:
             PyArrowLookup.match_feature_group_criteria("x__lookup", options)
+        assert is_match_abort(exc_info.value)
 
     def test_keep_with_invalid_mapping_declines_quietly(self) -> None:
         options = _opts(lookup_mapping={"a": 1, "b": "x"}, on_unmatched="keep")
@@ -223,8 +225,9 @@ class TestMatchAbort:
 
     @pytest.mark.parametrize("mapping", [PARTIAL_STR_MAP, {"a": 1, "b": "x"}], ids=["valid", "invalid"])
     def test_hook_own_mapping_option_aborts_match(self, mapping: dict[Any, Any]) -> None:
-        with pytest.raises(ValueError, match="lookup_mapping"):
+        with pytest.raises(ValueError, match="lookup_mapping") as exc_info:
             _HookLookup.match_feature_group_criteria("x__nuts2024", _opts(lookup_mapping=mapping))
+        assert is_match_abort(exc_info.value)
 
     @pytest.mark.parametrize("mapping", [PARTIAL_STR_MAP, {"a": 1, "b": "x"}], ids=["valid", "invalid"])
     def test_hook_ignores_forwarded_mapping(self, mapping: dict[Any, Any]) -> None:

@@ -21,7 +21,6 @@ _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist", "
 _ALLOWED_INTERNAL_IMPORTS = {
     ("mloda.core.abstract_plugins.components.utils", "contained_raise_log_level"),
     ("mloda.core.abstract_plugins.components.utils", "contained_raise_reason"),
-    ("mloda.core.abstract_plugins.components.utils", "escalate_match_abort"),
     ("mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser", "option_key_is_present"),
     ("mloda.core.abstract_plugins.hook_context", "instrument"),
 }
@@ -98,10 +97,10 @@ def test_allowlisted_internal_name_not_flagged(tmp_path: Path) -> None:
 
 def test_allowlist_is_keyed_by_module_and_name(tmp_path: Path) -> None:
     """A name that matches an allowlisted symbol but comes from a different module is still flagged."""
-    _write(tmp_path / "m.py", "from mloda.core.wrong_module import escalate_match_abort\n")
+    _write(tmp_path / "m.py", "from mloda.core.wrong_module import contained_raise_log_level\n")
     hits = find_internal_core_imports(tmp_path)
     assert len(hits) == 1
-    assert "escalate_match_abort" in hits[0]
+    assert "contained_raise_log_level" in hits[0]
     assert "mloda.core.wrong_module" in hits[0]
 
 

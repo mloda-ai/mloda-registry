@@ -28,12 +28,12 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    escalate_match_abort,
     property_spec,
 )
 from mloda.user import DataType, Feature

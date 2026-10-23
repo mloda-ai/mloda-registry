@@ -6,12 +6,12 @@ import functools
 import re
 from typing import Any
 
-from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    escalate_match_abort,
     property_spec,
     record_match_rejection,
 )

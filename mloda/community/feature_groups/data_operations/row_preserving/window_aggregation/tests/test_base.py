@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mloda.provider import is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
@@ -276,6 +277,7 @@ class TestWindowDiscriminatorKey:
         with pytest.raises(ValueError, match="aggregation_type") as exc_info:
             WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
         assert "window_aggregation_type" in str(exc_info.value)
+        assert is_match_abort(exc_info.value)
 
     @pytest.mark.parametrize("feature_name", ["sales__avg_7_day_window", "v__bogus_window"])
     def test_names_window_does_not_own_decline_without_raising(self, feature_name: str) -> None:
@@ -305,6 +307,7 @@ class TestWindowDiscriminatorKey:
         with pytest.raises(ValueError, match="aggregation_type") as exc_info:
             WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert "window_aggregation_type" in str(exc_info.value)
+        assert is_match_abort(exc_info.value)
 
     def test_forwarded_legacy_key_on_a_window_config_matches(self) -> None:
         options = Options(context={"window_aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})

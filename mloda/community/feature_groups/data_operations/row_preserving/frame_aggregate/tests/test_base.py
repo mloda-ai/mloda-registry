@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 import pytest
+from mloda.provider import is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import always_required
@@ -380,8 +381,9 @@ class TestConfigBasedFrameSizeValidation:
         ids=["cumulative_size", "expanding_unit", "rolling_unit"],
     )
     def test_own_unused_frame_option_raises(self, overrides: dict[str, Any], key: str, frame_type: str) -> None:
-        with pytest.raises(ValueError, match=rf"option '{key}'.*'{frame_type}'.*remove"):
+        with pytest.raises(ValueError, match=rf"option '{key}'.*'{frame_type}'.*remove") as exc_info:
             FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", self._options(**overrides), None)
+        assert is_match_abort(exc_info.value)
 
     def test_inherited_frame_type_does_not_trigger_the_unused_option_raise(self) -> None:
         options = self._options(frame_size=3)
@@ -704,6 +706,7 @@ class TestFrameNameAgreement:
         with pytest.raises(ValueError, match=rf"option '{key}'.*'{frame_type}'.*remove") as exc_info:
             FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert feature_name in str(exc_info.value)
+        assert is_match_abort(exc_info.value)
 
     @pytest.mark.parametrize(
         ("feature_name", "frame_type"),
