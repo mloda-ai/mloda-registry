@@ -43,12 +43,12 @@ for table in results:
 
 Three rules keep it predictable:
 
-1. **Import, don't auto-load.** Importing the package registers its feature groups. Do not
-   call `PluginLoader.all()` until [mloda#1745](https://github.com/mloda-ai/mloda/issues/1745)
-   is fixed: it loads the stock read feature groups, which then claim the same names, and the
-   request fails with "Multiple feature groups found" (on mloda 0.16 `ReadDocumentFeature`
-   appears with the stock `TextFileReader` on the dossier's `GL.txt` as its source). For the same reason the package
-   declares no entry point yet. A collection holding both formats (GDPdU and DATEV) must pin
+1. **Import it.** Importing the package registers its feature groups; it declares no entry point
+   until [mloda#1745](https://github.com/mloda-ai/mloda/issues/1745). The `__sources` totals
+   also resolve after `PluginLoader.all()`; a direct request for an intermediate name such as
+   `revenue` then needs `feature_group=`, see
+   [Packages Without an Entry Point](../../../../../docs/guides/01-use-existing-plugin.md#packages-without-an-entry-point).
+   A collection holding both formats (GDPdU and DATEV) must pin
    one reader by its option key (`GdpduReader` or `DatevExtfReader`); unpinned, it is refused.
 2. **Exactly one policy per process.** Your subclass of `AdmissibilityPolicyGroup` is the
    policy. With none, `revenue__sources` does not resolve. With two, resolution refuses.
@@ -66,6 +66,7 @@ revenue, receivables     SkrAccountFeatureGroup                           concep
 revenue__sources         SourcesFeatureGroup                              total + citations
 ```
 
+A `__sources` total is built only over a concept from `SkrAccountFeatureGroup` or a subclass.
 The policy is a step in the resolution graph, so it shows in `RunResult.plan`. Removing it is a
 resolution failure, not an unvetted total.
 
