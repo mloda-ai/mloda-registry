@@ -27,8 +27,10 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
+    calculate_with,
     canonical_table_empty,
     extract_column,
+    feature_group_of,
     make_feature_set,
     result_column_names,
 )
@@ -351,7 +353,7 @@ class AggregationTestBase(
     def test_sum_agg_region(self) -> None:
         """Sum of value_int grouped by region."""
         fs = make_feature_set("value_int__sum_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 4
@@ -365,7 +367,7 @@ class AggregationTestBase(
     def test_avg_agg_region(self) -> None:
         """Average of value_int grouped by region."""
         fs = make_feature_set("value_int__avg_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 4
@@ -379,7 +381,7 @@ class AggregationTestBase(
     def test_count_agg_region(self) -> None:
         """Count of non-null value_int grouped by region."""
         fs = make_feature_set("value_int__count_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 4
@@ -393,7 +395,7 @@ class AggregationTestBase(
     def test_min_agg_region(self) -> None:
         """Minimum of value_int grouped by region."""
         fs = make_feature_set("value_int__min_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 4
@@ -407,7 +409,7 @@ class AggregationTestBase(
     def test_max_agg_region(self) -> None:
         """Maximum of value_int grouped by region."""
         fs = make_feature_set("value_int__max_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 4
@@ -421,7 +423,7 @@ class AggregationTestBase(
     def test_null_policy_skip_avg_with_null_values(self) -> None:
         """NullPolicy.SKIP: Group B has a null value_int at row 4. Avg should skip it."""
         fs = make_feature_set("value_int__avg_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__avg_agg")
@@ -432,7 +434,7 @@ class AggregationTestBase(
     def test_null_policy_null_is_group(self) -> None:
         """NullPolicy.NULL_IS_GROUP: Row 11 has region=None. It should form its own group."""
         fs = make_feature_set("value_int__sum_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__sum_agg")
@@ -442,7 +444,7 @@ class AggregationTestBase(
     def test_output_rows_reduced(self) -> None:
         """Output must have exactly 4 rows (one per group), fewer than 12 input rows."""
         fs = make_feature_set("value_int__sum_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 4
 
@@ -470,8 +472,8 @@ class AggregationTestBase(
         arrow_table = self._arrow_table if table is None else table
         test_data = self.test_data if table is None else self.create_test_data(table)
         fs = make_feature_set(feature_name, partition_by)
-        result = self.implementation_class().calculate_feature(test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(arrow_table, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
+        ref = self.reference_calculate(arrow_table, fs)
 
         if not partition_by:
             assert self.get_row_count(result) == 1, (
@@ -537,7 +539,7 @@ class AggregationTestBase(
     def test_sum_agg_global(self) -> None:
         """Sum of value_int with partition_by=[]: the whole-table total, in one row."""
         fs = make_feature_set("value_int__sum_agg", [])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 1
@@ -548,7 +550,7 @@ class AggregationTestBase(
 
     def test_match_accepts_empty_partition_by(self) -> None:
         options = Options(context={"partition_by": []})
-        assert self.implementation_class().match_feature_group_criteria("value_int__sum_agg", options)
+        assert feature_group_of(self.implementation_class()).match_feature_group_criteria("value_int__sum_agg", options)
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -556,7 +558,7 @@ class AggregationTestBase(
         """Population standard deviation of value_int grouped by region (ddof=0)."""
         self._skip_if_unsupported("std")
         fs = make_feature_set("value_int__std_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__std_agg")
@@ -570,7 +572,7 @@ class AggregationTestBase(
         """Population variance of value_int grouped by region (ddof=0)."""
         self._skip_if_unsupported("var")
         fs = make_feature_set("value_int__var_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__var_agg")
@@ -583,7 +585,7 @@ class AggregationTestBase(
         """Explicit population standard deviation (ddof=0), identical to std."""
         self._skip_if_unsupported("std_pop")
         fs = make_feature_set("value_int__std_pop_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__std_pop_agg")
@@ -596,7 +598,7 @@ class AggregationTestBase(
         """Sample standard deviation (ddof=1)."""
         self._skip_if_unsupported("std_samp")
         fs = make_feature_set("value_int__std_samp_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__std_samp_agg")
@@ -609,7 +611,7 @@ class AggregationTestBase(
         """Explicit population variance (ddof=0), identical to var."""
         self._skip_if_unsupported("var_pop")
         fs = make_feature_set("value_int__var_pop_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__var_pop_agg")
@@ -622,7 +624,7 @@ class AggregationTestBase(
         """Sample variance (ddof=1)."""
         self._skip_if_unsupported("var_samp")
         fs = make_feature_set("value_int__var_samp_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__var_samp_agg")
@@ -635,7 +637,7 @@ class AggregationTestBase(
         """Median of value_int grouped by region."""
         self._skip_if_unsupported("median")
         fs = make_feature_set("value_int__median_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__median_agg")
@@ -656,7 +658,7 @@ class AggregationTestBase(
         self._skip_if_unsupported(agg_type)
         feature_name = f"value_int__{agg_type}_agg"
         fs = make_feature_set(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, feature_name)
@@ -677,7 +679,7 @@ class AggregationTestBase(
             self._skip_if_unsupported(agg_type)
         feature_name = f"score__{agg_type}_agg"
         fs = make_feature_set(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, feature_name)
         assert all(v is None for v in result_col)
@@ -685,7 +687,7 @@ class AggregationTestBase(
     def test_all_null_column_count_per_group(self) -> None:
         """score is all-null. Count per group should be 0."""
         fs = make_feature_set("score__count_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "score__count_agg")
         assert all(v == 0 for v in result_col)
@@ -697,7 +699,7 @@ class AggregationTestBase(
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("score__nunique_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "score__nunique_agg")
         assert all(v == 0 for v in result_col)
@@ -717,7 +719,7 @@ class AggregationTestBase(
     def test_multi_key_partition_sum(self) -> None:
         """Sum of value_int grouped by [region, category]."""
         fs = make_feature_set("value_int__sum_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         category_col = self.extract_column(result, "category")
@@ -733,7 +735,7 @@ class AggregationTestBase(
     def test_multi_key_partition_count(self) -> None:
         """Count of non-null value_int grouped by [region, category]."""
         fs = make_feature_set("value_int__count_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         category_col = self.extract_column(result, "category")
@@ -747,7 +749,7 @@ class AggregationTestBase(
     def test_multi_key_float_avg(self) -> None:
         """Avg of value_float grouped by [region, category]."""
         fs = make_feature_set("value_float__avg_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         category_col = self.extract_column(result, "category")
@@ -770,7 +772,7 @@ class AggregationTestBase(
         """Median of value_int grouped by [region, category]."""
         self._skip_if_unsupported("median")
         fs = make_feature_set("value_int__median_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__median_agg")
 
         # (A,X): [10, 0] -> median = 5.0
@@ -792,7 +794,7 @@ class AggregationTestBase(
         """
         self._skip_if_unsupported("std")
         fs = make_feature_set("value_int__std_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__std_agg")
 
         # (A,X): [10, 0] -> pop std = 5.0
@@ -806,7 +808,7 @@ class AggregationTestBase(
         """Population variance of value_int grouped by [region, category]."""
         self._skip_if_unsupported("var")
         fs = make_feature_set("value_int__var_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__var_agg")
 
         # (A,X): [10, 0] -> pop var = 25.0
@@ -820,7 +822,7 @@ class AggregationTestBase(
         """Nunique of value_int grouped by [region, category]."""
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("value_int__nunique_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__nunique_agg")
 
         assert result_map[("A", "X")] == 2  # {10, 0}
@@ -837,7 +839,7 @@ class AggregationTestBase(
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__mode_agg")
 
         assert result_map[("A", "X")] == 10
@@ -856,7 +858,7 @@ class AggregationTestBase(
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__first_agg")
 
         assert result_map[("A", "X")] == 10
@@ -875,7 +877,7 @@ class AggregationTestBase(
         """
         self._skip_if_unsupported("last")
         fs = make_feature_set("value_int__last_agg", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__last_agg")
 
         assert result_map[("A", "X")] == 0
@@ -905,14 +907,14 @@ class AggregationTestBase(
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Mask (conditional aggregation) tests ----------------------------------
 
     def test_mask_sum_agg_equal(self) -> None:
         """Sum of value_int where category='X', grouped by region."""
         fs = make_feature_set("value_int__sum_agg", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__sum_agg")
         result_map = _build_result_map(self.extract_column(result, "region"), result_col)
@@ -924,7 +926,7 @@ class AggregationTestBase(
     def test_mask_count_agg_equal(self) -> None:
         """Count of non-null value_int where category='X', grouped by region."""
         fs = make_feature_set("value_int__count_agg", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__count_agg")
         result_map = _build_result_map(self.extract_column(result, "region"), result_col)
@@ -940,7 +942,7 @@ class AggregationTestBase(
             ["region"],
             mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__sum_agg")
         # A: only row 0 (10) -> 10, B: only row 7 (60) -> 60, C: only row 9 (15) -> 15, None: row 11 (-10<10) -> None
@@ -957,7 +959,7 @@ class AggregationTestBase(
     def test_mask_is_in_agg(self) -> None:
         """Sum of value_int where region is_in ['A', 'C'], grouped by region."""
         fs = make_feature_set("value_int__sum_agg", ["region"], mask=("region", "is_in", ["A", "C"]))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__sum_agg")
         result_map = _build_result_map(self.extract_column(result, "region"), result_col)
@@ -969,7 +971,7 @@ class AggregationTestBase(
     def test_mask_fully_masked_agg(self) -> None:
         """All rows masked out (category='Z') should produce None for every group."""
         fs = make_feature_set("value_int__sum_agg", ["region"], mask=("category", "equal", "Z"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__sum_agg")
         assert all(v is None for v in result_col)
@@ -977,7 +979,7 @@ class AggregationTestBase(
     def test_mask_greater_than_agg(self) -> None:
         """Sum of value_int where value_int > 10, grouped by region."""
         fs = make_feature_set("value_int__sum_agg", ["region"], mask=("value_int", "greater_than", 10))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__sum_agg")
         result_map = _build_result_map(self.extract_column(result, "region"), result_col)
@@ -990,7 +992,7 @@ class AggregationTestBase(
         """Mode of value_int where category='X', grouped by region."""
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_agg", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 4
         result_col = self.extract_column(result, "value_int__mode_agg")
         result_map = _build_result_map(self.extract_column(result, "region"), result_col)
@@ -1012,12 +1014,12 @@ class AggregationTestBase(
         feature_name = "v__count_agg"
         fs = make_feature_set(feature_name, ["k"])
 
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref = self.reference_calculate(table, fs)
         assert ref.num_rows == 2, f"reference must split 0.0/-0.0 into two groups, got {ref.num_rows} rows"
         ref_counts = sorted(extract_column(ref, feature_name))
         assert ref_counts == [1, 2]
 
-        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         result_counts = sorted(self.extract_column(result, feature_name))
         row_count = self.get_row_count(result)
         if self.merges_signed_zero_keys():

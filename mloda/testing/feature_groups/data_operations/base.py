@@ -26,6 +26,7 @@ import pyarrow as pa
 import pytest
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 
 # Capability methods ``_skip_if_unsupported`` probes, in order. Operation families
@@ -81,6 +82,11 @@ class DataOpsTestBase(ABC):
         Operation-specific bases override this to import the correct class.
         """
         raise NotImplementedError("Subclass must override reference_implementation_class")
+
+    @classmethod
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the reference on the canonical PyArrow table; override when the reference is not a FeatureGroup."""
+        return cls.reference_implementation_class().calculate_feature(table, features)
 
     # -- Setup / teardown ------------------------------------------------------
 
@@ -184,8 +190,8 @@ class DataOpsTestBase(ABC):
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by, **extra_context)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        ref = self.reference_calculate(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)

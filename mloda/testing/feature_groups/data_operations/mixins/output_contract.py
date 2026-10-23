@@ -9,6 +9,8 @@ from typing import Any
 
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
+
 
 class OutputContractTestMixin:
     """Mixin providing the standard result-type / row-count / new-column tests.
@@ -41,7 +43,7 @@ class OutputContractTestMixin:
 
     def _output_contract_result(self) -> tuple[Any, str]:
         fs = self.output_contract_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         return result, str(fs.get_name_of_one_feature())
 
     # -- Concrete test methods --------------------------------------------------

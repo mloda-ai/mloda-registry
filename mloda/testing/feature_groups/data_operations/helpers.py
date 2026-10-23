@@ -7,6 +7,8 @@ Provides:
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
 - ``is_null``: True for None or a float NaN.
 - ``assert_values_with_nulls``: Assert two lists match, null-aware, with optional cast/approx.
+- ``calculate_with``: Run a FeatureGroup class or an Implementation class on data with a FeatureSet.
+- ``feature_group_of``: The FeatureGroup class of a FeatureGroup class or an Implementation class.
 - ``canonical_table_empty``: Canonical table with the same schema and zero rows, for empty-input cases.
 """
 
@@ -17,10 +19,25 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureSet, Implementation
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+
+
+def feature_group_of(plugin: Any) -> Any:
+    """The FeatureGroup class of a plugin: ``plugin.feature_group`` for an Implementation, else the plugin."""
+    if isinstance(plugin, type) and issubclass(plugin, Implementation):
+        return plugin.feature_group
+    return plugin
+
+
+def calculate_with(plugin: Any, data: Any, features: FeatureSet) -> Any:
+    """Run a FeatureGroup class or an Implementation class on data with a FeatureSet."""
+    if isinstance(plugin, type) and issubclass(plugin, Implementation):
+        features.implementation = plugin
+        return plugin.feature_group.calculate_feature(data, features)
+    return plugin.calculate_feature(data, features)
 
 
 def canonical_table_empty() -> pa.Table:

@@ -225,3 +225,59 @@ def test_compare_with_reference_forwards_extra_context_to_both_calls() -> None:
     stub._compare_with_reference("f", partition_by=["g"], lookup_mapping={"a": "b"}, on_unmatched="null")
     expected = {"partition_by": ["g"], "lookup_mapping": {"a": "b"}, "on_unmatched": "null"}
     assert _RecordingImpl.seen == [expected, expected]
+
+
+# -- calculate_with / feature_group_of / reference_calculate ------------------
+
+
+class _FeatureGroupPlugin:
+    """FeatureGroup stand-in whose calculate_feature tags the result."""
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: Any) -> Any:
+        return ("feature_group", data, features)
+
+
+def test_calculate_with_calls_calculate_feature_on_a_feature_group_class() -> None:
+    fs = helpers.make_feature_set("f")
+    assert helpers.calculate_with(_FeatureGroupPlugin, "data", fs) == ("feature_group", "data", fs)
+
+
+def test_feature_group_of_returns_a_feature_group_class_itself() -> None:
+    assert helpers.feature_group_of(_FeatureGroupPlugin) is _FeatureGroupPlugin
+
+
+def test_calculate_with_and_feature_group_of_for_an_implementation() -> None:
+    import gc
+
+    from mloda.provider import Implementation, OperationFeatureGroup
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+    class _ProbeGroup(OperationFeatureGroup):
+        pass
+
+    class _ProbeImpl(Implementation[_ProbeGroup]):
+        feature_group = _ProbeGroup
+        compute_framework = PyArrowTable
+
+        @classmethod
+        def calculate(cls, group: Any, data: Any, features: Any, framework: Any) -> Any:
+            return ("implementation", group, data)
+
+    try:
+        fs = helpers.make_feature_set("f")
+        assert helpers.feature_group_of(_ProbeImpl) is _ProbeGroup
+        assert helpers.calculate_with(_ProbeImpl, "data", fs) == ("implementation", _ProbeGroup, "data")
+        assert fs.implementation is _ProbeImpl
+    finally:
+        del _ProbeImpl, _ProbeGroup
+        gc.collect()
+
+
+def test_reference_calculate_defaults_to_the_reference_class_calculate_feature() -> None:
+    _RecordingImpl.seen = []
+    table = pa.table({"f": [1]})
+    fs = helpers.make_feature_set("f", partition_by=["g"])
+    result = _CompareStub.reference_calculate(table, fs)
+    assert result.column("f").to_pylist() == [1]
+    assert _RecordingImpl.seen == [{"partition_by": ["g"]}]

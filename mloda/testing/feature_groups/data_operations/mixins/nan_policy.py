@@ -17,8 +17,8 @@ from typing import Any, Callable, ClassVar
 import pytest
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 
@@ -92,7 +92,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
         fs = self.nan_policy_feature_set(feature_name)
         policy_expected = self.nan_policy_cases()[case]
 
-        ref = self.reference_implementation_class().calculate_feature(table, fs)  # type: ignore[attr-defined]
+        ref = self.reference_calculate(table, fs)  # type: ignore[attr-defined]
         ref_values = self.nan_policy_extract_values(ref, feature_name, _extract_column)
         assert ref_values == pytest.approx(policy_expected, nan_ok=True), f"{case} reference: {ref_values!r}"
 
@@ -108,7 +108,8 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
             else policy_expected
         )
 
-        result = self.implementation_class().calculate_feature(  # type: ignore[attr-defined]
+        result = calculate_with(
+            self.implementation_class(),  # type: ignore[attr-defined]
             self.create_test_data(table),  # type: ignore[attr-defined]
             fs,
         )

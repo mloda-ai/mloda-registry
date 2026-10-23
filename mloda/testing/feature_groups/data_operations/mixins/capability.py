@@ -28,7 +28,10 @@ Requires the host class to provide:
 from __future__ import annotations
 
 import pytest
+from mloda.provider import Implementation
 from mloda.user import Options
+
+from mloda.testing.feature_groups.data_operations.helpers import feature_group_of
 
 
 class CapabilityHookTestMixin:
@@ -72,7 +75,7 @@ class CapabilityHookTestMixin:
         backend = self.implementation_class()  # type: ignore[attr-defined]
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
         for name, opts in (*self.capability_supported(), *self.capability_conservative()):
-            assert backend.supports_compute_framework(name, opts, framework) is True, (
+            assert feature_group_of(backend).supports_compute_framework(name, opts, framework) is True, (
                 f"expected {name!r} accepted by {framework.__name__}"
             )
 
@@ -92,15 +95,16 @@ class CapabilityHookTestMixin:
             # its default axis, so a non-None return means the backend declares a
             # restriction on that axis and therefore must declare capability_unsupported
             # probes. None means unrestricted (nothing to probe).
-            assert backend.supported_op_subtypes() is None, (
+            restricted = backend.supported if issubclass(backend, Implementation) else backend.supported_op_subtypes()
+            assert restricted is None, (
                 f"{backend.__name__} declares a subtype restriction on its default axis via "
-                "supported_op_subtypes() but ships no capability_unsupported probes; add them"
+                "supported_op_subtypes() (or supported) but ships no capability_unsupported probes; add them"
             )
             pytest.skip("backend restricts no subtypes")
 
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
         for name, opts in unsupported:
-            assert backend.supports_compute_framework(name, opts, framework) is False, (
+            assert feature_group_of(backend).supports_compute_framework(name, opts, framework) is False, (
                 f"expected {name!r} rejected by {framework.__name__}"
             )
 
@@ -108,5 +112,8 @@ class CapabilityHookTestMixin:
         """The mixin's framework is one the backend declares and that is installed."""
         backend = self.implementation_class()  # type: ignore[attr-defined]
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
-        assert framework in backend.compute_framework_definition()
+        if issubclass(backend, Implementation):
+            assert backend.compute_framework in backend.feature_group.compute_framework_definition()
+        else:
+            assert framework in backend.compute_framework_definition()
         assert framework.is_available()

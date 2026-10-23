@@ -17,7 +17,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.testing.feature_groups.data_operations.helpers import is_null, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, make_feature_set
 
 
 class MaskTestMixin:
@@ -135,7 +135,7 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("category", "equal", "X"),
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         self._assert_mask_values(result, self.mask_equal_expected())
 
@@ -147,7 +147,7 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         self._assert_mask_values(result, self.mask_multiple_conditions_expected())
 
@@ -159,7 +159,7 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("region", "is_in", ["A", "C"]),
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         self._assert_mask_values(result, self.mask_is_in_expected())
 
@@ -171,7 +171,7 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("value_int", "greater_than", 10),
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         self._assert_mask_values(result, self.mask_greater_than_expected())
 
@@ -183,7 +183,7 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("category", "equal", "Z"),
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         result_col = self.extract_column(result, self.mask_feature_name())  # type: ignore[attr-defined]
         assert all(is_null(v) for v in result_col)
@@ -197,7 +197,7 @@ class MaskTestMixin:
             mask=("no_such_col", "equal", "X"),
         )
         with pytest.raises(ValueError, match="mask column 'no_such_col' is not present"):
-            self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+            calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
 
     def test_mixin_mask_no_mask_baseline(self) -> None:
         """Mixin: without mask, results match the standard unmasked value."""
@@ -206,7 +206,7 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         self._assert_mask_values(result, self.mask_no_mask_expected())
 
@@ -284,8 +284,8 @@ class MaskTestMixin:
             self.mask_feature_name(), self.mask_partition_by(), self.mask_order_by(), mask=control_mask_spec
         )
 
-        actual_result = self.implementation_class().calculate_feature(actual_data, fs_actual)  # type: ignore[attr-defined]
-        control_result = self.implementation_class().calculate_feature(control_data, fs_control)  # type: ignore[attr-defined]
+        actual_result = calculate_with(self.implementation_class(), actual_data, fs_actual)  # type: ignore[attr-defined]
+        control_result = calculate_with(self.implementation_class(), control_data, fs_control)  # type: ignore[attr-defined]
 
         feature_name = self.mask_feature_name()
         expected: list[Any] | dict[Any, Any]

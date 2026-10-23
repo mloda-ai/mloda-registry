@@ -19,7 +19,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import FeatureName, Options
 
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 # The input-rejection kinds every op test base must address (declare, opt
@@ -115,7 +115,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         data = self._case_test_data(case)
         fs = make_feature_set(case.feature_name, **case.context)
         with pytest.raises(ValueError, match=case.match):
-            self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
+            calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
 
     def test_mixin_empty_in_features(self) -> None:
         """Derive a zero-length in_features rejection from the multi_column_in_features case."""
@@ -131,7 +131,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         feature = next(iter(fs.features))
         with patch.object(feature.options, "get_in_features", return_value=frozenset()):
             with pytest.raises(ValueError, match=r"requires at least \d+ in_feature"):
-                self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
+                calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
 
     def test_mixin_input_features_rejects_multi_column(self) -> None:
         """input_features rejects the multi_column_in_features count at build time, not only at calculate time."""

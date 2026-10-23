@@ -29,7 +29,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 
 
 class ReservedColumnsTestMixin:
@@ -128,7 +128,7 @@ class ReservedColumnsTestMixin:
             order_by=self.reserved_columns_order_by(),
             **self.reserved_columns_extra_context(),
         )
-        result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), colliding_data, fs)  # type: ignore[attr-defined]
         assert result is not None
 
     def test_mixin_helper_column_name_collision_survives(self) -> None:
@@ -163,7 +163,7 @@ class ReservedColumnsTestMixin:
             order_by=self.reserved_columns_order_by(),
             **self.reserved_columns_extra_context(),
         )
-        result = self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == n  # type: ignore[attr-defined]
         for name, values in expected.items():
             survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]

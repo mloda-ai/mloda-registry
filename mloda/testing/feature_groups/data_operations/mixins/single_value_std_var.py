@@ -20,8 +20,8 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 # grp A holds three values (Jan 1, 10, 11); grp B holds exactly one value (Jan 1),
@@ -113,11 +113,12 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
         expected = self.single_value_cases()[case]
         fs = self.single_value_feature_set(feature_name)
 
-        ref = self.reference_implementation_class().calculate_feature(table, fs)  # type: ignore[attr-defined]
+        ref = self.reference_calculate(table, fs)  # type: ignore[attr-defined]
         ref_values = self.single_value_extract_values(ref, feature_name, _extract_column)
         assert ref_values == pytest.approx(expected, nan_ok=True), f"{case} reference: {ref_values!r}"
 
-        result = self.implementation_class().calculate_feature(  # type: ignore[attr-defined]
+        result = calculate_with(
+            self.implementation_class(),  # type: ignore[attr-defined]
             self.create_test_data(table),  # type: ignore[attr-defined]
             fs,
         )
