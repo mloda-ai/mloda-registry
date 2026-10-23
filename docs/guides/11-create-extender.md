@@ -266,7 +266,7 @@ The refusal record has `decision="deny"`, `status="error"` and an `error_type` n
 
 A classification refusal that fails the call therefore takes two forms: `ClassificationDeniedError` at run start, and at plan time a `FeatureResolutionError` whose `refusals` hold the refused groups' exceptions (the first also as `__cause__`), here `ClassificationDeniedError`, or the sink's error when writing the deny record failed. Check `refusals` so a refusal is not mistaken for a missing plugin; they are empty for an ambiguity error (several candidates) or when no group was refused.
 
-```python
+```py
 from mloda.enterprise.extenders.audit import ClassificationDeniedError
 from mloda.user import FeatureResolutionError, mloda
 
