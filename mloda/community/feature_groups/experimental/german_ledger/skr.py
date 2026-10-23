@@ -124,7 +124,7 @@ def select_profile(profiles: tuple[LedgerProfile, ...], declared: set[str]) -> L
     Modelling one exporter as one FeatureGroup subclass made profile identity a property of
     the class graph, and mloda keeps a matching subclass over its parent: a second profile
     silently shadowed the first, and the run returned a plausible total under the wrong
-    mapping (proof_profile_shadow.py). Three profiles collided outright. Both are the same
+    mapping (tests/isolated.py:profile_shadow). Three profiles collided outright. Both are the same
     mistake -- asking resolution order a question only the data can answer.
 
     Selection here is a property of the dossier: a profile fits when the dossier declares
@@ -289,7 +289,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
         """Gate on the semantic catalog BEFORE the inherited rules.
 
         This group used to be the root, and the gate kept its reader from claiming every name
-        (proof_collision.py). The root is now JournalFeatureGroup, which carries that gate;
+        (tests/isolated.py:collision). The root is now JournalFeatureGroup, which carries that gate;
         this one stays so the catalogue, not the inherited rules, decides what it answers.
         """
         if cls.get_column_base_feature(str(feature_name)) not in cls.feature_names_supported():
@@ -322,7 +322,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
 
         One class serves every known exporter, so testing a second profile no longer means
         registering a second subclass -- which is what used to shadow this group for every
-        later resolution in the process (proof_profile_shadow.py).
+        later resolution in the process (tests/isolated.py:profile_shadow).
         """
         # A dossier no profile fits is a configuration error, and it has to say so. Reading
         # straight through gave a bare KeyError('Field "Konto" does not exist in schema')
