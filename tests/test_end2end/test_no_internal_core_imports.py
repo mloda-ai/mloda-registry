@@ -97,10 +97,11 @@ def test_allowlisted_internal_name_not_flagged(tmp_path: Path) -> None:
 
 def test_allowlist_is_keyed_by_module_and_name(tmp_path: Path) -> None:
     """A name that matches an allowlisted symbol but comes from a different module is still flagged."""
-    _write(tmp_path / "m.py", "from mloda.core.wrong_module import contained_raise_log_level\n")
+    name = sorted(_ALLOWED_INTERNAL_IMPORTS)[0][1]
+    _write(tmp_path / "m.py", f"from mloda.core.wrong_module import {name}\n")
     hits = find_internal_core_imports(tmp_path)
     assert len(hits) == 1
-    assert "contained_raise_log_level" in hits[0]
+    assert name in hits[0]
     assert "mloda.core.wrong_module" in hits[0]
 
 
