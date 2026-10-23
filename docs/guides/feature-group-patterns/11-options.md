@@ -164,7 +164,7 @@ assert result[0]["guide11_price__shift_1"].tolist()[1:] == [1, 2]
 - A converter that raises or returns `None` makes the value rejected, a recorded non-match; here `__shift_0` is rejected by the validator after conversion
 - Explicit options and the legacy positional fallback are never converted: an explicit `"2"` string reaches validation as text
 - `_resolve_operation` and `value_for` still return the captured text
-- Keep the converter pure and cheap: it runs on every resolution
+- Keep the converter pure and cheap, as it runs on every resolution
 
 See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
 

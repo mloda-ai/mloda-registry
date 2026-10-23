@@ -230,11 +230,11 @@ See [Declaring Output Parts](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/
 
 ## Requesting Multiple Parts Together
 
-Declare the parts and core computes the base once and returns only the requested columns, so the group needs no per-part handling. Requesting several parts of the same feature, e.g. `Feature("guide05_measure~value")` and `Feature("guide05_measure~unit")` in one run, works without further code.
+With declared parts, requesting several in one run, e.g. `Feature("guide05_measure~value")` and `Feature("guide05_measure~unit")`, needs no per-part handling.
 
 ### Groups that declare no parts
 
-Without `OUTPUT_PARTS`, every requested part reaches the group's `calculate_feature()` as a separate `Feature` in one `FeatureSet`. The following must hold for this to happen:
+Without `OUTPUT_PARTS`, every requested part reaches `calculate_feature()` as its own `Feature` in one `FeatureSet`, provided:
 
 | Precondition | Why |
 |---|---|
@@ -242,7 +242,7 @@ Without `OUTPUT_PARTS`, every requested part reaches the group's `calculate_feat
 | `feature_names_supported()` doesn't list the base name | `FeatureGroup.set_feature_name()` rewrites `base~N` back to `base` when `base` is in `feature_names_supported()`, collapsing the parts into one Feature before `calculate_feature()` runs. |
 | The parts share options, compute framework and data type | These form the grouping hash that batches features into one `FeatureSet`; the name itself is not part of it. |
 
-Each requested part then reaches `calculate_feature()` as its own Feature, so the group must write only that part's column and recomputes per part.
+The group must write only the requested part's column in each, so it recomputes per part.
 
 `FeatureGroup.get_column_base_feature()` strips only a trailing numeric `~N`; named parts are declared instead.
 

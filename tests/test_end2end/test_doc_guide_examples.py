@@ -25,7 +25,7 @@ import pkgutil
 import re
 import subprocess  # nosec
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
@@ -329,16 +329,26 @@ def test_way_3_collection_without_the_slot_resolves_to_nothing() -> None:
     assert "No feature groups found" in str(result.error)
 
 
+def _exec_section_tests(fence: str, label: str, base_namespace: dict[str, Any], what: str) -> list[Callable[..., Any]]:
+    """Exec *fence* in a copy of *base_namespace* and return the ``test_`` callables it newly defines."""
+    namespace = dict(base_namespace)
+    before = set(namespace)
+    exec(compile(fence, f"<{label}>", "exec", dont_inherit=True), namespace)  # nosec
+    tests = [v for k, v in namespace.items() if k not in before and k.startswith("test_") and callable(v)]
+    assert tests, f"the {what} python block no longer defines a test_ function"
+    return tests
+
+
 def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
     fences = _python_fences(TEST_HEADING)
     assert fences, "the Test section of the guide no longer has a python block with a sibling test"
-    namespace = dict(_load_namespace(WAY_2_HEADING, WAY_2_MODULE))
-    before = set(namespace)
-    code = compile(fences[0], f"<{BACKEND_FAMILIES_GUIDE.name} Test>", "exec", dont_inherit=True)
     with patch("mloda.steward.resolve_feature", wraps=resolve_feature) as spy:
-        exec(code, namespace)  # nosec
-        tests = [v for k, v in namespace.items() if k not in before and k.startswith("test_") and callable(v)]
-        assert tests, "the Test section python block no longer defines a test_ function"
+        tests = _exec_section_tests(
+            fences[0],
+            f"{BACKEND_FAMILIES_GUIDE.name} Test",
+            _load_namespace(WAY_2_HEADING, WAY_2_MODULE),
+            "Test section",
+        )
         for sibling_test in tests:
             sibling_test()
         assert spy.called, "the Test section sibling test no longer calls resolve_feature"
@@ -370,6 +380,7 @@ class PriceSource(FeatureGroup):
 
 def _column_total_step(feature: str | Feature) -> tuple[dict[str, Any], Any]:
     namespace = _load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE)
+    assert "ColumnTotal" in namespace, "the Operation Groups block no longer defines ColumnTotal"
     steps = real_mloda.explain(
         [feature],
         compute_frameworks=[PandasDataFrame, PyArrowTable],
@@ -415,7 +426,10 @@ def _parametrized_calls(fn: Any) -> list[dict[str, Any]]:
         if mark.name != "parametrize":
             continue
         names = [n.strip() for n in mark.args[0].split(",")] if isinstance(mark.args[0], str) else list(mark.args[0])
-        rows = [row if len(names) > 1 else (row,) for row in mark.args[1]]
+        rows = [
+            tuple(row.values) if isinstance(row, type(pytest.param())) else row if len(names) > 1 else (row,)
+            for row in mark.args[1]
+        ]
         calls = [{**call, **dict(zip(names, row, strict=True))} for call in calls for row in rows]
     return calls
 
@@ -423,12 +437,12 @@ def _parametrized_calls(fn: Any) -> list[dict[str, Any]]:
 def test_conformance_section_test_passes_against_the_operation_group_example() -> None:
     fences = _python_fences(CONFORMANCE_HEADING, TESTING_GUIDE)
     assert fences, "the Conformance section of the testing guide no longer has a python block"
-    namespace = dict(_load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE))
-    before = set(namespace)
-    code = compile(fences[0], f"<{TESTING_GUIDE.name} Conformance>", "exec", dont_inherit=True)
-    exec(code, namespace)  # nosec
-    tests = [v for k, v in namespace.items() if k not in before and k.startswith("test_") and callable(v)]
-    assert tests, "the Conformance section python block no longer defines a test_ function"
+    tests = _exec_section_tests(
+        fences[0],
+        f"{TESTING_GUIDE.name} Conformance",
+        _load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE),
+        "Conformance section",
+    )
     calls = 0
     for conformance_test in tests:
         for kwargs in _parametrized_calls(conformance_test):
