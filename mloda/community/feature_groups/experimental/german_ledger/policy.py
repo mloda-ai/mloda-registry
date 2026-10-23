@@ -531,7 +531,8 @@ class AdmissibilityPolicyGroup(FeatureGroup):
         return cls.configured() and str(feature_name) == ADMITTED
 
     def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
-        return {Feature(JOURNAL)}
+        # Scoped: the stock read roots also claim this name after PluginLoader.all() (mloda#1745).
+        return {Feature(JOURNAL, feature_group=_ReaderJournal)}
 
     @classmethod
     def compute_framework_rule(cls) -> Any:
