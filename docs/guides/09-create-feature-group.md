@@ -82,7 +82,7 @@ Q23: Need both plan reuse and incremental per-group delivery?
 Q24: Need conditional aggregation (include only rows matching a predicate)?
     YES → See 25-masking
 
-Q25: Several readers under one root group, or a non-file (HTTP/API) source?
+Q25: Reading a file format, database or API with a source FeatureGroup (pointing, custom format, non-file / HTTP source)?
     YES → See 27-input-data-readers
 
 Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
@@ -139,6 +139,6 @@ Q31: Is the model a compiled binary (shipped as a wheel, possibly license-gated)
 | [24-realtime](feature-group-patterns/24-realtime.md) | Reuse execution plans with `prepare` + `run` |
 | [25-masking](feature-group-patterns/25-masking.md) | Conditional aggregation via `mask` context option |
 | [26-input-feature-forwarding](feature-group-patterns/26-input-feature-forwarding.md) | Consuming another group's feature; controlling option forwarding |
-| [27-input-data-readers](feature-group-patterns/27-input-data-readers.md) | Sibling reader selection; non-file / HTTP readers; reader options; required declarations |
-| [28-backend-families](feature-group-patterns/28-backend-families.md) | Picking one sibling backend: name, discriminator option, or reader |
+| [27-input-data-readers](feature-group-patterns/27-input-data-readers.md) | Source FeatureGroups: pointing, custom file formats, non-file / HTTP sources; required declarations |
+| [28-backend-families](feature-group-patterns/28-backend-families.md) | Picking one sibling backend: name, discriminator option, or source group |
 | [29-binary-backed-features](feature-group-patterns/29-binary-backed-features.md) | Running a compiled, license-gated binary as a black-box model |

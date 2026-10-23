@@ -111,7 +111,7 @@ Use when upstream features are slow (API calls, ML inference) or you need contro
 
 ## Locking a Shipped Plan
 
-An integration-scope check that resolves a request without running it: for a plugin that ships request definitions (recipes, demos), lock the resolved plan so a planner, compute framework or reader change fails a test. `mloda.explain` takes `run_all`'s planning arguments as keywords; pass the ones the shipped request uses, an ordered `compute_frameworks` list, a pinned `plugin_collector` so other installed plugins cannot change the plan, and `parallelization_modes={ParallelizationMode.SYNC}`, which `run_all` defaults to and `explain` does not:
+An integration-scope check that resolves a request without running it: for a plugin that ships request definitions (recipes, demos), lock the resolved plan so a planner, compute framework or source group change fails a test. `mloda.explain` takes `run_all`'s planning arguments as keywords; pass the ones the shipped request uses, an ordered `compute_frameworks` list, a pinned `plugin_collector` so other installed plugins cannot change the plan, and `parallelization_modes={ParallelizationMode.SYNC}`, which `run_all` defaults to and `explain` does not:
 
 ```python
 import os
@@ -181,7 +181,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 
 | Pattern | Level 1 Focus | Level 2 Focus |
 |---------|---------------|---------------|
-| Root | `input_data()` returns instance | Data loading works |
+| Root | `input_data()` returns instance (a source group: its claim routes and `find_sources`) | Data loading works |
 | Derived | `input_features()` correct | Transformation logic |
 | Chained | Pattern regex matching | Suffix extraction |
 | Multi-input | `&` parsing | Multiple inputs combined |

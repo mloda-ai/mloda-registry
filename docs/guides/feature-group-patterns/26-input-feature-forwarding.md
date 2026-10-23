@@ -27,14 +27,14 @@ Feature group(s) eliminated while matching '<feature_name>':
 
 That is the signal to carve the key out with `forward_group_exclude`, an allowlist, or `forward_group=False`.
 
-## Caveat: A Forwarded Reader Key Can Collide With the Root Group
+## Caveat: A Forwarded Source Pointer Reaches Every Input
 
-A different failure produces no rejection. When the forwarded key is a root reader's own selection key (Pattern 27, "the reader class itself also works as the key") and the consumer's own name is chain-shaped (`value__rebased`), the root group can claim the same name the consumer group claims, and resolution fails with `Multiple feature groups found for feature '<name>'`, naming neither group's reader as the cause.
+A class-name pointer such as `options={"CsvFG": path}` is a group option, so it forwards to the input features and binds them to that source (Pattern 27, "Pointing a feature at a group"). Two consequences:
 
-`forward_group_exclude` cannot carve this one out: the reader key is exactly what the upstream needs to configure itself, so excluding it defeats the "configure the upstream once" pattern this page exists for. Two remedies apply instead:
+- A consumer whose inputs come from several sources must put each pointer on its own input feature (or use the `DataAccessCollection`). A forwarded pointer to a source without the column aborts with the missing-column error.
+- A chain-shaped consumer name (`value__rebased`) no longer collides with the source group of the pointer: a checked route claims only names that are columns of its source, and an open route steps aside for a derived name in favor of the group that computes it. A custom source group that claims by `NamePolicy.DECLARED` should keep `declared_names()` to names it really serves (Pattern 27, "Decline Names You Cannot Confirm").
 
-- Fix it at the reader (Pattern 27, "Decline Names You Cannot Confirm"): a root reader that declines a name it cannot confirm belongs to it never creates the collision.
-- Or scope the caller's request with `feature_group=` (accepts the class or its name as a string; see [FeatureConfig Fields](22-feature-config.md#featureconfig-fields)) so the resolver never considers the root group for this name.
+To read a derived name straight from the source, scope with `feature_group=` (accepts the class or its name as a string; see [FeatureConfig Fields](22-feature-config.md#featureconfig-fields)).
 
 ## The Directives
 
@@ -141,4 +141,4 @@ def test_connector_carves_local_key_and_pulls_context():
 - **Pattern 1 (Root features)**: the upstream you consume is typically a root/source feature group.
 - **Pattern 8 (Links joins)**: an alternative when the two groups relate by a join key rather than a direct input dependency.
 - **[Options](11-options.md)**: group vs context, and `propagate_context_keys`.
-- **Pattern 27 (Input-data readers)**: declining a name a reader cannot confirm avoids the collision this page describes
+- **Pattern 27 (Source FeatureGroups)**: pointers forward to inputs, and a source group declines names it cannot confirm

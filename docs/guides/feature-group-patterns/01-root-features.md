@@ -5,14 +5,14 @@ Root features have no input dependencies - they are pipeline entry points.
 **What**: Features with no input dependencies that provide data to the pipeline.
 **When**: You need data from external sources OR generate data in-place.
 **Why**: Every feature pipeline starts with data; root features are the entry points.
-**Where**: CSV/Parquet readers, database connectors, API clients, synthetic data, test data.
-**How**: Return a `BaseInputData` subclass from `input_data()`.
+**Where**: CSV/Parquet files, database connectors, API clients, synthetic data, test data.
+**How**: Return a `DataCreator` or `ApiInputData` (`BaseInputData` subclasses) from `input_data()`, or subclass a source FeatureGroup (`CsvFG`, `ParquetFG`, `SqliteFG`, your own) that claims features itself.
 
 ## Key Characteristic
 
 | Method | Behavior |
 |--------|----------|
-| `input_data()` | Returns `BaseInputData` subclass |
+| `input_data()` | Returns a `BaseInputData` subclass (`DataCreator`, `ApiInputData`); a source FeatureGroup claims features through `CLAIM_ROUTES` instead |
 | `input_features()` | Returns `None` (no dependencies) |
 
 ## Complete Example
@@ -43,7 +43,7 @@ class MyRootFeature(FeatureGroup):
 
 The return shape is a contract, not a style choice. On `PythonDictFramework` it is columnar `dict[str, list]`, and a root feature group must return its columns even when it has no rows: `{"my_column": []}`, never `[]` or `{}`. An empty source directory or a query with no hits is a zero-row result, and a result with zero columns raises `EmptyResultError`. See [calculate_feature](12-calculate-feature.md#return-contract).
 
-A reader that loads real data is not called for you: `calculate_feature` receives `data=None` and must return the reader's `load(features)`. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
+Files, documents and databases are read by source FeatureGroups, which load the data themselves; a root group with its own `BaseInputData` family is no longer a loading mechanism. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
 
 ## Test
 
@@ -77,7 +77,9 @@ class OrderSyntheticData(FeatureGroup):
         return {"order_id": [1, 2, 3], "product_id": [101, 102, 103], "quantity": [5, 3, 7]}
 ```
 
-## CsvReader (File-Based Data)
+## CsvFG (File-Based Data)
+
+`CsvFG` is a stock source FeatureGroup: it claims a feature when a CSV file or folder entry in the `DataAccessCollection` has that column. No root group of your own is needed.
 
 ```python
 from mloda.user import DataAccessCollection, Feature
@@ -96,18 +98,17 @@ Database credentials live in the same collection. Wrap each slot in the typed
 so a single credential dict is never mistaken for a `{handle: value}` registry. See
 [Credentials](17-data-connection-matching.md#credentials).
 
-## Multiple Readers Under One Root Group
+## Several Sources, One Group Each
 
-Several `BaseInputData` readers can sit under one root FeatureGroup; a feature picks
-one via an Options key equal to the reader's class name. See
-[Input-data readers](27-input-data-readers.md).
+There is one source group per format (`CsvFG`, `ParquetFG`, `SqliteFG`, ...), and a feature points at one with an option keyed by the group's class name (`Feature("x", options={"CsvFG": "data/a.csv"})`) or scopes with `feature_group=CsvFG`. See
+[Source FeatureGroups](27-input-data-readers.md).
 
 ## Real Implementations
 
 | File | Description |
 |------|-------------|
-| [read_file.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_file.py) | Base file reader |
-| [csv.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_files/csv.py) | CSV reader |
+| [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG` base file source group |
+| [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
 | [data_creator.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/creator/data_creator.py) | DataCreator base |
 | [create_synthetic_data.py](https://github.com/mloda-ai/mloda/blob/main/docs/docs/examples/mloda_basics/create_synthetic_data.py) | Synthetic data example |
 

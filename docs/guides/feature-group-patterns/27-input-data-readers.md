@@ -1,176 +1,145 @@
-# Input-Data Readers: Sibling Selection and Non-File Sources
+# Source FeatureGroups: Pointing, Custom Formats and Non-File Sources
 
-How to run several `BaseInputData` readers under one root FeatureGroup and point each feature at the right one, including readers for non-file (HTTP/API) sources.
+How to point a feature at a source FeatureGroup and how to write your own for a file format or a non-file (HTTP/API) source.
 
-**What**: Select a specific reader per feature via an Options key equal to the reader's class name; build non-file readers by subclassing `ReadFile`.
-**When**: One root FeatureGroup fronts multiple data sources (CSV file, CSV URL, JSON REST endpoint), each with its own reader.
-**Why**: Reader selection is contract-driven, not guesswork; knowing the contract avoids reading mloda core source.
-**Where**: Connector plugins with several readers (e.g. a CKAN CSV reader, a direct-URL CSV reader, and a REST JSON reader side by side).
+**What**: One FeatureGroup per kind of source (`CsvFG`, `ParquetFG`, `SqliteFG`, your own), selected per feature by an Options key equal to the group's class name.
+**When**: A plugin reads a file format, a database or an API that no stock group covers, or a request must be routed to one of several sources.
+**Why**: Source selection is contract-driven, not guesswork; knowing the contract avoids reading mloda core source.
+**Where**: Connector plugins (a CKAN CSV group, a direct-URL group, a REST JSON group side by side).
 
-## The Selection Contract
+Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md). This page keeps only what a plugin author adds on top. `BaseInputData` remains only as the marker base of `DataCreator` and `ApiInputData`; the reader families (`ReadFile`, `ReadDB`, `ReadDocument`, `match_subclass_data_access`, `load_data`) were removed in mloda 0.17.
 
-A feature selects a reader with an Option whose **key equals the reader's class name** (`BaseInputData.data_access_name()`, i.e. `cls.__name__`). The value is the data access the reader receives (a path, URL, or any object the reader understands):
+## Pointing a Feature at a Group
+
+A feature selects a source group with an Option whose **key equals the group's class name**. The value is the source the group receives (a path, URL, `Credential`, or any object the group understands). The class object works as the key too:
 
 ```python
 from mloda.user import Feature
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
 
-Feature("pm10_value", options={UbaAirReader.__name__: "https://api.example.org/airdata/v4"})
+by_name = Feature("customer_id", options={"CsvFG": "data/customers.csv"})
+by_class = Feature("customer_id", options={CsvFG: "data/customers.csv"})
+scoped = Feature("customer_id", feature_group=CsvFG)
 ```
 
-The reader class itself also works as the key. It is normalized to the class-name string when the `Options` object is constructed, so both spellings are one identity (equal, same hash, same lookup):
-
-```python
-Feature("pm10_value", options={UbaAirReader: "https://api.example.org/airdata/v4"})
-```
-
-As long as sibling readers have distinct class names, they cannot collide: each feature's option key routes to exactly one reader. Two readers sharing a `__name__` across modules are unsupported. A key that names no known reader simply matches nothing.
+A pointer makes the other source groups skip the collection; `feature_group=` scopes resolution to the group and its subclasses without choosing a source; `data_access_handle` only narrows among the sources the `DataAccessCollection` holds. A subclass also answers to its parent's name. Details: core's "Pointing a feature at a source".
 
 ### Several Accepting Readers
 
-Distinct names only protect pinned features. Without a pin, every reader in the family probes the `DataAccessCollection`, and when more than one accepts, the feature fails to resolve (`No feature groups found`) with the root group's match-hook reason `ValueError: Several readers accept the data access for feature(s) ...`; no reader wins by order. A feature pinning several readers that all accept fails with `pins several readers that accept it`. Resolve an overlap, with your own readers or with a stock one owning the same suffix, by one of:
+Without a pointer, every source group searches the `DataAccessCollection`. One group finding a name in several sources aborts naming them; two groups finding the same column fail as ordinary feature-group ambiguity. Resolve an overlap, with your own groups or with a stock one owning the same suffix, by one of:
 
-- **Subclass the reader you extend.** A subclass that accepts an equal data access replaces its parent instead of conflicting (a custom `.csv` reader subclasses `CsvReader`).
-- **Narrow `match_subclass_data_access`** (suffix, scheme, host) so the accepts are disjoint.
-- **Pin per feature** by the reader's option key, as above.
-
-### The reserved "BaseInputData" key
-
-While matching, the `(ReaderClass, data_access)` pair is written under the reserved `"BaseInputData"` options key, then moved onto `Feature.input_data_match` and removed from options (it may carry credentials). `BaseInputData.init_reader` takes that pair at load time. The class-name option key is the normal way to select a reader; tests may call `feature_scope_data_access` directly, which writes the key into the given `Options`. Setting it twice with different values raises `ValueError`. Two candidates that both match raise `Multiple feature groups found`, naming each candidate and its source.
+- **Subclass the group you extend.** A subclass of `CsvFG` answers to `CsvFG` pointers and takes over its parent.
+- **Narrow `find_sources`** (suffix, scheme, host) so the groups find disjoint sources.
+- **Pin per feature** with the class-name pointer, or `feature_group=`, or `data_access_handle`.
 
 ### Overriding the selection
 
-Prefer overriding only `match_subclass_data_access`: core probes it through the `INPUT_DATA_MATCH` extender hook, so a gate can refuse the reader before the probe reads anything (see [Reader match hook](../11-create-extender.md#reader-match-hook)). A reader base that overrides `feature_scope_data_access` or `match_data_access` must call each candidate as `probe_reader(subclass, data_access, feature_names, options)` instead of `subclass.match_subclass_data_access(...)`: a direct call silently bypasses the hook, so no gate sees or refuses that reader. `probe_reader` returns `None` for a refused reader and lets an exception from the probe propagate. It is core-internal in mloda 0.16 (module `mloda.core.abstract_plugins.components.input_data.reader_probe`, not exported from any public `mloda` module), so its path may move. Overriding `matches`, or doing I/O in `match_feature_group_criteria`, is never gated.
+Customize discovery through `CLAIM_ROUTES` and `find_sources`; both run behind the `INPUT_DATA_MATCH` extender hook, so a gate can refuse a source before anything is read (see [Reader match hook](../11-create-extender.md#reader-match-hook)). Overriding `match_feature_group_criteria` is rarely needed: call `super()` and run any extra I/O through `cls.gated_probe(feature_name, options, data_access_collection, probe)`. A probe run any other way is never gated.
 
-## Sibling Readers Under One Root FeatureGroup
+## Writing a ReadFileFG Subclass
 
-The option key selects the reader; the selected reader then confirms the data access via `match_subclass_data_access`. Return the data access to claim it, `None` to decline:
+Implement `suffixes()` and `column_names(path)`. The base discovers files and folders, applies the pinned-file rule, caches per run and hands a `FileSource` to the compute framework. A format whose parsing differs from the stock transformers must also override `load_neutral`, otherwise the parent format is parsed.
 
 ```python
+from collections.abc import Collection
 from typing import Any
-from mloda.provider import FeatureSet
-from mloda.user import Options
-from mloda_plugins.feature_group.input_data.read_file import ReadFile
+
+from mloda.provider import FeatureSet, ReadFileFG
 
 
-class GovDataReader(ReadFile):
-    """CKAN-hosted CSV."""
+class SensorCsvFG(ReadFileFG):
+    @classmethod
+    def suffixes(cls) -> tuple[str, ...]:
+        return (".sensorcsv",)
 
     @classmethod
-    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        if isinstance(data_access, str) and "ckan" in data_access:
-            return data_access
-        return None
+    def column_names(cls, path: str) -> Collection[str]:
+        with open(path, encoding="utf-8") as handle:
+            header = handle.readline()
+        if "#sensor-schema" not in header:
+            raise ValueError("its header lacks the #sensor-schema marker")
+        return header.replace("#sensor-schema", "").strip().split(",")
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # fetch and parse, return the table
-
-
-class UbaAirReader(ReadFile):
-    """REST JSON endpoint."""
-
-    @classmethod
-    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        if isinstance(data_access, str) and data_access.startswith("https://api."):
-            return data_access
-        return None
-
-    @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # HTTP GET, normalize JSON, return the table
+    def load_neutral(cls, match: Any, features: FeatureSet) -> Any: ...  # parse match.access, return the table
 ```
 
-Both are siblings under the stock `ReadFileFeature` root group; no extra FeatureGroup is needed. The user routes per feature (snippets on this page build on each other):
+`suffixes()` runs at class definition and must return a non-empty tuple of non-empty strings. `column_names` raises `OSError` or `ValueError` for an unreadable file (declined with a recorded reason) and `ImportError` for a missing backend; any other exception ends matching for that candidate. A subclass that raises `NotImplementedError` from `column_names` is eliminated for every name.
+
+### Decline Names You Cannot Confirm
+
+Record why a group owns a source but cannot serve the request; the reason lands in the near-miss block of the "No feature groups found" error, labeled `(input data)`. `ValueError` from `column_names` already does this for file groups, and `ReadFileFG` and `ReadDBFG` record missing columns automatically. A custom group records its own decline points with `record_match_rejection`, then returns a falsy value:
 
 ```python
-features = [
-    Feature("population", options={GovDataReader.__name__: ckan_url}),
-    Feature("pm10_value", options={UbaAirReader: api_url}),
-]
+from mloda.provider import INPUT_DATA_STAGE, record_match_rejection
+
+record_match_rejection(
+    "SensorCsvFG",
+    "SensorCsvFG matched /data/run1.sensorcsv but could not read its columns: its header lacks the marker",
+    stage=INPUT_DATA_STAGE,
+)
 ```
 
-Both `GovDataReader` and `UbaAirReader` above accept any `feature_names` unconditionally; see [Decline Names You Cannot Confirm](#decline-names-you-cannot-confirm) below before shipping either as written.
+- Record only when ownership is established but the content fails (right suffix, missing column; valid credentials, declined feature). Plain non-matches stay silent.
+- Never raise to decline. A raise marked with `escalate_match_abort` propagates; any other raise ends matching for that candidate. Record, then return a falsy value.
+- The first recording per owner wins, and recorded reasons are discarded when the group ultimately matches. Name the group and the concrete source in the reason.
+- Recording outside an engine-opened window is a no-op; in tests use `collect_match_rejections`.
+- A chain-shaped name (`value__rebased`) is not a column of a source, so a `NamePolicy.CHECKED` route never claims it. A group on `NamePolicy.DECLARED` claims exactly `declared_names()` and `declared_name_prefixes()`: keep them to names the group serves. A derived name pointed at an open route goes to the group that computes it.
 
 ## Your Own Root FeatureGroup
 
-`ReadFileFeature`, `ReadDBFeature` and `ReadDocumentFeature` front every subclass of `ReadFile`, `ReadDB` and `ReadDocument`, HTTP readers built on `ReadFile` included (see [Non-File / HTTP Sources](#non-file--http-sources)). Write your own root group only when the group needs behavior of its own, such as its own `compute_framework_rule()` or domain. Its reader family must derive from `BaseInputData` directly: a family built on a stock base under a second root group also matches the stock root and fails with `Multiple feature groups found`. The root group loads the data in `calculate_feature`, as `ReadFileFeature` does:
-
-```python
-from typing import Any
-from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
-from mloda.user import Options
-
-
-class WarehouseReader(BaseInputData):
-    """Family base; a feature picks a subclass by its class-name option key."""
-
-
-class SalesTableReader(WarehouseReader):
-    @classmethod
-    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        if isinstance(data_access, str) and data_access.startswith("warehouse://sales"):
-            return data_access
-        return None
-
-    @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # query, return the table
-
-
-class WarehouseFeature(FeatureGroup):
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return WarehouseReader()
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return WarehouseReader().load(features)
-```
-
-Core hands a root group no loaded data, so returning `data` instead fails at run time with `ValueError: Data <class 'NoneType'> is not supported by PandasDataFrame` (named after the compute framework in use). A `DataCreator` group is different: it builds its data in `calculate_feature`.
+A root group of your own that fronts a `BaseInputData` family no longer loads data: `BaseInputData` has no reader behavior. A source FeatureGroup is the root group, so write the behavior you wanted (its own `compute_framework_rule()`, domain, columns) on the source group itself. `DataCreator` groups still build their data in `calculate_feature`.
 
 ## Non-File / HTTP Sources
 
-`ReadFile`'s default matching (`match_read_file_data_access`) is file-suffix and directory shaped. For a non-file source (an HTTP endpoint returning JSON), the sanctioned recipe is: subclass `ReadFile`, override `match_subclass_data_access` and `load_data` wholesale. On that path `suffix()` is never consulted (it is inert), so you do not implement it.
-
-`ApiInputData` is not the tool for this despite its name: it injects in-memory data passed through the API request and is not an HTTP client.
-
-A reader that overrides `load_data` wholesale is classified as a final reader structurally; no reader code runs during classification.
-
-Extenders record the data access through the reader's `data_access_identity(data_access)` classmethod. Core's default keeps a URL's scheme, host and path and drops the query (a URL it cannot parse, such as one with `@` in the query, becomes `str`), so endpoints that differ only in their query share one identity in audit records, lineage datasets and spans. In lineage, a well-formed `s3://bucket/key`, `gs://bucket/key`, `abfss://container@account.dfs.core.windows.net/path` or `file:///path` identity (or an absolute path) becomes an OpenLineage namespace and name, while malformed ones (a port, an empty key or bucket, another host) do not; any other identity keeps `dataset_namespace` as its namespace, and the `dataSource` facet name is always the identity. Override it for a finer identity: its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Core flags a fallback identity (`data_access_identity_is_fallback`); audit records and load spans carry the flag and lineage marks the dataset.
-
-## Reader Options
-
-Declare the options a reader reads in `READER_OPTIONS`, one `PropertySpec` per key (declarations merge along the class hierarchy, the subclass winning), and read them with `cls.reader_option(key, options)`. It reads the group or context value as given, falls back to the declared default, and raises `ValueError` for an undeclared key, or for an absent key with no default (such a key is required at match time):
+`ReadFileFG` is file-suffix and directory shaped. For a non-file source write a `SourceFeatureGroup` subclass with a pointed-only open route: `ClaimRoute(kind, NamePolicy.OPEN, False)`. It claims a name only when pointed at (`options={"UbaAirFG": url}` or `feature_group=UbaAirFG`). An open route that is searched raises `TypeError` at class definition. A plain `FeatureGroup` is not a pointer target, and `ApiInputData` injects in-memory data passed through the API request, it is not an HTTP client.
 
 ```python
-from typing import Any, ClassVar
-from mloda.provider import FeatureSet, PropertySpec
+from typing import Any
+
+from mloda.provider import ClaimRoute, FeatureSet, NamePolicy, SourceFeatureGroup, SourceMatch
+from mloda.user import DataAccessCollection, Feature, Options
 
 
-class UbaAirReader(ReadFile):  # added to UbaAirReader above
-    READER_OPTIONS: ClassVar[dict[str, PropertySpec]] = {
-        "uba_station": PropertySpec(
-            "One station id",
-            default=None,
-            strict_validation=True,
-            scalar_only=True,
-            element_validator=lambda value: isinstance(value, str),
-        ),
-    }
+class UbaAirFG(SourceFeatureGroup):
+    CLAIM_ROUTES = (ClaimRoute("url", NamePolicy.OPEN, False),)
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
-        station = cls.reader_option("uba_station", features.options)  # None when unset
-        ...
+    def find_sources(
+        cls,
+        route: ClaimRoute,
+        feature_name: str,
+        options: Options,
+        data_access_collection: DataAccessCollection | None,
+    ) -> list[SourceMatch]:
+        url = options.get("UbaAirFG")
+        if not (isinstance(url, str) and url.startswith("https://api.")):
+            return []
+        return [SourceMatch(source=url.split("?")[0], access=url)]
+
+    @classmethod
+    def load_neutral(
+        cls, match: SourceMatch, features: FeatureSet
+    ) -> Any: ...  # HTTP GET match.access, return the table
+
+
+features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/airdata/v4"})]
 ```
 
-`strict_validation=True` (which needs `allowed_values` or an `element_validator`) checks a list, tuple or set value element by element, so `["DEBE010", "DEBE034"]` passes. `scalar_only=True` rejects the collection outright; it is reader-only (a `PROPERTY_MAPPING` spec with it is rejected), exists only on `PropertySpec` (not the `property_spec` builder) and requires `strict_validation=True`. Both checks run at match time, before `match_subclass_data_access` is called: a value they refuse makes the reader a non-match, and the resolution error names the reason, for example `reader option 'uba_station' value is a list of 2 elements, but the declaration of UbaAirReader marks it scalar_only and rejects a collection outright`. See [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the spec fields.
+`SourceMatch.source` is the credential-free label (equality and hash use it, never `access`). Several sources found for one name in one group abort, so keep `source` unique per access. A per-framework fast path is an `Implementation[UbaAirFG]` from `mloda.provider`, defined at module level; without one `load_neutral` runs and a transformer converts.
+
+### Audit Identity
+
+Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging.
 
 ## Required Declarations
 
-A consumer that needs a property of its input's source (a unit, a scale) requires it on the input feature instead of having the reader inspect consumer options and call `record_match_rejection`. Readers and feature groups declare scalars with a `declared_attributes(features)` classmethod (the same declarations extenders record, on output datasets and audit records too, see [Declared attributes](../11-create-extender.md#declared-attributes)):
+A consumer that needs a property of its input's source (a unit, a scale) requires it on the input feature instead of having the source group inspect consumer options and record a rejection. A source group declares scalars with its own `declared_attributes(features)` classmethod (the same declarations extenders record, on output datasets and audit records too, see [Declared attributes](../11-create-extender.md#declared-attributes)). The source group declares for its own step; there is no separate reader declaration.
 
 ```python
 from collections.abc import Mapping
 from typing import Any
+
 from mloda.provider import FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Options
 
@@ -183,85 +152,57 @@ class Pm10Rebased(FeatureGroup):
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any: ...
 
 
-class UbaAirReader(ReadFile):  # added to UbaAirReader above
+class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
     @classmethod
     def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
         return {"scale": 0.001}  # unknown scale: omit the key, never declare a placeholder
 ```
 
 - `None` requires the key with any value, so a declarer that does not know the value omits the key: a placeholder such as `""` or `"unknown"` satisfies the requirement. A concrete value (`{"scale": 0.001}`) must be equal and of the same type.
-- Core checks the candidate group's declarations merged with the selected reader's (the reader wins on a shared key) at plan time, calling `declared_attributes` with `features=None`, so a declaration must not depend on the `FeatureSet`. An unpinned reader that misses is skipped, so a sibling that declares the key can match; a pinned reader is final. A `declared_attributes` that raises refuses the candidate.
-- A refused run fails at plan time, before loading any data, with a reason such as `Pm10Rebased requires declared 'scale'; UbaAirReader declares none` (when it declares nothing; `declares no such key` when it declares other keys), or `requires declared 'scale' == 5; UbaAirReader declares 0.001` for a value.
+- Core checks the candidate group's declarations at plan time, calling `declared_attributes` with `features=None`, so a declaration must not depend on the `FeatureSet`. A `declared_attributes` that raises refuses the candidate.
+- A refused run fails at plan time, before loading any data, with a reason such as `Pm10Rebased requires declared 'scale'; ScaledUbaAirFG declares none` (when it declares nothing; `declares no such key` when it declares other keys), or `requires declared 'scale' == 5; ScaledUbaAirFG declares 0.001` for a value.
 - To keep the check opt-in, add the requirement only when a consumer option asks for it. A chained group whose `input_features` builds plain features from the parsed name overrides `input_features` to attach it. A top-level request can carry it too (`Feature("pm10_value", required_declarations={"scale": None})`; its reason starts with `request for 'pm10_value'`).
 - Declarations are also recorded on extender spans, OpenLineage events and audit records (untruncated in the last two), and a sealed audit log cannot be redacted, so never echo an option value or a credential.
 
-## Decline Names You Cannot Confirm
-
-A wholesale `match_subclass_data_access` override replaces `ReadFile`'s own column check entirely, so nothing stops it from claiming a feature name it has no way to verify. If a consumer's own name is chain-shaped (`value__rebased`) and it forwards this reader's option key to its upstream source feature (Pattern 26), an unconditional accept collides with the root group using the same reader, and resolution fails with `Multiple feature groups found`, pointing at neither reader as the cause.
-
-Once the data access is confirmed yours, decline a name that carries the chain separator before returning it (core strips only a trailing digits-only `~N` multi-output suffix, so a custom non-digit part suffix, Pattern 5, still carries `COLUMN_SEPARATOR` on the matching path; check for both). Record why: the recorded rejection is not just diagnostic, it gates the name-based resolution rules for this owner, so a silent decline can still leave the collision in place.
-
-```python
-from mloda.provider import CHAIN_SEPARATOR, COLUMN_SEPARATOR, INPUT_DATA_STAGE, record_match_rejection
-
-
-# UbaAirReader.match_subclass_data_access, extended to decline after confirming ownership:
-@classmethod
-def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-    if not (isinstance(data_access, str) and data_access.startswith("https://api.")):
-        return None
-    if any(CHAIN_SEPARATOR in name or COLUMN_SEPARATOR in name for name in feature_names):
-        record_match_rejection(
-            cls.get_class_name(),
-            f"{cls.get_class_name()} cannot confirm a chain/column-separated feature name",
-            stage=INPUT_DATA_STAGE,
-        )
-        return None
-    return data_access
-```
-
-A stock `ReadFile` subclass that never implements `get_column_names`, and a stock `ReadDB` subclass that never implements `check_feature_in_data_access`, already decline a chain-separated name for free from mloda core, recorded rejection included, unless the name is pinned via `column_to_file`. Only a wholesale `match_subclass_data_access` override needs the decline written out like this: it bypasses the built-in check entirely, so a subclass that declares `get_column_names` but raises `NotImplementedError` gets neither the free decline nor a wholesale one. If your reader can list its columns, prefer that over a wholesale override: implement `get_column_names` (or `check_feature_in_data_access` for `ReadDB`) instead, and let the built-in check do the work for you.
-
-If your wholesale override still matches by file suffix (i.e. you do implement `suffix()`, unlike the HTTP case above), delegate to `cls._file_matches(path, feature_names, document_suffixes)` rather than hand-writing this check: it returns a bool, so use `return path if cls._file_matches(...) else None`, and it keeps the `document_suffixes` exclusion (from `cls.reader_option("document_suffixes", options)`, see [Reader Options](#reader-options)), `validate_columns`, and the recorded decline intact.
-
 ## Column Discovery
 
-The `get_column_names` seam used above to decline chain-separated names also backs `describe_columns(data_access) -> dict[str, DataType | None]` on `BaseInputData`: it maps each column name to its `DataType` (`None` where unknown), and raises `NotImplementedError` by default. `ReadFile` wraps it around `get_column_names` for free (every name mapped to `None`) once a subclass implements that; a reader that only overrides `match_subclass_data_access`/`load_data` wholesale, like `UbaAirReader` and `GovDataReader` above, never implements `get_column_names`, so the inherited default still raises `NotImplementedError` unless the reader overrides `describe_columns` directly. `ParquetReader`, `FeatherReader`, and `OrcReader` override it with the file's stored schema, `JsonReader` with pyarrow's inferred types, and `ReadDB`'s `SQLITEReader` with SQLite's declared column types.
+`describe_columns(match) -> dict[str, DataType | None]` maps each column name to its `DataType` (`None` where unknown). The `SourceFeatureGroup` default maps every name from `columns(match)` to `None` and raises `NotImplementedError` when `columns` returns `None`. `ReadFileFG` lists names from `column_names`; the stock `ParquetFG`, `FeatherFG` and `OrcFG` report the file's stored schema, `JsonFG` pyarrow's inferred types and `SqliteFG` SQLite's declared column types. A non-file group like `UbaAirFG` above enumerates nothing until it overrides `columns` (or `describe_columns`). `count_rows(match, compute_framework)` returns a row count without loading, or `None` when only a read can tell. From a prepared session use `session.describe_columns(step)` and `session.count_rows(step)`.
 
 ## Test
 
-Follow the contract at unit level, then end to end:
+Core's contract mixins for source groups (`tests/mixins/reader_feature_groups/` in the mloda repository) are not shipped in the wheel and cannot be imported; read them as a checklist of the behavior every group shares. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 
 ```python
-from mloda.provider import BaseInputData
-from mloda.user import Options
+from mloda.steward import resolve_feature
+from mloda.user import Feature, PluginCollector
 
 
-def test_option_key_routes_to_reader() -> None:
-    options = Options({UbaAirReader.__name__: "https://api.example.org/airdata/v4"})
-    assert BaseInputData.feature_scope_data_access(options, "pm10_value") is True
-    assert options.get("BaseInputData")[0] is UbaAirReader
+def test_pointer_reaches_the_group() -> None:
+    result = resolve_feature(
+        Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/airdata/v4"}),
+        plugin_collector=PluginCollector.enabled_feature_groups({UbaAirFG}),
+    )
+    assert result.feature_group is UbaAirFG, result.error
 ```
 
-End to end, run the feature through `mloda.run_all` with `PluginCollector.enabled_feature_groups({ReadFileFeature})`. mloda core pins the full contract in [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py); mirror its isolation trick (a unique marker option key checked in `match_subclass_data_access`) so test readers never hijack matching in unrelated tests.
-
-A reader that [overrides the selection](#overriding-the-selection) also needs an end-to-end gate test: calling `feature_scope_data_access` directly runs no extender, so plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the reader, then assert `FeatureResolutionError` names the refusal (or that a sibling serves the feature). Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.16.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
+A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert `FeatureResolutionError` names the refusal (or that a sibling serves the feature). Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
 
 ## Real Implementations
 
 | File | Description |
 |------|-------------|
-| [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, class-or-string key helper, `init_reader` (takes the matched `(ReaderClass, data_access)` pair) |
-| [read_file.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_file.py) | `ReadFile` base, `match_subclass_data_access` seam |
-| [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py) | The pinned selection contract |
-| [test_reader_declines_chain_separated_names.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_reader_declines_chain_separated_names.py) | Pins the chain/column-separated-name decline contract for `ReadFile`/`ReadDB` |
+| [source_feature_group.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/source_feature_group.py) | `SourceFeatureGroup`: claim routes, `find_sources`, `load_neutral`, `gated_probe` |
+| [claim_route.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/claim_route.py) | `ClaimRoute`, `NamePolicy`, `SourceMatch` |
+| [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG`: `suffixes`, `column_names` |
+| [read_db_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_db_fg.py) | `ReadDBFG`: credentials, catalogs, optional query route |
+| [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
 
-See also [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-access-patterns/) for the underlying model.
+See also [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md) for the underlying model.
 
 ## Combines With
 
-- **Pattern 1 (Root features)**: readers are the `input_data()` of root features
+- **Pattern 1 (Root features)**: source groups are the root features that read files, documents and databases
 - **Pattern 17 (Data connection matching)**: `DataAccessCollection` and handles for connection-shaped sources
 - **Pattern 11 (Options)**: option keys and context vs group semantics
-- **Pattern 26 (Input-feature option forwarding)**: a forwarded reader key can collide with a root reader that doesn't decline names it cannot confirm
-- **Pattern 28 (Backend families)**: selecting a sibling reader by the data access it accepts (a credential slot) instead of a class-name key
+- **Pattern 26 (Input-feature option forwarding)**: a forwarded pointer binds every input it reaches
+- **Pattern 28 (Backend families)**: selecting a sibling source group by the credential slot it finds instead of a class-name key

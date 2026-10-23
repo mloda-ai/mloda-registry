@@ -5,7 +5,7 @@ How to match feature groups against data connections.
 **What**: Match features to specific data sources via the `MatchData` mixin.
 **When**: Feature availability depends on the data connection (database, API, file).
 **Why**: Same feature name can have different implementations per data source.
-**Where**: Database connectors, API clients, file readers with specific schemas.
+**Where**: Database connectors, API clients, file source groups with specific schemas.
 
 ## How It Works
 
@@ -64,16 +64,10 @@ class CsvFeature(FeatureGroup):
         return True
 ```
 
-## Subclass Data Access Matching
+## Source Group Matching
 
-```python
-@classmethod
-def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any: ...
-```
-
-The `options` parameter is required. For the full reader-selection contract
-(class-name option keys, sibling readers, non-file / HTTP sources), see
-[Input-data readers](27-input-data-readers.md).
+Source FeatureGroups find their data in the collection through `find_sources(route, feature_name, options, data_access_collection)`, which runs behind the `INPUT_DATA_MATCH` gate. For the source-selection contract (class-name pointers, claim routes, non-file / HTTP sources), see
+[Source FeatureGroups](27-input-data-readers.md).
 
 ## Named Handles and Multi-Source Disambiguation
 
@@ -152,7 +146,7 @@ slot, so a later `data_access_handle="prod"` lookup would no longer find it.
 Resolver ambiguity errors redact credential values (keys stay visible, values render
 as `***`), so secrets stay out of logs and tracebacks.
 
-To pick one sibling reader by its credential slot key, see
+To pick one sibling source group by its credential slot key, see
 [Backend Families: reader delegation](28-backend-families.md#way-3-reader-delegation-sibling-readers).
 
 ## Full Documentation

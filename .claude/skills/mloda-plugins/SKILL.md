@@ -106,7 +106,7 @@ Q23: Need both plan reuse and incremental per-group delivery?
 Q24: Need conditional aggregation that nulls out non-matching values instead of removing rows?
     YES → See 25-masking
 
-Q25: Several readers under one root group, or a non-file (HTTP/API) source?
+Q25: Reading a file format, database or API with a source FeatureGroup (pointing, custom format, non-file / HTTP source)?
     YES → See 27-input-data-readers
 
 Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
@@ -163,8 +163,8 @@ Location: `docs/guides/feature-group-patterns/`
 | 24 | `24-realtime.md` | Reuse execution plans with `prepare` + `run` |
 | 25 | `25-masking.md` | Conditional aggregation via FilterMask |
 | 26 | `26-input-feature-forwarding.md` | Consume another group's root feature; option forwarding |
-| 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers; reader options; required declarations |
-| 28 | `28-backend-families.md` | Pick one sibling backend: name, discriminator option, or reader |
+| 27 | `27-input-data-readers.md` | Source FeatureGroups: pointing, custom file formats, non-file / HTTP sources; required declarations |
+| 28 | `28-backend-families.md` | Pick one sibling backend: name, discriminator option, or source group |
 | 29 | `29-binary-backed-features.md` | Compiled, license-gated binary as a black-box model over Arrow IPC |
 
 ---
@@ -273,7 +273,7 @@ Q1: What do you want to wrap?
     Output validation  → VALIDATE_OUTPUT_FEATURE
     Feature matched    → FEATURE_GROUP_MATCHED
     Input data loads   → INPUT_DATA_LOAD
-    Reader matching    → INPUT_DATA_MATCH
+    Source matching    → INPUT_DATA_MATCH
     Data joins         → JOIN
 
 Q2: Need execution order control?

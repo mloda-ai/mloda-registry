@@ -2,7 +2,7 @@
 
 How to ship several interchangeable implementations of one feature and let exactly one of them claim each request.
 
-**What**: Three shapes for a family of sibling FeatureGroups (or readers) where one sibling must win.
+**What**: Three shapes for a family of sibling FeatureGroups (or source groups) where one sibling must win.
 **When**: One feature, many backends (BM25 vs. FAISS retrieval, rdflib vs. Oxigraph SPARQL), or one operation with many methods.
 **Why**: mloda asks every FeatureGroup whether it matches. Zero matches fails with `No feature groups found`, more than one with `Multiple feature groups found`. The family has to make the answer unique.
 **Where**: Connector plugins, e.g. [rag_integration](https://github.com/mloda-ai/rag_integration) (way 2) and [open-kgo](https://github.com/mloda-ai/open-kgo) (way 3).
@@ -11,10 +11,10 @@ How to ship several interchangeable implementations of one feature and let exact
 
 | | Way 1: name-encoded | Way 2: discriminator option | Way 3: reader delegation |
 |---|---|---|---|
-| Variation lives in | the feature name | sibling FeatureGroups | sibling readers |
-| Selector | `PREFIX_PATTERN` capture, or the same key in options | `options[<discriminator>]` | the data access (credential slot) the reader accepts |
-| mloda calls | mixin matcher + `FeatureChainParser` | your `match_feature_group_criteria` | `input_data().matches(...)` |
-| Base kept inert by | abstract base | empty `BACKENDS` dict | empty `CONNECTOR_ID` |
+| Variation lives in | the feature name | sibling FeatureGroups | sibling source groups |
+| Selector | `PREFIX_PATTERN` capture, or the same key in options | `options[<discriminator>]` | the credential slot the source group finds |
+| mloda calls | mixin matcher + `FeatureChainParser` | your `match_feature_group_criteria` | `find_sources` per claim route |
+| Base kept inert by | abstract base | empty `BACKENDS` dict | abstract base, empty `CONNECTOR_ID` |
 | Discriminator value validated | yes (`allowed_values`, `element_validator`) | no, an unknown value matches nothing | no, an unknown slot matches nothing |
 
 Choose by who decides:
@@ -126,57 +126,51 @@ Reference: rag_integration's seven connector families (retrieve, rerank, generat
 
 ## Way 3: Reader Delegation (Sibling Readers)
 
-The FeatureGroup never decides. Two parallel trees pair 1:1: each leaf FeatureGroup returns its own reader from `input_data()`, and the reader claims the request by the data access it accepts. No `match_feature_group_criteria` override anywhere.
+The siblings are source FeatureGroups (`SourceFeatureGroup` subclasses) that claim a request by the credential slot the `DataAccessCollection` holds. No `match_feature_group_criteria` override anywhere: the base owns matching and calls `find_sources` on each claim route. An abstract family base declines; each concrete leaf matches itself.
 
 ```python
 from typing import Any, ClassVar
 
-from mloda.provider import BaseInputData, ComputeFramework, FeatureGroup, FeatureSet
+from mloda.provider import ClaimRoute, ComputeFramework, FeatureSet, NamePolicy, SourceFeatureGroup, SourceMatch
 from mloda.user import DataAccessCollection, Options
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
 
 
-class KgReader(BaseInputData):
+class KgSourceFG(SourceFeatureGroup):
     CONNECTOR_ID: ClassVar[str] = ""  # empty: the base never matches
+    # Pointed-only (searched=False) unless query_text is present, which unlocks the route.
+    CLAIM_ROUTES = (ClaimRoute("credentials", NamePolicy.OPEN, False, ("query_text",)),)
 
     @classmethod
-    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        if not cls.CONNECTOR_ID or not isinstance(data_access, DataAccessCollection):
-            return None
-        return data_access.resolve(
+    def find_sources(
+        cls,
+        route: ClaimRoute,
+        feature_name: str,
+        options: Options,
+        data_access_collection: DataAccessCollection | None,
+    ) -> list[SourceMatch]:
+        if not cls.CONNECTOR_ID or data_access_collection is None:
+            return []
+        slot = data_access_collection.resolve(
             "credentials",
             predicate=lambda creds: isinstance(creds.get(cls.CONNECTOR_ID), dict),
             hint=options.get("data_access_handle"),
         )
-
-
-class RdfLibSparqlReader(KgReader):
-    CONNECTOR_ID = "rdflib_sparql"
-
-    @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # data_access[CONNECTOR_ID] is the slot
-
-
-class KgFeatureGroup(FeatureGroup):
-    READER_CLASS: ClassVar[type[KgReader] | None] = None
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return cls.READER_CLASS() if cls.READER_CLASS else None
+        # source is the credential-free label; the access travels in SourceMatch.access
+        return [] if slot is None else [SourceMatch(source=cls.CONNECTOR_ID, access=slot[cls.CONNECTOR_ID])]
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PythonDictFramework}
 
+
+class RdfLibSparqlFeatureGroup(KgSourceFG):
+    CONNECTOR_ID = "rdflib_sparql"
+
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return cls.READER_CLASS().load(features)  # type: ignore[union-attr]
-
-
-class RdfLibSparqlFeatureGroup(KgFeatureGroup):
-    READER_CLASS = RdfLibSparqlReader
+    def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any: ...  # match.access is the slot
 ```
 
 ```python
@@ -189,12 +183,14 @@ mloda.run_all(
 
 Rules:
 
-- **A FeatureGroup only probes its own reader subtree.** `input_data()` returning `RdfLibSparqlReader()` limits the probe to that class and its final subclasses, so a leaf never competes with its siblings. Keep the family base's `READER_CLASS` at `None`: a base returning the family reader probes every leaf, and two accepting leaves fail resolution ([Several Accepting Readers](27-input-data-readers.md#several-accepting-readers)).
-- **Derive the reader family from `BaseInputData`, not `ReadDB` or `ReadFile`.** The stock `ReadDBFeature` probes every final `ReadDB` subclass, so a `ReadDB`-based family also matches it and fails with `Multiple feature groups found` unless the user disables `ReadDBFeature` or scopes with `feature_group=`. Same rule as [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup). A family that needs `ReadDB`'s hooks can return `False` from `is_final_reader()` instead, at the cost in the open-kgo reference below.
-- **The feature name is free.** Nothing parses it, so decline names the reader cannot serve ([Decline Names You Cannot Confirm](27-input-data-readers.md#decline-names-you-cannot-confirm)).
-- **Pick one route per family.** The reader above serves the credential route only. The class-name option key of [Input-data readers](27-input-data-readers.md) hands the reader the option value instead of the collection; this reader declines it. Since mloda 0.15.0 a pinned reader is final, so its own FeatureGroup no longer falls back to the credentials and is eliminated with `RdfLibSparqlReader is pinned for feature 'knows' but matched nothing; a pinned reader is final`. The pin binds only that group's reader subtree: a sibling FeatureGroup whose slot is in the credentials still claims the feature.
+- **Leaves never compete.** `KgSourceFG` is abstract (it leaves `load_neutral` unimplemented), so it declines. Each leaf finds only its own `CONNECTOR_ID` slot; two leaves whose slots are both in the collection are ordinary feature-group ambiguity, resolved by `data_access_handle` or `feature_group=`.
+- **Choose the claim route deliberately.** An `OPEN` route must be `searched=False` (core raises `TypeError` otherwise): it claims any name only when the user points at the group (`options={"RdfLibSparqlFeatureGroup": ...}` or `feature_group=`) or when a `required_options` key such as `query_text` is present, as above. To claim by name instead, use `NamePolicy.CHECKED` with `columns`/`has_column`, or `NamePolicy.DECLARED` with `declared_names()`.
+- **Database-shaped families.** Derive from `ReadDBFG` when the source is a table catalog: it brings credential discovery, per-run catalog caching, `login_key` and the optional `ReadDBFG.QUERY_ROUTE`. Implement `is_valid_credentials` (the slot check), `database_identity`, `connect`, `list_tables`, `table_columns` and `produce_rows`.
+- **Decline what you cannot serve.** Ownership established but content failing is a recorded decline ([Decline Names You Cannot Confirm](27-input-data-readers.md#decline-names-you-cannot-confirm)); a plain non-match stays silent.
+- **Pick one route per family.** A class-name pointer (`options={"RdfLibSparqlFeatureGroup": value}`) is final against other groups and the collection, and the leaf above has no route for it without `query_text`: it declines with `was pointed at but found no source`. Decide whether the family serves pointers, credentials or both, and test that route.
+- **Extra matcher I/O goes through `gated_probe`.** If a leaf overrides `match_feature_group_criteria` to do I/O, call `super()` and wrap the I/O in `cls.gated_probe(feature_name, options, data_access_collection, probe)` so an `INPUT_DATA_MATCH` gate can refuse it ([Reader match hook](../11-create-extender.md#reader-match-hook)).
 
-Reference: open-kgo's nine connector families, e.g. [`kg/rdf/rdflib_sparql.py`](https://github.com/mloda-ai/open-kgo/blob/main/open_kgo/feature_groups/kg/rdf/rdflib_sparql.py). open-kgo builds its readers on `ReadDB` for the credential and query hooks and still resolves with `ReadDBFeature` loaded (its smoke test runs every connector after `PluginLoader.all()`): [`kg/reader_base.py`](https://github.com/mloda-ai/open-kgo/blob/main/open_kgo/feature_groups/kg/reader_base.py) returns `False` from `is_final_reader()`, which hides the readers from `ReadDBFeature`'s subclass walk. The cost: core's matchers walk final readers only, so the reader base overrides `feature_scope_data_access` and `match_data_access` to match only the reader itself, re-implementing core's per-reader checks (reader options, required declarations, credential redaction, the pinned-reader rule) through core-private helpers it has to track across core releases (probing through `probe_reader` too, or extenders cannot gate it, see [Overriding the selection](27-input-data-readers.md#overriding-the-selection)), and loads through its own `load_data` because `ReadDB`'s template refuses a non-final reader. Deriving from `BaseInputData` stays the default.
+Reference: open-kgo's nine connector families, e.g. [`kg/rdf/rdflib_sparql.py`](https://github.com/mloda-ai/open-kgo/blob/main/open_kgo/feature_groups/kg/rdf/rdflib_sparql.py). open-kgo targeted the 0.16 reader model (`ReadDB` readers); check its pinned mloda version before copying its reader base.
 
 ## Keep the Advertised Surface Honest
 
@@ -226,7 +222,7 @@ The upstream then selects its own sibling from the forwarded discriminator (`kg_
 
 - Enable every sibling at once and resolve each value: exactly one match per value.
 - An unknown value or slot resolves to nothing.
-- Way 3: run with `ReadDBFeature` / `ReadFileFeature` enabled if your readers derive from a stock base.
+- Way 3: enable only your leaves with `PluginCollector.enabled_feature_groups`, so stock source groups such as `CsvFG` do not claim the same request.
 
 Resolve each value with `resolve_feature` instead of running it ([Debugging Matching](14-feature-matching.md#debugging-matching)). For the way 2 siblings:
 
@@ -253,4 +249,4 @@ Pass both arguments: the pinned `plugin_collector` keeps other loaded plugins ou
 - **Pattern 3 (Chained features)**: way 1
 - **Pattern 14 (Feature matching)**: the match loop and override caveats behind way 2
 - **Pattern 26 (Input-feature forwarding)**: chaining family members
-- **Pattern 27 (Input-data readers)**: reader subtrees, class-name selection, and name declines behind way 3
+- **Pattern 27 (Source FeatureGroups)**: pointers, claim routes and name declines behind way 3

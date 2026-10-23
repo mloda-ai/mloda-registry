@@ -247,15 +247,22 @@ features = [
 
 ## Same-Class Joins with Discriminators
 
-When both sides use the same FeatureGroup class, use discriminators to distinguish them:
+When both sides use the same FeatureGroup class, use discriminators to distinguish them. Two features pointed at different files of one source group (`CsvFG`) are the typical case: the discriminator is the pointer option itself.
 
 ```python
+from mloda.user import Feature, JoinSpec, Link
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
+
 link = Link.inner(
-    JoinSpec(ReadFileFeature, "id"),
-    JoinSpec(ReadFileFeature, "id"),
-    left_discriminator={"CsvReader": "customers.csv"},
-    right_discriminator={"CsvReader": "orders.csv"},
+    JoinSpec(CsvFG, "id"),
+    JoinSpec(CsvFG, "id"),
+    left_discriminator={"CsvFG": "customers.csv"},
+    right_discriminator={"CsvFG": "orders.csv"},
 )
+features = [
+    Feature("name", options={"CsvFG": "customers.csv"}),
+    Feature("amount", options={"CsvFG": "orders.csv"}),
+]
 ```
 
 ## Polymorphic Link Sides
