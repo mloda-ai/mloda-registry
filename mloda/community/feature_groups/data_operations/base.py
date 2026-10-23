@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.provider import FeatureChainParserMixin
+from mloda.provider import FeatureChainParserMixin, NameResolution
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -320,6 +320,13 @@ class KeyColumnInputsMixin:
 def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
     """True if the feature name matches one of the class's prefix patterns."""
     return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
+
+
+def validate_hand_parsed_bindings(cls: Any, feature_name: Any, bindings: dict[str, str], options: Any) -> None:
+    """Run core's name-mismatch and name-agreement checks on hand-parsed bindings (no captured raw text)."""
+    resolution = NameResolution.miss()
+    cls._validate_forwarded_name_mismatch(feature_name, bindings, options, resolution)
+    cls._validate_name_agreement(feature_name, bindings, None, options, resolution)
 
 
 def is_own_option(options: Any, key: str) -> bool:

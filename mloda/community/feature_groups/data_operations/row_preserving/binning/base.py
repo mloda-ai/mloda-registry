@@ -22,6 +22,7 @@ from mloda.community.feature_groups.data_operations.base import (
     is_positive_int,
     op_token_value,
     positive_int_value,
+    validate_hand_parsed_bindings,
 )
 
 BINNING_OPS = {
@@ -83,8 +84,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if operation_config is None or source_feature is None:
             return
         bindings = {cls.N_BINS: str(cls._name_n_bins(str(feature_name)))}
-        cls._validate_forwarded_name_mismatch(feature_name, bindings, options)
-        cls._validate_name_agreement(feature_name, bindings, None, options)
+        validate_hand_parsed_bindings(cls, feature_name, bindings, options)
 
     @staticmethod
     def _name_n_bins(feature_name: str) -> int:

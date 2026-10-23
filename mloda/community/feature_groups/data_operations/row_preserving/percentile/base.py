@@ -21,6 +21,7 @@ from mloda.community.feature_groups.data_operations.base import (
     assert_source_columns_present,
     is_scalar_number,
     scalar_number_value,
+    validate_hand_parsed_bindings,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
@@ -170,13 +171,12 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
 
     @classmethod
     def _validate_percentile_name_agreement(cls, feature_name: Any, options: Any, resolved_percentile: float) -> None:
-        """Reject an own or forwarded ``percentile`` that contradicts the name (a typed pre-check: core compares strings)."""
+        """Reject an own or forwarded ``percentile`` that contradicts the name (a typed pre-check: core compares element by element, as text or numerically)."""
         declared = options.get(cls.PERCENTILE)
         if declared is None or _unit_percentile(declared) == resolved_percentile:
             return
         bindings = {cls.PERCENTILE: str(resolved_percentile)}
-        cls._validate_forwarded_name_mismatch(feature_name, bindings, options)
-        cls._validate_name_agreement(feature_name, bindings, None, options)
+        validate_hand_parsed_bindings(cls, feature_name, bindings, options)
 
     @classmethod
     def _resolve_percentile(cls, feature_name: Any, options: Any) -> tuple[float | None, bool]:

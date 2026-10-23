@@ -35,6 +35,7 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
     positive_int_value,
+    validate_hand_parsed_bindings,
 )
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,
@@ -418,8 +419,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             # Aliases: either agrees with either name.
             if declared in ("cumulative", "expanding"):
                 bindings[cls.FRAME_TYPE] = declared
-        cls._validate_forwarded_name_mismatch(feature_name, bindings, options)
-        cls._validate_name_agreement(feature_name, bindings, None, options)
+        validate_hand_parsed_bindings(cls, feature_name, bindings, options)
         cls._reject_unused_frame_options(feature_name, options, str(name_type))
 
     @classmethod
