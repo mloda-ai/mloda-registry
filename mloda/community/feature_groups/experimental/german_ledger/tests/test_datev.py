@@ -195,6 +195,25 @@ def test_festschreibung_and_header_skr_travel_with_each_leg() -> None:
     assert t.column("SKR").to_pylist() == [""] * 4, "empty in the header; the concept decides"
 
 
+@pytest.mark.parametrize(
+    ("header", "carried"), [("1", True), ("0", False), ("", None)], ids=["header-1", "header-0", "header-empty"]
+)
+def test_a_rows_festschreibung_wins_and_a_row_without_one_takes_the_headers(
+    tmp_path: Path, header: str, carried: bool | None
+) -> None:
+    _batch(
+        tmp_path,
+        [
+            _row("1,00", "S", "4400", "10000", "1503", Festschreibung="0"),
+            _row("1,00", "S", "4400", "10000", "1503", Festschreibung="1"),
+            _row("1,00", "S", "4400", "10000", "1503"),
+        ],
+        festschreibung=header,
+    )
+    t = _load(str(tmp_path))
+    assert t.column("Festschreibung").to_pylist() == [False] * 2 + [True] * 2 + [carried] * 2
+
+
 def test_stammdaten_are_never_parsed(tmp_path: Path) -> None:
     """Category 16 holds names, addresses and IBANs. It is skipped by its header, unread."""
     d = tmp_path / "books"
