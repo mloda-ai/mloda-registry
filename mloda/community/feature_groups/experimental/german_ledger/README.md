@@ -208,7 +208,6 @@ A folder holding both formats is refused, not resolved to one of them.
 ```bash
 pip install -e ".[dev]"
 pytest                                   # from the registry root
-GERMAN_LEDGER_CORPUS=/path/to/datev/files pytest   # also run third-party DATEV files
 ```
 
 Tests: `test_gdpdu_claims.py` (one claim per test), `test_datev.py`, `test_gdpdu_reader.py`,
@@ -217,6 +216,7 @@ Scenarios that register classes process-wide (a shadowing subclass, a second pol
 `PluginLoader.all()`) live in `tests/isolated.py`, each run in a fresh process by its test. Run
 one by hand: `python -c "from mloda.community.feature_groups.experimental.german_ledger.tests.isolated import inseparable; print(inseparable())"`.
 
-The other third-party DATEV files are not committed: not all of them are licensed for
-redistribution. The ledermann sample in `tests/fixtures/` is MIT: its NOTICE carries the
-license text, and the root `THIRD_PARTY_NOTICES.md` lists it.
+Other third-party DATEV exports are not committed, as not all are licensed for redistribution.
+`test_datev.py` reproduces their format quirks on invented bookings and links each source. The
+ledermann sample in `tests/fixtures/` is MIT: its NOTICE carries the license text, and the root
+`THIRD_PARTY_NOTICES.md` lists it.
