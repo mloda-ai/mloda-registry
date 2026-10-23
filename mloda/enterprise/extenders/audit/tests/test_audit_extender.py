@@ -5017,7 +5017,7 @@ class TestAuditExtenderClassificationRunAll:
         sink = InMemoryAuditSink()
 
         with verified_context(tenant_id="t", principal="svc"):
-            with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
+            with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError") as excinfo:
                 run_csv_feature(
                     tmp_path,
                     _classified(
@@ -5028,6 +5028,8 @@ class TestAuditExtenderClassificationRunAll:
                     ),
                 )
 
+        assert [type(refusal) for refusal in excinfo.value.refusals] == [ClassificationDeniedError]
+        assert excinfo.value.__cause__ is excinfo.value.refusals[0]
         assert probes == []
         assert len(sink.records) == 1
         record = sink.records[0]
@@ -5082,8 +5084,14 @@ class TestAuditExtenderClassificationRunAll:
     def test_a_refused_global_scope_reader_writes_a_deny_record_per_feature_when_a_sibling_serves_the_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from mloda_plugins.feature_group.input_data.file_formats.json_fg import JsonFG
+
         monkeypatch.setattr(
             ParquetFG, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
+        )
+        # Out of the run's scope: a classified reader there adds no deny record.
+        monkeypatch.setattr(
+            JsonFG, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: "pii"})
         )
         path = write_csv(tmp_path)
         sink = InMemoryAuditSink()
