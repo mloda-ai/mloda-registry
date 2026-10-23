@@ -1,7 +1,7 @@
-"""``hmac_sha256`` binary for tests of plugins built on the binary-model contract. Accepts test-signed licenses only; not a real anonymizer.
+"""Fake ``hmac_sha256`` binary for tests only; accepts test-signed licenses only.
 
-Run: ``python -m mloda.testing.binary_model.hmac_fake_binary [--plugin-id <id>]``. The id goes in argv because the
-mixin runs the binary with a minimal environment. It patches ``simulated_binary`` globals, so run it only as a fresh subprocess."""
+Run: ``python -m mloda.testing.binary_model.hmac_fake_binary [--plugin-id <id>]``. The id is argv because the mixin
+passes a minimal environment. It patches ``simulated_binary`` globals, so run it only as a fresh subprocess."""
 
 from __future__ import annotations
 

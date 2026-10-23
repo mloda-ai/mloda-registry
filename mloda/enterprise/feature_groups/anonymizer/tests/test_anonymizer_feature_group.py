@@ -41,7 +41,7 @@ UNSET_KEY_ENV = "ANONYMIZER_TEST_UNSET_PII_KEY"
 
 
 class StubAnonymizer(AnonymizerFeatureGroup):
-    """Points ``AnonymizerFeatureGroup`` at the shipped hmac fake binary (as ``anonymizer_binary``) with a valid placeholder license."""
+    """Points ``AnonymizerFeatureGroup`` at the shipped hmac fake binary with a valid license."""
 
     BINARY_COMMAND_OVERRIDE = STUB_CMD
     LICENSE_KEY_OVERRIDE = VALID_LICENSE_KEY

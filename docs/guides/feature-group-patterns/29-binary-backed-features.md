@@ -154,7 +154,7 @@ class StubExample(BinaryExampleFeatureGroup):
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks=[PyArrowTable]` and `PluginCollector.enabled_feature_groups({StubExample, ApiInputDataFeature})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
 
-For `AnonymizerFeatureGroup` subclasses, `mloda-testing[binary-model]` also ships an `hmac_sha256` fake. `--plugin-id` makes it answer as `anonymizer_binary` (argv, not an env var, because the mixin passes the binary a minimal environment):
+For `AnonymizerFeatureGroup` subclasses, `mloda-testing[binary-model]` also ships an `hmac_sha256` fake; `--plugin-id` makes it answer as `anonymizer_binary` (an argument, not an env var: the mixin passes the binary a minimal environment):
 
 ```python
 import sys
@@ -174,7 +174,7 @@ class StubAnonymizer(AnonymizerFeatureGroup):
     LICENSE_KEY_OVERRIDE = valid_license_token(["anonymizer_binary"])
 ```
 
-Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts test-signed licenses only, so it is for tests.
+Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts test-signed licenses only.
 
 ### Against the real wheel
 
