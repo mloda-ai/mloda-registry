@@ -34,9 +34,8 @@ _ORIGIN_COLUMN = "__origin"
 # descriptor declaring this name would be overwritten by the stamp.
 ADMISSIBILITY_COLUMN = "__admissibility"
 
-# A stamp must be an AFFIRMATIVE verdict naming its policy, not merely a non-null value.
-# Checking only for non-null let "", "DENIED" and False all read as admitted, which made the
-# consumer's demand meaningless. This is an in-process contract, not authentication: a
+# A stamp must be an AFFIRMATIVE verdict naming its policy, not merely a non-null value,
+# so "", "DENIED" and False do not read as admitted. This is an in-process contract, not authentication: a
 # determined producer inside the process can still write a conforming string. What it buys is
 # that blank, negative and malformed verdicts are rejected rather than silently admitted.
 ADMITTED_PREFIX = "admitted:"
@@ -82,9 +81,8 @@ def origin_format(origin: object) -> str | None:
 # that policy backs.
 OUTSIDE_SCOPE_PREFIX = "outside-scope:"
 
-# The policy identifier must be a real name, not merely non-empty. Checking prefix-plus-length
-# let "admitted:;lock=x", "admitted: " and "admitted:\n" all read as admitted -- the same
-# too-permissive-predicate mistake one layer down.
+# The policy identifier must be a real name, not merely non-empty. Prefix-plus-length
+# would let "admitted:;lock=x", "admitted: " and "admitted:\n" read as admitted.
 _POLICY_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
@@ -317,9 +315,8 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
             # Accuracy counts decimal places that are PRESENT in the field. ImpliedAccuracy says
             # the decimal point is absent and the integer must be scaled: 1234 -> 12.34. Treating
             # the second as the first silently multiplies every amount by 10**n.
-            # The standard's default accuracy is 0, not 2. Defaulting to 2 misread every
-            # conforming dossier that omits the element -- both fixtures declare it, which
-            # is exactly why the spike never caught it. 0 is also the safe direction: an
+            # The standard's default accuracy is 0, not 2. Defaulting to 2 would misread every
+            # conforming dossier that omits the element. 0 is also the safe direction: an
             # unshifted integer is visibly wrong, where a guessed scale silently divides
             # every amount by a hundred and still looks like money.
             imp = num.find("ImpliedAccuracy")
@@ -542,8 +539,7 @@ class GdpduReader(ClassifiedReader, ReadFile):
     def get_column_names(cls, file_name: str) -> list[str]:
         """The columns the DESCRIPTOR declares, plus the origin column this reader adds.
 
-        mloda 0.13.0 made this method load-bearing: ReadFile treats a class that does not
-        override it as unable to confirm a chain- or column-separated feature name, and
+        ReadFile treats a class that does not override this as unable to confirm a chain- or column-separated feature name, and
         declines such a name while matching. This reader CAN confirm one -- index.xml names
         every column before a byte of data is read -- so it answers rather than bypassing the
         guard by omission. (Matching itself still confirms only `gdpdu_journal`; this method
@@ -557,13 +553,13 @@ class GdpduReader(ClassifiedReader, ReadFile):
 
     @classmethod
     def data_access_identity(cls, data_access: Any) -> str:
-        """`gdpdu:<dossier>@<fingerprint>` -- what mloda 0.14.0 (#1577) hands every extender.
+        """`gdpdu:<dossier>@<fingerprint>` -- what core hands every extender.
 
         The default for an existing local path is the path as given, which publishes the
         host's directory layout to every lineage and audit extender. This names the dossier
         folder and the same descriptor-plus-data fingerprint each row citation carries, so an
         extender's record joins with the citations it vouches for. It reads both files once
-        more to do so. On mloda 0.13.0 core never calls it.
+        more to do so.
 
         A dossier that cannot be fingerprinted still gets a name, without the fingerprint:
         claiming less is honest, and the load that follows reports the actual error.

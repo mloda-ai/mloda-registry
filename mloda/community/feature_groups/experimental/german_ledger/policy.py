@@ -1,9 +1,6 @@
 """Admissibility as a chained feature group: journal -> journal__admitted -> concept.
 
-mloda 0.14.0 (#1549) discards an extender's return value, so a policy can no longer stamp
-rows from `INPUT_DATA_LOAD`: the old `LateEntryCutoffGuard` kept refusing but its verdict
-never reached the aggregation, and every guarded request yielded no number. The verdict is
-now a feature in its own right:
+The verdict is a feature in its own right, not an extender's side effect:
 
     gdpdu_journal            JournalFeatureGroup     the dossier's rows, every declared column
                              DatevJournalFeatureGroup  or a DATEV folder's legs
@@ -82,8 +79,7 @@ class _ReaderJournal(FeatureGroup):
     """Root: reads a dossier via READER and serves its rows as `gdpdu_journal~<column>`.
 
     Carries no meaning and no verdict. It exists so that the policy can sit between the
-    reader and every concept, instead of inside the reader's load where 0.14.0 no longer
-    lets it change anything.
+    reader and every concept, not inside the reader's load.
 
     One sibling per reader, never a subclass of another: mloda keeps a matching subclass over
     its parent, so a DATEV journal subclassing the GDPdU one would silently win on a folder
@@ -112,7 +108,7 @@ class _ReaderJournal(FeatureGroup):
 
     @classmethod
     def input_data(cls) -> BaseInputData | None:
-        # Returned directly: 0.16 raises when several readers accept, so the stock CsvReader
+        # Returned directly: core raises when several readers accept, so the stock CsvReader
         # must not be left in the pool to also accept a dossier folder holding a .csv.
         return cls.READER() if cls.READER is not None else None
 
@@ -394,7 +390,7 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
     Refuses if any rule refuses, naming every refusing rule at once. Otherwise a row is
     admitted only if EVERY rule admitted it; one OUTSIDE makes the whole row outside-scope,
     and the stamp names which rule did not vouch for it. With a single rule the stamp is that
-    rule's own verdict, so a one-rule host stamps exactly as before composites existed.
+    rule's own verdict, so a one-rule host stamps that rule's verdict unchanged.
     """
     if not rules:
         raise AdmissibilityRefused("no admissibility rule is configured; nothing can be admitted")
