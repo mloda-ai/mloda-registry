@@ -9,7 +9,7 @@ How to validate input and output data in feature groups.
 
 ## Input Validation
 
-```python
+```py
 @classmethod
 def validate_input_features(cls, data: Any, features: FeatureSet) -> None:
     if data["my_input"].isnull().any():
@@ -18,7 +18,7 @@ def validate_input_features(cls, data: Any, features: FeatureSet) -> None:
 
 ## Output Validation
 
-```python
+```py
 @classmethod
 def validate_output_features(cls, data: Any, features: FeatureSet) -> None:
     if len(data[cls.get_class_name()]) != 3:

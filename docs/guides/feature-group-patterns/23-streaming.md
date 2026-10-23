@@ -15,7 +15,9 @@ from mloda.user import PluginLoader, mloda, Feature
 
 PluginLoader.all()
 
-for result in mloda.stream_all([Feature("feature_a"), Feature("feature_b")]):
+api_data = {"MyKey": {"feature_a": [1, 2], "feature_b": [3, 4]}}
+
+for result in mloda.stream_all([Feature("feature_a"), Feature("feature_b")], api_data=api_data):
     print(result)
 ```
 
@@ -41,9 +43,9 @@ If you only request one feature group, `mloda.stream_all` behaves identically to
 Combines streaming with [realtime execution](24-realtime.md). Same parameters as `session.run()`.
 
 ```python
-session = mloda.prepare([Feature("feature_a"), Feature("feature_b")])
+session = mloda.prepare([Feature("feature_a"), Feature("feature_b")], api_data=api_data)
 
-for result in session.stream_run(api_data={"MyKey": {"col": [1, 2]}}):
+for result in session.stream_run(api_data={"MyKey": {"feature_a": [1, 2], "feature_b": [3, 4]}}):
     print(result)
 ```
 
@@ -65,10 +67,13 @@ from mloda.user import mloda, Feature, GlobalFilter, FilterType
 global_filter = GlobalFilter()
 global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
 
+api_data = {"MyKey": {"feature_a": [1, 2], "feature_b": [3, 4], "status": ["active", "inactive"]}}
+
 for result in mloda.stream_all(
-    [Feature("feature_a"), Feature("feature_b")],
+    [Feature("feature_a"), Feature("feature_b"), Feature("status")],
     compute_frameworks=["PandasDataFrame"],
     global_filter=global_filter,
+    api_data=api_data,
 ):
     print(result)
 ```

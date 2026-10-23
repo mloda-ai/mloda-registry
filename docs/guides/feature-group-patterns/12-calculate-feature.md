@@ -11,7 +11,7 @@ A FeatureGroup class defines static behavior (matching, dependencies, framework 
 
 ## Signature
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 ```
@@ -32,7 +32,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 ## Common Pattern
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     for feature in features.features:
@@ -68,7 +68,7 @@ Every framework above also accepts a columnar `dict[str, list]` as the whole-fra
 
 PythonDictFramework's native structure is columnar `dict[str, list[Any]]`: one key per column, all value-lists the same length.
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return {"doc_id": [1, 2], "score": [0.9, 0.4]}  # root: this becomes the frame
@@ -76,7 +76,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 It has **no single-column form**. A bare `list` is read as a list of row dicts, not as one column's values. Because the returned dict is already the native type, `transform()` is skipped and the dict *becomes* the frame, so a derived feature that returns only its own column silently drops every input column:
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     # WRONG: replaces the frame. A downstream group needing "src"
@@ -105,7 +105,7 @@ return a schema; zero rows is a valid result, zero columns is not.
 
 For `PythonDictFramework` this means returning `[]` or `{}` to mean "nothing found" is a bug, because both normalize to the schema-less `{}`. Name the columns instead:
 
-```python
+```py
 if not hits:
     return {"doc_id": [], "score": []}  # zero rows, schema intact
 ```
@@ -135,7 +135,7 @@ from mloda.user.python_dict import columnar_to_rows, homogenize_rows, is_columna
 
 Chained feature groups (using `FeatureChainParserMixin`) often need to extract an operation type inside `calculate_feature`. The operation can come from the feature name string or from a config key in options. Use `_resolve_operation()` to handle both paths in one call:
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     for feature in features.features:

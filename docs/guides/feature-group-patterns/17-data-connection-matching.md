@@ -78,6 +78,8 @@ auto-assigns internal handles.
 ```python
 from mloda.user import DataAccessCollection
 
+warehouse_conn, reporting_conn = object(), object()  # stand-ins for real connection objects
+
 dac = DataAccessCollection(
     connections={"warehouse": warehouse_conn, "reporting": reporting_conn},
     files={"tx": "/data/transactions.parquet"},
@@ -102,8 +104,9 @@ from mloda.user import Options
 # User side: pin which named connection this feature should bind to.
 options = Options(context={"data_access_handle": "warehouse"})
 
-# Feature group side (inside match_data_access):
-conn = data_access_collection.resolve("connection", hint=options.get("data_access_handle"))  # -> warehouse_conn
+# Feature group side (inside match_data_access, where the collection is data_access_collection):
+conn = dac.resolve("connection", hint=options.get("data_access_handle"))
+assert conn is warehouse_conn
 ```
 
 If the handle does not exist, names a resource of the wrong kind, or fails the

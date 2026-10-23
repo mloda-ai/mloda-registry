@@ -66,7 +66,9 @@ A null or NaN row never passes a comparison (`equal` with a non-missing value, `
 Pass a `mask` key in the feature's context options:
 
 ```python
-from mloda.user import Feature, Options, mloda, PluginLoader
+from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import PyArrowAggregation
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.user import Feature, Options, PluginCollector, PluginLoader, mloda
 
 PluginLoader.all()
 
@@ -83,8 +85,10 @@ feature = Feature(
 
 result = mloda.run_all(
     [feature],
-    compute_frameworks=["PandasDataFrame"],
+    compute_frameworks=["PyArrowTable"],
+    plugin_collector=PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation}),
 )
+assert sorted(result[0].column("value_int__sum_agg").to_pylist()) == [-10, 10, 15, 60]
 ```
 
 Rows where `category != 'X'` have their `value_int` set to null before the SUM aggregation. The aggregation skips nulls, so the result contains only the sum of values matching the condition.

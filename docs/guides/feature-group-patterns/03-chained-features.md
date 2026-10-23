@@ -121,8 +121,8 @@ import pandas as pd
 
 
 def test_mean_imputed():
-    assert MeanImputedFeature.match_feature_group_criteria("price__mean_imputed", None)
-    assert not MeanImputedFeature.match_feature_group_criteria("price", None)
+    assert MeanImputedFeature.match_feature_group_criteria("price__mean_imputed", Options())
+    assert not MeanImputedFeature.match_feature_group_criteria("price", Options())
 ```
 
 ## Real Implementations

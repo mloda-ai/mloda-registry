@@ -35,7 +35,7 @@ A claimed name must still pass the group's `PROPERTY_MAPPING`: since mloda 0.15.
 
 Override `match_feature_group_criteria()` for custom logic:
 
-```python
+```py
 @classmethod
 def match_feature_group_criteria(
     cls,
@@ -150,6 +150,8 @@ The discriminator's value space goes in the `allowed_values` kwarg, and `strict=
 **Usage** - both approaches route to the same FeatureGroup:
 
 ```python
+from mloda.user import Feature, Options
+
 # String-based: method extracted from name
 Feature("input__algo_b_transformed")
 
@@ -194,7 +196,7 @@ class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
 
 At matching time, the mixin resolves string-based and config-based features automatically. At compute time (inside `calculate_feature`), use `_resolve_operation()` to extract the discriminator value without calling `FeatureChainParser` directly:
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     for feature in features.features:
@@ -258,7 +260,7 @@ PROPERTY_MAPPING = {
 
 Without `required_when`, you must override `match_feature_group_criteria` to manually check conditions:
 
-```python
+```py
 # Before: manual override with boilerplate
 @classmethod
 def match_feature_group_criteria(cls, feature_name, options, _dac=None):
@@ -274,7 +276,7 @@ def match_feature_group_criteria(cls, feature_name, options, _dac=None):
 
 With `required_when`, the mixin handles this automatically:
 
-```python
+```py
 # After: declarative, no override needed
 PROPERTY_MAPPING = {
     "aggregation_type": ...,

@@ -16,16 +16,17 @@ config = """
 [
     "customer_id",
     {
-        "name": "sales_aggregated",
+        "name": "sales_total",
         "in_features": ["daily_sales"],
-        "context_options": {"aggregation_type": "sum", "window_days": 7}
-    },
-    {"name": "pca_result", "column_index": 0}
+        "context_options": {"window_aggregation_type": "sum", "partition_by": ["customer_id"]}
+    }
 ]
 """
 
 features = load_features_from_config(config)
-result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
+api_data = {"Sales": {"customer_id": ["a", "a", "b"], "daily_sales": [1, 2, 5]}}
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data=api_data)
+assert any(list(df["sales_total"]) == [3, 3, 5] for df in result if "sales_total" in df)
 ```
 
 ## FeatureConfig Fields

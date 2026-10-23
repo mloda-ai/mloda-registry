@@ -32,7 +32,11 @@ global_filter = GlobalFilter()
 global_filter.add_filter("age", "range", {"min": 18, "max": 65})
 global_filter.add_filter("region", "categorical_inclusion", {"values": ["EU", "NA"]})
 
-result = mloda.run_all([Feature.not_typed("my_feature")], global_filter=global_filter)
+api_data = {"Customers": {"age": [17, 30, 70], "region": ["EU", "NA", "EU"], "my_feature": [1, 2, 3]}}
+features = [Feature.not_typed(name) for name in ("age", "region", "my_feature")]
+
+result = mloda.run_all(features, global_filter=global_filter, api_data=api_data)
+assert result[0]["age"].tolist() == [30]
 ```
 
 You can also use the `FilterType` enum directly:
@@ -74,7 +78,7 @@ global_filter.add_time_and_time_travel_filters(
 
 Data sources (DB, API, files) should apply filters during loading. Access via `features.filters`:
 
-```python
+```py
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     query = "SELECT * FROM table WHERE 1=1"

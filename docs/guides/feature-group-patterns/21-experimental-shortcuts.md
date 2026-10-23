@@ -42,6 +42,13 @@ Mixin that simplifies defining complex input sources via Options.
 
 ```python
 from mloda_plugins.feature_group.experimental.source_input_feature import SourceInputFeature, SourceTuple
+from mloda.provider import FeatureGroup
+from mloda.user import Feature
+
+
+class MyFG(FeatureGroup):
+    pass
+
 
 Feature(
     name="target_feature",

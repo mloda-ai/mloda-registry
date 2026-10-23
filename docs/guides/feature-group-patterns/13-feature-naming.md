@@ -22,6 +22,8 @@ How to define what feature names a FeatureGroup provides.
 The class name becomes the feature name automatically.
 
 ```python
+from mloda.provider import FeatureGroup
+
 class IsHoliday(FeatureGroup):
     # Provides feature: "IsHoliday"
     pass
@@ -34,6 +36,8 @@ class IsHoliday(FeatureGroup):
 Define a set of supported feature names.
 
 ```python
+from mloda.provider import FeatureGroup
+
 class HolidayFeature(FeatureGroup):
     @classmethod
     def feature_names_supported(cls) -> set[str]:
@@ -47,6 +51,8 @@ class HolidayFeature(FeatureGroup):
 Define a regex pattern for dynamic feature names.
 
 ```python
+from mloda.provider import FeatureChainParserMixin, FeatureGroup
+
 class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r"^.+__scaled$"
     # Provides: "price__scaled", "value__scaled", "anything__scaled"
@@ -70,7 +76,7 @@ See [Pattern 3: Chained Features](03-chained-features.md).
 
 Modify the feature name after matching (rarely needed).
 
-```python
+```py
 def set_feature_name(self, options: Options, feature_name: FeatureName) -> FeatureName:
     # Example: normalize to lowercase
     return FeatureName(str(feature_name).lower())
@@ -83,6 +89,8 @@ def set_feature_name(self, options: Options, feature_name: FeatureName) -> Featu
 By default, `ClassName_anything` also matches via `prefix()`:
 
 ```python
+from mloda.provider import FeatureGroup
+
 class RiskScore(FeatureGroup):
     # Provides: "RiskScore", "RiskScore_v1", "RiskScore_high"
     pass
@@ -90,7 +98,7 @@ class RiskScore(FeatureGroup):
 
 Override for custom prefix:
 
-```python
+```py
 @classmethod
 def prefix(cls) -> str:
     return "risk_"  # Provides: "risk_high", "risk_low"

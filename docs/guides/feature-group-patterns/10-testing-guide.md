@@ -16,17 +16,93 @@ A 3-level approach to testing feature groups comprehensively.
 | 2: Framework | Calculation | Medium | `calculate_feature()` with real DataFrames |
 | 3: Integration | Full pipeline | Slow | `mloda.run_all()` end-to-end |
 
+## Feature Groups Under Test
+
+The examples below test these small groups (stand-ins for your own).
+
+```python
+from typing import Any
+
+from mloda.provider import DataCreator, FeatureChainParserMixin, FeatureGroup, FeatureSet
+from mloda.user import Feature, Options
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+
+class ExpensiveUpstreamFeature(FeatureGroup):
+    @classmethod
+    def input_data(cls) -> DataCreator | None:
+        return DataCreator({"upstream_feature"})
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"upstream_feature": [1, 2, 3]}
+
+
+class MyFeature(FeatureGroup):
+    @classmethod
+    def input_data(cls) -> DataCreator | None:
+        return DataCreator({"my_feature", "feature_a", "feature_b"})
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {str(name): [1, 2, 3] for name in features.get_all_names()}
+
+
+class MyDerivedFeature(FeatureGroup):
+    @classmethod
+    def match_feature_group_criteria(cls, feature_name: Any, options: Options, data_access_collection: Any = None) -> bool:
+        return str(feature_name) == "my_derived_feature"
+
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
+        return {Feature.not_typed("upstream_feature")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"my_derived_feature": [v * 2 for v in data["upstream_feature"]]}
+
+
+class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
+    PREFIX_PATTERN = r"^.+__scaled$"
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        name = str(features.name_of_one_feature)
+        col = data[name.replace("__scaled", "")]
+        return (col - col.min()) / (col.max() - col.min())
+
+
+class PandasOnlyFeature(FeatureGroup):
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PandasDataFrame}
+```
+
 ## Level 1: Unit Test Example
 
 ```python
 def test_matching():
     # Class name matching
-    assert MyFeature.match_feature_group_criteria("MyFeature", None)
-    assert not MyFeature.match_feature_group_criteria("Wrong", None)
+    assert MyFeature.match_feature_group_criteria("MyFeature", Options())
+    assert not MyFeature.match_feature_group_criteria("Wrong", Options())
 
     # Chained pattern matching
-    assert ScaledFeature.match_feature_group_criteria("price__scaled", None)
-    assert not ScaledFeature.match_feature_group_criteria("price", None)
+    assert ScaledFeature.match_feature_group_criteria("price__scaled", Options())
+    assert not ScaledFeature.match_feature_group_criteria("price", Options())
 
     # Framework restriction
     assert PandasDataFrame in PandasOnlyFeature.compute_framework_rule()
@@ -42,8 +118,7 @@ def test_calculate_feature():
     df = pd.DataFrame({"input": [1, 2, 3]})
 
     class MockFeatures:
-        class name_of_one_feature:
-            name = "input__scaled"
+        name_of_one_feature = "input__scaled"
 
     result = ScaledFeature.calculate_feature(df, MockFeatures())
     assert len(result) == 3
@@ -67,7 +142,7 @@ def test_full_pipeline():
 
 The rule that a FeatureGroup must return columns even at zero rows (see [calculate_feature](12-calculate-feature.md#empty-results)) is enforced during the run, not inside `calculate_feature()`. A Level 2 test that calls `calculate_feature()` directly passes on a group that returns `[]` or `{}` for "nothing found"; the same group raises `EmptyResultError` the first time that path is hit through a run. Cover every reachable empty path (no source files, a query with no hits, a filter that removes every row) at Level 3:
 
-```python
+```py
 def test_empty_source_keeps_schema():
     result = mloda.run_all(  # no matching data
         [Feature.not_typed("my_feature")],
@@ -184,7 +259,7 @@ Assert the chosen implementation with `mloda.explain(...)` (`step.implementation
 
 An integration-scope check that resolves a request without running it: for a plugin that ships request definitions (recipes, demos), lock the resolved plan so a planner, compute framework or source group change fails a test. `mloda.explain` takes `run_all`'s planning arguments as keywords; pass the ones the shipped request uses, an ordered `compute_frameworks` list, a pinned `plugin_collector` so other installed plugins cannot change the plan, and `parallelization_modes={ParallelizationMode.SYNC}`, which `run_all` defaults to and `explain` does not:
 
-```python
+```py
 import os
 from pathlib import Path
 
@@ -213,7 +288,7 @@ def test_recipe_plan_matches_lock() -> None:
 
 A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). Probe a fresh interpreter, because the test process has already imported every FeatureGroup:
 
-```python
+```py
 import json
 import subprocess
 import sys

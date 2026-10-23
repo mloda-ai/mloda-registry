@@ -24,6 +24,31 @@ from mloda.user import Link, JoinSpec, Index, Feature, FeatureName, Options
 from mloda.provider import FeatureGroup, FeatureSet
 
 
+# Source groups the joins below refer to; each exposes its join key via index_columns().
+class OrderFeatureGroup(FeatureGroup):
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index(("order_id",))]
+
+
+class CustomerFeatureGroup(FeatureGroup):
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index(("customer_id",))]
+
+
+class EventFeatureGroup(FeatureGroup):
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index(("symbol",))]
+
+
+class QuoteFeatureGroup(FeatureGroup):
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index(("symbol",))]
+
+
 class OrderWithCustomer(FeatureGroup):
     """Join orders with customer data."""
 
@@ -149,7 +174,7 @@ The join fires when a consumer feature group requests features that resolve to b
 linked sides; mloda hands the merged frame to that group's `calculate_feature`. Pass
 the link to `run_all` (the `links` parameter is a `set`):
 
-```python
+```py
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
@@ -173,7 +198,7 @@ registry test suite:
 Specifies join columns directly. No `index_columns()` needed on the feature group.
 The engine automatically injects the specified join columns into the feature group's feature set.
 
-```python
+```py
 link = Link.inner(left=JoinSpec(FeatureGroupA, "id"), right=JoinSpec(FeatureGroupB, "ref_id"))
 ```
 
@@ -181,7 +206,7 @@ link = Link.inner(left=JoinSpec(FeatureGroupA, "id"), right=JoinSpec(FeatureGrou
 
 Auto-derives join columns from `index_columns()`.
 
-```python
+```py
 link = Link.inner_on(UserFeatureGroup, OrderFeatureGroup)
 
 # Select specific index position
@@ -190,7 +215,7 @@ link = Link.inner_on(UserFG, OrderFG, left_index=0, right_index=1)
 
 ## Self-Joins with Aliases
 
-```python
+```py
 link = Link.inner_on(
     UserFeatureGroup, UserFeatureGroup, self_left_alias={"side": "left"}, self_right_alias={"side": "right"}
 )
@@ -232,7 +257,7 @@ A link on one input is enough from mloda 0.14.0. Older cores register a link onl
 
 ## Multi-Table Join (Aggregate + Left-Join)
 
-```python
+```py
 link = Link.left(
     left=JoinSpec(CustomerFeatures, Index(("customer_id",))),
     right=JoinSpec(OrderAggregation, Index(("customer_id",))),

@@ -24,7 +24,10 @@ from mloda.provider import FeatureGroup
 from mloda.provider import FeatureChainParserMixin, BaseArtifact, FeatureSet
 from mloda.user import Feature, Options, FeatureName
 import pickle
+import tempfile
 from pathlib import Path
+
+SCALER_DIR = Path(tempfile.mkdtemp())
 
 
 class ScalerArtifact(BaseArtifact):
@@ -32,14 +35,14 @@ class ScalerArtifact(BaseArtifact):
 
     @classmethod
     def custom_saver(cls, features: FeatureSet, artifact: Any) -> str | None:
-        path = f"/tmp/scaler_{features.name_of_one_feature}.pkl"
+        path = str(SCALER_DIR / f"scaler_{features.name_of_one_feature}.pkl")
         with open(path, "wb") as f:
             pickle.dump(artifact, f)
         return path
 
     @classmethod
     def custom_loader(cls, features: FeatureSet) -> Any | None:
-        path = f"/tmp/scaler_{features.name_of_one_feature}.pkl"
+        path = str(SCALER_DIR / f"scaler_{features.name_of_one_feature}.pkl")
         if Path(path).exists():
             with open(path, "rb") as f:
                 return pickle.load(f)
@@ -87,8 +90,7 @@ def test_standard_scaled_feature():
     df = pd.DataFrame({"price": [10, 20, 30]})
 
     class MockFeatures:
-        class name_of_one_feature:
-            name = "price__standard_scaled"
+        name_of_one_feature = "price__standard_scaled"
 
     result = StandardScaledFeature.calculate_feature(df, MockFeatures())
     assert abs(result.mean()) < 0.01

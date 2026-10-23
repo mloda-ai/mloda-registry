@@ -15,10 +15,11 @@ from mloda.user import PluginLoader, mloda, Feature
 
 PluginLoader.all()
 
-# 1. Prepare once (expensive: builds execution plan)
+# 1. Prepare once (expensive: builds execution plan); api_data names the key and columns
 session = mloda.prepare(
-    [Feature("my_feature")],
+    [Feature("col")],
     compute_frameworks=["PandasDataFrame"],
+    api_data={"MyKey": {"col": [0]}},
 )
 
 # 2. Run many times (cheap: reuses plan)
@@ -58,10 +59,23 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 Extenders are not a `session.run()` parameter (passing `function_extender` there raises `TypeError`). Pass them to `mloda.prepare(...)` instead; they apply to every `session.run()` of that session:
 
 ```python
+from typing import Any
+from mloda.steward import Extender, ExtenderHook
+
+
+class MyExtender(Extender):
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+
 session = mloda.prepare(
-    [Feature("my_feature")],
+    [Feature("col")],
     compute_frameworks=["PandasDataFrame"],
-    function_extender={my_extender},
+    function_extender={MyExtender()},
+    api_data={"MyKey": {"col": [0]}},
 )
 result = session.run(api_data={"MyKey": {"col": [1, 2]}})
 ```

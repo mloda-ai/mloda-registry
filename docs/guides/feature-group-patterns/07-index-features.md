@@ -63,8 +63,7 @@ def test_lag_feature():
     df = pd.DataFrame({"timestamp": pd.date_range("2024-01-01", periods=5), "price": [10, 20, 30, 40, 50]})
 
     class MockFeatures:
-        class name_of_one_feature:
-            name = "price__lag_1"
+        name_of_one_feature = "price__lag_1"
 
     result = LagFeature.calculate_feature(df, MockFeatures())
     assert list(result[1:]) == [10.0, 20.0, 30.0, 40.0]
@@ -105,6 +104,19 @@ def index_columns(cls) -> list[Index]:
 
 ```python
 from mloda.user import Link
+
+
+class UserFeatures(FeatureGroup):
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index(("user_id",)), Index(("order_id",))]
+
+
+class OrderFeatures(FeatureGroup):
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index(("user_id",)), Index(("order_id",))]
+
 
 # Both sides must define index_columns()
 link = Link.left_on(UserFeatures, OrderFeatures)
