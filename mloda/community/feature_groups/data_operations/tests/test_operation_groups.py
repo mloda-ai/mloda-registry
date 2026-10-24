@@ -15,6 +15,11 @@ import pytest
 from mloda.provider import FeatureGroup, Implementation, OperationFeatureGroup
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
+from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+    ScalarAggregateFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -84,8 +89,25 @@ _WINDOW = _Family(
     ),
 )
 
-# Later conversions (scalar, frame) append their family here.
-FAMILIES: list[_Family] = [_AGGREGATION, _WINDOW]
+_SCALAR = _Family(
+    id="scalar",
+    group=ScalarAggregateFeatureGroup,
+    package="mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate",
+    compute_name="_compute_aggregation",
+    feature_name="value_int__sum_scalar",
+    partition_by=[],
+    implementations=(
+        _Impl("pyarrow_scalar_aggregate", "PyArrowScalarAggregate", _PYARROW),
+        _Impl("pandas_scalar_aggregate", "PandasScalarAggregate", _PANDAS, "pandas"),
+        _Impl("polars_lazy_scalar_aggregate", "PolarsLazyScalarAggregate", _POLARS, "polars"),
+        _Impl("duckdb_scalar_aggregate", "DuckdbScalarAggregate", _DUCKDB, "duckdb"),
+        _Impl("sqlite_scalar_aggregate", "SqliteScalarAggregate", _SQLITE),
+        _Impl("python_dict_scalar_aggregate", "PythonDictScalarAggregate", _PYTHON_DICT),
+    ),
+)
+
+# The frame conversion appends its family here.
+FAMILIES: list[_Family] = [_AGGREGATION, _WINDOW, _SCALAR]
 
 _family = pytest.mark.parametrize("family", FAMILIES, ids=lambda family: family.id)
 _family_impl = pytest.mark.parametrize(
@@ -184,3 +206,19 @@ class TestManifest:
         assert listed == expected
         implementations: list[Any] = [cls for cls in feature_groups if cls is not family.group]
         assert all(cls.feature_group is family.group for cls in implementations)
+
+
+class TestAggregationBaseHasNoCapabilityHook:
+    """Capability lives on Implementation.supported; the shared aggregation base carries no hook."""
+
+    def test_base_is_not_a_subtype_capability_hook(self) -> None:
+        assert not issubclass(AggregationFeatureGroupBase, SubtypeCapabilityHook)
+
+    def test_base_has_no_capability_subtype(self) -> None:
+        assert not hasattr(AggregationFeatureGroupBase, "_capability_subtype")
+
+    @pytest.mark.parametrize(
+        "group", [AggregationFeatureGroup, WindowAggregationFeatureGroup, ScalarAggregateFeatureGroup]
+    )
+    def test_groups_carry_no_hook(self, group: type[Any]) -> None:
+        assert not issubclass(group, SubtypeCapabilityHook)

@@ -29,7 +29,6 @@ from mloda.community.feature_groups.data_operations.base import (
     name_matches_prefix,
     op_token_value,
 )
-from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
     "sum": "Sum of values",
@@ -52,7 +51,7 @@ AGGREGATION_TYPES: dict[str, str] = {
 }
 
 
-class AggregationFeatureGroupBase(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+class AggregationFeatureGroupBase(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     AGGREGATION_TYPE = "aggregation_type"
 
     #: Canonical aggregation-type table. Subclasses override to advertise their
@@ -118,10 +117,6 @@ class AggregationFeatureGroupBase(KeyColumnInputsMixin, SubtypeCapabilityHook, F
             return operation_config
         agg_type = options.get(cls.AGGREGATION_TYPE)
         return None if agg_type is None else op_token_value(agg_type)
-
-    @classmethod
-    def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
-        return cls._resolve_agg_type(feature_name, options)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

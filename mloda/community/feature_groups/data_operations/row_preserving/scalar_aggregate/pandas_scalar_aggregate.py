@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
     PandasMaskEngine,
@@ -18,10 +18,31 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 )
 
 
-class PandasScalarAggregate(ScalarAggregateFeatureGroup):
+class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
+    feature_group = ScalarAggregateFeatureGroup
+    compute_framework = PandasDataFrame
+    divergent = {
+        "sum": "skips NaN",
+        "avg": "skips NaN",
+        "mean": "skips NaN",
+        "count": "does not count NaN",
+        "std": "skips NaN",
+        "var": "skips NaN",
+        "std_pop": "skips NaN",
+        "var_pop": "skips NaN",
+        "std_samp": "skips NaN",
+        "var_samp": "skips NaN",
+    }
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls,
+        group: type[ScalarAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_aggregation=cls._compute_aggregation)
 
     @classmethod
     def _compute_aggregation(
@@ -64,7 +85,9 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
             else:
                 result = col.median()
         else:
-            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="Pandas")
+            raise unsupported_agg_type_error(
+                agg_type, ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, framework="Pandas"
+            )
 
         data[feature_name] = result
         return data

@@ -32,11 +32,6 @@ class TestPandasScalarAggregate(CapabilityHookTestMixin, PandasTestMixin, Scalar
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (("value__median_scalar", Options()),)
 
-    @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count and std/var."""
-        return frozenset({"sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"})
-
 
 class TestPandasScalarAggregateNullableInt(PandasNullableIntTestMixin, TestPandasScalarAggregate):
     """Runs the scalar_aggregate suite on nullable pandas int columns."""

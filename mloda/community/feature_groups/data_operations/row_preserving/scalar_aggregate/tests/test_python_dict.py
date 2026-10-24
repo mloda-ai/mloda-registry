@@ -47,14 +47,18 @@ class TestPythonDictMinMaxSkipsNan:
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
             PyArrowScalarAggregate,
         )
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
 
         arrow_table = pa.table({"val": pa.array([float("nan"), 1.0, 3.0], type=pa.float64())})
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"val__{agg_type}_scalar")
 
-        result = PythonDictScalarAggregate.calculate_feature(data, fs)
-        oracle = PyArrowScalarAggregate.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictScalarAggregate, data, fs)
+        oracle = calculate_with(PyArrowScalarAggregate, arrow_table, fs)
 
         result_val = extract_column(result, f"val__{agg_type}_scalar")[0]
         oracle_val = extract_column(oracle, f"val__{agg_type}_scalar")[0]

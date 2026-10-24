@@ -20,7 +20,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -61,6 +61,7 @@ NAN_POLICY_SCALAR: dict[str, list[float]] = {
     "max": [3.0] * 7,
     "sum": [float("nan")] * 7,
     "avg": [float("nan")] * 7,
+    "mean": [float("nan")] * 7,
     "count": [7] * 7,
     "std": [float("nan")] * 7,
     "var": [float("nan")] * 7,
@@ -70,12 +71,13 @@ NAN_POLICY_SCALAR: dict[str, list[float]] = {
     "var_samp": [float("nan")] * 7,
 }
 
-# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas and
+# Known per-backend divergence, declared by the Implementation's ``divergent``: pandas and
 # SQLite can't tell NaN from null, so both skip it in sum/avg/count; pandas also
 # skips NaN in std/var.
 NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
     "sum": [7.0] * 7,
     "avg": [1.75] * 7,
+    "mean": [1.75] * 7,
     "count": [4] * 7,
     "std": [0.6875**0.5] * 7,
     "std_pop": [0.6875**0.5] * 7,
@@ -209,7 +211,7 @@ class ScalarAggregateTestBase(
     def test_sum_scalar(self) -> None:
         """Sum of value_int broadcast to all rows."""
         fs = make_feature_set("value_int__sum_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -219,28 +221,28 @@ class ScalarAggregateTestBase(
 
     def test_min_scalar(self) -> None:
         fs = make_feature_set("value_int__min_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__min_scalar")
         assert all(v == EXPECTED_MIN for v in result_col)
 
     def test_max_scalar(self) -> None:
         fs = make_feature_set("value_int__max_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__max_scalar")
         assert all(v == EXPECTED_MAX for v in result_col)
 
     def test_avg_scalar(self) -> None:
         fs = make_feature_set("value_int__avg_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__avg_scalar")
         assert all(v == pytest.approx(EXPECTED_AVG, rel=1e-6) for v in result_col)
 
     def test_count_scalar(self) -> None:
         fs = make_feature_set("value_int__count_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__count_scalar")
         assert all(v == EXPECTED_COUNT for v in result_col)
@@ -248,7 +250,7 @@ class ScalarAggregateTestBase(
     def test_std_scalar(self) -> None:
         self._skip_if_unsupported("std")
         fs = make_feature_set("value_int__std_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_scalar")
         assert all(v == pytest.approx(EXPECTED_STD, rel=1e-4) for v in result_col)
@@ -256,7 +258,7 @@ class ScalarAggregateTestBase(
     def test_var_scalar(self) -> None:
         self._skip_if_unsupported("var")
         fs = make_feature_set("value_int__var_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_scalar")
         assert all(v == pytest.approx(EXPECTED_VAR, rel=1e-4) for v in result_col)
@@ -265,7 +267,7 @@ class ScalarAggregateTestBase(
         """Explicit population standard deviation (ddof=0), identical to std."""
         self._skip_if_unsupported("std_pop")
         fs = make_feature_set("value_int__std_pop_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_pop_scalar")
         assert all(v == pytest.approx(EXPECTED_STD, rel=1e-4) for v in result_col)
@@ -274,7 +276,7 @@ class ScalarAggregateTestBase(
         """Sample standard deviation (ddof=1)."""
         self._skip_if_unsupported("std_samp")
         fs = make_feature_set("value_int__std_samp_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_samp_scalar")
         assert all(v == pytest.approx(EXPECTED_STD_SAMP, rel=1e-4) for v in result_col)
@@ -283,7 +285,7 @@ class ScalarAggregateTestBase(
         """Explicit population variance (ddof=0), identical to var."""
         self._skip_if_unsupported("var_pop")
         fs = make_feature_set("value_int__var_pop_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_pop_scalar")
         assert all(v == pytest.approx(EXPECTED_VAR, rel=1e-4) for v in result_col)
@@ -292,7 +294,7 @@ class ScalarAggregateTestBase(
         """Sample variance (ddof=1)."""
         self._skip_if_unsupported("var_samp")
         fs = make_feature_set("value_int__var_samp_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_samp_scalar")
         assert all(v == pytest.approx(EXPECTED_VAR_SAMP, rel=1e-4) for v in result_col)
@@ -300,7 +302,7 @@ class ScalarAggregateTestBase(
     def test_median_scalar(self) -> None:
         self._skip_if_unsupported("median")
         fs = make_feature_set("value_int__median_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__median_scalar")
         assert all(v == pytest.approx(EXPECTED_MEDIAN, rel=1e-6) for v in result_col)
@@ -308,7 +310,7 @@ class ScalarAggregateTestBase(
     def test_broadcast_uniform(self) -> None:
         """All rows should have the same aggregated value."""
         fs = make_feature_set("value_int__sum_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__sum_scalar")
         assert len(set(result_col)) == 1
@@ -317,7 +319,7 @@ class ScalarAggregateTestBase(
         """An unrecognized aggregation type must raise ValueError."""
         fs = make_feature_set("value_int__bogus_scalar")
         with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     def test_option_based_single_column_sum(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
@@ -332,7 +334,7 @@ class ScalarAggregateTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_custom_sum")
         assert all(v == EXPECTED_SUM for v in result_col)
@@ -351,7 +353,7 @@ class ScalarAggregateTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_min")
         assert all(v == EXPECTED_MIN for v in result_col)
@@ -370,7 +372,7 @@ class ScalarAggregateTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_max")
         assert all(v == EXPECTED_MAX for v in result_col)
@@ -424,7 +426,7 @@ class ScalarAggregateTestBase(
         if skip_op is not None:
             self._skip_if_unsupported(skip_op)
         fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, feature_name)
         assert all(v is None for v in result_col)
 
@@ -444,7 +446,7 @@ class ScalarAggregateTestBase(
     def test_null_column_count(self, feature_name: str, expected: int) -> None:
         """Count should broadcast the number of non-null values to every row."""
         fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, feature_name)
         assert all(v == expected for v in result_col)
 
@@ -453,7 +455,7 @@ class ScalarAggregateTestBase(
     def test_mask_sum_scalar_equal(self) -> None:
         """Sum of value_int where category='X' (scalar broadcast)."""
         fs = make_feature_set("value_int__sum_scalar", mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__sum_scalar")
         assert all(v == 75 for v in result_col)
@@ -461,7 +463,7 @@ class ScalarAggregateTestBase(
     def test_mask_count_scalar_equal(self) -> None:
         """Count of non-null value_int where category='X' (scalar broadcast)."""
         fs = make_feature_set("value_int__count_scalar", mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__count_scalar")
         assert all(v == 5 for v in result_col)
@@ -469,7 +471,7 @@ class ScalarAggregateTestBase(
     def test_mask_avg_scalar_equal(self) -> None:
         """Avg of value_int where category='X' (scalar broadcast)."""
         fs = make_feature_set("value_int__avg_scalar", mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__avg_scalar")
         assert all(v == pytest.approx(15.0, rel=1e-3) for v in result_col)
@@ -477,7 +479,7 @@ class ScalarAggregateTestBase(
     def test_mask_fully_masked_scalar(self) -> None:
         """Fully masked scalar sum (category='Z') returns None broadcast to all rows."""
         fs = make_feature_set("value_int__sum_scalar", mask=("category", "equal", "Z"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__sum_scalar")
         assert all(v is None for v in result_col)

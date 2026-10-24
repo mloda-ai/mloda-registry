@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
@@ -16,10 +16,19 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 )
 
 
-class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
+class PolarsLazyScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
+    feature_group = ScalarAggregateFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls,
+        group: type[ScalarAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_aggregation=cls._compute_aggregation)
 
     @classmethod
     def _compute_aggregation(
@@ -61,7 +70,9 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
             dtype = data.collect_schema()[actual_source]
             expr = nan_to_null(col, dtype).median()
         else:
-            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="Polars")
+            raise unsupported_agg_type_error(
+                agg_type, ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, framework="Polars"
+            )
 
         result = data.with_columns(expr.alias(feature_name))
         if mask_spec is not None:

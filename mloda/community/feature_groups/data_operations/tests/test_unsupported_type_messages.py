@@ -454,8 +454,8 @@ class TestScalarAggregateSupportedTypes:
                 "it must be removed in favour of the base class attribute."
             )
 
-    def test_pandas_scalar_aggregate_uses_base_supported_set(self) -> None:
-        pytest.importorskip("pandas")
+    def test_pandas_scalar_aggregate_error_lists_the_group_supported_set(self) -> None:
+        pd = pytest.importorskip("pandas")
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
             ScalarAggregateFeatureGroup,
         )
@@ -463,10 +463,12 @@ class TestScalarAggregateSupportedTypes:
             PandasScalarAggregate,
         )
 
-        assert PandasScalarAggregate._SUPPORTED_AGG_TYPES is ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES
+        with pytest.raises(ValueError) as exc:
+            PandasScalarAggregate._compute_aggregation(pd.DataFrame({"val": [1, 2]}), "f", "val", "not_a_real_agg")
+        _assert_valid_error(exc.value, "not_a_real_agg", *ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES)
 
-    def test_pyarrow_scalar_aggregate_uses_base_supported_set(self) -> None:
-        pytest.importorskip("pyarrow")
+    def test_pyarrow_scalar_aggregate_error_lists_the_group_supported_set(self) -> None:
+        pa = pytest.importorskip("pyarrow")
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
             ScalarAggregateFeatureGroup,
         )
@@ -474,10 +476,12 @@ class TestScalarAggregateSupportedTypes:
             PyArrowScalarAggregate,
         )
 
-        assert PyArrowScalarAggregate._SUPPORTED_AGG_TYPES is ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES
+        with pytest.raises(ValueError) as exc:
+            PyArrowScalarAggregate._compute_aggregation(pa.table({"val": [1, 2]}), "f", "val", "not_a_real_agg")
+        _assert_valid_error(exc.value, "not_a_real_agg", *ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES)
 
-    def test_polars_scalar_aggregate_uses_base_supported_set(self) -> None:
-        pytest.importorskip("polars")
+    def test_polars_scalar_aggregate_error_lists_the_group_supported_set(self) -> None:
+        pl = pytest.importorskip("polars")
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
             ScalarAggregateFeatureGroup,
         )
@@ -485,7 +489,17 @@ class TestScalarAggregateSupportedTypes:
             PolarsLazyScalarAggregate,
         )
 
-        assert PolarsLazyScalarAggregate._SUPPORTED_AGG_TYPES is ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES
+        with pytest.raises(ValueError) as exc:
+            PolarsLazyScalarAggregate._compute_aggregation(pl.LazyFrame({"val": [1, 2]}), "f", "val", "not_a_real_agg")
+        _assert_valid_error(exc.value, "not_a_real_agg", *ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES)
+
+    def test_scalar_implementations_do_not_carry_their_own_supported_set(self) -> None:
+        pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
+            PyArrowScalarAggregate,
+        )
+
+        assert not hasattr(PyArrowScalarAggregate, "_SUPPORTED_AGG_TYPES")
 
 
 def test_error_messages_use_single_quoted_repr() -> None:

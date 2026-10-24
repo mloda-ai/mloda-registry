@@ -12,10 +12,16 @@ column and fills every row with that scalar result.
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any, ClassVar
 
-from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    property_spec,
+)
 
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
@@ -45,7 +51,9 @@ AGGREGATION_TYPES = {
 }
 
 
-class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
+class ScalarAggregateFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
+    SUBTYPES = SubtypeDeclaration(key=AggregationFeatureGroupBase.AGGREGATION_TYPE)
+
     KEY_COLUMN_OPTIONS = ("mask",)
     PREFIX_PATTERN = r".*__([\w]+)_scalar$"
 
@@ -79,7 +87,13 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
     }
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def aggregate(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_aggregation: Callable[[Any, str, str, str, list[tuple[str, str, Any]] | None], Any],
+    ) -> Any:
         """Compute a scalar aggregate per source column and broadcast to all rows.
 
         Each feature in the feature set produces one new column containing the
@@ -97,17 +111,6 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
             assert_key_columns_present(data, mask_spec=mask_spec)
 
-            table = cls._compute_aggregation(table, feature_name, source_col, agg_type, mask_spec)
+            table = compute_aggregation(table, feature_name, source_col, agg_type, mask_spec)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_aggregation(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> Any: ...

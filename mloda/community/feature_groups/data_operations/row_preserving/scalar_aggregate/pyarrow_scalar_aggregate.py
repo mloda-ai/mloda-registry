@@ -6,7 +6,7 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
@@ -16,10 +16,19 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 )
 
 
-class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
+class PyArrowScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
+    feature_group = ScalarAggregateFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls,
+        group: type[ScalarAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_aggregation=cls._compute_aggregation)
 
     @classmethod
     def _compute_aggregation(
@@ -59,7 +68,9 @@ class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
                 raise ValueError("pc.quantile returned an empty result for median computation")
             result = q_result[0].as_py()
         else:
-            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="PyArrow")
+            raise unsupported_agg_type_error(
+                agg_type, ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, framework="PyArrow"
+            )
 
         repeated = pa.array([result] * table.num_rows)
         return table.append_column(feature_name, repeated)
