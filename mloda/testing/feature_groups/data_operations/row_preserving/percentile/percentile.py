@@ -390,7 +390,7 @@ class PercentileTestBase(
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__p50_percentile")
-        # Groups by unmasked value_int; masked X value per group (15 group holds rows 8, 9 -> only row 9 passes).
+        # Groups by unmasked value_int; only rows passing the mask contribute.
         expected = [10.0, None, 0.0, None, None, None, None, 60.0, 15.0, 15.0, None, -10.0]
         assert len(result_col) == len(expected)
         for i, (actual, exp) in enumerate(zip(result_col, expected)):

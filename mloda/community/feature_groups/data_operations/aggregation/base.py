@@ -50,8 +50,9 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
     the aggregate back to every row (preserving the original row count),
     aggregation reduces the table to one row per group key combination.
 
-    Several features with the same ``partition_by`` are aggregated together in one result when computed in
-    one step (else give each its own ``Options(group=...)``), each with its own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call.
+    Several features with the same ``partition_by`` are aggregated together in one result, each with its
+    own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call. Features split into separate
+    steps need distinct ``Options(group=...)``.
 
     ## Supported Aggregation Types
 

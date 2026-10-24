@@ -882,7 +882,7 @@ class WindowAggregationTestBase(
     @pytest.mark.parametrize(
         ("agg_type", "partition_by", "order_by", "expected"),
         [
-            # Groups come from unmasked value_int (15 twice, others unique); only masked X values count.
+            # Groups come from unmasked value_int; only rows passing the mask count.
             pytest.param(
                 "count", ["value_int"], None, [1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1], id="count_partition_by_source"
             ),
@@ -893,7 +893,7 @@ class WindowAggregationTestBase(
                 [10, None, 0, None, None, None, None, 60, 15, 15, None, -10],
                 id="sum_partition_by_source",
             ),
-            # Order from unmasked value_int; first/last skip masked-out rows: A->0,10; B->60; C->15; None->-10.
+            # Order from unmasked value_int; first/last skip masked-out rows.
             pytest.param(
                 "first",
                 ["region"],
