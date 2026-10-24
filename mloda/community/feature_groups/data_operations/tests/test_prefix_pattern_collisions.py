@@ -666,16 +666,19 @@ _OPERATION_GROUP_FAMILIES = (
     "datetime",
     "ema",
     "ffill",
+    "frame_aggregate",
     "lookup",
     "offset",
     "percentile",
     "point_arithmetic",
     "rank",
     "resample",
+    "scalar_aggregate",
     "scalar_arithmetic",
     "sessionization",
     "string",
     "time_bucketization",
+    "window_aggregation",
 )
 
 

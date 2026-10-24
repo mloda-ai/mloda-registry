@@ -144,8 +144,8 @@ class TestLegacyMethodNamesRejected:
         with pytest.raises(TypeError, match="supported_op_subtypes"):
 
             class _Legacy(_FrameAxisHook):
-                @classmethod  # type: ignore[misc]
-                def supported_subtypes(cls) -> frozenset[str]:  # type: ignore[override]
+                @classmethod
+                def supported_subtypes(cls) -> frozenset[str]:
                     return frozenset({"sum"})
 
 
