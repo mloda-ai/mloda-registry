@@ -290,6 +290,7 @@ entry_point_groups = ["mloda.feature_groups"]
 [packages.mloda-community-german-ledger]
 description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"
 keywords = ["gdpdu", "gobd", "datev", "accounting", "bookkeeping"]
+authors = [{ name = "Martin Kaiser" }]
 dependencies = ["{core_dependency}", "pyarrow>=14.0.1"]
 path = "mloda/community/feature_groups/experimental/german_ledger"
 entry_point_groups = ["mloda.feature_groups"]

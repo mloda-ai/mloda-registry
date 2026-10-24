@@ -234,3 +234,19 @@ Other third-party DATEV exports are not committed, as not all are licensed for r
 `test_datev.py` reproduces their format quirks on invented bookings and links each source. The
 ledermann sample in `tests/fixtures/` is MIT: its NOTICE carries the license text, and the root
 `THIRD_PARTY_NOTICES.md` lists it.
+
+## Credits
+
+[Martin Kaiser](https://github.com/kaiser-data) ([martin-kaiser-ai.de](https://www.martin-kaiser-ai.de))
+designed and wrote this package, and its core ideas are his:
+
+- **Readers** for GDPdU/GoBD dossiers and DATEV EXTF batches, with every ledger line cited back
+  to its file and row.
+- **Admissibility as its own step:** no policy, no number. Rows are cleared and stamped before
+  anything is totalled, and `ForFormat` scopes a rule to one export format.
+- **Concepts over stated SKR03/SKR04 ranges**, with a chart conflict, gross revenue on automatic
+  accounts and over-long Sachkonten refused by name instead of guessed.
+- **Totals that keep their evidence:** the cited rows, the basis they were computed under, and a
+  count of verdicts on every refusal.
+
+Thank you, Martin, for a contribution that shows what a cited, refusable number looks like.
