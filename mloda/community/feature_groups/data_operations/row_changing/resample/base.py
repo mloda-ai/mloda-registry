@@ -54,6 +54,7 @@ from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
+    SPLIT_REDUCING_FEATURE_SET_HINT,
     KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
@@ -257,8 +258,10 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
             partition_by = cls._extract_partition_by(feature)
             time_column = cls._extract_time_column(feature)
 
-            assert_key_columns_present(data, partition_by, time_column, order_label="time_column")
-            assert_source_columns_present(data, [source_col])
+            assert_key_columns_present(
+                data, partition_by, time_column, order_label="time_column", hint=SPLIT_REDUCING_FEATURE_SET_HINT
+            )
+            assert_source_columns_present(data, [source_col], hint=SPLIT_REDUCING_FEATURE_SET_HINT)
 
             aggs.append(ResampleAgg(feature.name, source_col, agg))
             grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(str(feature.name))

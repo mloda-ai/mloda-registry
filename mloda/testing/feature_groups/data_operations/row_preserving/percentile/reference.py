@@ -20,6 +20,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ba
 )
 
 _IDX_COL = "__mloda_pctl_idx__"
+_MASKED_COL = "__mloda_pctl_masked__"
 
 
 def _compute_percentile(
@@ -30,19 +31,22 @@ def _compute_percentile(
     percentile: float,
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
-    if mask_spec is not None:
-        table = apply_pyarrow_mask(table, source_col, mask_spec)
-
     num_rows = table.num_rows
     t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
 
+    # Partition keys stay unmasked; the masked values are aggregated under a temp name.
+    agg_source = source_col
+    if mask_spec is not None:
+        agg_source = _MASKED_COL
+        t_with_idx = t_with_idx.append_column(_MASKED_COL, apply_pyarrow_mask(table, source_col, mask_spec))
+
     grouped = t_with_idx.group_by(partition_by).aggregate(
         [
-            (source_col, "list"),
+            (agg_source, "list"),
             (_IDX_COL, "list"),
         ]
     )
-    list_col = f"{source_col}_list"
+    list_col = f"{agg_source}_list"
     idx_list_col = f"{_IDX_COL}_list"
 
     result_values: list[Any] = [None] * num_rows

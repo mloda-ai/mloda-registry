@@ -80,7 +80,8 @@ features = [
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 
 # Aggregations with the same partition_by run together: one row per group, one column each,
-# and each feature may carry its own mask.
+# and each feature may carry its own mask. Features can still run as separate steps (e.g. differing
+# compute-framework support or explicit data_type); then give each its own Options(group=...).
 grouped = [
     Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]})),
     Feature("value_int__max_agg", Options(context={"partition_by": ["region"]})),

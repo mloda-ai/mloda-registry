@@ -7,13 +7,10 @@ from typing import Any
 import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
-    PandasMaskEngine,
-)
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pandas_mask
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
@@ -66,11 +63,24 @@ class PandasWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
+        # Keys and order stay on the unmasked columns; only the aggregated values are masked.
+        agg_source = source_col
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
-            data = data.copy()
-            data[source_col] = data[source_col].where(mask)
+            data, agg_source = apply_pandas_mask(data, source_col, mask_spec, taken={feature_name})
+            result = cls._compute_unmasked(data, feature_name, agg_source, partition_by, agg_type, order_by)
+            return result.drop(columns=[agg_source])
+        return cls._compute_unmasked(data, feature_name, agg_source, partition_by, agg_type, order_by)
 
+    @classmethod
+    def _compute_unmasked(
+        cls,
+        data: pd.DataFrame,
+        feature_name: str,
+        source_col: str,
+        partition_by: list[str],
+        agg_type: str,
+        order_by: str | None,
+    ) -> pd.DataFrame:
         if agg_type == "mode":
             return cls._compute_mode(data, feature_name, source_col, partition_by)
 

@@ -20,6 +20,7 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_TYPE,
     OP_TOKEN_EXPECTED,
+    SPLIT_REDUCING_FEATURE_SET_HINT,
     WINDOW_AGGREGATION_TYPE,
     assert_key_columns_present,
     assert_single_grid,
@@ -49,8 +50,8 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
     the aggregate back to every row (preserving the original row count),
     aggregation reduces the table to one row per group key combination.
 
-    Several features with the same ``partition_by`` are aggregated together in one result,
-    each with its own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call.
+    Several features with the same ``partition_by`` are aggregated together in one result when computed in
+    one step (else give each its own ``Options(group=...)``), each with its own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call.
 
     ## Supported Aggregation Types
 
@@ -197,11 +198,11 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
 
         for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
-            assert_source_columns_present(data, [source_col])
+            assert_source_columns_present(data, [source_col], hint=SPLIT_REDUCING_FEATURE_SET_HINT)
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
-            assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
+            assert_key_columns_present(data, partition_by, mask_spec=mask_spec, hint=SPLIT_REDUCING_FEATURE_SET_HINT)
 
             specs.append(AggregationSpec(feature.name, source_col, agg_type, mask_spec))
             grids.setdefault(tuple(partition_by), []).append(str(feature.name))

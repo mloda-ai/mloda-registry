@@ -40,9 +40,9 @@ class PyArrowScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
         if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
-
-        column = table.column(source_col)
+            column = apply_pyarrow_mask(table, source_col, mask_spec)
+        else:
+            column = table.column(source_col)
 
         if agg_type == "sum":
             result = pc.sum(column).as_py()

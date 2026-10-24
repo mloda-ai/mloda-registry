@@ -879,6 +879,48 @@ class WindowAggregationTestBase(
         result_col = self.extract_column(result, "value_int__mode_window")
         assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
 
+    @pytest.mark.parametrize(
+        ("agg_type", "partition_by", "order_by", "expected"),
+        [
+            # Groups come from unmasked value_int (15 twice, others unique); only masked X values count.
+            pytest.param(
+                "count", ["value_int"], None, [1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1], id="count_partition_by_source"
+            ),
+            pytest.param(
+                "sum",
+                ["value_int"],
+                None,
+                [10, None, 0, None, None, None, None, 60, 15, 15, None, -10],
+                id="sum_partition_by_source",
+            ),
+            # Order from unmasked value_int; first/last skip masked-out rows: A->0,10; B->60; C->15; None->-10.
+            pytest.param(
+                "first",
+                ["region"],
+                "value_int",
+                [0, 0, 0, 0, 60, 60, 60, 60, 15, 15, 15, -10],
+                id="first_order_by_source",
+            ),
+            pytest.param(
+                "last",
+                ["region"],
+                "value_int",
+                [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10],
+                id="last_order_by_source",
+            ),
+        ],
+    )
+    def test_mask_source_column_as_key_uses_unmasked_values(
+        self, agg_type: str, partition_by: list[str], order_by: str | None, expected: list[Any]
+    ) -> None:
+        """A masked source that is also a partition or order key keys on its unmasked values."""
+        self._skip_if_unsupported(agg_type)
+        feature_name = f"value_int__{agg_type}_window"
+        fs = make_feature_set(feature_name, partition_by, order_by, mask=("category", "equal", "X"))
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        assert self.extract_column(result, feature_name) == expected
+
     # -- Option-based config tests -------------------------------------------
 
     def test_option_based_sum_window(self) -> None:

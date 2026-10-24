@@ -14,19 +14,23 @@ integration tests verify values as sets (not keyed by partition columns).
 from __future__ import annotations
 
 import importlib
+import re
 from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import DataType, Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     EXPECTED_AVG_BY_REGION,
+    EXPECTED_MAX_BY_REGION,
     EXPECTED_SUM_BY_REGION,
 )
 from mloda.testing.feature_groups.data_operations.integration import (
@@ -496,3 +500,66 @@ class TestIntegrationMultipleFeatures:
         assert max_col == sorted([20, 60, 40, -10])
 
         assert min_table.num_rows == max_table.num_rows == 4
+
+    @pytest.mark.parametrize(
+        "frameworks, features",
+        [
+            pytest.param(
+                [PandasDataFrame, PyArrowTable],
+                [
+                    Feature("value_int__median_agg", options=Options(context={"partition_by": ["region"]})),
+                    Feature("value_int__max_agg", options=Options(context={"partition_by": ["region"]})),
+                ],
+                id="median_max_split_by_framework",
+            ),
+            pytest.param(
+                [PandasDataFrame],
+                [
+                    Feature(
+                        "value_int__sum_agg",
+                        options=Options(context={"partition_by": ["region"]}),
+                        data_type=DataType.INT64,
+                    ),
+                    Feature(
+                        "value_int__max_agg",
+                        options=Options(context={"partition_by": ["region"]}),
+                        data_type=DataType.DOUBLE,
+                    ),
+                ],
+                id="split_by_data_type",
+            ),
+        ],
+    )
+    def test_split_feature_sets_error_names_group_remedy(self, frameworks: list[Any], features: list[Feature]) -> None:
+        """Features of one request split into several FeatureSets raise an error naming Options(group=...)."""
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        with pytest.raises(ValueError, match=re.escape("Options(group=")):
+            mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
+
+    def test_split_feature_sets_with_distinct_groups_work(self) -> None:
+        """Giving each feature its own Options(group=...) computes both aggregates correctly."""
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        features = [
+            Feature(
+                "value_int__median_agg",
+                options=Options(group={"g": "median"}, context={"partition_by": ["region"]}),
+            ),
+            Feature(
+                "value_int__max_agg",
+                options=Options(group={"g": "max"}, context={"partition_by": ["region"]}),
+            ),
+        ]
+        results = mloda.run_all(
+            features,
+            compute_frameworks=[PandasDataFrame, PyArrowTable],
+            plugin_collector=plugin_collector,
+        )
+
+        found: dict[str, list[Any]] = {}
+        for t in results:
+            frame = t.to_pandas() if isinstance(t, pa.Table) else t
+            for name in ("value_int__median_agg", "value_int__max_agg"):
+                if name in frame.columns:
+                    found[name] = sorted(frame[name].tolist())
+        assert found["value_int__median_agg"] == sorted([5.0, 50.0, 15.0, -10.0])
+        assert found["value_int__max_agg"] == sorted(EXPECTED_MAX_BY_REGION.values())

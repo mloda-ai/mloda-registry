@@ -51,13 +51,16 @@ _ORDERED_FUNCS: dict[str, str] = {
     "last": "last",
 }
 
+_MASKED_COL = "__mloda_agg_masked__"
 _SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS, "median", "mode"}
 
 
 def _compute_single(table: pa.Table, spec: AggregationSpec, partition_by: list[str]) -> pa.Table:
     feature_name, source_col, agg_type, mask_spec = spec
     if mask_spec is not None:
-        table = apply_pyarrow_mask(table, source_col, mask_spec)
+        # Keys stay unmasked; the masked values are aggregated under a temp name.
+        table = table.append_column(_MASKED_COL, apply_pyarrow_mask(table, source_col, mask_spec))
+        source_col = _MASKED_COL
 
     if agg_type in _PA_AGG_FUNCS:
         pa_func = _PA_AGG_FUNCS[agg_type]

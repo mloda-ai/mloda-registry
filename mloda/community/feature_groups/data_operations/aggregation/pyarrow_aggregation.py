@@ -19,7 +19,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
+from mloda.community.feature_groups.data_operations.mask_utils import MASKED_SOURCE_HELPER, apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import rename_aggregates_by_position
 
 # Aggregation types with direct PyArrow group_by support.
@@ -75,8 +75,8 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
         for spec in specs:
             source = spec.source_col
             if spec.mask_spec is not None:
-                masked = apply_pyarrow_mask(table, spec.source_col, spec.mask_spec).column(spec.source_col)
-                source = unique_helper_name("__mloda_masked_src__", taken)
+                masked = apply_pyarrow_mask(table, spec.source_col, spec.mask_spec)
+                source = unique_helper_name(MASKED_SOURCE_HELPER, taken)
                 taken.add(source)
                 table = table.append_column(source, masked)
 

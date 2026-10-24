@@ -56,6 +56,7 @@ partitions ``region`` A / B)::
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -742,7 +743,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
             "missing_source_column": InputValidationCase(
                 "value__resample_1_hour_mean",
                 {"partition_by": ["region"], "time_column": "ts"},
-                "Source column 'value' is not present",
+                (r"(?s)(?=.*Source column 'value' is not present)(?=.*" + re.escape("Options(group=") + ")"),
                 table=missing_value_table,
             ),
             "empty_partition_by": None,

@@ -5,8 +5,10 @@ Uses the unified FrameAggregateTestBase.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
+import pyarrow as pa
 import pytest
 
 pytest.importorskip("pandas")
@@ -16,7 +18,7 @@ from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
-from mloda.testing.feature_groups.data_operations.helpers import feature_group_of
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pandas import (
     PandasNullableIntTestMixin,
@@ -62,6 +64,11 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         # surfaces this as an explicit ValueError before calling rolling().
         return False
 
+    @classmethod
+    def supports_datetime_min_max_source(cls) -> bool:
+        # pandas window ops only aggregate numeric columns, so a datetime min/max source is rejected.
+        return False
+
     # -- Regression tests for PR #202 review bugs -----------------------------
 
     def test_pandas_rejects_month_time_window_at_match_time(self) -> None:
@@ -74,6 +81,19 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         # day/week still match
         assert group.supports_compute_framework("value__sum_3_day_window", options, framework)
         assert group.supports_compute_framework("value__sum_1_week_window", options, framework)
+
+    @pytest.mark.parametrize("agg_type", ["min", "max"])
+    def test_pandas_rejects_datetime_min_max_in_rolling_frame(self, agg_type: str) -> None:
+        """A non-time rolling frame over a datetime source is rejected with a ValueError too."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5)],
+            }
+        )
+        fs = make_feature_set(f"ts__{agg_type}_rolling_3", partition_by=["region"], order_by="ts")
+        with pytest.raises(ValueError, match=r"datetime.*ts|ts.*datetime"):
+            calculate_with(self.implementation_class(), self.create_test_data(table), fs)
 
     def test_pandas_dep_pinned_to_22_for_lowercase_freq_codes(self) -> None:
         """_FIXED_FREQ_CODES uses lowercase 's','min','h' which require pandas>=2.2."""

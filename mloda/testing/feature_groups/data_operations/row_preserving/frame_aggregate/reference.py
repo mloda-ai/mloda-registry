@@ -38,8 +38,10 @@ def _compute_frame(
     # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
     partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
     order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
-    masked = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table
-    source_vals = masked.column(source_col).to_pylist()
+    source_col_data = (
+        apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
+    )
+    source_vals = source_col_data.to_pylist()
 
     # Build group keys from extracted Python lists (no PyArrow calls in loop)
     groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}

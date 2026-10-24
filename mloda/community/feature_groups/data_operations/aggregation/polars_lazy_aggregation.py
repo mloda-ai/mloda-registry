@@ -13,8 +13,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     ModeHelperCols,
@@ -67,8 +66,7 @@ class PolarsLazyAggregation(Implementation[AggregationFeatureGroup]):
             actual_source = spec.source_col
             if spec.mask_spec is not None:
                 # Temp masked column per spec; its mask reads only original columns.
-                tmp = unique_helper_name(_POLARS_MASK_TMP, set(data.collect_schema().names()) | feature_names)
-                data, actual_source = apply_polars_mask(data, spec.source_col, spec.mask_spec, tmp)
+                data, actual_source = apply_polars_mask(data, spec.source_col, spec.mask_spec, taken=feature_names)
 
             if spec.agg_type == "mode":
                 cols = ModeHelperCols.pick(set(data.collect_schema().names()) | feature_names)

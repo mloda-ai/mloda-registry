@@ -478,6 +478,11 @@ class FrameAggregateTestBase(
         """
         return True
 
+    @classmethod
+    def supports_datetime_min_max_source(cls) -> bool:
+        """Whether min/max over a datetime source column is computed; ``False`` expects a ValueError."""
+        return True
+
     # -- Rolling tests -------------------------------------------------------
 
     def test_rolling_sum_window_3(self) -> None:
@@ -959,8 +964,12 @@ class FrameAggregateTestBase(
         assert result_col == ref_col
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
-    def test_cross_framework_time_window_source_equals_order_with_mask(self, partition_by: list[str]) -> None:
-        """A masked time window with source column == order_by must match the reference."""
+    @pytest.mark.parametrize("mask", [None, ("category", "equal", "X")], ids=["no_mask", "mask"])
+    @pytest.mark.parametrize("agg_type", ["count", "min", "max"])
+    def test_cross_framework_time_window_source_equals_order_with_mask(
+        self, partition_by: list[str], mask: tuple[str, str, str] | None, agg_type: str
+    ) -> None:
+        """A time window with source column == order_by, masked or not, must match the reference."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
@@ -973,8 +982,13 @@ class FrameAggregateTestBase(
             }
         )
         data = self.create_test_data(table)
-        feature_name = "ts__count_3_day_window"
-        fs = make_feature_set(feature_name, partition_by=partition_by, order_by="ts", mask=("category", "equal", "X"))
+        feature_name = f"ts__{agg_type}_3_day_window"
+        fs = make_feature_set(feature_name, partition_by=partition_by, order_by="ts", mask=mask)
+
+        if agg_type != "count" and not self.supports_datetime_min_max_source():
+            with pytest.raises(ValueError, match=r"datetime.*ts|ts.*datetime"):
+                calculate_with(self.implementation_class(), data, fs)
+            return
 
         result = calculate_with(self.implementation_class(), data, fs)
         ref = self.reference_calculate(table, fs)

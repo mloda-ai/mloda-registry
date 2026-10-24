@@ -260,12 +260,21 @@ def available_columns(data: Any) -> list[str]:
     return list(data.columns)
 
 
-def assert_source_columns_present(data: Any, columns: Iterable[str], label: str = "Source column") -> None:
-    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data`` (exact match)."""
+SPLIT_REDUCING_FEATURE_SET_HINT = (
+    "If several row-reducing features of one request ran as separate steps on one frame, this step sees an "
+    "earlier step's reduced output; give each such feature its own Options(group=...)."
+)
+
+
+def assert_source_columns_present(
+    data: Any, columns: Iterable[str], label: str = "Source column", hint: str = ""
+) -> None:
+    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data`` (exact match); ``hint`` is appended."""
     names = available_columns(data)
     for col in columns:
         if col not in names:
-            raise ValueError(f"{label} {col!r} is not present in the {type(data).__name__} input; available: {names}.")
+            message = f"{label} {col!r} is not present in the {type(data).__name__} input; available: {names}."
+            raise ValueError(f"{message} {hint}" if hint else message)
 
 
 def assert_key_columns_present(
@@ -274,14 +283,15 @@ def assert_key_columns_present(
     order_by: str | None = None,
     mask_spec: list[tuple[str, str, Any]] | None = None,
     order_label: str = "order_by",
+    hint: str = "",
 ) -> None:
     """Raise ``ValueError`` for the first partition_by, order_by or mask column absent from ``data``; None skips."""
     if partition_by:
-        assert_source_columns_present(data, partition_by, label="partition_by")
+        assert_source_columns_present(data, partition_by, label="partition_by", hint=hint)
     if order_by is not None:
-        assert_source_columns_present(data, [order_by], label=order_label)
+        assert_source_columns_present(data, [order_by], label=order_label, hint=hint)
     if mask_spec:
-        assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column")
+        assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column", hint=hint)
 
 
 def assert_single_grid(grids: dict[Any, list[str]], describe: Callable[[Any], str], operation: str) -> None:

@@ -18,7 +18,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -383,6 +383,21 @@ class PercentileTestBase(
         assert result_col == pytest.approx(
             [5.0, 5.0, 5.0, 5.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, -10.0], rel=1e-3
         )
+
+    def test_mask_source_column_as_partition_key_uses_unmasked_values(self) -> None:
+        """A masked source that is also partition_by groups on its unmasked values."""
+        fs = make_feature_set("value_int__p50_percentile", ["value_int"], mask=("category", "equal", "X"))
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__p50_percentile")
+        # Groups by unmasked value_int; masked X value per group (15 group holds rows 8, 9 -> only row 9 passes).
+        expected = [10.0, None, 0.0, None, None, None, None, 60.0, 15.0, 15.0, None, -10.0]
+        assert len(result_col) == len(expected)
+        for i, (actual, exp) in enumerate(zip(result_col, expected)):
+            if exp is None:
+                assert is_null(actual), f"row {i}: expected null, got {actual}"
+            else:
+                assert actual == pytest.approx(exp, rel=1e-3), f"row {i}: {actual} != {exp}"
 
     def test_mask_multiple_conditions_percentile(self) -> None:
         """P50 with AND-combined mask: category='X' AND value_int >= 10."""

@@ -210,6 +210,34 @@ class MaskTestMixin:
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         self._assert_mask_values(result, self.mask_no_mask_expected())
 
+    def test_mixin_mask_preserves_input_columns(self) -> None:
+        """Mixin: masking leaves the source column and a user column named like the mask helper unchanged."""
+        if self.mask_is_reducing():
+            pytest.skip("reducing ops do not return input columns")
+        helper_name = "__mloda_masked_src__"
+        n = self._arrow_table.num_rows  # type: ignore[attr-defined]
+        table = self._arrow_table.append_column(  # type: ignore[attr-defined]
+            helper_name, pa.array([1000 + i for i in range(n)], type=pa.int64())
+        )
+        data = self.create_test_data(table)  # type: ignore[attr-defined]
+        source_name = self.mask_feature_name().split("__")[0]
+        fs = make_feature_set(
+            self.mask_feature_name(),
+            self.mask_partition_by(),
+            self.mask_order_by(),
+            mask=("category", "equal", "X"),
+        )
+        result = calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
+        assert self.get_row_count(result) == n  # type: ignore[attr-defined]
+        for name in (source_name, helper_name):
+            expected = self.extract_column(data, name)  # type: ignore[attr-defined]
+            actual = self.extract_column(result, name)  # type: ignore[attr-defined]
+            for i, (a, e) in enumerate(zip(actual, expected)):
+                if is_null(e):
+                    assert is_null(a), f"{name} row {i}: expected null, got {a}"
+                else:
+                    assert a == e, f"{name} row {i}: {a} != {e}"
+
     @pytest.mark.parametrize(
         "metric_values, control_values, mask_spec, control_mask_spec",
         [

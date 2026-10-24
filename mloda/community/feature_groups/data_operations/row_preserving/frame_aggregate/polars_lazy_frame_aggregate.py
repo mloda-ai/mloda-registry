@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_helpers import nan_skipping_extreme, nan_to_null
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -71,7 +71,7 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
 
         actual_source = source_col
         if mask_spec is not None:
-            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+            data, actual_source = apply_polars_mask(data, source_col, mask_spec, taken={feature_name})
 
         # Cast Null-typed columns to Float64 so aggregation operations work.
         schema = data.collect_schema()
@@ -287,7 +287,7 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         result = result.sort(rn_col)
         drop_cols = [rn_col]
         if mask_spec is not None:
-            drop_cols.append(_POLARS_MASK_TMP)
+            drop_cols.append(actual_source)
         if frame_type == "time":
             drop_cols.append(synth_ts_col)
         result = result.drop(drop_cols)

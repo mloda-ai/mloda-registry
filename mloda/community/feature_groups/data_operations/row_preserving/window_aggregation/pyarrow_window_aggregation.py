@@ -17,7 +17,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
+from mloda.community.feature_groups.data_operations.mask_utils import MASKED_SOURCE_HELPER, apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -83,34 +83,39 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         # ``agg_col`` and is not separately guarded.
         idx_col = unique_helper_name("__mloda_wa_idx__", set(table.column_names) | {feature_name})
 
-        if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
-
         num_rows = table.num_rows
         t_with_idx = table.append_column(idx_col, pa.array(range(num_rows)))
+
+        # Keys and order stay unmasked; the masked values are aggregated under a temp name.
+        agg_source = source_col
+        if mask_spec is not None:
+            agg_source = unique_helper_name(MASKED_SOURCE_HELPER, set(table.column_names) | {feature_name, idx_col})
+            t_with_idx = t_with_idx.append_column(agg_source, apply_pyarrow_mask(table, source_col, mask_spec))
 
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]
             grouped = t_with_idx.group_by(partition_by).aggregate(
                 [
-                    (source_col, pa_func),
+                    (agg_source, pa_func),
                     (idx_col, "list"),
                 ]
             )
-            agg_col = f"{source_col}_{pa_func}"
+            agg_col = f"{agg_source}_{pa_func}"
 
         elif agg_type in _VARIANCE_FUNCS:
             pa_func, ddof = _VARIANCE_FUNCS[agg_type]
             grouped = t_with_idx.group_by(partition_by).aggregate(
                 [
-                    (source_col, pa_func, pc.VarianceOptions(ddof=ddof)),
+                    (agg_source, pa_func, pc.VarianceOptions(ddof=ddof)),
                     (idx_col, "list"),
                 ]
             )
-            agg_col = f"{source_col}_{pa_func}"
+            agg_col = f"{agg_source}_{pa_func}"
 
         elif agg_type in _ORDERED_FUNCS:
-            return cls._compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by, idx_col)
+            return cls._compute_ordered(
+                table, t_with_idx, feature_name, agg_source, partition_by, agg_type, order_by, idx_col
+            )
 
         else:
             raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
@@ -120,6 +125,7 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
     @classmethod
     def _compute_ordered(
         cls,
+        table: pa.Table,
         t_with_idx: pa.Table,
         feature_name: str,
         source_col: str,
@@ -143,8 +149,7 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         )
         agg_col = f"{source_col}_{pa_func}"
 
-        original_table = t_with_idx.drop_columns([idx_col])
-        return cls._broadcast(original_table, grouped, agg_col, feature_name, original_table.num_rows, idx_col)
+        return cls._broadcast(table, grouped, agg_col, feature_name, table.num_rows, idx_col)
 
     @classmethod
     def _broadcast(

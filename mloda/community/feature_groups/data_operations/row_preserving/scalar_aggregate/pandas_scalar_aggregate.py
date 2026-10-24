@@ -7,12 +7,9 @@ from typing import Any
 import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
-    PandasMaskEngine,
-)
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pandas_mask
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -53,13 +50,12 @@ class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
         agg_type: str,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
+        agg_source = source_col
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
-            data = data.copy()
-            data[source_col] = data[source_col].where(mask)
+            data, agg_source = apply_pandas_mask(data, source_col, mask_spec, taken={feature_name})
         else:
             data = data.copy()
-        col = data[source_col]
+        col = data[agg_source]
 
         if agg_type == "sum":
             result = col.sum(min_count=1)
@@ -90,4 +86,6 @@ class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
             )
 
         data[feature_name] = result
+        if mask_spec is not None:
+            data = data.drop(columns=[agg_source])
         return data

@@ -154,7 +154,7 @@ Users select a framework via `compute_frameworks` and do not interact with mask 
 
 | Framework | Mechanism |
 |---|---|
-| Pandas | Boolean Series via `.where(mask)`, non-matching values become NaN |
+| Pandas | Boolean Series via `.where(mask)` written to a temporary column; the source and the keys are unchanged |
 | PyArrow | Null replacement via `pc.if_else` on a boolean array |
 | Polars (lazy) | `pl.when(mask).then(col).otherwise(None)` with a temporary column |
 | DuckDB / SQLite | SQL `CASE WHEN condition THEN source END` expression |

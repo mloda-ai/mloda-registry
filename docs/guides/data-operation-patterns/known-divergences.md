@@ -320,6 +320,23 @@ regression_test:
 - **How**: `pandas.DataFrame.groupby(...).rolling(on=ts)` raises `"ts values must not have NaT"`; Polars `rolling_*_by` panics. Both `PandasFrameAggregate._compute_frame` and `PolarsLazyFrameAggregate._compute_frame` pre-check the `order_by` column for nulls when `frame_type == "time"` and raise a `ValueError` naming the framework and column, turning the cryptic native error into an explicit refusal. `FrameAggregateTestBase.supports_null_order_in_time_window()` defaults `True`; pandas + polars-lazy override to `False`, skipping `test_cross_framework_time_window_with_null_cutoff`. DuckDB and SQLite implement the reference behavior (window = `[self]`) and run the test.
 - **Related**: parent #183, implementing #202.
 
+### Pandas frame_aggregate rejects non-count aggregates over a datetime source
+
+<!-- machine-checked
+operation: frame_aggregate
+framework: pandas
+condition: pandas rolling and expanding windows aggregate only numeric columns, so non-count aggregates over a datetime source fail with a cryptic DataError
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_cross_framework_time_window_source_equals_order_with_mask
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_pandas.py::TestPandasFrameAggregate::test_pandas_rejects_datetime_min_max_in_rolling_frame
+-->
+
+- **Operations**: `row_preserving/frame_aggregate` (every frame type, every aggregate except `count`).
+- **Mitigation kind**: Explicit runtime error.
+- **How**: `PandasFrameAggregate._compute_frame` checks the source dtype up front and raises a `ValueError` naming the aggregate and the column, instead of pandas' `DataError`. `count` works and is unaffected. Use Polars or DuckDB for these aggregates. `FrameAggregateTestBase.supports_datetime_min_max_source()` defaults `True`; pandas overrides it to `False`.
+
 ### SQLite + Polars reject std/var/median frame aggregates at match time
 
 <!-- machine-checked

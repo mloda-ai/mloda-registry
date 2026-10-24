@@ -8,16 +8,13 @@ import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
-    PandasMaskEngine,
-)
 
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pandas_mask
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     coerce_count_dtype,
@@ -96,6 +93,13 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 operation="frame aggregate",
             )
 
+        if agg_type != "count" and pd.api.types.is_datetime64_any_dtype(data[source_col]):
+            raise ValueError(
+                f"Pandas frame aggregate cannot compute {agg_type!r} over datetime column {source_col!r}: "
+                "pandas rolling and expanding windows aggregate only numeric columns (count works). "
+                "Use Polars or DuckDB."
+            )
+
         data = data.copy()
 
         taken = set(data.columns) | {feature_name}
@@ -111,9 +115,7 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # PyArrow parity: sort on unmasked values; masked values go to a temp column.
         agg_col = source_col
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
-            agg_col = unique_helper_name("__mloda_masked_source__", taken)
-            data[agg_col] = data[source_col].where(mask)
+            data, agg_col = apply_pandas_mask(data, source_col, mask_spec, taken=taken)
 
         # partition_by=[]: apply expanding/rolling directly on the column instead of grouping.
         window_source = data[agg_col] if not partition_by else null_safe_groupby(data, partition_by, agg_col)

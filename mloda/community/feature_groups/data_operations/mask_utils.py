@@ -12,15 +12,19 @@ Provides mask-building strategies matched to framework capabilities:
    ``DuckDBMaskEngine``, ``SqliteMaskEngine``) for individual conditions,
    then wraps them in a ``CASE WHEN ... THEN source END`` expression.
 
-Apply helpers ``apply_polars_mask`` and ``apply_pyarrow_mask`` build on
-the above to create masked columns in framework-specific ways.
+Apply helpers ``apply_polars_mask`` and ``apply_pandas_mask`` add a masked temp column
+(``MASKED_SOURCE_HELPER``, uniquified) and leave the source and keys unchanged;
+``apply_pyarrow_mask`` returns the masked column array.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from mloda.provider import BaseMaskEngine
+
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 
 MASK_KEY = "mask"
 
@@ -142,28 +146,44 @@ def build_polars_mask_expr(data: Any, mask_spec: list[tuple[str, str, Any]]) -> 
     return build_mask_from_spec(PolarsExprMaskEngine, data, mask_spec)
 
 
-_POLARS_MASK_TMP = "__mloda_masked_src__"
+MASKED_SOURCE_HELPER = "__mloda_masked_src__"
 
 
 def apply_polars_mask(
     data: Any,
     source_col: str,
     mask_spec: list[tuple[str, str, Any]],
-    temp_name: str = _POLARS_MASK_TMP,
+    taken: Iterable[str] = (),
 ) -> tuple[Any, str]:
-    """Apply a mask spec to a Polars LazyFrame, creating a temp masked column.
+    """Add a masked copy of *source_col* to a Polars LazyFrame under a collision-free temp name.
 
-    Returns ``(data_with_mask, actual_source)`` where *actual_source* is the
-    name of the column to aggregate (either *source_col* unchanged or the
-    temporary masked column *temp_name*, ``_POLARS_MASK_TMP`` by default).
-
-    Callers must drop *temp_name* from the result when done, except after a group_by
-    aggregation (only the keys and aggregates are returned there).
+    Returns ``(data_with_temp, temp_name)``. The source column is left unchanged. Callers drop
+    *temp_name* when done, except after a group_by (only keys and aggregates are returned there).
     """
     import polars as pl
 
+    temp_name = unique_helper_name(MASKED_SOURCE_HELPER, set(data.collect_schema().names()) | set(taken))
     mask_expr = build_polars_mask_expr(data, mask_spec)
     data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(temp_name))
+    return data, temp_name
+
+
+def apply_pandas_mask(
+    data: Any,
+    source_col: str,
+    mask_spec: list[tuple[str, str, Any]],
+    taken: Iterable[str] = (),
+) -> tuple[Any, str]:
+    """Return a copy of a pandas DataFrame with a masked copy of *source_col* under a temp name.
+
+    Returns ``(data_copy, temp_name)``. The source column and all keys are left unchanged.
+    """
+    from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import PandasMaskEngine
+
+    temp_name = unique_helper_name(MASKED_SOURCE_HELPER, set(data.columns) | set(taken))
+    mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
+    data = data.copy()
+    data[temp_name] = data[source_col].where(mask)
     return data, temp_name
 
 
@@ -172,11 +192,7 @@ def apply_pyarrow_mask(
     source_col: str,
     mask_spec: list[tuple[str, str, Any]],
 ) -> Any:
-    """Apply a mask spec to a PyArrow table, replacing masked values with null.
-
-    Returns the table with the *source_col* column replaced so that rows
-    not matching the mask have null values.
-    """
+    """Return the *source_col* array of a PyArrow table with non-matching rows set to null."""
     import pyarrow as pa
     import pyarrow.compute as pc
     from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import (
@@ -185,9 +201,7 @@ def apply_pyarrow_mask(
 
     mask = build_mask_from_spec(PyArrowMaskEngine, table, mask_spec)
     null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
-    masked_col = pc.if_else(mask, table.column(source_col), null_scalar)
-    col_idx = table.schema.get_field_index(source_col)
-    return table.set_column(col_idx, source_col, masked_col)
+    return pc.if_else(mask, table.column(source_col), null_scalar)
 
 
 def build_sql_case_when(
