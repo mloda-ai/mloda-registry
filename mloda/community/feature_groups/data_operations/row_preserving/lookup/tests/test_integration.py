@@ -18,7 +18,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupUnmatchedError,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
 _MAPPING: dict[str, str] = {"A": "Alpha", "B": "Beta"}
@@ -161,8 +163,12 @@ class TestLookupSeveralFrameworks:
 
     def test_several_frameworks_enabled_runs_lookup_and_names_the_implementation(self) -> None:
         pytest.importorskip("pandas")
+        from mloda.core.abstract_plugins.implementation import loaded_implementations
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+        from mloda.community.feature_groups.data_operations.row_preserving.lookup.pandas_lookup import PandasLookup
+
+        assert {PyArrowLookup, PandasLookup} <= set(loaded_implementations())
         frameworks = [PyArrowTable, PandasDataFrame]
         results = mloda.run_all([self._feature()], compute_frameworks=frameworks, plugin_collector=self._collector())
         tables = [t for t in results if isinstance(t, pa.Table) and "region__lookup" in t.column_names]
@@ -174,6 +180,64 @@ class TestLookupSeveralFrameworks:
         assert len(steps) == 1
         assert steps[0].implementation is PyArrowLookup
         assert steps[0].compute_framework is PyArrowTable
+
+    @staticmethod
+    def _step(features: list[Feature], frameworks: list[Any], collector: PluginCollector, group: type) -> Any:
+        plan = mloda.explain(features, compute_frameworks=frameworks, plugin_collector=collector)
+        steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
+        assert len(steps) == 1
+        return steps[0]
+
+    def test_pandas_source_runs_pandas_lookup_for_the_group_and_for_a_hook(self) -> None:
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.lookup.pandas_lookup import PandasLookup
+
+        frameworks = [PandasDataFrame, PyArrowTable]
+        hook_feature = Feature("region__regions", options=Options(context={"on_unmatched": "null"}))
+        for feature, name, group in (
+            (self._feature(), "region__lookup", LookupFeatureGroup),
+            (hook_feature, "region__regions", _RegionHookLookup),
+        ):
+            collector = PluginCollector.enabled_feature_groups(
+                {PandasDataOpsTestDataCreator, LookupFeatureGroup, _RegionHookLookup}
+            )
+            step = self._step([feature], frameworks, collector, group)
+            assert step.implementation is PandasLookup
+            assert step.compute_framework is PandasDataFrame
+
+            results = mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=collector)
+            frames = [frame for frame in results if isinstance(frame, pd.DataFrame) and name in frame.columns]
+            assert len(frames) == 1
+            assert_values_with_nulls(frames[0][name].tolist(), _REGION_NULL, nan_is_null=True)
+
+    @pytest.mark.parametrize("pin", ["qualified", "class"], ids=["by_qualified_name", "by_class"])
+    def test_implementation_pin_runs_on_pandas(self, pin: str) -> None:
+        """Feature(..., implementation=...) overrides the ranking and runs the pinned implementation."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.lookup.pandas_lookup import PandasLookup
+
+        qualified = "mloda.community.feature_groups.data_operations.row_preserving.lookup.pandas_lookup:PandasLookup"
+        feature = Feature(
+            "region__lookup",
+            options={"lookup_mapping": _MAPPING, "on_unmatched": "null"},
+            implementation=qualified if pin == "qualified" else PandasLookup,
+        )
+        frameworks = [PyArrowTable, PandasDataFrame]
+
+        step = self._step([feature], frameworks, self._collector(), LookupFeatureGroup)
+        assert step.implementation is PandasLookup
+        assert step.compute_framework is PandasDataFrame
+
+        results = mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=self._collector())
+        frames = [frame for frame in results if isinstance(frame, pd.DataFrame)]
+        assert len(frames) == 1
+        assert_values_with_nulls(frames[0]["region__lookup"].tolist(), _REGION_NULL, nan_is_null=True)
 
     def test_group_without_an_enabled_implementation_is_a_resolution_error(self) -> None:
         collector = self._collector()

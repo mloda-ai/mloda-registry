@@ -49,11 +49,6 @@ class _EmptyMappingHookLookup(EmptyMappingHook, LookupFeatureGroup):
     pass
 
 
-class _BackToOption(_HookLookup):
-    MAPPING_FROM_OPTION = True  # type: ignore[misc]
-    PREFIX_PATTERN = r".*__lookup$"
-
-
 class _InvalidMappingHookLookup(NutsMappingHook, LookupFeatureGroup):
     PREFIX_PATTERN = r".*__badmap$"
 
@@ -253,9 +248,22 @@ class TestMatchAbort:
         assert _HookLookup.match_feature_group_criteria("x__lookup__nuts2024", options)
 
     def test_subclass_restoring_mapping_option_regains_guard(self) -> None:
-        invalid = _opts(lookup_mapping={"a": 1, "b": "x"}, on_unmatched="keep")
-        assert not _BackToOption.match_feature_group_criteria("x__lookup", invalid)
-        assert _BackToOption.match_feature_group_criteria("x__lookup", _opts(lookup_mapping=PARTIAL_STR_MAP))
+        import gc
+
+        from mloda.provider import get_all_subclasses
+
+        class _BackToOption(_HookLookup):
+            MAPPING_FROM_OPTION = True  # type: ignore[misc]
+            PREFIX_PATTERN = r".*__lookup$"
+
+        try:
+            invalid = _opts(lookup_mapping={"a": 1, "b": "x"}, on_unmatched="keep")
+            assert not _BackToOption.match_feature_group_criteria("x__lookup", invalid)
+            assert _BackToOption.match_feature_group_criteria("x__lookup", _opts(lookup_mapping=PARTIAL_STR_MAP))
+        finally:
+            del _BackToOption
+            gc.collect()
+        assert not [c for c in get_all_subclasses(FeatureGroup) if c.__name__ == "_BackToOption"]
 
     def test_hook_config_path_with_mapping_declines(self) -> None:
         options = _opts(in_features="x", lookup_mapping=PARTIAL_STR_MAP)
