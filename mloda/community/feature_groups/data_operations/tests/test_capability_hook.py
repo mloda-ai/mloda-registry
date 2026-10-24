@@ -56,8 +56,10 @@ class TestResolveFeatureIntegration:
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
             ScalarAggregateFeatureGroup,
         )
+        from mloda.testing.feature_groups.data_operations.integration import load_group_implementations
 
         group = ScalarAggregateFeatureGroup
+        load_group_implementations(group)
         plugin_collector = PluginCollector.enabled_feature_groups({group})
 
         # The one group matches by name; its Implementations decide per framework. SQLite does not
@@ -93,10 +95,12 @@ class TestResolveFeatureIntegration:
         from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
             FrameAggregateFeatureGroup,
         )
+        from mloda.testing.feature_groups.data_operations.integration import load_group_implementations
 
         feature_name = "value__median_rolling_3"
 
         group = FrameAggregateFeatureGroup
+        load_group_implementations(group)
         assert group.supports_compute_framework(feature_name, Options(), SqliteFramework) is False
         assert group.supports_compute_framework(feature_name, Options(), PandasDataFrame) is True
         assert group.supports_compute_framework(feature_name, Options(), DuckDBFramework) is True

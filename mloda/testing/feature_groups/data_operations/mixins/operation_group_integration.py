@@ -175,18 +175,16 @@ class OperationGroupIntegrationTestMixin:
             pytest.skip("the group declares no divergent routing cases")
         pytest.importorskip("pandas")
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-        from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
         from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         group = self.feature_group_class()  # type: ignore[attr-defined]
+        frameworks = list(dict.fromkeys([PandasDataFrame, *self.pipeline_compute_frameworks()]))  # type: ignore[attr-defined]
         collector = enabled_with_implementations({PandasDataOpsTestDataCreator, group})
         for case in cases:
             feature = Feature(case.feature_name, options=Options(context=case.options))
-            plan = mloda.explain(
-                [feature], compute_frameworks=[PandasDataFrame, PyArrowTable], plugin_collector=collector
-            )
+            plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
             steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
             assert len(steps) == 1, case.feature_name
             assert steps[0].implementation is _resolve(case.implementation), case.feature_name

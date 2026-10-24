@@ -24,7 +24,7 @@ class MaskIntegrationTestMixin:
     Requires the host class to provide (from DataOpsIntegrationTestBase):
     - ``feature_group_class()``
     - ``data_creator_class()``
-    - ``compute_framework_class()``
+    - ``compute_framework_class()`` / ``pipeline_compute_frameworks()``
     - ``_plugin_collector()``
     """
 

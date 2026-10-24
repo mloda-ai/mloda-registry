@@ -46,9 +46,17 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 
 
 def load_group_implementations(group: Any) -> None:
-    """Import the manifest next to an operation group, which loads every installed Implementation of it."""
+    """Import the manifest next to an operation group, which loads every installed Implementation of it.
+
+    A package without a manifest module is left alone; any other import error is raised.
+    """
     if isinstance(group, type) and issubclass(group, OperationFeatureGroup):
-        importlib.import_module(group.__module__.rsplit(".", 1)[0] + ".manifest")
+        manifest = group.__module__.rsplit(".", 1)[0] + ".manifest"
+        try:
+            importlib.import_module(manifest)
+        except ModuleNotFoundError as exc:
+            if exc.name != manifest:
+                raise
 
 
 def enabled_with_implementations(classes: set[Any]) -> PluginCollector:

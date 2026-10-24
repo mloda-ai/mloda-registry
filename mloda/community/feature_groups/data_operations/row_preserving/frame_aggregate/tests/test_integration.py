@@ -26,7 +26,13 @@ from mloda.testing.feature_groups.data_operations.integration import (
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PANDAS_DATAFRAME,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
+)
+
+PYTHON_DICT_FRAMEWORK = (
+    "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework:PythonDictFramework"
 )
 
 
@@ -114,6 +120,27 @@ class TestFrameAggregateIntegration(
     def expected_row_count(cls) -> int:
         return 12
 
+    # -- OperationGroupIntegrationTestMixin configuration ----------------------
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate"
+        options = {"partition_by": ["region"], "order_by": "value_int"}
+        return [
+            RoutingCase(
+                "value_int__sum_rolling_3",
+                options,
+                f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
+                PYTHON_DICT_FRAMEWORK,
+            ),
+            RoutingCase(
+                "value_int__max_rolling_3",
+                options,
+                f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
+                PANDAS_DATAFRAME,
+            ),
+        ]
+
     # -- MaskIntegrationTestMixin configuration --------------------------------
 
     @classmethod
@@ -122,8 +149,8 @@ class TestFrameAggregateIntegration(
 
     @classmethod
     def mask_integration_options(cls) -> dict[str, Any]:
-        # order_by differs from the masked source (value_int): masking an order key is not a frame contract.
-        return {"partition_by": ["region"], "order_by": "timestamp"}
+        # Masked rows keep their order key, as in the backend unit tests; the PyArrow reference differs here.
+        return {"partition_by": ["region"], "order_by": "value_int"}
 
     @classmethod
     def mask_integration_expected(cls) -> list[Any]:
@@ -138,7 +165,7 @@ class TestFrameAggregateIntegration(
 
     @classmethod
     def mask_integration_unmasked_expected(cls) -> list[Any]:
-        return [10, 5, 5, 25, None, 50, 80, 140, 15, 30, 70, -10]
+        return [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
 
     def test_own_contradictory_frame_size_raises_name_agreement_error(self) -> None:
         """The error is escalated: a contained match error would surface as FeatureResolutionError."""
