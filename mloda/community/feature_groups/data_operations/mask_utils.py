@@ -149,20 +149,21 @@ def apply_polars_mask(
     data: Any,
     source_col: str,
     mask_spec: list[tuple[str, str, Any]],
+    temp_name: str = _POLARS_MASK_TMP,
 ) -> tuple[Any, str]:
     """Apply a mask spec to a Polars LazyFrame, creating a temp masked column.
 
     Returns ``(data_with_mask, actual_source)`` where *actual_source* is the
     name of the column to aggregate (either *source_col* unchanged or the
-    temporary masked column ``_POLARS_MASK_TMP``).
+    temporary masked column *temp_name*, ``_POLARS_MASK_TMP`` by default).
 
-    Callers must drop ``_POLARS_MASK_TMP`` from the result when done.
+    Callers must drop *temp_name* from the result when done.
     """
     import polars as pl
 
     mask_expr = build_polars_mask_expr(data, mask_spec)
-    data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_POLARS_MASK_TMP))
-    return data, _POLARS_MASK_TMP
+    data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(temp_name))
+    return data, temp_name
 
 
 def apply_pyarrow_mask(

@@ -10,8 +10,10 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
@@ -53,43 +55,38 @@ class PolarsLazyAggregation(Implementation[AggregationFeatureGroup]):
         return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
-    def _compute_group(
-        cls,
-        data: pl.LazyFrame,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> pl.LazyFrame:
-        actual_source = source_col
-        if mask_spec is not None:
-            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+    def _compute_group(cls, data: pl.LazyFrame, specs: list[AggregationSpec], partition_by: list[str]) -> pl.LazyFrame:
+        for spec in specs:
+            if spec.agg_type not in _SUPPORTED_AGG_TYPES:
+                raise unsupported_agg_type_error(spec.agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
 
-        if agg_type == "mode":
-            cols = ModeHelperCols.pick(set(data.collect_schema().names()) | {feature_name})
-            data = add_mode_helper_cols(data, actual_source, partition_by, cols)
-            expr = mode_agg_expr(actual_source, feature_name, cols)
-        elif agg_type == "median":
-            dtype = data.collect_schema()[actual_source]
-            expr = nan_to_null(pl.col(actual_source), dtype).median().alias(feature_name)
-        elif agg_type in _POLARS_AGG_EXPRS:
-            raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).alias(feature_name)
-            if agg_type == "sum":
+        feature_names = {spec.feature_name for spec in specs}
+        exprs: list[pl.Expr] = []
+        for spec in specs:
+            feature_name = spec.feature_name
+            actual_source = spec.source_col
+            if spec.mask_spec is not None:
+                # Temp masked column per spec; its mask reads only original columns.
+                tmp = unique_helper_name(_POLARS_MASK_TMP, set(data.collect_schema().names()) | feature_names)
+                data, actual_source = apply_polars_mask(data, spec.source_col, spec.mask_spec, tmp)
+
+            if spec.agg_type == "mode":
+                cols = ModeHelperCols.pick(set(data.collect_schema().names()) | feature_names)
+                data = add_mode_helper_cols(data, actual_source, partition_by, cols)
+                exprs.append(mode_agg_expr(actual_source, feature_name, cols))
+            elif spec.agg_type == "median":
+                dtype = data.collect_schema()[actual_source]
+                exprs.append(nan_to_null(pl.col(actual_source), dtype).median().alias(feature_name))
+            elif spec.agg_type == "sum":
                 # Polars sum() returns 0 for all-null groups; correct to null.
                 has_values = pl.col(actual_source).count() > 0
-                expr = (
+                exprs.append(
                     pl.when(has_values)
-                    .then(_POLARS_AGG_EXPRS[agg_type](actual_source))
+                    .then(_POLARS_AGG_EXPRS["sum"](actual_source))
                     .otherwise(None)
                     .alias(feature_name)
                 )
             else:
-                expr = raw_expr
-        else:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
+                exprs.append(_POLARS_AGG_EXPRS[spec.agg_type](actual_source).alias(feature_name))
 
-        result = data.group_by(partition_by, maintain_order=True).agg(expr)
-        if mask_spec is not None:
-            result = result.drop(_POLARS_MASK_TMP, strict=False)
-        return result
+        return data.group_by(partition_by, maintain_order=True).agg(*exprs)

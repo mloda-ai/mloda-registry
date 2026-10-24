@@ -21,7 +21,7 @@ from typing import Any, Callable
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Options
+from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -525,6 +525,109 @@ class AggregationTestBase(
         if needs_skip:
             self._skip_if_unsupported(agg_type)
         self._compare_agg_with_reference(f"value_int__{agg_type}_agg", partition_by, use_approx=use_approx)
+
+    # -- Several features in one FeatureSet (aggregated together from the original input) ----
+
+    @staticmethod
+    def _multi_feature_set(specs: list[tuple[str, dict[str, Any]]]) -> FeatureSet:
+        """A FeatureSet holding one Feature per (name, context) pair."""
+        fs = FeatureSet()
+        for name, context in specs:
+            fs.add(Feature(name, options=Options(context=dict(context))))
+        return fs
+
+    def _assert_multi_matches_reference(
+        self, specs: list[tuple[str, dict[str, Any]]], use_approx: bool = False
+    ) -> None:
+        """Run all specs in one FeatureSet; each column must equal its single-feature reference run."""
+        result = calculate_with(self.implementation_class(), self.test_data, self._multi_feature_set(specs))
+        partition_by = list(specs[0][1]["partition_by"])
+        for name, context in specs:
+            ref = self.reference_calculate(self._arrow_table, self._multi_feature_set([(name, context)]))
+            assert self.get_row_count(result) == ref.num_rows, f"{name}: row count differs from reference"
+            if not partition_by:
+                assert_values_with_nulls(
+                    self.extract_column(result, name), extract_column(ref, name), approx=use_approx
+                )
+                continue
+            result_keys = zip(*[self.extract_column(result, c) for c in partition_by])
+            ref_keys = zip(*[extract_column(ref, c) for c in partition_by])
+            result_map = dict(zip(result_keys, self.extract_column(result, name)))
+            ref_map = dict(zip(ref_keys, extract_column(ref, name)))
+            assert len(result_map) == len(ref_map), f"{name}: group count differs from reference"
+            for key, expected in ref_map.items():
+                if expected is None or not use_approx:
+                    assert result_map[key] == expected, f"{name} group {key}: {result_map[key]} != {expected}"
+                else:
+                    assert result_map[key] == pytest.approx(expected, rel=1e-6), f"{name} group {key}"
+
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    @pytest.mark.parametrize(
+        ("agg_type", "needs_skip", "use_approx"),
+        [case for case in CROSS_FRAMEWORK_AGG_CASES if case[0] != "sum"],
+        ids=[case[0] for case in CROSS_FRAMEWORK_AGG_CASES if case[0] != "sum"],
+    )
+    def test_multi_feature_set_sum_and_other(
+        self, agg_type: str, needs_skip: bool, use_approx: bool, partition_by: list[str]
+    ) -> None:
+        """sum plus another aggregation in one FeatureSet match their single-feature reference runs."""
+        if needs_skip:
+            self._skip_if_unsupported(agg_type)
+        context = {"partition_by": partition_by}
+        self._assert_multi_matches_reference(
+            [("value_int__sum_agg", context), (f"value_int__{agg_type}_agg", context)], use_approx=use_approx
+        )
+
+    def test_multi_feature_set_avg_and_mean(self) -> None:
+        """avg and mean in one FeatureSet (same function on some backends) both give the average."""
+        self._skip_if_unsupported("mean")
+        context = {"partition_by": ["region"]}
+        specs = [("value_int__avg_agg", context), ("value_int__mean_agg", context)]
+        result = calculate_with(self.implementation_class(), self.test_data, self._multi_feature_set(specs))
+        regions = self.extract_column(result, "region")
+        for name, _ in specs:
+            result_map = _build_result_map(regions, self.extract_column(result, name))
+            for region, expected in EXPECTED_AVG_BY_REGION.items():
+                assert result_map[region] == pytest.approx(expected, rel=1e-3), f"{name} region={region}"
+
+    @pytest.mark.parametrize(
+        "mask",
+        [("category", "equal", "X"), ("value_int", "greater_than", 10)],
+        ids=["other_column", "source_column"],
+    )
+    def test_multi_feature_set_two_sources_shared_mask(self, mask: tuple[Any, ...]) -> None:
+        """Two source columns under one shared mask (the mask column may be a source column)."""
+        context = {"partition_by": ["region"], "mask": mask}
+        self._assert_multi_matches_reference(
+            [("value_int__sum_agg", context), ("value_float__sum_agg", context)], use_approx=True
+        )
+
+    def test_multi_feature_set_masked_and_unmasked(self) -> None:
+        """A masked and an unmasked aggregate share one FeatureSet; each keeps its own mask."""
+        base = {"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
+        self._assert_multi_matches_reference(
+            [
+                ("total", base),
+                ("masked_total", {**base, "mask": ("category", "equal", "X")}),
+            ]
+        )
+
+    def test_multi_feature_set_two_mode_features(self) -> None:
+        """Two mode features on different source columns in one FeatureSet."""
+        self._skip_if_unsupported("mode")
+        context = {"partition_by": ["region"]}
+        self._assert_multi_matches_reference([("value_int__mode_agg", context), ("value_float__mode_agg", context)])
+
+    def test_multi_feature_set_mixed_partition_by_rejected(self) -> None:
+        """Features with different partition_by in one FeatureSet raise, naming the remedy."""
+        fs = self._multi_feature_set(
+            [
+                ("value_int__sum_agg", {"partition_by": ["region"]}),
+                ("value_int__max_agg", {"partition_by": []}),
+            ]
+        )
+        with pytest.raises(ValueError, match="run_all"):
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- partition_by=[] on an empty table (one row: sum None, count 0) ------
 

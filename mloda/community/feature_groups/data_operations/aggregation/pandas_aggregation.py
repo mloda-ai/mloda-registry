@@ -13,6 +13,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_eng
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
@@ -52,15 +53,25 @@ class PandasAggregation(Implementation[AggregationFeatureGroup]):
         return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
-    def _compute_group(
-        cls,
-        data: pd.DataFrame,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> pd.DataFrame:
+    def _compute_group(cls, data: pd.DataFrame, specs: list[AggregationSpec], partition_by: list[str]) -> pd.DataFrame:
+        for spec in specs:
+            if spec.agg_type != "mode" and spec.agg_type not in PANDAS_AGG_FUNCS:
+                raise unsupported_agg_type_error(spec.agg_type, _SUPPORTED_AGG_TYPES, framework="Pandas")
+
+        # Each spec is computed from the original data with its own mask, then the frames are combined.
+        frames = [cls._compute_single(data, spec, partition_by) for spec in specs]
+        result = frames[0]
+        for frame in frames[1:]:
+            if partition_by:
+                # Every frame holds the same unique keys; pandas matches NaN keys to NaN keys.
+                result = result.merge(frame, on=partition_by, how="left")
+            else:
+                result = pd.concat([result, frame], axis=1)
+        return result
+
+    @classmethod
+    def _compute_single(cls, data: pd.DataFrame, spec: AggregationSpec, partition_by: list[str]) -> pd.DataFrame:
+        feature_name, source_col, agg_type, mask_spec = spec
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
@@ -82,12 +93,8 @@ class PandasAggregation(Implementation[AggregationFeatureGroup]):
         if agg_type == "mode":
             result = cls._compute_mode(data, feature_name, source_col, partition_by)
         else:
-            pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
-            if pandas_func is None:
-                raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Pandas")
-
             grouped = null_safe_groupby(data, partition_by, source_col)
-            result = apply_null_safe_agg(grouped, pandas_func, agg_type).reset_index()
+            result = apply_null_safe_agg(grouped, PANDAS_AGG_FUNCS[agg_type], agg_type).reset_index()
             result = result.rename(columns={source_col: feature_name})
 
             coerce_count_dtype(result, feature_name, agg_type)

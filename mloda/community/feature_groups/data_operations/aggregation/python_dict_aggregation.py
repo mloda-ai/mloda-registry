@@ -19,6 +19,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
@@ -41,23 +42,22 @@ class PythonDictAggregation(Implementation[AggregationFeatureGroup]):
 
     @classmethod
     def _compute_group(
-        cls,
-        data: dict[str, list[Any]],
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
+        cls, data: dict[str, list[Any]], specs: list[AggregationSpec], partition_by: list[str]
     ) -> dict[str, list[Any]]:
-        if agg_type not in SUPPORTED_AGG_TYPES:
-            raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES, framework="PythonDict")
+        for spec in specs:
+            if spec.agg_type not in SUPPORTED_AGG_TYPES:
+                raise unsupported_agg_type_error(spec.agg_type, SUPPORTED_AGG_TYPES, framework="PythonDict")
 
         partition_by = list(partition_by)
-        source_values = data[source_col]
 
-        if mask_spec is not None:
-            mask = build_mask_from_spec(PythonDictMaskEngine, data, mask_spec)
-            source_values = [v if m else None for v, m in zip(source_values, mask)]
+        # Each spec's masked values come from the original data.
+        source_values: list[list[Any]] = []
+        for spec in specs:
+            values = data[spec.source_col]
+            if spec.mask_spec is not None:
+                mask = build_mask_from_spec(PythonDictMaskEngine, data, spec.mask_spec)
+                values = [v if m else None for v, m in zip(values, mask)]
+            source_values.append(values)
 
         partition_cols = [data[col] for col in partition_by]
 
@@ -65,19 +65,20 @@ class PythonDictAggregation(Implementation[AggregationFeatureGroup]):
         if not partition_by:
             # No partition columns: the whole table is one group, even with zero rows.
             groups[()] = []
-        for i in range(len(source_values)):
+        for i in range(len(data[specs[0].source_col])):
             key = tuple(group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append(i)
 
         result: dict[str, list[Any]] = {col: [] for col in partition_by}
-        result[feature_name] = []
+        for spec in specs:
+            result[spec.feature_name] = []
 
         for indices in groups.values():
             if partition_by:
                 first_idx = indices[0]
                 for col_name, col in zip(partition_by, partition_cols):
                     result[col_name].append(col[first_idx])
-            values = [source_values[i] for i in indices]
-            result[feature_name].append(reduce_agg(agg_type, values))
+            for spec, values in zip(specs, source_values):
+                result[spec.feature_name].append(reduce_agg(spec.agg_type, [values[i] for i in indices]))
 
         return result

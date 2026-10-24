@@ -11,6 +11,7 @@ import pytest
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowAggregation,
@@ -24,7 +25,9 @@ class TestAggregationComputeRejection:
     def test_pyarrow_rejects_unknown_type_at_compute(self) -> None:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         with pytest.raises((ValueError, KeyError)):
-            PyArrowAggregation._compute_group(arrow_table, "result_col", "value_int", ["region"], "evil_type")
+            PyArrowAggregation._compute_group(
+                arrow_table, [AggregationSpec("result_col", "value_int", "evil_type", None)], ["region"]
+            )
 
     def test_pandas_rejects_unknown_type_at_compute(self) -> None:
         pytest.importorskip("pandas")
@@ -35,7 +38,9 @@ class TestAggregationComputeRejection:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         df = arrow_table.to_pandas()
         with pytest.raises((ValueError, KeyError)):
-            PandasAggregation._compute_group(df, "result_col", "value_int", ["region"], "evil_type")
+            PandasAggregation._compute_group(
+                df, [AggregationSpec("result_col", "value_int", "evil_type", None)], ["region"]
+            )
 
     def test_duckdb_rejects_unknown_type_at_compute(self) -> None:
         duckdb = pytest.importorskip("duckdb")
@@ -50,7 +55,9 @@ class TestAggregationComputeRejection:
         rel = conn.from_arrow(arrow_table)
         data = DuckdbRelation(conn, rel)
         with pytest.raises(ValueError, match="[Uu]nsupported"):
-            DuckdbAggregation._compute_group(data, "result_col", "value_int", ["region"], "evil_type")
+            DuckdbAggregation._compute_group(
+                data, [AggregationSpec("result_col", "value_int", "evil_type", None)], ["region"]
+            )
         conn.close()
 
     def test_sqlite_rejects_unknown_type_at_compute(self) -> None:
@@ -66,7 +73,9 @@ class TestAggregationComputeRejection:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         data = SqliteRelation.from_arrow(conn, arrow_table)
         with pytest.raises(ValueError, match="[Uu]nsupported"):
-            SqliteAggregation._compute_group(data, "result_col", "value_int", ["region"], "evil_type")
+            SqliteAggregation._compute_group(
+                data, [AggregationSpec("result_col", "value_int", "evil_type", None)], ["region"]
+            )
         conn.close()
 
 

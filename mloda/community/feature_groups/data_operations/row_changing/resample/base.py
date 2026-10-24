@@ -57,6 +57,7 @@ from mloda.community.feature_groups.data_operations.base import (
     KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
+    assert_single_grid,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
@@ -262,16 +263,11 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
             aggs.append(ResampleAgg(feature.name, source_col, agg))
             grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(str(feature.name))
 
-        if len(grids) > 1:
-            lines = "; ".join(
-                f"{names}: partition_by={list(pb)}, time_column={tc!r}, bucket={g_n}_{g_unit}"
-                for (pb, tc, g_n, g_unit), names in grids.items()
-            )
-            raise ValueError(
-                "Resample features with different bucket grids (partition_by, time_column and bucket size) "
-                f"cannot share one computation: {lines}. Request them in separate mloda.run_all calls, "
-                "or set the differing option via Options(group=...) so they compute separately."
-            )
+        assert_single_grid(
+            grids,
+            lambda key: f"partition_by={list(key[0])}, time_column={key[1]!r}, bucket={key[2]}_{key[3]}",
+            "bucket grid (partition_by, time_column and bucket size)",
+        )
 
         ((partition_key, time_column, n, unit),) = grids
         return compute_resample(data, aggs, time_column, list(partition_key), n, unit)

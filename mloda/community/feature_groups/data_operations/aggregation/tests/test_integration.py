@@ -402,14 +402,39 @@ class TestIntegrationSeveralFrameworks:
 
 
 class TestIntegrationMultipleFeatures:
-    """Test multiple aggregation features in separate pipeline runs.
+    """Test multiple aggregation features, in separate pipeline runs and in one run.
 
-    Aggregation reduces rows, so each feature must be requested
-    in a separate run_all call (mloda cannot merge different row-count
-    outputs without explicit Links). These tests verify that different
+    Features that share partition_by are aggregated together from the original
+    input in a single run_all call, giving one result table. Features may also
+    be requested in separate run_all calls. These tests verify that different
     aggregation types produce consistent, correct results from the
-    same source data.
+    same source data either way.
     """
+
+    def test_sum_and_avg_in_one_run(self) -> None:
+        """Sum and avg of value_int by region in ONE run_all call share one result table."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
+        )
+        options = Options(context={"partition_by": ["region"]})
+        results = mloda.run_all(
+            [Feature("value_int__sum_agg", options=options), Feature("value_int__avg_agg", options=options)],
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=plugin_collector,
+        )
+
+        tables = [
+            t
+            for t in results
+            if isinstance(t, pa.Table) and {"value_int__sum_agg", "value_int__avg_agg"} <= set(t.column_names)
+        ]
+        assert len(tables) == 1
+        table = tables[0]
+        assert table.num_rows == 4
+        assert sorted(table.column("value_int__sum_agg").to_pylist()) == sorted([25, 140, 70, -10])
+        assert sorted(table.column("value_int__avg_agg").to_pylist()) == pytest.approx(
+            sorted([6.25, 46.667, 23.333, -10.0]), rel=1e-3
+        )
 
     def test_sum_and_avg_consistent(self) -> None:
         """Run sum and avg separately and verify both produce correct results."""

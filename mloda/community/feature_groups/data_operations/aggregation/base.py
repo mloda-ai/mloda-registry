@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from mloda.provider import (
     DefaultOptionKeys,
@@ -22,10 +22,20 @@ from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
     WINDOW_AGGREGATION_TYPE,
     assert_key_columns_present,
+    assert_single_grid,
     assert_source_columns_present,
     is_op_token,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
+
+class AggregationSpec(NamedTuple):
+    """One aggregate to compute: output column ``feature_name`` = ``agg_type`` of masked ``source_col``."""
+
+    feature_name: str
+    source_col: str
+    agg_type: str
+    mask_spec: list[tuple[str, str, Any]] | None
 
 
 class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
@@ -38,6 +48,9 @@ class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase
     Unlike window aggregation (``_window`` suffix), which broadcasts
     the aggregate back to every row (preserving the original row count),
     aggregation reduces the table to one row per group key combination.
+
+    Several features with the same ``partition_by`` are aggregated together in one result,
+    each with its own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call.
 
     ## Supported Aggregation Types
 
@@ -170,19 +183,19 @@ class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase
         data: Any,
         features: FeatureSet,
         *,
-        compute_group: Callable[[Any, str, str, list[str], str, list[tuple[str, str, Any]] | None], Any],
+        compute_group: Callable[[Any, list[AggregationSpec], list[str]], Any],
     ) -> Any:
-        """Shared loop: extract params from each feature, delegate to ``compute_group``.
+        """Extract the specs of all features and compute them in one ``compute_group`` call.
 
-        Supports both string-based features (e.g. "value_int__sum_agg") and
-        configuration-based features (via Options with aggregation_type, in_features,
-        partition_by).
+        Supports string-based and configuration-based features.
+
+        Raises:
+            ValueError: if the features use more than one ``partition_by``.
         """
-        table = data
+        specs: list[AggregationSpec] = []
+        grids: dict[tuple[str, ...], list[str]] = {}
 
-        for feature in features.features:
-            feature_name = feature.name
-
+        for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             agg_type = cls._extract_aggregation_type(feature)
@@ -190,6 +203,10 @@ class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
             assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
 
-            table = compute_group(table, feature_name, source_col, partition_by, agg_type, mask_spec)
+            specs.append(AggregationSpec(feature.name, source_col, agg_type, mask_spec))
+            grids.setdefault(tuple(partition_by), []).append(str(feature.name))
 
-        return table
+        assert_single_grid(grids, lambda key: f"partition_by={list(key)}", "partition_by")
+
+        (partition_key,) = grids
+        return compute_group(data, specs, list(partition_key))

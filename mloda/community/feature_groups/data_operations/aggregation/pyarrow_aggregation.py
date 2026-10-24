@@ -15,8 +15,10 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 
 # Aggregation types with direct PyArrow group_by support.
@@ -61,31 +63,38 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
         return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
-    def _compute_group(
-        cls,
-        table: pa.Table,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> pa.Table:
-        if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
+    def _compute_group(cls, table: pa.Table, specs: list[AggregationSpec], partition_by: list[str]) -> pa.Table:
+        for spec in specs:
+            if spec.agg_type not in _SUPPORTED_AGG_TYPES:
+                raise unsupported_agg_type_error(spec.agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
 
-        if agg_type in _PA_AGG_FUNCS:
-            pa_func = _PA_AGG_FUNCS[agg_type]
-            grouped = table.group_by(partition_by).aggregate([(source_col, pa_func)])
-        elif agg_type in _VARIANCE_FUNCS:
-            pa_func, ddof = _VARIANCE_FUNCS[agg_type]
-            grouped = table.group_by(partition_by).aggregate([(source_col, pa_func, pc.VarianceOptions(ddof=ddof))])
-        elif agg_type in _ORDERED_FUNCS:
-            pa_func = _ORDERED_FUNCS[agg_type]
-            grouped = table.group_by(partition_by, use_threads=False).aggregate([(source_col, pa_func)])
-        else:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
+        # Each masked source is a copy under a temp name, its mask built from the original table.
+        taken = set(table.column_names) | {spec.feature_name for spec in specs}
+        entries: list[tuple[Any, ...]] = []
+        for spec in specs:
+            source = spec.source_col
+            if spec.mask_spec is not None:
+                masked = apply_pyarrow_mask(table, spec.source_col, spec.mask_spec).column(spec.source_col)
+                source = unique_helper_name("__mloda_masked_src__", taken)
+                taken.add(source)
+                table = table.append_column(source, masked)
 
-        # Rename auto-generated column (e.g. "val_sum") to feature_name.
-        auto_col = f"{source_col}_{pa_func}"
-        names = [feature_name if c == auto_col else c for c in grouped.column_names]
+            if spec.agg_type in _PA_AGG_FUNCS:
+                entries.append((source, _PA_AGG_FUNCS[spec.agg_type]))
+            elif spec.agg_type in _VARIANCE_FUNCS:
+                pa_func, ddof = _VARIANCE_FUNCS[spec.agg_type]
+                entries.append((source, pa_func, pc.VarianceOptions(ddof=ddof)))
+            else:
+                entries.append((source, _ORDERED_FUNCS[spec.agg_type]))
+
+        ordered = any(spec.agg_type in _ORDERED_FUNCS for spec in specs)
+        grouped = table.group_by(partition_by, use_threads=not ordered).aggregate(entries)
+
+        # Rename aggregate columns by position (auto names collide for a shared source + func).
+        # Newer PyArrow puts the keys first, older puts them last.
+        keys_first = grouped.column_names[: len(partition_by)] == partition_by
+        offset = len(partition_by) if keys_first else 0
+        names = list(grouped.column_names)
+        for i, spec in enumerate(specs):
+            names[offset + i] = spec.feature_name
         return grouped.rename_columns(names)

@@ -18,6 +18,8 @@ import sqlite3
 
 import pytest
 
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationSpec
+
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -46,7 +48,7 @@ class TestAggregationErrors:
 
         df = pd.DataFrame({"region": ["a", "b"], "val": [1, 2]})
         with pytest.raises(ValueError) as exc:
-            PandasAggregation._compute_group(df, "f", "val", ["region"], "not_a_real_agg")
+            PandasAggregation._compute_group(df, [AggregationSpec("f", "val", "not_a_real_agg", None)], ["region"])
         _assert_valid_error(exc.value, "not_a_real_agg", "sum", "count", "mean")
         assert "for Pandas" in str(exc.value)
 
@@ -58,7 +60,7 @@ class TestAggregationErrors:
 
         tbl = pa.table({"region": ["a", "b"], "val": [1, 2]})
         with pytest.raises(ValueError) as exc:
-            PyArrowAggregation._compute_group(tbl, "f", "val", ["region"], "not_a_real_agg")
+            PyArrowAggregation._compute_group(tbl, [AggregationSpec("f", "val", "not_a_real_agg", None)], ["region"])
         _assert_valid_error(exc.value, "not_a_real_agg", "sum", "count", "first")
         assert "for PyArrow" in str(exc.value)
 
@@ -78,7 +80,7 @@ class TestAggregationErrors:
         try:
             rel = DuckdbRelation.from_arrow(conn, arrow)
             with pytest.raises(ValueError) as exc:
-                DuckdbAggregation._compute_group(rel, "f", "val", ["region"], "not_a_real_agg")
+                DuckdbAggregation._compute_group(rel, [AggregationSpec("f", "val", "not_a_real_agg", None)], ["region"])
             _assert_valid_error(exc.value, "not_a_real_agg", "sum", "median", "mode")
             assert "for DuckDB" in str(exc.value)
         finally:
@@ -99,7 +101,7 @@ class TestAggregationErrors:
             arrow = pa.table({"region": ["a", "b"], "val": [1, 2]})
             rel = SqliteRelation.from_arrow(conn, arrow)
             with pytest.raises(ValueError) as exc:
-                SqliteAggregation._compute_group(rel, "f", "val", ["region"], "median")
+                SqliteAggregation._compute_group(rel, [AggregationSpec("f", "val", "median", None)], ["region"])
             _assert_valid_error(exc.value, "median", "sum", "avg", "count", "min", "max")
             assert "for SQLite" in str(exc.value)
         finally:
@@ -113,7 +115,7 @@ class TestAggregationErrors:
 
         lf = pl.LazyFrame({"region": ["a", "b"], "val": [1, 2]})
         with pytest.raises(ValueError) as exc:
-            PolarsLazyAggregation._compute_group(lf, "f", "val", ["region"], "not_a_real_agg")
+            PolarsLazyAggregation._compute_group(lf, [AggregationSpec("f", "val", "not_a_real_agg", None)], ["region"])
         _assert_valid_error(exc.value, "not_a_real_agg", "sum", "count", "first")
         assert "for Polars" in str(exc.value)
 

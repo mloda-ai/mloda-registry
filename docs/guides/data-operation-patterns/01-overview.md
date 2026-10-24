@@ -79,12 +79,16 @@ features = [
 ]
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 
-# An aggregation reduces to one row per group, so it runs on its own.
-grouped = [Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]}))]
+# Aggregations with the same partition_by run together: one row per group, one column each,
+# and each feature may carry its own mask.
+grouped = [
+    Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]})),
+    Feature("value_int__max_agg", Options(context={"partition_by": ["region"]})),
+]
 grouped_result = mloda.run_all(grouped, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
-Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space.
+Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space. Aggregations with a different `partition_by` need separate `run_all` calls.
 
 ---
 

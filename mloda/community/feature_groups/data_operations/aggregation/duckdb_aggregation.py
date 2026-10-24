@@ -11,6 +11,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
@@ -49,38 +50,33 @@ class DuckdbAggregation(Implementation[AggregationFeatureGroup]):
         return group.aggregate(data, features, compute_group=cls._compute_group)
 
     @classmethod
-    def _compute_group(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> DuckdbRelation:
-        quoted_source = quote_ident(source_col)
-        quoted_feature = quote_ident(feature_name)
+    def _compute_group(cls, data: Any, specs: list[AggregationSpec], partition_by: list[str]) -> DuckdbRelation:
+        for spec in specs:
+            if spec.agg_type not in _DUCKDB_AGG_FUNCS:
+                raise unsupported_agg_type_error(spec.agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
+
         partition_cols = ", ".join(quote_ident(col) for col in partition_by)
 
-        source_sql = quoted_source
-        if mask_spec is not None:
-            source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, quoted_source)
+        agg_parts: list[str] = []
+        for spec in specs:
+            source_sql = quote_ident(spec.source_col)
+            if spec.mask_spec is not None:
+                source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, spec.mask_spec, source_sql)
 
-        if agg_type == "nunique":
-            agg_expr = f"COUNT(DISTINCT {source_sql})"
-        else:
-            agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
-            if agg_func is None:
-                raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-            agg_expr = nan_policy_agg_sql(data, source_col, source_sql, agg_type, agg_func)
-            if agg_type == "mode":
-                agg_expr += ".v"
-            if agg_type in ("first", "last"):
-                agg_expr += f" FILTER (WHERE {source_sql} IS NOT NULL)"
+            if spec.agg_type == "nunique":
+                agg_expr = f"COUNT(DISTINCT {source_sql})"
+            else:
+                agg_func = _DUCKDB_AGG_FUNCS[spec.agg_type]
+                agg_expr = nan_policy_agg_sql(data, spec.source_col, source_sql, spec.agg_type, agg_func)
+                if spec.agg_type == "mode":
+                    agg_expr += ".v"
+                if spec.agg_type in ("first", "last"):
+                    agg_expr += f" FILTER (WHERE {source_sql} IS NOT NULL)"
+            agg_parts.append(f"{agg_expr} AS {quote_ident(spec.feature_name)}")
 
         # Use lazy relation methods (aggregate + order) instead of eager query()
         # so DuckDB defers execution until the result is consumed.
-        select_expr = f"{agg_expr} AS {quoted_feature}"
+        select_expr = ", ".join(agg_parts)
         if partition_cols:
             select_expr = f"{partition_cols}, {select_expr}"
         rel: DuckdbRelation = data.aggregate(select_expr, partition_cols)

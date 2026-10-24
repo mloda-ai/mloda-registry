@@ -17,6 +17,7 @@ from mloda.provider import FeatureSet
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
@@ -52,14 +53,8 @@ _ORDERED_FUNCS: dict[str, str] = {
 _SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS, "median", "mode"}
 
 
-def _compute_group(
-    table: pa.Table,
-    feature_name: str,
-    source_col: str,
-    partition_by: list[str],
-    agg_type: str,
-    mask_spec: list[tuple[str, str, Any]] | None = None,
-) -> pa.Table:
+def _compute_single(table: pa.Table, spec: AggregationSpec, partition_by: list[str]) -> pa.Table:
+    feature_name, source_col, agg_type, mask_spec = spec
     if mask_spec is not None:
         table = apply_pyarrow_mask(table, source_col, mask_spec)
 
@@ -124,6 +119,36 @@ def _compute_via_list(
     arrays = [grouped.column(col) for col in partition_by]
     arrays.append(pa.array(agg_values))
     return pa.table(arrays, names=list(partition_by) + [feature_name])
+
+
+def _group_key(table: pa.Table, partition_by: list[str]) -> list[tuple[Any, ...]]:
+    """Per-row partition key tuples; NaN is normalized so equal NaN keys match."""
+    if not partition_by:
+        return [()] * table.num_rows
+    columns = [table.column(c).to_pylist() for c in partition_by]
+    return [tuple("nan" if isinstance(v, float) and v != v else v for v in row) for row in zip(*columns)]
+
+
+def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: list[str]) -> pa.Table:
+    """Compute each spec on the original table, then join the results by partition key.
+
+    Groups come in the first spec's order; the output is the partition columns plus one column per spec.
+    """
+    for spec in specs:
+        if spec.agg_type not in _SUPPORTED_AGG_TYPES:
+            raise unsupported_agg_type_error(spec.agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
+
+    results = [_compute_single(table, spec, partition_by) for spec in specs]
+    first_keys = _group_key(results[0], partition_by)
+
+    arrays = [results[0].column(c) for c in partition_by]
+    for i, (spec, result) in enumerate(zip(specs, results)):
+        column = result.column(spec.feature_name)
+        if i > 0:
+            by_key = dict(zip(_group_key(result, partition_by), column.to_pylist()))
+            column = pa.array([by_key.get(key) for key in first_keys], type=column.type)
+        arrays.append(column)
+    return pa.table(arrays, names=[*partition_by, *(spec.feature_name for spec in specs)])
 
 
 def reference_aggregation(table: pa.Table, features: FeatureSet) -> pa.Table:

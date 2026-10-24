@@ -284,6 +284,18 @@ def assert_key_columns_present(
         assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column")
 
 
+def assert_single_grid(grids: dict[Any, list[str]], describe: Callable[[Any], str], operation: str) -> None:
+    """Raise ``ValueError`` naming the features and grids when ``grids`` (key to feature names) has more than one."""
+    if len(grids) <= 1:
+        return
+    lines = "; ".join(f"{names}: {describe(key)}" for key, names in grids.items())
+    raise ValueError(
+        f"Features in one FeatureSet must share one {operation}, but they differ: {lines}. "
+        "Request them in separate mloda.run_all calls, "
+        "or set the differing option via Options(group=...) so they compute separately."
+    )
+
+
 def key_column_features(
     options: Options,
     sources: Iterable[Feature],

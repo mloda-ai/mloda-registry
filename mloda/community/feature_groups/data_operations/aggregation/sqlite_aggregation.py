@@ -11,6 +11,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
+    AggregationSpec,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
@@ -45,25 +46,20 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
 
     @classmethod
     def _compute_group(
-        cls,
-        data: SqliteRelation,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
+        cls, data: SqliteRelation, specs: list[AggregationSpec], partition_by: list[str]
     ) -> SqliteRelation:
-        agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
-        if agg_func is None:
-            raise unsupported_agg_type_error(agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")
+        for spec in specs:
+            if spec.agg_type not in _SQLITE_AGG_FUNCS:
+                raise unsupported_agg_type_error(spec.agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")
 
-        quoted_source = quote_ident(source_col)
-        quoted_feature = quote_ident(feature_name)
         partition_cols = ", ".join(quote_ident(col) for col in partition_by)
 
-        source_sql = quoted_source
-        if mask_spec is not None:
-            source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, quoted_source)
+        agg_parts: list[str] = []
+        for spec in specs:
+            source_sql = quote_ident(spec.source_col)
+            if spec.mask_spec is not None:
+                source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, spec.mask_spec, source_sql)
+            agg_parts.append(f"{_SQLITE_AGG_FUNCS[spec.agg_type]}({source_sql}) AS {quote_ident(spec.feature_name)}")
 
         select_cols = f"{partition_cols}, " if partition_cols else ""
         group_by_clause = f" GROUP BY {partition_cols}" if partition_cols else ""
@@ -71,7 +67,7 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
         sql = (
             f"CREATE TEMP VIEW {quote_ident(new_name)} AS "  # nosec
             f"SELECT {select_cols}"
-            f"{agg_func}({source_sql}) AS {quoted_feature} "
+            f"{', '.join(agg_parts)} "
             f"FROM {quote_ident(data.table_name)}"
             f"{group_by_clause}"
         )
