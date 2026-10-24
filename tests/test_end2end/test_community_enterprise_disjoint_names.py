@@ -71,15 +71,19 @@ def _enterprise_examples() -> list[Example]:
 def _community_explicit_examples() -> list[Example]:
     ledger = "mloda-community-german-ledger"
     fixtures = Path(german_ledger_reader.__file__).parent / "tests" / "fixtures"
+
     # A reader claims only a name with a dossier behind it, so each example points at a real fixture dossier.
-    gdpdu = Options({GdpduReader.__name__: str(fixtures / "dossier_a")})
+    # Fresh per example: a reader's match writes a reserved key into the Options it is handed.
+    def _gdpdu() -> Options:
+        return Options({GdpduReader.__name__: str(fixtures / "dossier_a")})
+
     datev = Options({DatevExtfReader.__name__: str(fixtures / "datev_ledermann")})
     return [
-        Example(ledger, GdpduReader, JOURNAL, gdpdu),
+        Example(ledger, GdpduReader, JOURNAL, _gdpdu()),
         Example(ledger, DatevExtfReader, JOURNAL, datev),
-        Example(ledger, SkrAccountFeatureGroup, "revenue", Options()),
-        Example(ledger, SkrAccountFeatureGroup, "receivables", Options()),
-        Example(ledger, SourcesFeatureGroup, "revenue__sources", Options()),
+        Example(ledger, SkrAccountFeatureGroup, "revenue", _gdpdu()),
+        Example(ledger, SkrAccountFeatureGroup, "receivables", _gdpdu()),
+        Example(ledger, SourcesFeatureGroup, "revenue__sources", _gdpdu()),
         Example("mloda-community-example", CommunityExampleFeatureGroup, "CommunityExampleFeatureGroup", Options()),
         Example("mloda-community-example-a", ExampleAFeatureGroup, "ExampleAFeatureGroup", Options()),
     ]
