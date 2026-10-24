@@ -17,11 +17,17 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.percentile.manifest import (
+    FEATURE_GROUPS as _LOADED_FEATURE_GROUPS,  # noqa: F401  loads the installed implementations
+)
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import (
     MaskIntegrationTestMixin,
+)
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
 )
 
 
@@ -35,7 +41,9 @@ needs_pandas = pytest.mark.usefixtures("pd")
 
 
 @needs_pandas
-class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
+class TestPercentileIntegration(
+    OperationGroupIntegrationTestMixin, MaskIntegrationTestMixin, DataOpsIntegrationTestBase
+):
     @classmethod
     def feature_group_class(cls) -> type:
         return PercentileFeatureGroup
@@ -49,12 +57,11 @@ class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTest
         return PandasDataFrame
 
     @classmethod
-    def no_implementation_framework(cls) -> type | None:
-        return PyArrowTable
+    def several_frameworks(cls) -> list[type[Any]]:
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
-    @classmethod
-    def no_implementation_data_creator(cls) -> type:
-        return PyArrowDataOpsTestDataCreator
+        return [PandasDataFrame, PolarsLazyDataFrame]
 
     @classmethod
     def primary_feature_name(cls) -> str:
@@ -234,26 +241,6 @@ class TestIntegrationSeveralFrameworks:
     @staticmethod
     def _feature(name: str) -> Feature:
         return Feature(name, options=Options(context={"partition_by": ["region"]}))
-
-    def test_several_frameworks_enabled_runs_p50(self, pd: Any) -> None:
-        pytest.importorskip("polars")
-        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
-
-        name = "value_int__p50_percentile"
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PandasDataOpsTestDataCreator, PercentileFeatureGroup}
-        )
-
-        results = mloda.run_all(
-            [self._feature(name)],
-            compute_frameworks=[PandasDataFrame, PolarsLazyDataFrame],
-            plugin_collector=plugin_collector,
-        )
-
-        frames = [f for f in results if isinstance(f, pd.DataFrame) and name in f.columns]
-        assert len(frames) == 1
-        expected = [5.0, 5.0, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 15.0, 15.0, 15.0, -10.0]
-        assert frames[0][name].tolist() == pytest.approx(expected, rel=1e-3)
 
     def test_pyarrow_alone_is_a_resolution_error(self) -> None:
         """No percentile Implementation serves PyArrow, so the group is unresolvable there."""

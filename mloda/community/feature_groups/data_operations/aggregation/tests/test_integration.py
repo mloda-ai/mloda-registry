@@ -24,6 +24,9 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.aggregation.manifest import (
+    FEATURE_GROUPS as _LOADED_FEATURE_GROUPS,  # noqa: F401  (loads installed implementations)
+)
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowAggregation,
 )

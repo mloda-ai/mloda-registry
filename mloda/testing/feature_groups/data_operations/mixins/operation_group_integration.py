@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import Implementation, get_all_subclasses
 from mloda.user import FeatureResolutionError, PluginCollector, mloda
+
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, result_column_names
 
 
 class OperationGroupIntegrationTestMixin:
@@ -27,6 +28,14 @@ class OperationGroupIntegrationTestMixin:
             for impl in get_all_subclasses(Implementation)
             if getattr(impl, "feature_group", None) is group and getattr(impl, "compute_framework", None) is framework
         }
+
+    @classmethod
+    def several_frameworks(cls) -> list[type[Any]]:
+        """The frameworks enabled together in the several-frameworks run."""
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        return [cls.compute_framework_class(), PandasDataFrame]  # type: ignore[attr-defined]
 
     def test_framework_without_implementation_is_a_resolution_error(self) -> None:
         """With every Implementation of the group on the framework disabled, the framework cannot serve the feature."""
@@ -49,11 +58,8 @@ class OperationGroupIntegrationTestMixin:
 
     def test_several_frameworks_enabled_runs(self) -> None:
         """Enabling a second framework still plans one compute step for the group and returns the same values."""
-        pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
         group = self.feature_group_class()  # type: ignore[attr-defined]
-        frameworks = [self.compute_framework_class(), PandasDataFrame]  # type: ignore[attr-defined]
+        frameworks = self.several_frameworks()
         collector: PluginCollector = self._plugin_collector()  # type: ignore[attr-defined]
         feature = self._make_feature(  # type: ignore[attr-defined]
             self.primary_feature_name(),  # type: ignore[attr-defined]
@@ -68,9 +74,9 @@ class OperationGroupIntegrationTestMixin:
 
         results = mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=collector)
         name = self.primary_feature_name()  # type: ignore[attr-defined]
-        tables = [t for t in results if isinstance(t, pa.Table) and name in t.column_names]
+        tables = [t for t in results if name in result_column_names(t)]
         assert len(tables) == 1
         self._assert_values_equal(  # type: ignore[attr-defined]
-            tables[0].column(name).to_pylist(),
+            extract_column(tables[0], name),
             self.primary_expected_values(),  # type: ignore[attr-defined]
         )
