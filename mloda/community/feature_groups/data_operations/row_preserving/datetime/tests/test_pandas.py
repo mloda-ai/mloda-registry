@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pytest
 
-pytest.importorskip("pandas")
+pd = pytest.importorskip("pandas")
 
+from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DATETIME_OPS
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.pandas_datetime import (
     PandasDateTimeExtraction,
 )
@@ -30,3 +32,23 @@ class TestPandasDateTimeExtraction(PandasTestMixin, DateTimeTestBase):
 
 class TestPandasDateTimeExtractionNullableInt(PandasNullableIntTestMixin, TestPandasDateTimeExtraction):
     """Runs the datetime suite on nullable pandas int columns."""
+
+
+class TestPandasDateTimeOutputDtype:
+    """Pins the pandas-only output dtype: always nullable Int64, <NA> on null source rows."""
+
+    @pytest.mark.parametrize("op", sorted(DATETIME_OPS))
+    @pytest.mark.parametrize(
+        "values",
+        [
+            pytest.param([datetime(2023, 5, 1, 10), None], id="with_null"),
+            pytest.param([datetime(2023, 5, 1, 10), datetime(2023, 5, 6)], id="no_null"),
+        ],
+    )
+    def test_output_dtype_pinned(self, op: str, values: list[datetime | None]) -> None:
+        df = pd.DataFrame({"ts": values})
+        col = f"ts__{op}"
+        result = PandasDateTimeExtraction._compute_datetime(df, col, "ts", op)
+        assert str(result[col].dtype) == "Int64"
+        if values[1] is None:
+            assert result[col].iloc[1] is pd.NA

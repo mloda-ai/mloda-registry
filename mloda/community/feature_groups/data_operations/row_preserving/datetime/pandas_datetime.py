@@ -10,6 +10,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
     DateTimeFeatureGroup,
 )
 
+_ACCESSOR_OPS = ("year", "month", "day", "hour", "minute", "second", "dayofweek", "quarter")
+
 
 class PandasDateTimeExtraction(DateTimeFeatureGroup):
     @classmethod
@@ -27,27 +29,10 @@ class PandasDateTimeExtraction(DateTimeFeatureGroup):
         data = data.copy()
         col = pd.to_datetime(data[source_col])
 
-        if op == "year":
-            data[feature_name] = col.dt.year
-        elif op == "month":
-            data[feature_name] = col.dt.month
-        elif op == "day":
-            data[feature_name] = col.dt.day
-        elif op == "hour":
-            data[feature_name] = col.dt.hour
-        elif op == "minute":
-            data[feature_name] = col.dt.minute
-        elif op == "second":
-            data[feature_name] = col.dt.second
-        elif op == "dayofweek":
-            data[feature_name] = col.dt.dayofweek
-        elif op == "is_weekend":
-            mask = col.notna()
-            result = pd.array([pd.NA] * len(col), dtype="Int64")
-            result[mask] = (col[mask].dt.dayofweek >= 5).astype(int).values
-            data[feature_name] = result
-        elif op == "quarter":
-            data[feature_name] = col.dt.quarter
+        if op == "is_weekend":
+            data[feature_name] = (col.dt.dayofweek.astype("Int64") >= 5).astype("Int64")
+        elif op in _ACCESSOR_OPS:
+            data[feature_name] = getattr(col.dt, op).astype("Int64")
         else:
             raise ValueError(f"Unsupported datetime operation: {op}")
 
