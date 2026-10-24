@@ -389,11 +389,18 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
     )
 
 
+def _within(base: str, path: str) -> bool:
+    """Whether `path`, links followed, is `base` or lies under it. Never raises on link loops."""
+    root = os.path.normcase(os.path.realpath(base))
+    target = os.path.normcase(os.path.realpath(path))
+    return target == root or target.startswith(root.rstrip(os.sep) + os.sep)
+
+
 def _resolve_within(dossier_dir: str, url: str) -> str:
     """A descriptor is untrusted input: keep its URLs inside the dossier directory."""
     base = Path(dossier_dir).resolve()
     target = (base / url).resolve()
-    if base != target and base not in target.parents:
+    if not _within(str(base), str(target)):
         raise ValueError(f"descriptor URL {url!r} escapes the dossier directory")
     return str(target)
 

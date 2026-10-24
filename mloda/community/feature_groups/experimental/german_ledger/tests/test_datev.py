@@ -6,6 +6,7 @@ does not decide admissibility or concepts -- it produces one row per LEG, signed
 point of view of that leg's account, each carrying its own citation.
 """
 
+import os
 import re
 import shutil
 from datetime import date
@@ -414,6 +415,36 @@ def test_a_comma_delimited_resave_is_refused(tmp_path: Path) -> None:
     _batch(tmp_path, [_row("1,00", "S", "4400", "10000", "1503")], name="EXTF_good.csv")
     with pytest.raises(DatevRefusal, match="delimiter"):
         _load(str(tmp_path))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks need POSIX")
+def test_a_link_leaving_the_folder_is_refused_unclaimed_and_unfingerprinted(tmp_path: Path) -> None:
+    outside = _batch(
+        tmp_path / "outside",
+        [_row("1,00", "S", "4400", "10000", "1502")],
+        name="secret.csv",
+        von="20250201",
+        bis="20250228",
+    )
+    books = tmp_path / "books"
+    _batch(books, [_row("1,00", "S", "4400", "10000", "1501")], name="EXTF_a.csv", von="20250101", bis="20250131")
+    (books / "EXTF_link.csv").symlink_to(outside)
+    with pytest.raises(DatevRefusal, match="links outside") as err:
+        _load(books)
+    assert "EXTF_link.csv" in str(err.value)
+    assert str(outside) not in str(err.value)
+    assert DatevExtfReader.data_access_identity(source_match(books)) == "datev:books"
+
+    lonely = tmp_path / "lonely"
+    lonely.mkdir()
+    (lonely / "EXTF_link.csv").symlink_to(outside)
+    assert _claimant(lonely) is None
+
+    # A link that stays inside the folder still reads (its target is not a batch of its own).
+    inner = tmp_path / "inner"
+    _batch(inner / "sub", [_row("1,00", "S", "4400", "10000", "1503")], name="real.csv")
+    (inner / "EXTF_inside.csv").symlink_to(inner / "sub" / "real.csv")
+    assert _load(inner).num_rows > 0
 
 
 def test_a_moved_core_column_is_refused(tmp_path: Path) -> None:
