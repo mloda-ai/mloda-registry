@@ -85,7 +85,7 @@ class CapabilityHookTestMixin:
         ``supports_compute_framework`` must return ``False`` for operations the
         backend cannot compute, so the framework is dropped at match time
         instead of failing later inside ``calculate_feature``. Backends that
-        restrict no subtypes declare no unsupported probes and skip.
+        restrict no subtypes and do not override ``accepts`` skip.
         """
         unsupported = self.capability_unsupported()
         backend = self.implementation_class()  # type: ignore[attr-defined]
@@ -98,6 +98,11 @@ class CapabilityHookTestMixin:
                 f"{backend.__name__} declares a subtype restriction on its default axis via "
                 "supported_op_subtypes() (or supported) but ships no capability_unsupported probes; add them"
             )
+            # An accepts override is a restriction too and needs probes.
+            if issubclass(backend, Implementation):
+                assert backend.accepts.__func__ is Implementation.accepts.__func__, (  # type: ignore[attr-defined]
+                    f"{backend.__name__} overrides accepts but ships no capability_unsupported probes; add them"
+                )
             pytest.skip("backend restricts no subtypes")
 
         framework = self.compute_framework_class()  # type: ignore[attr-defined]

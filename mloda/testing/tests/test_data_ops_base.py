@@ -321,7 +321,9 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
     assert _RecordingImpl.seen == [{"partition_by": ["g"]}]
 
 
-def _make_impl(divergent: dict[str, str] | None = None) -> tuple[Any, Any]:
+def _make_impl(
+    divergent: dict[str, str] | None = None, accepts: Callable[[Any, str, Any], bool] | None = None
+) -> tuple[Any, Any]:
     """A throwaway (group, implementation) pair; use ``_with_probe_impl`` so it is unregistered again."""
     from mloda.provider import Implementation, OperationFeatureGroup
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -339,6 +341,8 @@ def _make_impl(divergent: dict[str, str] | None = None) -> tuple[Any, Any]:
 
     if divergent is not None:
         _ProbeImpl.divergent = divergent
+    if accepts is not None:
+        _ProbeImpl.accepts = classmethod(accepts)  # type: ignore[method-assign, assignment]
     return _ProbeGroup, _ProbeImpl
 
 
@@ -348,9 +352,13 @@ def _probe_impl_names() -> list[str]:
     return [c.__name__ for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
 
 
-def _with_probe_impl(check: Callable[[Any, Any], None], divergent: dict[str, str] | None = None) -> None:
+def _with_probe_impl(
+    check: Callable[[Any, Any], None],
+    divergent: dict[str, str] | None = None,
+    accepts: Callable[[Any, str, Any], bool] | None = None,
+) -> None:
     """Run ``check(group, impl)`` on a throwaway pair, then drop it and assert the probe is unregistered."""
-    group, impl = _make_impl(divergent)
+    group, impl = _make_impl(divergent, accepts)
     try:
         check(group, impl)
     finally:
@@ -498,3 +506,42 @@ class TestEnabledWithImplementations:
             for name in ("probe_manifest_pkg", "probe_manifest_pkg.manifest"):
                 sys.modules.pop(name, None)
             gc.collect()
+
+
+# -- CapabilityHookTestMixin guard ---------------------------------------------
+
+
+def _capability_host(impl: Any) -> Any:
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+    from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
+
+    class _CapabilityHost(CapabilityHookTestMixin):
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return impl
+
+        @classmethod
+        def compute_framework_class(cls) -> Any:
+            return PyArrowTable
+
+    return _CapabilityHost()
+
+
+def test_capability_hook_rejects_fails_for_an_accepts_override_without_probes() -> None:
+    def check(_: Any, impl: Any) -> None:
+        try:
+            with pytest.raises(AssertionError, match="accepts"):
+                _capability_host(impl).test_mixin_capability_hook_rejects()
+        except pytest.skip.Exception:
+            pytest.fail("guard skipped instead of asserting for an accepts() override without probes")
+
+    _with_probe_impl(check, accepts=lambda cls, feature_name, options: False)
+
+
+def test_capability_hook_rejects_skips_an_unrestricted_implementation_without_probes() -> None:
+    def check(_: Any, impl: Any) -> None:
+        with pytest.raises(pytest.skip.Exception):
+            _capability_host(impl).test_mixin_capability_hook_rejects()
+
+    _with_probe_impl(check)
