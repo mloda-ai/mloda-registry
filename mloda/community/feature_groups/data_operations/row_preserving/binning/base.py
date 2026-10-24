@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -148,6 +149,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_binning(
         cls,
         data: Any,
@@ -155,5 +157,4 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         source_col: str,
         op: str,
         n_bins: int,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

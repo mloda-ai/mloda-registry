@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -156,6 +157,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_datetime(
         cls,
         data: Any,
@@ -179,4 +181,3 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             - ``dayofweek`` must use 0=Monday, 6=Sunday convention.
             - Output must have the same row count as input.
         """
-        raise NotImplementedError

@@ -12,6 +12,7 @@ column and fills every row with that scalar result.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any, ClassVar
 
 from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
@@ -101,6 +102,7 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_aggregation(
         cls,
         data: Any,
@@ -108,5 +110,4 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
         source_col: str,
         agg_type: str,
         mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

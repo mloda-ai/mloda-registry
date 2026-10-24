@@ -35,6 +35,7 @@ datetime FG's ``datetime_op``.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -212,6 +213,7 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         )
 
     @classmethod
+    @abstractmethod
     def _assert_source_column_is_timestamp(cls, data: Any, source_col: str) -> None:
         """Reject non-timestamp source columns with a clear ``ValueError``.
 
@@ -219,7 +221,6 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         call ``cls._raise_non_timestamp_source(source_col, <native dtype>)``
         to keep the message format uniform.
         """
-        raise NotImplementedError
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -256,6 +257,7 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_bucket(
         cls,
         data: Any,
@@ -264,5 +266,4 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         op: str,
         n: int,
         unit: str,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

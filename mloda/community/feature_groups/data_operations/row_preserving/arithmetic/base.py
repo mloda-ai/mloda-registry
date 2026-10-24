@@ -18,6 +18,7 @@ PROPERTY_MAPPING). Per-backend numeric introspection lives in
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
@@ -74,6 +75,7 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         raise ValueError(f"Source column {source_col!r} must be numeric for {cls.OPERATION_LABEL}; got {got}.")
 
     @classmethod
+    @abstractmethod
     def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
         """Return a native dtype/affinity descriptor when ``source_col`` is NOT numeric.
 
@@ -81,7 +83,6 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         return a native dtype, affinity string, or any other descriptor when
         the column is not numeric, and ``None`` when it is numeric.
         """
-        raise NotImplementedError
 
     @classmethod
     def _assert_source_column_is_numeric(cls, data: Any, source_col: str) -> None:

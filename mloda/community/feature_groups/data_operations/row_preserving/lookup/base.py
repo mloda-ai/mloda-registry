@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 import re
+from abc import abstractmethod
 from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
@@ -351,6 +352,7 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_lookup(
         cls,
         data: Any,
@@ -359,5 +361,4 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         mapping: Mapping[Any, Any],
         policy: str,
         reasons: Mapping[Any, str],
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

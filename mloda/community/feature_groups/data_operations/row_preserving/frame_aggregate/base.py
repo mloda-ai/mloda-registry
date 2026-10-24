@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -522,6 +523,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_frame(
         cls,
         data: Any,
@@ -536,4 +538,3 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual frame computation."""
-        raise NotImplementedError

@@ -43,6 +43,7 @@ detector functions so the guardrail is proven to fire, not merely to pass.
 from __future__ import annotations
 
 import importlib
+import inspect
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -641,6 +642,19 @@ def test_every_family_is_covered() -> None:
         "These data-operation base.py modules define a PREFIX_PATTERN but are missing from "
         "FAMILIES (extend it so the collision lint covers them):\n  " + "\n  ".join(uncovered)
     )
+
+
+_ARITHMETIC_BASE = f"{_DO}.row_preserving.arithmetic.base"
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [*_real_classes().values(), getattr(importlib.import_module(_ARITHMETIC_BASE), "ArithmeticFeatureGroupBase")],
+    ids=lambda cls: cls.__name__,
+)
+def test_family_base_is_abstract(cls: Any) -> None:
+    """A family base declares abstract compute hooks, so core never selects it as an implementation."""
+    assert inspect.isabstract(cls), f"{cls.__name__} must keep an abstract compute hook"
 
 
 def test_every_family_module_is_discovered_on_disk() -> None:

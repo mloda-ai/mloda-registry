@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -256,6 +257,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_percentile(
         cls,
         data: Any,
@@ -266,4 +268,3 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual percentile computation."""
-        raise NotImplementedError

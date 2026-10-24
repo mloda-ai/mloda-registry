@@ -47,6 +47,7 @@ order_by presence guard is shared (``assert_key_columns_present``).
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -216,6 +217,7 @@ class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, Fe
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_session(
         cls,
         data: Any,
@@ -223,5 +225,4 @@ class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, Fe
         order_col: str,
         threshold_seconds: int,
         partition_by: list[str],
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

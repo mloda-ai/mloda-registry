@@ -32,6 +32,7 @@ PyArrow is the cross-framework reference. Subclasses implement ``_compute_ffill`
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -124,6 +125,7 @@ class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPa
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_ffill(
         cls,
         data: Any,
@@ -131,5 +133,4 @@ class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPa
         source_col: str,
         partition_by: list[str],
         order_by: str,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

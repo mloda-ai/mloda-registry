@@ -23,6 +23,7 @@ time with a clear error.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
@@ -126,6 +127,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_arithmetic(
         cls,
         data: Any,
@@ -133,5 +135,4 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         source_col: str,
         op: str,
         constant: int | float,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

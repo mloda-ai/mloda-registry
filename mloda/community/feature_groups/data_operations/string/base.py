@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -145,6 +146,7 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_string(
         cls,
         data: Any,
@@ -153,4 +155,3 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         op: str,
     ) -> Any:
         """Subclasses must implement the actual string computation."""
-        raise NotImplementedError

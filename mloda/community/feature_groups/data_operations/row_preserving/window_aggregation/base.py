@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, escalate_match_abort, property_spec
@@ -242,6 +243,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_window(
         cls,
         data: Any,
@@ -253,4 +255,3 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual window computation."""
-        raise NotImplementedError

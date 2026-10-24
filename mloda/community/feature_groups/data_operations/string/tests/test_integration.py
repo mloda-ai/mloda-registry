@@ -14,9 +14,12 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-from mloda.user import Feature, Options, PluginCollector, mloda
+import pytest
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
     PyArrowStringOps,
 )
@@ -294,3 +297,40 @@ class TestConfigBasedExecution:
                 found = True
 
         assert found, "lowered_name result not found in any result table"
+
+
+class _PolarsNameCreator(FeatureGroup):
+    """Local source serving a string column on eager Polars."""
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"name"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        pl = pytest.importorskip("polars")
+        return pl.DataFrame({"name": ["a", "b"]})
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
+        from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
+
+        return {PolarsDataFrame}
+
+
+class TestStringBaseNotSelectedOnUnsupportedFramework:
+    """The string base must not be selected on a framework without an implementation."""
+
+    def test_upper_on_eager_polars_fails_resolution(self) -> None:
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
+
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {_PolarsNameCreator, StringFeatureGroup, PyArrowStringOps}
+        )
+        with pytest.raises(FeatureResolutionError):
+            mloda.run_all(
+                [Feature("name__upper", options=Options())],
+                compute_frameworks=[PolarsDataFrame],
+                plugin_collector=plugin_collector,
+            )

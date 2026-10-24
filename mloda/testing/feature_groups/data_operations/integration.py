@@ -4,11 +4,12 @@ Provides concrete test methods that verify feature groups work end-to-end
 through mloda's pipeline (run_all, PluginCollector, pattern matching).
 
 Subclasses implement a few abstract methods to wire up their specific
-feature group, then inherit 7 concrete test methods for free:
+feature group, then inherit the concrete test methods for free:
 
-- 2 single-feature pipeline tests (primary + secondary)
-- 2 plugin discovery tests (discoverable + blocked when disabled)
-- 3 pattern matching tests (valid names, invalid names, missing config)
+- single-feature pipeline tests (primary + secondary)
+- plugin discovery tests (discoverable + blocked when disabled)
+- pattern matching tests (valid names, invalid names, missing config)
+- an abstract family base is never selected without an implementation
 
 Usage::
 
@@ -32,7 +33,8 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.provider import FeatureGroup
+from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls
@@ -42,7 +44,7 @@ class DataOpsIntegrationTestBase(ABC):
     """Abstract base class for data-ops integration tests through mloda pipeline.
 
     Subclasses must implement the abstract methods below. The base class
-    provides 7 concrete test methods that exercise the full mloda pipeline
+    provides concrete test methods that exercise the full mloda pipeline
     including run_all, PluginCollector, and pattern matching.
 
     For row-preserving operations (window_aggregation, scalar_aggregate, rank, offset),
@@ -236,6 +238,31 @@ class DataOpsIntegrationTestBase(ABC):
                 compute_frameworks=[self.compute_framework_class()],
                 plugin_collector=plugin_collector,
             )
+
+    def test_family_base_is_not_selected_without_an_implementation(self) -> None:
+        """With only the family base(s) and the source enabled, resolution fails as abstract-only."""
+        bases = [
+            base
+            for base in self.feature_group_class().__mro__[1:]
+            if isinstance(base, type)
+            and issubclass(base, FeatureGroup)
+            and base is not FeatureGroup
+            and base.__module__.startswith("mloda.community.feature_groups.data_operations")
+            and "PREFIX_PATTERN" in vars(base)
+        ]
+        if not bases:
+            pytest.skip("no data-operations family base among the ancestors")
+
+        plugin_collector = PluginCollector.enabled_feature_groups({self.data_creator_class(), *bases})
+        feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())
+
+        with pytest.raises(FeatureResolutionError) as excinfo:
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[self.compute_framework_class()],
+                plugin_collector=plugin_collector,
+            )
+        assert excinfo.value.result.failure_kind == "abstract_only"
 
     def test_match_feature_group_criteria_valid(self) -> None:
         """Verify match_feature_group_criteria accepts valid feature names."""

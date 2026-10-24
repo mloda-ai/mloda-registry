@@ -35,6 +35,7 @@ The category decides your naming pattern. See [overview](01-overview.md) for the
 File: `mloda/community/feature_groups/data_operations/{category}/{your_op}/base.py`.
 
 ```python
+from abc import abstractmethod
 from typing import Any
 from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
 from mloda.community.feature_groups.data_operations.base import assert_source_columns_present
@@ -60,8 +61,8 @@ class YourOpFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return table
 
     @classmethod
-    def _compute(cls, data: Any, feature_name: str, source_col: str, op: str) -> Any:
-        raise NotImplementedError
+    @abstractmethod
+    def _compute(cls, data: Any, feature_name: str, source_col: str, op: str) -> Any: ...
 ```
 
 The base class owns:
@@ -71,7 +72,7 @@ The base class owns:
 - Extraction of source column, operation, and any options from `Options(context=...)`.
 - The shared `assert_source_columns_present` presence guard, called once per feature before any per-backend dtype guard.
 - The shared `assert_key_columns_present` guard for `partition_by`, `order_by` (or `time_column`) and mask columns, called once per feature before the compute hook.
-- Delegation to a per-framework `_compute` hook.
+- Delegation to a per-framework, abstract `_compute` hook.
 
 Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base. Single-input ops use `_extract_single_source_feature`, multi-input ops `_extract_validated_source_features` (see `row_preserving/point_arithmetic/base.py`), so the MIN/MAX in_features and empty-operand checks live in the core helper, not a per-op override. Likewise, inherit `input_features`, `_extract_source_features` (a single-input op needs no override of it), and the match-time MIN/MAX check from the mixin instead of overriding them.
 

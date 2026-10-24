@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -306,6 +307,7 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_rank(
         cls,
         data: Any,
@@ -315,4 +317,3 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
         rank_type: str,
     ) -> Any:
         """Subclasses must implement the actual rank computation."""
-        raise NotImplementedError

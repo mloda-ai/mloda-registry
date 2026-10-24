@@ -40,6 +40,7 @@ source-column presence guard is shared (``assert_source_columns_present``).
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -144,6 +145,7 @@ class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPars
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_ema(
         cls,
         data: Any,
@@ -152,5 +154,4 @@ class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPars
         span: int,
         partition_by: list[str],
         order_by: str,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

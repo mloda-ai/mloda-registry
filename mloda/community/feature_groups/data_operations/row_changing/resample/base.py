@@ -37,6 +37,7 @@ PyArrow is the cross-framework reference. Subclasses implement ``_compute_resamp
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -238,6 +239,7 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Featur
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_resample(
         cls,
         data: Any,
@@ -248,5 +250,4 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Featur
         n: int,
         unit: str,
         agg: str,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...

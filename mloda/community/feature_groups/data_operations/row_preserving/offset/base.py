@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import (
@@ -255,6 +256,7 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_offset(
         cls,
         data: Any,
@@ -265,4 +267,3 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
         offset_type: str,
     ) -> Any:
         """Subclasses must implement the actual offset computation."""
-        raise NotImplementedError

@@ -182,7 +182,7 @@ class PandasOnlyGroup(FeatureGroup):
         return {PandasDataFrame}
 ```
 
-`None` (the default) allows any framework. Other data-operation families are not yet converted and still use one FeatureGroup subclass per framework.
+`None` (the default) allows any framework. Other data-operation families are not yet converted and still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
 
 ## Column-Wise Data Hooks
 

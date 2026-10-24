@@ -20,6 +20,7 @@ inf/nan) and returns NULL on SQLite.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import Any
 
 from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
@@ -111,6 +112,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         return table
 
     @classmethod
+    @abstractmethod
     def _compute_arithmetic(
         cls,
         data: Any,
@@ -118,5 +120,4 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         col_a: str,
         col_b: str,
         op: str,
-    ) -> Any:
-        raise NotImplementedError
+    ) -> Any: ...
