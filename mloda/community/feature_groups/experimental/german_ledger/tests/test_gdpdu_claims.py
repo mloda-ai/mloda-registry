@@ -94,19 +94,15 @@ def test_collision_gate() -> None:
 
 
 def test_plugin_loader_all() -> None:
-    """After PluginLoader.all() the revenue__sources total resolves; a bare `revenue` waits on mloda#1745."""
+    """PluginLoader.all() registers the four groups through the entry point; the total and `revenue` resolve."""
     facts = run_isolated("plugin_loader_all")
+    expected = ["DatevExtfReader", "GdpduReader", "SkrAccountFeatureGroup", "SourcesFeatureGroup"]
+    assert facts["registered"] == expected, facts
     assert facts["revenue"] == "45385.06", facts
     assert facts["part"] == "45385.06", facts
     columns = ["revenue~basis", "revenue~origins", "revenue~value"]
     assert facts["scoped"] == columns, facts
-    unscoped = facts["unscoped"]
-    if isinstance(unscoped, str) and unscoped.startswith("FeatureResolutionError: Multiple feature groups found"):
-        pytest.xfail(
-            "mloda-ai/mloda#1745: the stock read roots still claim an unscoped `revenue` after "
-            "PluginLoader.all(); scope it with feature_group="
-        )
-    assert unscoped == columns, facts
+    assert facts["unscoped"] == columns, facts
 
 
 def test_german_decimal() -> None:

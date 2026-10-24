@@ -3,8 +3,7 @@
 Reads GDPdU/GoBD dossiers and DATEV-Format EXTF booking batches, and answers concepts such as
 ``revenue__sources`` with a total AND the ledger lines behind it -- or refuses by name.
 
-Importing registers the feature groups; no entry point until mloda#1745, see
-docs/guides/01-use-existing-plugin.md (Packages Without an Entry Point).
+``PluginLoader.all()`` registers the feature groups through the entry point; importing the package registers them too.
 """
 
 from __future__ import annotations

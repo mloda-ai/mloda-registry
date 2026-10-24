@@ -292,6 +292,7 @@ description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batch
 keywords = ["gdpdu", "gobd", "datev", "accounting", "bookkeeping"]
 dependencies = ["{core_dependency}", "pyarrow>=14.0.1"]
 path = "mloda/community/feature_groups/experimental/german_ledger"
+entry_point_groups = ["mloda.feature_groups"]
 published = true
 py_typed = true
 

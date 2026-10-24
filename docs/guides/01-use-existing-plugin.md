@@ -101,9 +101,9 @@ You can also import plugin classes directly:
 from mloda.community.feature_groups.example import CommunityExampleFeatureGroup
 ```
 
-### Packages Without an Entry Point
+### Names Claimed by an Installed Package
 
-A package that declares no entry point registers its feature groups only when imported; `PluginLoader.all()` does not load it. The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package is one until [mloda#1745](https://github.com/mloda-ai/mloda/issues/1745): after `PluginLoader.all()` the stock read feature groups also claim its intermediate names (`revenue`, `gdpdu_journal`). Its totals (`revenue__sources`) still resolve, because the package scopes its own inputs. To request an intermediate name directly, scope it with `feature_group=` (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
+The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` makes its groups candidates in every process. `SkrAccountFeatureGroup` claims `revenue` and `receivables` by name and the readers claim `gdpdu_journal`, so your own feature or column of that name then needs `feature_group=` (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
 
 ```py
 from mloda.user import DataAccessCollection, Feature, PluginLoader, mloda

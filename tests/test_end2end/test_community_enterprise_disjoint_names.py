@@ -4,8 +4,10 @@ Examples are sampled under each side's own options; groups needing extra options
 from __future__ import annotations
 
 import importlib
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
 from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, Implementation, property_spec
@@ -19,6 +21,11 @@ from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_co
 )
 from mloda.community.feature_groups.example.community_example_feature_group import CommunityExampleFeatureGroup
 from mloda.community.feature_groups.example.example_a.example_a_feature_group import ExampleAFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger import reader as german_ledger_reader
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL, GdpduReader
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup
 from mloda.enterprise.feature_groups.anonymizer.anonymizer_feature_group import AnonymizerFeatureGroup
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from tests.test_end2end.test_entry_points import _plugin_packages
@@ -63,7 +70,17 @@ def _enterprise_examples() -> list[Example]:
 
 
 def _community_explicit_examples() -> list[Example]:
+    ledger = "mloda-community-german-ledger"
+    fixtures = Path(os.path.dirname(german_ledger_reader.__file__)) / "tests" / "fixtures"
+    # A reader claims only a name with a dossier behind it, so each example points at a real fixture dossier.
+    gdpdu = Options({GdpduReader.__name__: str(fixtures / "dossier_a")})
+    datev = Options({DatevExtfReader.__name__: str(fixtures / "datev_ledermann")})
     return [
+        Example(ledger, GdpduReader, JOURNAL, gdpdu),
+        Example(ledger, DatevExtfReader, JOURNAL, datev),
+        Example(ledger, SkrAccountFeatureGroup, "revenue", Options()),
+        Example(ledger, SkrAccountFeatureGroup, "receivables", Options()),
+        Example(ledger, SourcesFeatureGroup, "revenue__sources", Options()),
         Example("mloda-community-example", CommunityExampleFeatureGroup, "CommunityExampleFeatureGroup", Options()),
         Example("mloda-community-example-a", ExampleAFeatureGroup, "ExampleAFeatureGroup", Options()),
     ]
