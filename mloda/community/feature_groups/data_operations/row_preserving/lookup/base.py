@@ -31,7 +31,6 @@ from typing import Any, ClassVar
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     escalate_match_abort,
@@ -199,7 +198,7 @@ def build_unmatched_error(
     return LookupUnmatchedError(message, feature_name, unmatched_rows, len(keys), sample, sample_reasons)
 
 
-class LookupFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
+class LookupFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Row-preserving key lookup: one operation group, computed by one Implementation per compute framework.
 
     ## Reference Contract

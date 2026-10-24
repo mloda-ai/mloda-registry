@@ -9,7 +9,6 @@ from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     SubtypeDeclaration,
@@ -64,7 +63,7 @@ def _is_supported_offset_type(value: object) -> bool:
     return False
 
 
-class OffsetFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for offset operations that preserve row count.
 
     Offset operations access values at a fixed offset from the current row

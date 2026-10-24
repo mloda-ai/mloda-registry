@@ -38,7 +38,7 @@ class AggregationSpec(NamedTuple):
     mask_spec: list[tuple[str, str, Any]] | None
 
 
-class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
+class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup):
     """Base class for aggregation operations that reduce rows.
 
     Aggregation computes an aggregate over partitioned groups and

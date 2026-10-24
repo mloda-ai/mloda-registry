@@ -134,11 +134,11 @@ class TestOperationGroupShape:
         assert issubclass(RankFeatureGroup, OperationFeatureGroup)
         assert not inspect.isabstract(RankFeatureGroup)
 
-    def test_group_mro_puts_the_mixins_before_feature_group(self) -> None:
+    def test_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
         assert RankFeatureGroup.__mro__[1:5] == (
-            OperationFeatureGroup,
             KeyColumnInputsMixin,
             FeatureChainParserMixin,
+            OperationFeatureGroup,
             FeatureGroup,
         )
 

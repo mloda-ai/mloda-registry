@@ -9,7 +9,6 @@ from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     SubtypeDeclaration,
@@ -64,7 +63,7 @@ def _is_supported_rank_type(value: object) -> bool:
     return False
 
 
-class RankFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class RankFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a

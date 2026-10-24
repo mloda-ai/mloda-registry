@@ -9,7 +9,6 @@ from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     SubtypeDeclaration,
@@ -34,8 +33,7 @@ BINNING_OPS = {
 }
 
 
-# FeatureGroup is listed so the mixin stays ahead of it in the MRO.
-class BinningFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
+class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise binning operations that preserve row count.
 
     Supported operations: ``bin`` (equal-width) and ``qbin`` (quantile).

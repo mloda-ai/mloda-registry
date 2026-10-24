@@ -9,7 +9,6 @@ from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     property_spec,
@@ -48,7 +47,7 @@ def _is_unit_interval_element(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
 
 
-class PercentileFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for percentile operations that preserve row count.
 
     Computes a percentile over a partitioned group using PERCENTILE_CONT

@@ -46,7 +46,7 @@ AGGREGATION_TYPES = {
 }
 
 
-class WindowAggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
+class WindowAggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup):
     """Base class for window aggregation operations that preserve row count.
 
     Window aggregation computes an aggregate over a partitioned group and

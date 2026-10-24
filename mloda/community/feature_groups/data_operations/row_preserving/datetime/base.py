@@ -9,7 +9,6 @@ from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     SubtypeDeclaration,
@@ -37,8 +36,7 @@ DATETIME_OPS = {
 }
 
 
-# FeatureGroup is listed so the mixin stays ahead of it in the MRO.
-class DateTimeFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
+class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise datetime extraction operations.
 
     Extracts scalar integer components from datetime columns. The output

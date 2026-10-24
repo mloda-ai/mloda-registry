@@ -9,7 +9,6 @@ from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     SubtypeDeclaration,
@@ -33,8 +32,7 @@ STRING_OPS = {
 }
 
 
-# FeatureGroup is listed so the mixin stays ahead of it in the MRO.
-class StringFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
+class StringFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise string operations that preserve row count.
 
     String operations transform a single string column element by element.
