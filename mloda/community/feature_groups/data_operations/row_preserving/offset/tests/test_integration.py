@@ -11,27 +11,34 @@ from typing import Any
 
 import pytest
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-pd = pytest.importorskip("pandas")
-
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame  # noqa: E402
-
-from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (  # noqa: E402
+from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
-from mloda.testing.data_creator.base import column_selective  # noqa: E402
-from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator  # noqa: E402
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator  # noqa: E402
-from mloda.testing.feature_groups.data_operations.helpers import (  # noqa: E402
+from mloda.testing.data_creator.base import column_selective
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     extract_column,
     result_column_names,
 )
 
 
+@pytest.fixture
+def pd() -> Any:
+    """pandas, or a skip of the requesting test when it is not installed."""
+    return pytest.importorskip("pandas")
+
+
+needs_pandas = pytest.mark.usefixtures("pd")
+
+
 def _offset_column(name: str, creator: type = PandasDataOpsTestDataCreator, order_by: str = "value_int") -> list[Any]:
     """Run one offset feature on pandas through ``run_all`` and return its column."""
+    pytest.importorskip("pandas")
     plugin_collector = PluginCollector.enabled_feature_groups({creator, OffsetFeatureGroup})
     feature = Feature(name, options=Options(context={"partition_by": ["region"], "order_by": order_by}))
 
@@ -83,7 +90,7 @@ class TestIntegrationSeveralFrameworks:
     def _feature(name: str) -> Feature:
         return Feature(name, options=Options(context={"partition_by": ["region"], "order_by": "value_int"}))
 
-    def test_several_frameworks_enabled_runs_lag(self) -> None:
+    def test_several_frameworks_enabled_runs_lag(self, pd: Any) -> None:
         pytest.importorskip("polars")
         from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 

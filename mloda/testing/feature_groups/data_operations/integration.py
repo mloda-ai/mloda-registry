@@ -150,6 +150,11 @@ class DataOpsIntegrationTestBase(ABC):
         """A framework no Implementation of an operation group serves; None skips the operation-group check."""
         return None
 
+    @classmethod
+    def no_implementation_data_creator(cls) -> type:
+        """Data creator that can serve ``no_implementation_framework()``; defaults to ``data_creator_class()``."""
+        return cls.data_creator_class()
+
     # -- Helpers --------------------------------------------------------------
 
     def _make_feature(self, name: str, options_context: dict[str, Any]) -> Feature:
@@ -289,11 +294,12 @@ class DataOpsIntegrationTestBase(ABC):
         if framework is None:
             pytest.skip("no framework without an implementation declared for this operation group")
 
-        plugin_collector = PluginCollector.enabled_feature_groups({self.data_creator_class(), group})
+        plugin_collector = PluginCollector.enabled_feature_groups({self.no_implementation_data_creator(), group})
         feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())
 
-        with pytest.raises(FeatureResolutionError):
+        with pytest.raises(FeatureResolutionError) as excinfo:
             mloda.run_all([feature], compute_frameworks=[framework], plugin_collector=plugin_collector)
+        assert self.primary_feature_name() in str(excinfo.value)
 
     def test_match_feature_group_criteria_valid(self) -> None:
         """Verify match_feature_group_criteria accepts valid feature names."""

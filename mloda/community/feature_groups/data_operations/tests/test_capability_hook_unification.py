@@ -2,7 +2,8 @@
 
 The aggregation, rank, and frame-aggregate families previously hand-rolled their own
 ``supports_compute_framework`` plus a differently-shaped supported-types method. They were folded into one shared ``SubtypeCapabilityHook`` mixin (aggregation and rank have since moved
-to ``Implementation.supported``; frame-aggregate is still on the hook): a family declares its
+to ``Implementation.supported``, where core owns the check; frame_aggregate and the families built on
+``AggregationFeatureGroupBase``, window_aggregation and scalar_aggregate, are still on the hook): a family declares its
 supported subtypes once via ``supported_op_subtypes(secondary)`` and the mixin turns that
 single declaration into match-time rejection through ``supports_compute_framework``.
 
@@ -11,9 +12,6 @@ class structure: restricting the one declaration method rejects the unlisted sub
 accepts the listed one, the unrestricted default accepts everything, and frame-aggregate's
 optional secondary axis (frame_type) keys the restriction. Asserting on observable capability
 keeps them protecting the contract across future refactors of the class hierarchy.
-
-The aggregation and rank restrictions (``Implementation.supported``) are covered in
-``aggregation/tests/test_base.py`` and ``row_preserving/rank/tests/test_base.py``.
 
 ``SqliteFramework`` is a neutral driver: ``supports_compute_framework`` derives capability
 from the class's own ``supported_op_subtypes``, not from the framework argument.

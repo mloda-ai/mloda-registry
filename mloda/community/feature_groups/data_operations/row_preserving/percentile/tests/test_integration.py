@@ -11,23 +11,30 @@ from typing import Any
 
 import pytest
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-pd = pytest.importorskip("pandas")
-
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame  # noqa: E402
-
-from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (  # noqa: E402
+from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
 )
-from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator  # noqa: E402
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator  # noqa: E402
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase  # noqa: E402
-from mloda.testing.feature_groups.data_operations.mixins.mask_integration import (  # noqa: E402
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import (
     MaskIntegrationTestMixin,
 )
 
 
+@pytest.fixture
+def pd() -> Any:
+    """pandas, or a skip of the requesting test when it is not installed."""
+    return pytest.importorskip("pandas")
+
+
+needs_pandas = pytest.mark.usefixtures("pd")
+
+
+@needs_pandas
 class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
     def feature_group_class(cls) -> type:
@@ -44,6 +51,10 @@ class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTest
     @classmethod
     def no_implementation_framework(cls) -> type | None:
         return PyArrowTable
+
+    @classmethod
+    def no_implementation_data_creator(cls) -> type:
+        return PyArrowDataOpsTestDataCreator
 
     @classmethod
     def primary_feature_name(cls) -> str:
@@ -130,8 +141,9 @@ class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTest
         assert not isinstance(exc.value, FeatureResolutionError)
 
 
+@needs_pandas
 class TestIntegrationMultipleFeatures:
-    def test_p50_and_p75_together(self) -> None:
+    def test_p50_and_p75_together(self, pd: Any) -> None:
         """Request both p50 and p75 in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
             {PandasDataOpsTestDataCreator, PercentileFeatureGroup}
@@ -173,7 +185,7 @@ class TestIntegrationMultipleFeatures:
         assert p50_found, "p50_percentile result not found in any result table"
         assert p75_found, "p75_percentile result not found in any result table"
 
-    def test_different_percentiles(self) -> None:
+    def test_different_percentiles(self, pd: Any) -> None:
         """Request p25 and p100 in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
             {PandasDataOpsTestDataCreator, PercentileFeatureGroup}
@@ -223,7 +235,7 @@ class TestIntegrationSeveralFrameworks:
     def _feature(name: str) -> Feature:
         return Feature(name, options=Options(context={"partition_by": ["region"]}))
 
-    def test_several_frameworks_enabled_runs_p50(self) -> None:
+    def test_several_frameworks_enabled_runs_p50(self, pd: Any) -> None:
         pytest.importorskip("polars")
         from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 

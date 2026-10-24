@@ -145,9 +145,9 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
         PyArrow >= 25 (the reference), DuckDB and Polars rank NaN and None as two
         nulls-last tiers (NaN before None). An implementation that ties them into one
-        run declares ``rank`` in its ``divergent``.
+        run declares ``rank``, ``dense_rank`` or ``percent_rank`` in its ``divergent``.
         """
-        return "rank" not in cls.implementation_class().divergent
+        return not {"rank", "dense_rank", "percent_rank"} & set(cls.implementation_class().divergent)
 
     # -- Reference implementation override --------------------------------------------
 

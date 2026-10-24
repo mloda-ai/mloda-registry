@@ -11,22 +11,29 @@ from typing import Any
 
 import pytest
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-pd = pytest.importorskip("pandas")
-
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame  # noqa: E402
-
-from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (  # noqa: E402
+from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
-from mloda.testing.data_creator.base import column_selective  # noqa: E402
-from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator  # noqa: E402
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator  # noqa: E402
+from mloda.testing.data_creator.base import column_selective
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+
+
+@pytest.fixture
+def pd() -> Any:
+    """pandas, or a skip of the requesting test when it is not installed."""
+    return pytest.importorskip("pandas")
+
+
+needs_pandas = pytest.mark.usefixtures("pd")
 
 
 def _ranked_column(name: str, creator: type = PandasDataOpsTestDataCreator, order_by: str = "value_int") -> list[Any]:
     """Run one rank feature on pandas through ``run_all`` and return its column."""
+    pd = pytest.importorskip("pandas")
     plugin_collector = PluginCollector.enabled_feature_groups({creator, RankFeatureGroup})
     feature = Feature(name, options=Options(context={"partition_by": ["region"], "order_by": order_by}))
 
@@ -66,6 +73,7 @@ class TestIntegrationPluginDiscovery:
         plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, RankFeatureGroup})
         assert plugin_collector.applicable_feature_group_class(RankFeatureGroup)
 
+    @needs_pandas
     def test_disabled_feature_group_blocks_execution(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator})
 
@@ -105,6 +113,7 @@ class TestIntegrationGuardRejectionReported:
             pytest.param(["timestamp", "region"], r"option 'order_by' must be exactly one.*got list", id="arity"),
         ],
     )
+    @needs_pandas
     def test_guard_rejected_order_by_reported_at_discovery(self, order_by: object, match: str) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, RankFeatureGroup})
         options = Options(
@@ -142,7 +151,7 @@ class TestIntegrationSeveralFrameworks:
         assert len(steps) == 1
         return steps[0]
 
-    def test_several_frameworks_enabled_runs_row_number(self) -> None:
+    def test_several_frameworks_enabled_runs_row_number(self, pd: Any) -> None:
         pytest.importorskip("polars")
         from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
@@ -157,6 +166,7 @@ class TestIntegrationSeveralFrameworks:
         assert len(frames) == 1
         assert frames[0][name].tolist() == [3, 1, 2, 4, 4, 2, 1, 3, 1, 2, 3, 1]
 
+    @needs_pandas
     def test_divergent_pandas_rank_is_served_by_polars_lazy(self) -> None:
         """Pandas declares rank divergent (None and NaN tie), so data held in pandas is ranked by polars-lazy.
 
