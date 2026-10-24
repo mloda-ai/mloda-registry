@@ -22,7 +22,7 @@ from mloda.user import Feature, Options
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
 from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL, GdpduReader
 
-from .isolated import claimant, source_match
+from .isolated import claim, claimant, source_match
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
@@ -428,17 +428,26 @@ def test_a_link_leaving_the_folder_is_refused_unclaimed_and_unfingerprinted(tmp_
     )
     books = tmp_path / "books"
     _batch(books, [_row("1,00", "S", "4400", "10000", "1501")], name="EXTF_a.csv", von="20250101", bis="20250131")
-    (books / "EXTF_link.csv").symlink_to(outside)
+    # The target of the books link is no batch: peeking at its header would skip it and the load would succeed.
+    notes = tmp_path / "outside" / "notes.csv"
+    notes.write_bytes(b"a;b\r\n1;2\r\n")
+    (books / "EXTF_link.csv").symlink_to(notes)
     with pytest.raises(DatevRefusal, match="links outside") as err:
         _load(books)
     assert "EXTF_link.csv" in str(err.value)
+    assert "copy it into the folder" in str(err.value)
+    assert str(notes) not in str(err.value)
     assert str(outside) not in str(err.value)
     assert DatevExtfReader.data_access_identity(source_match(books)) == "datev:books"
 
     lonely = tmp_path / "lonely"
     lonely.mkdir()
     (lonely / "EXTF_link.csv").symlink_to(outside)
-    assert _claimant(lonely) is None
+    refused = claim([lonely], JOURNAL, {GdpduReader, DatevExtfReader})
+    assert refused.error
+    assert "EXTF_link.csv" in str(refused.error)
+    assert "links outside its folder" in str(refused.error)
+    assert str(outside) not in str(refused.error)
 
     # A link that stays inside the folder still reads (its target is not a batch of its own).
     inner = tmp_path / "inner"

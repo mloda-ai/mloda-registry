@@ -33,7 +33,6 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from mloda.core.abstract_plugins.components.input_data.source_feature_group import FOLDER_ESCAPE_MARK
 from mloda.provider import INPUT_DATA_STAGE, FeatureSet, SourceMatch, record_match_rejection
 
 from .reader import _ORIGIN_COLUMN, _ReaderJournal, _within
@@ -442,7 +441,7 @@ class DatevExtfReader(_ReaderJournal):
             return None
         if not any(_within(path, p) for p in files):
             name = os.path.basename(files[0])
-            record_match_rejection(cls.get_class_name(), f"{name} {FOLDER_ESCAPE_MARK}", stage=INPUT_DATA_STAGE)
+            record_match_rejection(cls.get_class_name(), f"{name} links outside its folder", stage=INPUT_DATA_STAGE)
             return None
         return path
 
@@ -481,7 +480,9 @@ class DatevExtfReader(_ReaderJournal):
             raise DatevRefusal(f"{folder}: no Buchungsstapel (EXTF/DTVF category 21) in this folder")
         for p in files:
             if not _within(folder, p):
-                raise DatevRefusal(f"{folder}: {os.path.basename(p)} links outside the folder; it is not read")
+                raise DatevRefusal(
+                    f"{folder}: {os.path.basename(p)} links outside the folder and is not read; copy it into the folder"
+                )
         batches = sorted((read_batch(p) + (os.path.basename(p),) for p in files), key=lambda b: (b[0].datum_von, b[2]))
 
         # One dossier is one client's books. Two clients summed into one total is not a
