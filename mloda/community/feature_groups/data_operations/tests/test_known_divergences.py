@@ -178,7 +178,8 @@ def _assert_leaf_is_live(cls: type, method_name: str, ref: str) -> None:
     Closes the hole where an inherited shared test guards nothing because the
     concrete class declared no per-class config. Limitation: methods taking
     fixtures/params (signature not exactly ``(self)``) cannot run outside pytest,
-    so they fall back to the existence check only.
+    so they fall back to the existence check only. Runs the instance's
+    ``setup_method``/``teardown_method`` around the call, as pytest's xunit hooks would.
     """
     if method_name in cls.__dict__:
         return

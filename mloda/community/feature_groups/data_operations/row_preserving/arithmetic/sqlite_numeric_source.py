@@ -20,8 +20,10 @@ def sqlite_non_numeric_descriptor(data: Any, source_col: str) -> str | None:
     Caveat: ``SqliteRelation.from_arrow`` maps arrow booleans to SQLite
     ``INTEGER`` affinity (see ``mloda_plugins`` ``_arrow_type_to_sqlite``), so a
     boolean source column is indistinguishable from ``int64`` at the relation
-    level. The shared boolean-source tests are correspondingly skipped for
-    SQLite via the ``detects_non_numeric_source`` test-class override.
+    level. The shared boolean-source tests are therefore skipped for SQLite
+    (``detects_non_numeric_source`` override); the 0/1 result is instead pinned by
+    ``test_boolean_source_column_computed_when_undetected`` and documented in
+    ``docs/guides/data-operation-patterns/known-divergences.md``.
     """
     rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
     affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
