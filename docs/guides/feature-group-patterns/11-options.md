@@ -115,9 +115,18 @@ A `PREFIX_PATTERN` capture is text. `name_converter` turns it into the typed val
 ```python
 from typing import Any, ClassVar
 
-from mloda.user import mloda
-from mloda.provider import DataCreator, DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, FeatureSet, property_spec
-from mloda.user import PluginCollector
+from mloda.provider import (
+    DataCreator,
+    DefaultOptionKeys,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    is_positive_int,
+    property_spec,
+)
+from mloda.user import PluginCollector, PluginLoader, mloda
+
+PluginLoader.all()
 
 
 class Guide11Prices(FeatureGroup):
@@ -138,7 +147,7 @@ class Guide11Shift(FeatureChainParserMixin, FeatureGroup):
         "periods": property_spec(
             "Rows to shift by",
             strict=True,
-            element_validator=lambda value: isinstance(value, int) and value > 0,
+            element_validator=is_positive_int,
             name_converter=int,
         ),
         DefaultOptionKeys.in_features: property_spec("Source feature"),
@@ -146,10 +155,12 @@ class Guide11Shift(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        feature = features.get_sorted_features()[0]
-        periods = feature.options.get("periods")  # an int, converted from the captured text
-        source = cls._extract_source_features(feature)[0]
-        return {feature.name: data[source].shift(periods).tolist()}
+        result = {}
+        for feature in features.get_sorted_features():
+            periods = feature.options.get("periods")  # an int, converted from the captured text
+            source = cls._extract_source_features(feature)[0]
+            result[feature.name] = data[source].shift(periods).tolist()
+        return result
 
 
 result = mloda.run_all(

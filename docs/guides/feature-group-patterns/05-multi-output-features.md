@@ -29,9 +29,11 @@ from mloda.provider import FeatureSet
 class StatsFeature(FeatureGroup):
     """Compute stats: source__stats -> source__stats~mean, source__stats~std."""
 
+    OUTPUT_PARTS = ("mean", "std")
+
     @classmethod
-    def match_feature_group_criteria(cls, feature_name: str, options: Any) -> bool:
-        return feature_name.endswith("__stats")
+    def match_feature_group_criteria(cls, feature_name: Any, options: Any, data_access_collection: Any = None) -> bool:
+        return str(feature_name).endswith("__stats")
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         source = str(feature_name).replace("__stats", "")
@@ -43,8 +45,8 @@ class StatsFeature(FeatureGroup):
         source = feature_name.replace("__stats", "")
         col = data[source]
         return {
-            f"{feature_name}~mean": col.mean(),
-            f"{feature_name}~std": col.std(),
+            f"{feature_name}~mean": [col.mean()] * len(col),
+            f"{feature_name}~std": [col.std()] * len(col),
         }
 ```
 
@@ -88,9 +90,9 @@ assert set(result) == {"emb~0", "emb~1"}
 
 | File | Description |
 |------|-------------|
-| [sklearn/encoding/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
-| [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output, overrides `output_parts()` from the name |
-| [forecasting/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/forecasting/base.py) | Forecast output, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
+| [sklearn/encoding/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
+| [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output, overrides `output_parts()` from the name |
+| [forecasting/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/forecasting/base.py) | Forecast output, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
 
 ## Consuming Sub-Columns
 
@@ -140,9 +142,10 @@ Prefer specific sub-column dependencies - they make dependencies explicit and re
 Declare the `~part` names with `OUTPUT_PARTS`. Core then computes the base feature once and returns only the requested part columns.
 
 ```python
-from mloda.user import mloda
+from mloda.user import PluginCollector, PluginLoader, mloda
 from mloda.provider import DataCreator, FeatureGroup, FeatureSet
-from mloda.user import PluginCollector
+
+PluginLoader.all()
 
 
 class Guide05Measure(FeatureGroup):
@@ -171,8 +174,11 @@ assert list(result[0].columns) == ["guide05_measure~value"]
 When the part names are only known at run time, declare `OUTPUT_PARTS = (ANY_OUTPUT_PART,)`:
 
 ```python
+from typing import Any
+
 import pandas as pd
 from mloda.provider import ANY_OUTPUT_PART
+from mloda.user import Feature, FeatureName, Options
 
 
 class Guide05Labels(FeatureGroup):
@@ -223,7 +229,7 @@ To derive the parts from the feature name or options, override the classmethod `
 - With `ANY_OUTPUT_PART`, a requested part that was not produced fails after the computation
 - A nested `f~0~lower` is declared by its first level
 - A trailing `~N` is read against the declared parts too: `measure~0` fails unless `0` is declared
-- `match_feature_group_criteria()` sees only the base name
+- `match_feature_group_criteria()` is asked with the full name first, then the base name; `input_features()` and `calculate_feature()` see the base name
 - Artifacts are keyed by the base name
 
 See [Declaring Output Parts](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/multiple_result_columns.md#declaring-output-parts) in the core docs.
@@ -242,7 +248,7 @@ Without `OUTPUT_PARTS`, every requested part reaches `calculate_feature()` as it
 | `feature_names_supported()` doesn't list the base name | `FeatureGroup.set_feature_name()` rewrites `base~N` back to `base` when `base` is in `feature_names_supported()`, collapsing the parts into one Feature before `calculate_feature()` runs. |
 | The parts share options, compute framework and data type | These form the grouping hash that batches features into one `FeatureSet`; the name itself is not part of it. |
 
-The group must write only the requested part's column in each, so it recomputes per part.
+The group must write only the requested part's column in each, so it recomputes per part unless it caches per base.
 
 `FeatureGroup.get_column_base_feature()` strips only a trailing numeric `~N`; named parts are declared instead.
 

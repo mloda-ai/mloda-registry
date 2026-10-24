@@ -362,30 +362,40 @@ def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
                 sibling_test()
 
 
-class PriceSource(FeatureGroup):
-    """Pandas-only source of a ``price`` column with a NaN, for the operation group examples."""
+@lru_cache(maxsize=1)
+def _price_source() -> type[FeatureGroup]:
+    """Pandas-only source of a ``price`` column with a NaN, built on first use so nothing registers at import."""
 
-    @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({"price"})
+    class PriceSource(FeatureGroup):
+        @classmethod
+        def input_data(cls) -> DataCreator:
+            return DataCreator({"price"})
 
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return {"price": [1.0, float("nan"), 3.0]}
+        @classmethod
+        def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+            return {"price": [1.0, float("nan"), 3.0]}
 
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
-        return {PandasDataFrame}
+        @classmethod
+        def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+            return {PandasDataFrame}
+
+    return PriceSource
+
+
+def _column_total_request(feature: str | Feature) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The guide 09 namespace and the shared ``explain``/``run_all`` keyword arguments for *feature*."""
+    namespace = _load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE)
+    assert "ColumnTotal" in namespace, "the Operation Groups block no longer defines ColumnTotal"
+    kwargs: dict[str, Any] = {
+        "compute_frameworks": [PandasDataFrame, PyArrowTable],
+        "plugin_collector": PluginCollector.enabled_feature_groups({_price_source(), namespace["ColumnTotal"]}),
+    }
+    return namespace, kwargs
 
 
 def _column_total_step(feature: str | Feature) -> tuple[dict[str, Any], Any]:
-    namespace = _load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE)
-    assert "ColumnTotal" in namespace, "the Operation Groups block no longer defines ColumnTotal"
-    steps = real_mloda.explain(
-        [feature],
-        compute_frameworks=[PandasDataFrame, PyArrowTable],
-        plugin_collector=PluginCollector.enabled_feature_groups({PriceSource, namespace["ColumnTotal"]}),
-    )
+    namespace, kwargs = _column_total_request(feature)
+    steps = real_mloda.explain([feature], **kwargs)
     matching = [s for s in steps if s.feature_group is namespace["ColumnTotal"] and s.implementation is not None]
     assert len(matching) == 1, f"expected exactly one ColumnTotal compute step with an implementation: {steps!r}"
     return namespace, matching[0]
@@ -412,6 +422,32 @@ def test_operation_group_guide_pin_selects_the_divergent_version() -> None:
     assert step.implementation is namespace["PandasColumnTotal"], step.implementation
     assert "pinned" in reason, reason
     assert "runs a version that differs: skips NaN in sum" in reason, reason
+
+
+def _column_total_values(feature: str | Feature, column: str) -> list[Any]:
+    """Run *feature* for real and return *column* of the (pandas or pyarrow) result as a python list."""
+    _, kwargs = _column_total_request(feature)
+    results = real_mloda.run_all([feature], **kwargs)
+    assert len(results) == 1, f"expected one result frame, got {len(results)}"
+    return list(results[0][column].to_pylist() if hasattr(results[0][column], "to_pylist") else results[0][column])
+
+
+def _is_missing(value: Any) -> bool:
+    return value is None or value != value  # noqa: PLR0124
+
+
+def test_operation_group_unpinned_sum_propagates_the_missing_value() -> None:
+    values = _column_total_values("price__sum_total", "price__sum_total")
+    assert len(values) == 3 and all(_is_missing(v) for v in values), values
+
+
+def test_operation_group_guide_pin_sums_skipping_the_missing_value() -> None:
+    feature = _operation_groups_usage_feature()
+    assert _column_total_values(feature, "price__sum_total") == [4.0, 4.0, 4.0]
+
+
+def test_operation_group_unpinned_max_skips_the_missing_value() -> None:
+    assert _column_total_values("price__max_total", "price__max_total") == [3.0, 3.0, 3.0]
 
 
 def test_operation_group_unknown_pin_raises() -> None:

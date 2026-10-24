@@ -115,17 +115,15 @@ Test that each result differs from the reference exactly where `divergent` decla
 
 ```python
 import math
+from typing import Any
 
-import pandas as pd
-import pyarrow as pa
+from mloda.provider import DataCreator, FeatureGroup, FeatureSet
+from mloda.user import Feature, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 import pytest
 
 VALUES = [1.0, math.nan, 3.0]
-
-RESULT_OF = {
-    PandasColumnTotal: lambda op: PandasColumnTotal._perform(pd.DataFrame({"x": VALUES}), op, "x"),
-    PyArrowColumnTotal: lambda op: PyArrowColumnTotal._perform(pa.table({"x": VALUES}), op, "x"),
-}
 
 EXPECTED = {
     PandasColumnTotal: {"sum": "skips NaN in sum"},
@@ -133,26 +131,54 @@ EXPECTED = {
 }
 
 
-def reference(op, values):
-    """The documented reference contract: NaN propagates in sum, max skips NaN."""
+class Guide10Prices(FeatureGroup):
+    """Pandas-only source with a missing value."""
+
+    @classmethod
+    def input_data(cls) -> DataCreator:
+        return DataCreator({"guide10_price"})
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"guide10_price": VALUES}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[Any]]:
+        return {PandasDataFrame}
+
+
+def is_missing(value: Any) -> bool:
+    return value is None or value != value
+
+
+def reference(op: str, values: list[float]) -> float | None:
+    """The documented reference contract: a missing value propagates in sum, max skips missing values."""
+    present = [v for v in values if not is_missing(v)]
     if op == "sum":
-        return math.nan if any(math.isnan(v) for v in values) else sum(values)
-    return max(v for v in values if not math.isnan(v))
+        return None if len(present) < len(values) else sum(present)
+    return max(present)
 
 
-def same(a, b):
-    return (math.isnan(a) and math.isnan(b)) or a == b
+def same(a: Any, b: Any) -> bool:
+    return (is_missing(a) and is_missing(b)) or a == b
 
 
 @pytest.mark.parametrize("implementation", [PandasColumnTotal, PyArrowColumnTotal])
 @pytest.mark.parametrize("op", ["sum", "max"])
 def test_result_differs_from_the_reference_exactly_when_declared(implementation, op):
     assert dict(implementation.divergent) == EXPECTED[implementation]
-    differs = not same(RESULT_OF[implementation](op), reference(op, VALUES))
+    name = f"guide10_price__{op}_total"
+    result = mloda.run_all(
+        [Feature(name, implementation=implementation)],
+        compute_frameworks=[PandasDataFrame, PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups({Guide10Prices, ColumnTotal}),
+    )[0][name]
+    value = list(result.to_pylist() if hasattr(result, "to_pylist") else result)[0]
+    differs = not same(value, reference(op, VALUES))
     assert differs == (op in implementation.divergent)
 ```
 
-Pin the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
+Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
 
 ## Locking a Shipped Plan
 
