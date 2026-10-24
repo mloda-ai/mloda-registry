@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import inspect
 import os
 import re
 import xml.etree.ElementTree as ET  # nosec B405
@@ -25,6 +26,7 @@ from mloda.provider import (
     NamePolicy,
     SourceFeatureGroup,
     SourceMatch,
+    get_all_subclasses,
     record_match_rejection,
 )
 from mloda.user import DataAccessCollection, Options
@@ -635,6 +637,16 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
     @classmethod
     def load_neutral(cls, match: SourceMatch, features: Any) -> Any:
         return _prefixed(cls.load_data(match.access, features), JOURNAL)
+
+
+def ledger_source_in(options: Options, data_access_collection: DataAccessCollection | None) -> bool:
+    """True when a loaded dossier reader finds a ledger source in the options or the collection."""
+    return any(
+        reader.find_sources(route, JOURNAL, options, data_access_collection)
+        for reader in get_all_subclasses(_ReaderJournal)
+        if not inspect.isabstract(reader)
+        for route in reader.CLAIM_ROUTES
+    )
 
 
 class GdpduReader(_ReaderJournal):

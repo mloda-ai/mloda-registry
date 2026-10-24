@@ -103,7 +103,7 @@ from mloda.community.feature_groups.example import CommunityExampleFeatureGroup
 
 ### Names Claimed by an Installed Package
 
-The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` answers `revenue` and `receivables` by name alone, and `SourcesFeatureGroup` answers any `<name>__sources`. A request needs `feature_group=` only when another group also answers the name (e.g. a file column called `revenue`); the example scopes the ledger's own group (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
+The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` answers `revenue` and `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, only when a ledger source (a GDPdU dossier or DATEV batch) is in the data access collection or a reader option points at one, so a plain CSV `revenue` column resolves as usual. A request needs `feature_group=` only when the same collection also holds another source that answers the name; the example scopes the ledger's own group (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
 
 ```py
 from mloda.user import DataAccessCollection, Feature, PluginLoader, mloda

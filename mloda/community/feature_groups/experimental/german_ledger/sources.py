@@ -8,11 +8,11 @@ from typing import Any
 
 import pyarrow as pa
 from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, HookContext, get_all_subclasses
-from mloda.user import Feature, Options
+from mloda.user import DataAccessCollection, Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from .reader import InadmissibleTotal as InadmissibleTotal
-from .reader import _ReaderJournal, refuse_unadmitted
+from .reader import _ReaderJournal, ledger_source_in, refuse_unadmitted
 from .skr import PARTS, SkrAccountFeatureGroup
 
 
@@ -43,6 +43,18 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     OUTPUT_PARTS = PARTS
     PREFIX_PATTERN = r".*__sources$"
     RECOGNITION_ONLY_PATTERN = True
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: Any,
+        options: Options,
+        data_access_collection: DataAccessCollection | None = None,
+    ) -> bool:
+        """Answer only when a ledger source is in reach, so a user's own `<name>__sources` is not claimed."""
+        if not ledger_source_in(options, data_access_collection):
+            return False
+        return super().match_feature_group_criteria(feature_name, options, data_access_collection)
 
     @classmethod
     def compute_framework_rule(cls) -> Any:

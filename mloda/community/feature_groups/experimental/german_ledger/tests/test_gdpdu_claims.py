@@ -75,8 +75,21 @@ FIX = HERE / "fixtures"
 
 def test_collision_gate() -> None:
     """With a reader that claims every name, the journal's name gate is what keeps it off revenue__sources."""
-    assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue", Options()) is True
-    assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue__sources", Options()) is False
+    dossier = str(FIX / "dossier_a")
+    with_source = DataAccessCollection(folders={dossier})
+    no_ledger = DataAccessCollection(folders={str(FIX)})
+    pointer = Options({"GdpduReader": dossier})
+    skr, sources = SkrAccountFeatureGroup, SourcesFeatureGroup
+    # Without a ledger source in reach, neither group claims a name the user's own data may hold.
+    assert skr.match_feature_group_criteria("revenue", Options()) is False
+    assert skr.match_feature_group_criteria("revenue", Options(), no_ledger) is False
+    assert skr.match_feature_group_criteria("revenue", Options(), with_source) is True
+    assert skr.match_feature_group_criteria("revenue", pointer) is True
+    assert skr.match_feature_group_criteria("revenue__sources", Options()) is False
+    assert sources.match_feature_group_criteria("revenue__sources", Options()) is False
+    assert sources.match_feature_group_criteria("revenue__sources", Options(), no_ledger) is False
+    assert sources.match_feature_group_criteria("revenue__sources", Options(), with_source) is True
+    assert sources.match_feature_group_criteria("revenue__sources", pointer) is True
 
     # The stock reader declines this on its own; the collision scenario below is what pins the gate.
     def claimed(name: str) -> Any:
@@ -103,6 +116,11 @@ def test_plugin_loader_all() -> None:
     columns = ["revenue~basis", "revenue~origins", "revenue~value"]
     assert facts["scoped"] == columns, facts
     assert facts["unscoped"] == columns, facts
+    assert facts["csv_revenue"] == [100, 250], facts
+    csv_sources = facts["csv_sources"]
+    assert isinstance(csv_sources, str), facts
+    assert not csv_sources.startswith("FeatureResolutionError: Multiple feature groups found"), facts
+    assert "SourcesFeatureGroup" not in csv_sources, facts
 
 
 def test_german_decimal() -> None:

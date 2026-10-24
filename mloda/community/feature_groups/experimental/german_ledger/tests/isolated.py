@@ -157,7 +157,18 @@ def plugin_loader_all() -> dict[str, Any]:
     def direct(feature: Feature | str) -> list[str]:
         return sorted(_run(dossier, [feature]))
 
+    # A folder with no ledger source: the user's own `revenue` column must not collide with a ledger group.
+    plain = Path(tempfile.mkdtemp())
+    try:
+        (plain / "sales.csv").write_text("revenue,cost\n100,40\n250,90\n")
+        csv_revenue = outcome(lambda: _run(plain, ["revenue"])["revenue"])
+        csv_sources = outcome(lambda: sorted(_run(plain, ["revenue__sources"])))
+    finally:
+        shutil.rmtree(plain, ignore_errors=True)
+
     return {
+        "csv_revenue": csv_revenue,
+        "csv_sources": csv_sources,
         "registered": registered,
         "revenue": outcome(lambda: _revenue(dossier)),
         "part": outcome(lambda: str(_run(dossier, ["revenue__sources~value"])["revenue__sources~value"][0])),
