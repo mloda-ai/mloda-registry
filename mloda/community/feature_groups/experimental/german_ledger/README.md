@@ -51,9 +51,10 @@ Three rules keep it predictable:
 1. **Install it.** `PluginLoader.all()` discovers the package through its entry point, and
    importing it also registers its groups. `SkrAccountFeatureGroup` then answers `revenue` and
    `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, only when a ledger source (a
-   GDPdU dossier or DATEV batch) is in the data access collection or a reader option points at
-   one, so a plain CSV `revenue` column resolves as usual. Scope a request with `feature_group=`
-   only when the same collection also holds another source that answers the name, see
+   GDPdU dossier or DATEV batch folder) is in the data access collection or a reader option
+   points at one, so a plain CSV `revenue` column resolves as usual. Scope a request with
+   `feature_group=` only when the same collection also holds another source that answers the
+   name, see
    [Names Claimed by an Installed Package](../../../../../docs/guides/01-use-existing-plugin.md#names-claimed-by-an-installed-package).
    A collection holding both formats (GDPdU and DATEV), or several dossiers of one format, must
    point at one source with a reader option key, e.g. `options={"GdpduReader": <folder>}`;

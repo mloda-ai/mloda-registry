@@ -26,6 +26,7 @@ from mloda.provider import (
     NamePolicy,
     SourceFeatureGroup,
     SourceMatch,
+    collect_match_rejections,
     get_all_subclasses,
     record_match_rejection,
 )
@@ -639,14 +640,33 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         return _prefixed(cls.load_data(match.access, features), JOURNAL)
 
 
+def _stands_down(reader: type[_ReaderJournal], options: Options) -> bool:
+    """Options point at another reader and not at this one."""
+    return reader.foreign_pointer(options) is not None and not any(k in options for k in reader.pointer_keys())
+
+
 def ledger_source_in(options: Options, data_access_collection: DataAccessCollection | None) -> bool:
-    """True when a loaded dossier reader finds a ledger source in the options or the collection."""
-    return any(
-        reader.find_sources(route, JOURNAL, options, data_access_collection)
-        for reader in get_all_subclasses(_ReaderJournal)
-        if not inspect.isabstract(reader)
-        for route in reader.CLAIM_ROUTES
+    """True when a loaded dossier reader finds a ledger source in the options or the collection.
+
+    Any loaded reader counts, whether or not the run's PluginCollector enables it.
+    """
+    with collect_match_rejections():
+        return any(
+            reader.find_sources(route, JOURNAL, options, data_access_collection)
+            for reader in get_all_subclasses(_ReaderJournal)
+            if not inspect.isabstract(reader) and not _stands_down(reader, options)
+            for route in reader.CLAIM_ROUTES
+        )
+
+
+def decline_without_ledger_source(owner: str) -> bool:
+    """Record why `owner` declines a name it would otherwise claim; always False."""
+    record_match_rejection(
+        owner,
+        "no GDPdU dossier or DATEV batch folder in the data access collection or a reader option",
+        stage=INPUT_DATA_STAGE,
     )
+    return False
 
 
 class GdpduReader(_ReaderJournal):
