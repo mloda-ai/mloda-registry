@@ -538,22 +538,24 @@ class AggregationTestBase(
     def _assert_multi_matches_reference(
         self, specs: list[tuple[str, dict[str, Any]]], use_approx: bool = False
     ) -> None:
-        """Run all specs in one FeatureSet; each column must equal its single-feature reference run."""
+        """Run all specs in one FeatureSet; each column must equal its single-feature and its multi-feature reference run."""
         result = calculate_with(self.implementation_class(), self.test_data, make_multi_feature_set(specs))
         partition_by = list(specs[0][1]["partition_by"])
         names = [name for name, _ in specs]
         assert set(result_column_names(result)) == {*partition_by, *names}, (
             f"expected columns {sorted({*partition_by, *names})}, got {result_column_names(result)}"
         )
+        full_ref = self.reference_calculate(self._arrow_table, make_multi_feature_set(specs))
         for name, context in specs:
-            ref = self.reference_calculate(self._arrow_table, make_multi_feature_set([(name, context)]))
-            assert self.get_row_count(result) == ref.num_rows, f"{name}: row count differs from reference"
-            if not partition_by:
-                assert_values_with_nulls(
-                    self.extract_column(result, name), extract_column(ref, name), approx=use_approx
-                )
-            else:
-                self._assert_groups_match_reference(result, ref, name, partition_by[0], use_approx)
+            single_ref = self.reference_calculate(self._arrow_table, make_multi_feature_set([(name, context)]))
+            for ref in (single_ref, full_ref):
+                assert self.get_row_count(result) == ref.num_rows, f"{name}: row count differs from reference"
+                if not partition_by:
+                    assert_values_with_nulls(
+                        self.extract_column(result, name), extract_column(ref, name), approx=use_approx
+                    )
+                else:
+                    self._assert_groups_match_reference(result, ref, name, partition_by[0], use_approx)
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     @pytest.mark.parametrize(
@@ -601,6 +603,33 @@ class AggregationTestBase(
             ]
         )
 
+    @pytest.mark.parametrize(
+        ("first_mask", "second_mask"),
+        [
+            (("category", "equal", "X"), ("value_int", "greater_than", 10)),
+            (("region", "is_in", ["A", "C"]), None),
+            (None, ("region", "is_in", ["A", "C"])),
+        ],
+        ids=["first_masks_second_mask_column", "partition_column_mask_then_unmasked", "unmasked_then_partition_mask"],
+    )
+    def test_multi_feature_set_masks_do_not_contaminate(
+        self, first_mask: tuple[Any, ...] | None, second_mask: tuple[Any, ...] | None
+    ) -> None:
+        """Each feature's mask applies to the original input: no feature sees another's masked column.
+
+        ``a_int`` sorts first; with different masks per feature, masking in place one spec after another
+        would make ``b_float`` read a masked ``value_int``. A mask on the partition column ``region`` must
+        leave the other feature's groups intact.
+        """
+        partition = {"partition_by": ["region"]}
+        a_ctx: dict[str, Any] = {"aggregation_type": "sum", "in_features": "value_int", **partition}
+        b_ctx: dict[str, Any] = {"aggregation_type": "sum", "in_features": "value_float", **partition}
+        if first_mask is not None:
+            a_ctx["mask"] = first_mask
+        if second_mask is not None:
+            b_ctx["mask"] = second_mask
+        self._assert_multi_matches_reference([("a_int", a_ctx), ("b_float", b_ctx)], use_approx=True)
+
     def test_multi_feature_set_two_mode_features(self) -> None:
         """Two mode features on different source columns in one FeatureSet."""
         self._skip_if_unsupported("mode")
@@ -617,6 +646,16 @@ class AggregationTestBase(
         )
         with pytest.raises(ValueError, match="run_all"):
             calculate_with(self.implementation_class(), self.test_data, fs)
+
+    def test_empty_feature_set_returns_input(self) -> None:
+        """A FeatureSet without features returns the input unchanged and never calls compute_group."""
+        from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("compute_group must not run for an empty FeatureSet")
+
+        result = AggregationFeatureGroup.aggregate(self.test_data, FeatureSet(), compute_group=fail)
+        assert result is self.test_data
 
     # -- partition_by=[] on an empty table (one row: sum None, count 0) ------
 

@@ -144,9 +144,10 @@ class TestAggregationIntegration(
 class TestIntegrationAdditionalAggTypes:
     """Test additional aggregation types through the full mloda pipeline.
 
-    Aggregation reduces rows, so each feature must be requested
-    in a separate run_all call (mloda cannot merge different row-count
-    outputs without explicit Links).
+    Aggregation reduces rows. Several aggregations with the same ``partition_by``
+    can share one run_all call (they are computed together into one result);
+    aggregations with different ``partition_by`` need separate run_all calls
+    (mloda cannot merge different row-count outputs without explicit Links).
     """
 
     def test_min_agg_through_pipeline(self) -> None:

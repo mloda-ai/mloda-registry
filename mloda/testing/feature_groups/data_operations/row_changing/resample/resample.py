@@ -630,6 +630,16 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
             result_map = self._build_resample_map(result, name, "ts", ["region"])
             self._assert_map_equals(result_map, exp, use_approx=approx)
 
+    def test_empty_feature_set_returns_input(self) -> None:
+        """A FeatureSet without features returns the input unchanged and never calls compute_resample."""
+        from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
+
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("compute_resample must not run for an empty FeatureSet")
+
+        result = ResampleFeatureGroup.resample(self.test_data, FeatureSet(), compute_resample=fail)
+        assert result is self.test_data
+
     @pytest.mark.parametrize(
         "names, partition_by",
         [
