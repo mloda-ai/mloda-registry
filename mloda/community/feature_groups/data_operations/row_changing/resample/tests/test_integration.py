@@ -130,13 +130,24 @@ class TestResampleSplitFeatureSets:
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ResampleFeatureGroup})
         return mloda.run_all(features, compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
 
-    def test_split_by_data_type_error_names_group_remedy(self) -> None:
-        features = [
-            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.DOUBLE),
-            Feature(self._COUNT, options=Options(context=self._CONTEXT), data_type=DataType.INT64),
-        ]
+    @pytest.mark.parametrize("order", ["mean_first", "count_first"])
+    @pytest.mark.parametrize("count_source", ["value_float", "timestamp"])
+    def test_split_by_data_type_error_names_group_remedy(self, count_source: str, order: str) -> None:
+        """The error is raised even when the later step's source and keys survive the earlier reduction."""
+        mean = Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.DOUBLE)
+        count = Feature(
+            f"{count_source}__resample_1_day_count", options=Options(context=self._CONTEXT), data_type=DataType.INT64
+        )
+        features = [mean, count] if order == "mean_first" else [count, mean]
         with pytest.raises(ValueError, match=re.escape("Options(group=")):
             self._run(features)
+
+    def test_chained_resample_runs_without_group_error(self) -> None:
+        """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
+        name = "value_float__resample_1_day_sum__resample_2_day_max"
+        options = Options(context=self._CONTEXT, cascade_context_keys=frozenset(self._CONTEXT))
+        results = self._run([Feature(name, options=options)])
+        assert any(isinstance(t, pa.Table) and name in t.column_names for t in results)
 
     def test_split_with_distinct_groups_work(self) -> None:
         features = [

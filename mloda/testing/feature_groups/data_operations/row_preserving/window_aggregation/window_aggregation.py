@@ -219,6 +219,10 @@ class WindowAggregationTestBase(
         return "value_int__sum_window"
 
     @classmethod
+    def mask_companion_feature_name(cls) -> str | None:
+        return "value_int__max_window"
+
+    @classmethod
     def mask_partition_by(cls) -> list[str] | None:
         return ["region"]
 

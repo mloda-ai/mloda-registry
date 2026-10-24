@@ -17,7 +17,12 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    is_null,
+    make_feature_set,
+    make_multi_feature_set,
+)
 
 
 class MaskTestMixin:
@@ -50,6 +55,11 @@ class MaskTestMixin:
     @classmethod
     def mask_order_by(cls) -> str | None:
         """Order key for mask tests. Only frame aggregate needs this."""
+        return None
+
+    @classmethod
+    def mask_companion_feature_name(cls) -> str | None:
+        """A second feature on the same source as ``mask_feature_name``; None skips the multi-feature test."""
         return None
 
     @classmethod
@@ -237,6 +247,38 @@ class MaskTestMixin:
                     assert is_null(a), f"{name} row {i}: expected null, got {a}"
                 else:
                     assert a == e, f"{name} row {i}: {a} != {e}"
+
+    def test_mixin_mask_multi_feature_set_matches_single_runs(self) -> None:
+        """Mixin: a masked and an unmasked feature on one source in one FeatureSet equal their solo results."""
+        companion = self.mask_companion_feature_name()
+        if self.mask_is_reducing() or companion is None:
+            pytest.skip("needs a row-preserving op with a companion feature")
+        masked = self.mask_feature_name()
+        context: dict[str, Any] = {}
+        if self.mask_partition_by() is not None:
+            context["partition_by"] = self.mask_partition_by()
+        if self.mask_order_by() is not None:
+            context["order_by"] = self.mask_order_by()
+        masked_context = {**context, "mask": ("category", "equal", "X")}
+        impl = self.implementation_class()  # type: ignore[attr-defined]
+
+        data = self.test_data  # type: ignore[attr-defined]
+        both = calculate_with(impl, data, make_multi_feature_set([(masked, masked_context), (companion, context)]))
+        solo_masked = calculate_with(impl, data, make_multi_feature_set([(masked, masked_context)]))
+        solo_plain = calculate_with(impl, data, make_multi_feature_set([(companion, context)]))
+
+        def values(result: Any, name: str) -> list[Any]:
+            # Row order is unspecified on some backends, so compare the sorted multiset of values.
+            return sorted((None if is_null(v) else v for v in self.extract_column(result, name)), key=repr)  # type: ignore[attr-defined]
+
+        for name, solo in ((masked, solo_masked), (companion, solo_plain)):
+            actual, expected = values(both, name), values(solo, name)
+            assert len(actual) == len(expected)
+            for a, e in zip(actual, expected):
+                if self.mask_use_approx() and isinstance(e, float):
+                    assert a == pytest.approx(e, rel=1e-3), f"{name}: {a} != {e}"
+                else:
+                    assert a == e, f"{name}: {a} != {e}"
 
     @pytest.mark.parametrize(
         "metric_values, control_values, mask_spec, control_mask_spec",

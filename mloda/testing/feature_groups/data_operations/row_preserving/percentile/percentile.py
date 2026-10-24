@@ -113,6 +113,10 @@ class PercentileTestBase(
         return "value_int__p50_percentile"
 
     @classmethod
+    def mask_companion_feature_name(cls) -> str | None:
+        return "value_int__p75_percentile"
+
+    @classmethod
     def mask_partition_by(cls) -> list[str] | None:
         return ["region"]
 

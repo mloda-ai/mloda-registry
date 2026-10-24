@@ -23,6 +23,7 @@ from mloda.community.feature_groups.data_operations.base import (
     SPLIT_REDUCING_FEATURE_SET_HINT,
     WINDOW_AGGREGATION_TYPE,
     assert_key_columns_present,
+    assert_no_earlier_step_output,
     assert_single_grid,
     assert_source_columns_present,
     is_op_token,
@@ -197,6 +198,13 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
         specs: list[AggregationSpec] = []
         grids: dict[tuple[str, ...], list[str]] = {}
 
+        assert_no_earlier_step_output(
+            data,
+            features,
+            cls.PREFIX_PATTERN,
+            "aggregation",
+            [cls._extract_single_source_feature(f) for f in features.features],
+        )
         for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col], hint=SPLIT_REDUCING_FEATURE_SET_HINT)

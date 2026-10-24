@@ -7,9 +7,6 @@ from typing import Any
 import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
-    PandasMaskEngine,
-)
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
@@ -17,7 +14,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pandas_mask
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
@@ -73,9 +70,13 @@ class PandasAggregation(Implementation[AggregationFeatureGroup]):
     def _compute_single(cls, data: pd.DataFrame, spec: AggregationSpec, partition_by: list[str]) -> pd.DataFrame:
         feature_name, source_col, agg_type, mask_spec = spec
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
-            data = data.copy()
-            data[source_col] = data[source_col].where(mask)
+            data, agg_source = apply_pandas_mask(data, source_col, mask_spec, taken={feature_name})
+        else:
+            agg_source = source_col
+            if source_col in partition_by:
+                # A key as its own source would collide in reset_index; aggregate a copy.
+                agg_source = unique_helper_name("__mloda_agg_source__", set(data.columns) | {feature_name})
+                data = data.assign(**{agg_source: data[source_col]})
 
         # No partition columns: fold the whole table into one group via a constant helper column.
         helper_col: str | None = None
@@ -91,11 +92,11 @@ class PandasAggregation(Implementation[AggregationFeatureGroup]):
             partition_by = [helper_col]
 
         if agg_type == "mode":
-            result = cls._compute_mode(data, feature_name, source_col, partition_by)
+            result = cls._compute_mode(data, feature_name, agg_source, partition_by)
         else:
-            grouped = null_safe_groupby(data, partition_by, source_col)
+            grouped = null_safe_groupby(data, partition_by, agg_source)
             result = apply_null_safe_agg(grouped, PANDAS_AGG_FUNCS[agg_type], agg_type).reset_index()
-            result = result.rename(columns={source_col: feature_name})
+            result = result.rename(columns={agg_source: feature_name})
 
             coerce_count_dtype(result, feature_name, agg_type)
 

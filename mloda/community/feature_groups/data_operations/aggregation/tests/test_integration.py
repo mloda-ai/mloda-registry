@@ -528,6 +528,22 @@ class TestIntegrationMultipleFeatures:
                 ],
                 id="split_by_data_type",
             ),
+            pytest.param(
+                [PandasDataFrame],
+                [
+                    Feature(
+                        "value_int__sum_agg",
+                        options=Options(context={"partition_by": ["region"]}),
+                        data_type=DataType.DOUBLE,
+                    ),
+                    Feature(
+                        "region__count_agg",
+                        options=Options(context={"partition_by": ["region"]}),
+                        data_type=DataType.INT64,
+                    ),
+                ],
+                id="split_by_data_type_source_is_key",
+            ),
         ],
     )
     def test_split_feature_sets_error_names_group_remedy(self, frameworks: list[Any], features: list[Feature]) -> None:
@@ -535,6 +551,17 @@ class TestIntegrationMultipleFeatures:
         plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
         with pytest.raises(ValueError, match=re.escape("Options(group=")):
             mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
+
+    def test_chained_aggregation_runs_without_group_error(self) -> None:
+        """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
+        name = "value_int__sum_agg__max_agg"
+        context = {"partition_by": ["region"]}
+        options = Options(context=context, cascade_context_keys=frozenset(context))
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        results = mloda.run_all(
+            [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
+        )
+        assert any(name in t.columns for t in results if hasattr(t, "columns"))
 
     def test_split_feature_sets_with_distinct_groups_work(self) -> None:
         """Giving each feature its own Options(group=...) computes both aggregates correctly."""

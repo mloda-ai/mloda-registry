@@ -58,6 +58,7 @@ from mloda.community.feature_groups.data_operations.base import (
     KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
+    assert_no_earlier_step_output,
     assert_single_grid,
     assert_source_columns_present,
     column_ref_value,
@@ -252,6 +253,13 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
         aggs: list[ResampleAgg] = []
         grids: dict[tuple[tuple[str, ...], str, int, str], list[str]] = {}
 
+        assert_no_earlier_step_output(
+            data,
+            features,
+            cls.PREFIX_PATTERN,
+            "resample",
+            [cls._extract_single_source_feature(f) for f in features.features],
+        )
         for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
             n, unit, agg = _parse_resample_op(cls._extract_resample_op(feature))

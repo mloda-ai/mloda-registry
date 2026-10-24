@@ -5,7 +5,7 @@ Uses the unified FrameAggregateTestBase.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pyarrow as pa
@@ -82,17 +82,26 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         assert group.supports_compute_framework("value__sum_3_day_window", options, framework)
         assert group.supports_compute_framework("value__sum_1_week_window", options, framework)
 
-    @pytest.mark.parametrize("agg_type", ["min", "max"])
-    def test_pandas_rejects_datetime_min_max_in_rolling_frame(self, agg_type: str) -> None:
-        """A non-time rolling frame over a datetime source is rejected with a ValueError too."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5)],
-            }
-        )
-        fs = make_feature_set(f"ts__{agg_type}_rolling_3", partition_by=["region"], order_by="ts")
-        with pytest.raises(ValueError, match=r"datetime.*ts|ts.*datetime"):
+    @pytest.mark.parametrize(
+        "agg_type, source_kind",
+        [
+            pytest.param("min", "datetime", id="min"),
+            pytest.param("max", "datetime", id="max"),
+            pytest.param("min", "timedelta", id="timedelta_min"),
+            pytest.param("max", "timedelta", id="timedelta_max"),
+            pytest.param("sum", "timedelta", id="timedelta_sum"),
+        ],
+    )
+    def test_pandas_rejects_datetime_min_max_in_rolling_frame(self, agg_type: str, source_kind: str) -> None:
+        """A non-time rolling frame over a datetime or timedelta source is rejected with a ValueError too."""
+        timestamps = [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5)]
+        column = "ts" if source_kind == "datetime" else "dur"
+        data: dict[str, Any] = {"region": ["A", "A", "A"], "ts": timestamps}
+        if source_kind == "timedelta":
+            data["dur"] = [timedelta(days=d) for d in (1, 3, 5)]
+        table = pa.table(data)
+        fs = make_feature_set(f"{column}__{agg_type}_rolling_3", partition_by=["region"], order_by="ts")
+        with pytest.raises(ValueError, match=rf"{source_kind}.*{column}|{column}.*{source_kind}"):
             calculate_with(self.implementation_class(), self.create_test_data(table), fs)
 
     def test_pandas_dep_pinned_to_22_for_lowercase_freq_codes(self) -> None:

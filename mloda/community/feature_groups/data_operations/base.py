@@ -266,6 +266,19 @@ SPLIT_REDUCING_FEATURE_SET_HINT = (
 )
 
 
+def assert_no_earlier_step_output(
+    data: Any, features: Any, pattern: str, operation: str, source_cols: Iterable[str]
+) -> None:
+    """Raise ``ValueError`` when ``data`` holds another feature's output column (an earlier split step's reduced frame)."""
+    allowed = {str(f.name) for f in features.features} | set(source_cols)
+    for col in available_columns(data):
+        if col not in allowed and re.fullmatch(pattern, str(col)):
+            raise ValueError(
+                f"Input column {col!r} looks like the output of an earlier {operation} step on this frame. "
+                + SPLIT_REDUCING_FEATURE_SET_HINT
+            )
+
+
 def assert_source_columns_present(
     data: Any, columns: Iterable[str], label: str = "Source column", hint: str = ""
 ) -> None:

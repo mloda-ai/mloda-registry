@@ -93,9 +93,16 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 operation="frame aggregate",
             )
 
-        if agg_type != "count" and pd.api.types.is_datetime64_any_dtype(data[source_col]):
+        source_kind = (
+            "datetime"
+            if pd.api.types.is_datetime64_any_dtype(data[source_col])
+            else "timedelta"
+            if pd.api.types.is_timedelta64_dtype(data[source_col])
+            else None
+        )
+        if agg_type != "count" and source_kind is not None:
             raise ValueError(
-                f"Pandas frame aggregate cannot compute {agg_type!r} over datetime column {source_col!r}: "
+                f"Pandas frame aggregate cannot compute {agg_type!r} over {source_kind} column {source_col!r}: "
                 "pandas rolling and expanding windows aggregate only numeric columns (count works). "
                 "Use Polars or DuckDB."
             )

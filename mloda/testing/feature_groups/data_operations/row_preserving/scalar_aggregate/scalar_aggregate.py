@@ -152,6 +152,10 @@ class ScalarAggregateTestBase(
         return "value_int__sum_scalar"
 
     @classmethod
+    def mask_companion_feature_name(cls) -> str | None:
+        return "value_int__max_scalar"
+
+    @classmethod
     def mask_partition_by(cls) -> list[str] | None:
         return None
 

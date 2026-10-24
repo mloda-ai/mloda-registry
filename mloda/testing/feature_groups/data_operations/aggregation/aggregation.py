@@ -32,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     canonical_table_empty,
     extract_column,
     feature_group_of,
+    is_null,
     make_feature_set,
     make_multi_feature_set,
     result_column_names,
@@ -588,6 +589,32 @@ class AggregationTestBase(
         self._assert_multi_matches_reference(
             [("value_int__sum_agg", context), ("value_float__sum_agg", context)], use_approx=True
         )
+
+    @pytest.mark.parametrize(
+        ("agg_type", "expected"),
+        [
+            # Groups come from unmasked value_int; only rows with category 'X' count.
+            pytest.param(
+                "count",
+                {10: 1, -5: 0, 0: 1, 20: 0, None: 0, 50: 0, 30: 0, 60: 1, 15: 1, 40: 0, -10: 1},
+                id="count_partition_by_source",
+            ),
+            pytest.param(
+                "sum",
+                {10: 10, -5: None, 0: 0, 20: None, None: None, 50: None, 30: None, 60: 60, 15: 15, 40: None, -10: -10},
+                id="sum_partition_by_source",
+            ),
+        ],
+    )
+    def test_mask_source_column_as_key_uses_unmasked_values(self, agg_type: str, expected: dict[Any, Any]) -> None:
+        """A masked source that is also a partition key groups on its unmasked values."""
+        feature_name = f"value_int__{agg_type}_agg"
+        fs = make_feature_set(feature_name, ["value_int"], mask=("category", "equal", "X"))
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        keys = self.extract_column(result, "value_int")
+        values = self.extract_column(result, feature_name)
+        assert len(keys) == len(expected)
+        assert {(None if is_null(k) else int(k)): (None if is_null(v) else v) for k, v in zip(keys, values)} == expected
 
     def test_multi_feature_set_masked_and_unmasked(self) -> None:
         """A masked and an unmasked aggregate share one FeatureSet; each keeps its own mask."""
