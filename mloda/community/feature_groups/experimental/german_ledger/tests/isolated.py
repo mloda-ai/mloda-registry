@@ -12,7 +12,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from mloda.core.abstract_plugins.plugin_registry.plugin_registry import PluginSource
 from mloda.provider import FeatureGroup, FeatureSet, SourceMatch
 from mloda.steward import PluginRegistry, resolve_feature, verified_context
 from mloda.user import DataAccessCollection, Feature, Options, PluginCollector, PluginLoader, mloda
@@ -148,10 +147,11 @@ def plugin_loader_all() -> dict[str, Any]:
     PluginLoader.all()
     dossier = FIX / "dossier_a"
     # Importing _host registers nothing, so an ENTRY_POINT entry can only come from the declared manifest.
+    # PluginSource is not public; it is a str enum, so compare by value.
     registered = sorted(
         entry.cls.__qualname__
         for entry in PluginRegistry.default().snapshot().values()
-        if entry.source is PluginSource.ENTRY_POINT and entry.cls.__module__.startswith(GERMAN_LEDGER_PACKAGE)
+        if entry.source == "entry_point" and entry.cls.__module__.startswith(GERMAN_LEDGER_PACKAGE)
     )
 
     def direct(feature: Feature | str) -> list[str]:
