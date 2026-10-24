@@ -972,6 +972,7 @@ class FrameAggregateTestBase(
         ref = self.reference_implementation_class().calculate_feature(table, fs)
 
         assert self.extract_column(result, feature_name) == _extract_column(ref, feature_name)
+        assert self.extract_column(result, "ts") == _extract_column(ref, "ts")
 
     @pytest.mark.parametrize(
         "table, mask_spec",

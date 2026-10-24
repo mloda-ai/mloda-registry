@@ -199,10 +199,11 @@ class DataOpsTestBase(ABC):
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
 
+        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
+
         for c in passthrough_cols:
             assert self.extract_column(result, c) == _extract_column(ref, c), f"passthrough column {c} differs"
 
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
         if use_approx:
             for i, (ref_val, fw_val) in enumerate(zip(ref_col, result_col)):
                 if ref_val is None:
