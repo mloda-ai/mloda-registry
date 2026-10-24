@@ -1,4 +1,4 @@
-"""Base class for key-lookup feature groups.
+"""Key-lookup operation group.
 
 Replaces each non-null source value with the value its key maps to in a mapping.
 The operation is ROW-PRESERVING: the result has the same rows in the same order as
@@ -16,7 +16,7 @@ Options context:
 
 Null source values stay null under every policy and are never counted as unmatched.
 
-Plugins supply their own mapping by setting ``MAPPING_FROM_OPTION = False``, their own
+Subclasses supply their own mapping by setting ``MAPPING_FROM_OPTION = False``, their own
 ``PREFIX_PATTERN`` and overriding ``resolve_mapping`` (and optionally
 ``resolve_unmatched_reasons``); such a subclass matches by name only.
 """
@@ -200,7 +200,7 @@ def build_unmatched_error(
 
 
 class LookupFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
-    """Base class for key-lookup operations that preserve row count.
+    """Row-preserving key lookup: one operation group, computed by one Implementation per compute framework.
 
     ## Reference Contract
 
