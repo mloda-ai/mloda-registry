@@ -455,7 +455,7 @@ class AdmissibilityPolicyGroup(FeatureGroup):
         return cls.configured() and str(feature_name) == ADMITTED
 
     def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
-        # Scoped to the dossier readers, so no other group's claim on this name is considered.
+        # Scoped so no other group's claim on this name is considered.
         return {Feature(JOURNAL, feature_group=_ReaderJournal)}
 
     @classmethod
