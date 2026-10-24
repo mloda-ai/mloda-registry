@@ -6,7 +6,7 @@ Feature resolution is name-driven: the matcher routes a feature like
 catalog grows, two families could claim overlapping name patterns, producing
 order-dependent or ambiguous routing that nothing currently catches. This module
 is the guardrail (issue #248), in the same spirit as the reflection invariants
-in ``test_framework_support_matrix.py``. It also asserts every family base is abstract.
+in ``test_framework_support_matrix.py``. It also asserts every family is abstract or an ``OperationFeatureGroup``.
 
 Two complementary checks run here:
 
@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mloda.provider import OperationFeatureGroup
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import is_artifact_path
@@ -652,9 +653,11 @@ _ARITHMETIC_BASE = f"{_DO}.row_preserving.arithmetic.base"
     [*_real_classes().values(), getattr(importlib.import_module(_ARITHMETIC_BASE), "ArithmeticFeatureGroupBase")],
     ids=lambda cls: cls.__name__,
 )
-def test_family_base_is_abstract(cls: Any) -> None:
-    """A family base declares abstract compute hooks, so core never selects it as an implementation."""
-    assert inspect.isabstract(cls), f"{cls.__name__} must keep an abstract compute hook"
+def test_family_base_is_abstract_or_operation_group(cls: Any) -> None:
+    """A family is abstract (per-framework subclasses) or an OperationFeatureGroup (core dispatches)."""
+    assert inspect.isabstract(cls) or issubclass(cls, OperationFeatureGroup), (
+        f"{cls.__name__} must be abstract or an OperationFeatureGroup"
+    )
 
 
 def test_every_family_module_is_discovered_on_disk() -> None:
