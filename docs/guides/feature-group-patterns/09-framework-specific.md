@@ -291,7 +291,7 @@ class PandasOnlyGroup(FeatureGroup):
         return {PandasDataFrame}
 ```
 
-`None` (the default) allows any framework. Aggregation, point/scalar arithmetic, time bucketization, ffill, EMA, resample, sessionization, rank, offset and percentile are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
+`None` (the default) allows any framework. Aggregation, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset and percentile are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
 
 ## Column-Wise Data Hooks
 

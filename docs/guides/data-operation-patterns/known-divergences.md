@@ -426,7 +426,7 @@ regression_test:
 -->
 
 - **Operations**: `lookup`.
-- **Where it lives**: `_source_family` and `_compute_lookup` in `mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py`.
+- **Where it lives**: `PandasLookup._source_family` and `PandasLookup._compute_lookup` in `mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py`.
 - **Reference behavior**: PyArrow keys on the column type: a float column is never an int-key source, and an all-null float column with str keys raises `ValueError`.
 - **Native pandas behavior**: Pandas stores an int column with nulls as float64, so the type alone cannot tell it from a float column. A nullable `Int64` column keeps its type and maps large ints exactly (`TestPandasLookupNullableInt`).
 - **Mitigation kind**: Accepted divergence.

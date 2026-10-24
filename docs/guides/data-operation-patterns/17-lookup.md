@@ -2,11 +2,11 @@
 
 Key lookup replaces each source value with the value its key maps to in a mapping, for example a product code with a category or a country code with a region.
 
-**What**: `LookupFeatureGroup` accepts feature names of the form `{col}__lookup`. It reads `lookup_mapping` and an optional `on_unmatched` policy from `Options(context=...)`, and emits a new `{col}__lookup` column.
+**What**: `LookupFeatureGroup` (an `OperationFeatureGroup`, with one `Implementation` per framework) accepts feature names of the form `{col}__lookup`. It reads `lookup_mapping` and an optional `on_unmatched` policy from `Options(context=...)`, and emits a new `{col}__lookup` column.
 **When**: You have a coded column and a key-to-value table, and want the translated value on every row.
 **Why**: Unmatched keys, nulls and the output type behave the same on every backend.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/lookup/`.
-**How**: The name carries only the op; the mapping and policy come from Options.
+**How**: The name carries only the op; the mapping and policy come from Options. Enable or scope the family by `LookupFeatureGroup`, and pin one backend with `Feature(..., implementation=PandasLookup)` (the class) or the qualified string `"module:Class"`.
 
 ---
 
@@ -94,11 +94,11 @@ class NutsMapping:
         return load_nuts_table()
 
 
-class PyArrowNutsLookup(NutsMapping, PyArrowLookup):
+class NutsLookup(NutsMapping, LookupFeatureGroup):
     pass
 ```
 
-Add one such subclass per framework (`PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) to reuse the mapping class.
+One subclass serves every framework: the shipped Implementations (`PyArrowLookup`, `PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) compute it. A subclass of a framework class such as `PyArrowLookup` no longer works, since those are Implementations now; subclass `LookupFeatureGroup` instead.
 
 A hook rejects a `lookup_mapping` set on its own feature (`ValueError` at planning time). A `lookup_mapping` forwarded from a consumer's group options is ignored, so a generic `__lookup` can sit on top of a hook feature.
 
