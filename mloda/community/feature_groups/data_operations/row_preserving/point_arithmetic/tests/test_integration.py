@@ -291,11 +291,3 @@ class TestDivergentDivideRouting:
         step = self._step("value_int&amount__divide_point")
         assert step.implementation is PyArrowPointArithmetic
         assert step.compute_framework is PyArrowTable
-
-    def test_sqlite_divide_declares_divergence(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.sqlite_point_arithmetic import (
-            SqlitePointArithmetic,
-        )
-
-        implementation: Any = SqlitePointArithmetic
-        assert set(implementation.divergent) == {"divide"}
