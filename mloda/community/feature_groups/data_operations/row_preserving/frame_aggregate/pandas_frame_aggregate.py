@@ -93,13 +93,8 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # order uses original (unmasked) values to match this behavior.
         # Safe to mutate: data was already copied above (data = data.copy()).
         #
-        # Collision case: when source_col == order_by and a mask is applied,
-        # the reference treats masked rows as having null ``order_by`` (because
-        # mask writes null into source_col, which is also order_by). Pandas'
-        # native ``rolling(on=ts)`` cannot simulate this without a Python loop
-        # (which would defeat the point of running inside pandas). For non-time
-        # frames the order_by clobber would also break the sort; reject the
-        # combo for time frames at runtime. See known-divergences.md.
+        # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
+        # see known-divergences.md.
         agg_col = source_col
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
@@ -107,9 +102,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
                 if frame_type == "time":
                     raise ValueError(
                         "Pandas frame aggregate (time frame): mask + source_col == order_by "
-                        f"({source_col!r}) is unsupported. The reference semantic requires "
-                        "treating masked rows as having null order_by, which pandas "
-                        "rolling(on=...) cannot express natively. See known-divergences.md."
+                        f"({source_col!r}) is unsupported. See known-divergences.md."
                     )
                 # Non-time frames: aggregate the masked values in a temp column;
                 # order_by is preserved because the sort already happened above.

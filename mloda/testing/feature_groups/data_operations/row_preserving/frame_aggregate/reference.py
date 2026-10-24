@@ -41,15 +41,13 @@ class ReferenceFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
-        if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
-
         num_rows = table.num_rows
 
         # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
         partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
-        order_vals = table.column(order_by).to_pylist()
-        source_vals = table.column(source_col).to_pylist()
+        order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
+        masked = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table
+        source_vals = masked.column(source_col).to_pylist()
 
         # Build group keys from extracted Python lists (no PyArrow calls in loop)
         groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}

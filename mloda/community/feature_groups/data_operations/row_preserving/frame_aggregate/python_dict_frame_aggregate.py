@@ -101,17 +101,11 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
             )
 
         if frame_type == "time" and mask_spec is not None and source_col == order_by:
-            # Mask + source_col == order_by: the reference treats masked rows as
-            # having null order_by (mask writes null into source_col, which is
-            # also order_by). This backend keeps order_by and the masked source
-            # as two independently-built lists, so it cannot reproduce that
-            # coupling without special-casing the combination. Reject to match
-            # pandas/polars/DuckDB/SQLite. See known-divergences.md.
+            # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
+            # see known-divergences.md.
             raise ValueError(
                 "PythonDict frame aggregate (time frame): mask + source_col == order_by "
-                f"({source_col!r}) is unsupported. The reference semantic requires "
-                "treating masked rows as having null order_by, which this backend does "
-                "not special-case. See known-divergences.md."
+                f"({source_col!r}) is unsupported. See known-divergences.md."
             )
 
         partition_by = list(partition_by)

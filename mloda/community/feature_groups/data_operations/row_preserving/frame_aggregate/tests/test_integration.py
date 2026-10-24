@@ -109,13 +109,14 @@ class TestFrameAggregateIntegration(MaskIntegrationTestMixin, DataOpsIntegration
 
     @classmethod
     def mask_integration_expected(cls) -> list[Any]:
-        # category='X' cumsum through pipeline (nulls filled by pipeline broadcast)
-        return [10, 10, 0, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+        # category='X' cumsum through pipeline; order_by is unmasked, so a masked row
+        # is null until an earlier unmasked row enters its cumulative window
+        return [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
 
     @classmethod
     def mask_integration_complex_expected(cls) -> list[Any]:
-        # category='X' AND value_int>=10 through pipeline (nulls filled by broadcast)
-        return [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, None]
+        # category='X' AND value_int>=10 through pipeline; order_by is unmasked
+        return [10, None, None, 10, 60, None, None, 60, None, 15, 15, None]
 
     @classmethod
     def mask_integration_unmasked_expected(cls) -> list[Any]:

@@ -75,18 +75,12 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         quoted_order = quote_ident(order_by)
 
         if frame_type == "time":
-            # Mask + source_col == order_by: the reference treats masked rows as having
-            # null order_by (mask writes null into source_col, which is also order_by).
-            # The DuckDB correlated subquery uses the unmasked order_by for window bounds
-            # even when ``CASE WHEN ... THEN source END`` wraps the aggregate expression,
-            # so this combo cannot be expressed natively. Reject to match pandas.
-            # See known-divergences.md.
+            # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
+            # see known-divergences.md.
             if mask_spec is not None and source_col == order_by:
                 raise ValueError(
                     "DuckDB frame aggregate (time frame): mask + source_col == order_by "
-                    f"({source_col!r}) is unsupported. The reference semantic requires "
-                    "treating masked rows as having null order_by, which the correlated "
-                    "subquery cannot express natively. See known-divergences.md."
+                    f"({source_col!r}) is unsupported. See known-divergences.md."
                 )
             # Correlated subquery aliases the source table as "s"; build the wrapped
             # inner source SQL here, where source_col (needed for the type lookup) is

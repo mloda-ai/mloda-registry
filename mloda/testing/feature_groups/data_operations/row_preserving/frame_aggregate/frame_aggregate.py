@@ -708,6 +708,14 @@ class FrameAggregateTestBase(
         """Cumulative sum must match reference, whole-table (partition_by=[]) included."""
         self._compare_with_reference("value_int__cumsum", partition_by=partition_by, order_by="value_int")
 
+    @pytest.mark.parametrize("feature_name", ["value_int__sum_rolling_3", "value_int__cumsum"])
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_mask_source_equals_order_by(self, partition_by: list[str], feature_name: str) -> None:
+        """Masked frame with source column == order_by must match reference, whole-table included."""
+        self._compare_with_reference(
+            feature_name, partition_by=partition_by, order_by="value_int", mask=("category", "equal", "X")
+        )
+
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     def test_cross_framework_expanding_avg(self, partition_by: list[str]) -> None:
         """Expanding avg must match reference, whole-table (partition_by=[]) included."""
@@ -940,12 +948,7 @@ class FrameAggregateTestBase(
     def test_time_window_source_equals_order_with_mask_rejected(self) -> None:
         """source_col == order_by + mask + time frame is rejected at runtime.
 
-        All four backends reject this combo. The reference semantic treats masked
-        rows as having null ``order_by`` (mask writes null into source_col, which
-        is also order_by). None of the native time-window primitives can express
-        this without falling back to a Python loop, so each backend raises a
-        clear ``ValueError`` instead of producing a silently-wrong result. See
-        known-divergences.md.
+        Rejected on every backend as an excluded shape. See known-divergences.md.
         """
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
