@@ -14,7 +14,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import DataAccessCollection, Feature, Options, mloda
+from mloda.user import DataAccessCollection, Feature, FeatureResolutionError, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.experimental.german_ledger.policy import (
@@ -156,26 +156,29 @@ def _run_dossier_a(*names: str) -> dict[str, Any]:
     return {k: v for t in res for k, v in t.to_pydict().items()}
 
 
-@pytest.mark.parametrize("requested", ["revenue__sources~value", "revenue__sources~origins", "revenue__sources~basis"])
-def test_a_part_request_returns_only_that_part(requested: str) -> None:
-    """Requesting one declared part of the total returns exactly that column."""
-    got = _run_dossier_a(requested)
-    assert set(got) == {requested}, got
-    [cell] = got[requested]
-    if requested.endswith("~value"):
-        assert str(cell) == "45385.06", cell
-    elif requested.endswith("~origins"):
-        assert len(cell) == 5, cell
-    else:
-        assert json.loads(cell)["catalogue"]["name"] == "SKR04_2025", cell
+_PART_CHECKS: dict[str, Any] = {
+    "revenue__sources~value": lambda cell: str(cell) == "45385.06",
+    "revenue__sources~origins": lambda cell: len(cell) == 5,
+    "revenue__sources~basis": lambda cell: json.loads(cell)["catalogue"]["name"] == "SKR04_2025",
+}
 
 
-def test_two_parts_requested_together_return_exactly_those() -> None:
-    """Two declared parts of the total in one run give exactly two columns."""
-    got = _run_dossier_a("revenue__sources~value", "revenue__sources~origins")
-    assert set(got) == {"revenue__sources~value", "revenue__sources~origins"}, got
-    assert str(got["revenue__sources~value"][0]) == "45385.06", got
-    assert len(got["revenue__sources~origins"][0]) == 5, got
+@pytest.mark.parametrize(
+    "names",
+    [
+        ("revenue__sources~value",),
+        ("revenue__sources~origins",),
+        ("revenue__sources~basis",),
+        ("revenue__sources~value", "revenue__sources~origins"),
+    ],
+    ids=["value", "origins", "basis", "value+origins"],
+)
+def test_requested_parts_return_exactly_those_columns(names: tuple[str, ...]) -> None:
+    """Requesting declared parts of the total returns exactly those columns, each with its expected content."""
+    got = _run_dossier_a(*names)
+    assert set(got) == set(names), got
+    for name in names:
+        assert _PART_CHECKS[name](got[name][0]), got
 
 
 def test_a_part_of_the_line_grain_concept_returns_only_that_part() -> None:
@@ -187,10 +190,8 @@ def test_a_part_of_the_line_grain_concept_returns_only_that_part() -> None:
 
 def test_an_undeclared_part_fails_at_resolution() -> None:
     """A part the group does not declare is refused when the name is resolved."""
-    with pytest.raises(Exception) as info:
+    with pytest.raises(FeatureResolutionError, match=r"(?s)bogus.*is not an output part|is not an output part.*bogus"):
         _run_dossier_a("revenue__sources~bogus")
-    message = str(info.value)
-    assert "is not an output part" in message and "bogus" in message, message
 
 
 def _stamped_rows(*bases: str | None) -> pa.Table:
