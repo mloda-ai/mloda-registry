@@ -110,6 +110,13 @@ class ScalarArithmeticFeatureGroup(OperationFeatureGroup, ArithmeticFeatureGroup
         return value
 
     @classmethod
+    def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
+        """Each Implementation passes its framework's check to ``apply_arithmetic``."""
+        raise TypeError(
+            f"{cls.__name__} has no framework check; each Implementation passes its own to apply_arithmetic."
+        )
+
+    @classmethod
     def apply_arithmetic(
         cls,
         data: Any,

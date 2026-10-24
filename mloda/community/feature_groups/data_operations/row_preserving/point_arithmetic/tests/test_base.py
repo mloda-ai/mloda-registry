@@ -11,9 +11,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
     ARITHMETIC_OPERATIONS,
     PointArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
-    PyArrowPointArithmetic,
-)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -174,7 +171,7 @@ class TestTwoColumnEnforcement:
                 "in_features": ["value_int"],
             }
         )
-        instance = PyArrowPointArithmetic()
+        instance = PointArithmeticFeatureGroup()
         with pytest.raises(ValueError, match="at least 2"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -185,12 +182,12 @@ class TestTwoColumnEnforcement:
                 "in_features": ["a", "b", "c"],
             }
         )
-        instance = PyArrowPointArithmetic()
+        instance = PointArithmeticFeatureGroup()
         with pytest.raises(ValueError, match="at most 2"):
             instance.input_features(options, FeatureName("my_result"))
 
     def test_input_features_returns_two_features_for_string_pattern(self) -> None:
-        instance = PyArrowPointArithmetic()
+        instance = PointArithmeticFeatureGroup()
         result = instance.input_features(Options(), FeatureName("value_int&amount__add_point"))
         assert result is not None
         assert len(result) == 2
@@ -204,7 +201,7 @@ class TestTwoColumnEnforcement:
                 "in_features": ["revenue", "cost"],
             }
         )
-        instance = PyArrowPointArithmetic()
+        instance = PointArithmeticFeatureGroup()
         result = instance.input_features(options, FeatureName("my_diff"))
         assert result is not None
         assert len(result) == 2
