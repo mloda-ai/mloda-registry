@@ -12,6 +12,7 @@ without an implementation are simply absent from ``OperationInfo.frameworks``.
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
 from collections.abc import Mapping
 
 import pytest
@@ -270,6 +271,27 @@ class TestEmaCell:
         pytest.importorskip("polars")
         info = DataOperationsCatalog.get("ema")
         assert set(info.frameworks) == {"PandasDataFrame", "PolarsLazyDataFrame", "PythonDictFramework"}
+        assert all(value is None for value in info.frameworks.values())
+
+
+class TestLookupCell:
+    def test_has_no_subtype_axis(self) -> None:
+        info = DataOperationsCatalog.get("lookup")
+        assert info.subtypes is None
+        assert info.prefix_pattern == r".*__lookup$"
+
+    def test_framework_keys_follow_installed_backends(self) -> None:
+        """lookup exists on every installed backend; values are None (no subtype axis)."""
+        info = DataOperationsCatalog.get("lookup")
+        expected = {"PyArrowTable", "SqliteFramework", "PythonDictFramework"}
+        for dependency, name in (
+            ("pandas", "PandasDataFrame"),
+            ("polars", "PolarsLazyDataFrame"),
+            ("duckdb", "DuckDBFramework"),
+        ):
+            if importlib.util.find_spec(dependency) is not None:
+                expected.add(name)
+        assert set(info.frameworks) == expected
         assert all(value is None for value in info.frameworks.values())
 
 

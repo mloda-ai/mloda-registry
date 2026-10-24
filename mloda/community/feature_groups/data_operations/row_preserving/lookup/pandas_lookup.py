@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -45,12 +45,17 @@ def _source_family(series: pd.Series) -> str | None:
     return "other"
 
 
-class PandasLookup(LookupFeatureGroup):
+class PandasLookup(Implementation[LookupFeatureGroup]):
     """Pandas backend: an exact index lookup gathers values and flags unmatched keys."""
 
+    feature_group = LookupFeatureGroup
+    compute_framework = PandasDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
 
     @classmethod
     def _compute_lookup(

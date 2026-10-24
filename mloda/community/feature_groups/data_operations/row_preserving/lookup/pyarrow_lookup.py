@@ -7,7 +7,7 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -34,12 +34,17 @@ def arrow_source_family(arrow_type: pa.DataType) -> str:
     return "other"
 
 
-class PyArrowLookup(LookupFeatureGroup):
+class PyArrowLookup(Implementation[LookupFeatureGroup]):
     """PyArrow backend; also the cross-framework reference implementation."""
 
+    feature_group = LookupFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
 
     @classmethod
     def _compute_lookup(

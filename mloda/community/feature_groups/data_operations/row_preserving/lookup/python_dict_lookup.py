@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -40,10 +40,15 @@ def _type_label(value: Any) -> str:
     return type(value).__name__
 
 
-class PythonDictLookup(LookupFeatureGroup):
+class PythonDictLookup(Implementation[LookupFeatureGroup]):
+    feature_group = LookupFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
 
     @classmethod
     def _compute_lookup(

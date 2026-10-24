@@ -1,4 +1,4 @@
-"""Tests for PythonDictLookup compute implementation."""
+"""Tests for the PythonDictLookup Implementation."""
 
 from __future__ import annotations
 
@@ -10,21 +10,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.python_dict_lookup import (
     PythonDictLookup,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.test_base import (
+    _EmptyMappingHookLookup,
+    _HookLookup,
+)
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
-    EmptyMappingHook,
     LookupTestBase,
-    NutsMappingHook,
 )
-
-
-class PythonDictNutsLookup(NutsMappingHook, PythonDictLookup):
-    """Hook subclass: matches ``*__nuts2024`` by name and resolves its own mapping."""
-
-
-class _EmptyMappingLookup(EmptyMappingHook, PythonDictLookup):
-    """Hook subclass whose resolved mapping is empty (invalid)."""
 
 
 class TestPythonDictLookup(PythonDictTestMixin, LookupTestBase):
@@ -39,16 +33,16 @@ class TestPythonDictLookup(PythonDictTestMixin, LookupTestBase):
         return True
 
     @classmethod
-    def hook_implementation_class(cls) -> Any:
-        return PythonDictNutsLookup
+    def hook_group_class(cls) -> Any:
+        return _HookLookup
 
     @classmethod
-    def invalid_hook_implementation_class(cls) -> Any:
-        return _EmptyMappingLookup
+    def invalid_hook_group_class(cls) -> Any:
+        return _EmptyMappingHookLookup
 
     def test_out_of_range_int_in_column_rejected(self) -> None:
         fs = make_feature_set("v__lookup", lookup_mapping={1: 10}, on_unmatched="keep")
         with pytest.raises(ValueError, match="'v'") as excinfo:
-            PythonDictLookup.calculate_feature({"v": [1, 2**70, None]}, fs)
+            calculate_with(PythonDictLookup, {"v": [1, 2**70, None]}, fs)
         assert "outside int64" in str(excinfo.value)
         assert not isinstance(excinfo.value, LookupUnmatchedError)

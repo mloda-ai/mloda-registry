@@ -275,6 +275,40 @@ def test_calculate_with_and_feature_group_of_for_an_implementation() -> None:
     assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
 
 
+def test_calculate_with_runs_an_implementation_on_the_passed_group() -> None:
+    import gc
+
+    from mloda.provider import Implementation, OperationFeatureGroup, get_all_subclasses
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+    class _ProbeGroup(OperationFeatureGroup):
+        pass
+
+    class _ProbeSubGroup(_ProbeGroup):
+        pass
+
+    class _ProbeImpl(Implementation[_ProbeGroup]):
+        feature_group = _ProbeGroup
+        compute_framework = PyArrowTable
+
+        @classmethod
+        def calculate(cls, group: Any, data: Any, features: Any, framework: Any) -> Any:
+            return ("implementation", group, data)
+
+    try:
+        fs = helpers.make_feature_set("f")
+        assert helpers.calculate_with(_ProbeImpl, "data", fs, group=_ProbeSubGroup) == (
+            "implementation",
+            _ProbeSubGroup,
+            "data",
+        )
+        assert fs.implementation is _ProbeImpl
+    finally:
+        del fs, _ProbeImpl, _ProbeSubGroup, _ProbeGroup
+        gc.collect()
+    assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
+
+
 def test_reference_calculate_defaults_to_the_reference_class_calculate_feature() -> None:
     _RecordingImpl.seen = []
     table = pa.table({"f": [1]})

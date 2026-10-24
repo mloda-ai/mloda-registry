@@ -1,24 +1,18 @@
-"""Tests for PyArrowLookup compute implementation."""
+"""Tests for the PyArrowLookup Implementation."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.test_base import (
+    _EmptyMappingHookLookup,
+    _HookLookup,
+)
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
-    EmptyMappingHook,
     LookupTestBase,
-    NutsMappingHook,
 )
-
-
-class PyArrowNutsLookup(NutsMappingHook, PyArrowLookup):
-    """Hook subclass: matches ``*__nuts2024`` by name and resolves its own mapping."""
-
-
-class _EmptyMappingLookup(EmptyMappingHook, PyArrowLookup):
-    """Hook subclass whose resolved mapping is empty (invalid)."""
 
 
 class TestPyArrowLookup(PyArrowTestMixin, LookupTestBase):
@@ -29,9 +23,9 @@ class TestPyArrowLookup(PyArrowTestMixin, LookupTestBase):
         return PyArrowLookup
 
     @classmethod
-    def hook_implementation_class(cls) -> Any:
-        return PyArrowNutsLookup
+    def hook_group_class(cls) -> Any:
+        return _HookLookup
 
     @classmethod
-    def invalid_hook_implementation_class(cls) -> Any:
-        return _EmptyMappingLookup
+    def invalid_hook_group_class(cls) -> Any:
+        return _EmptyMappingHookLookup

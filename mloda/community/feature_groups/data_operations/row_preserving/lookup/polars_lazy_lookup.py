@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -33,12 +33,17 @@ def _source_family(dtype: pl.DataType) -> str:
     return "other"
 
 
-class PolarsLazyLookup(LookupFeatureGroup):
+class PolarsLazyLookup(Implementation[LookupFeatureGroup]):
     """Polars lazy backend: ``replace_strict`` stays lazy; ``raise`` re-evaluates the upstream plan once."""
 
+    feature_group = LookupFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
 
     @classmethod
     def _compute_lookup(

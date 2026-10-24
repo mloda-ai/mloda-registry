@@ -25,8 +25,7 @@ from __future__ import annotations
 
 import math
 import re
-from abc import abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, ClassVar
 
 from mloda.provider import (
@@ -34,6 +33,7 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
     escalate_match_abort,
     property_spec,
 )
@@ -199,8 +199,14 @@ def build_unmatched_error(
     return LookupUnmatchedError(message, feature_name, unmatched_rows, len(keys), sample, sample_reasons)
 
 
-class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
-    """Base class for key-lookup operations that preserve row count."""
+class LookupFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
+    """Base class for key-lookup operations that preserve row count.
+
+    ## Reference Contract
+
+    PyArrowLookup is the reference. Null keys stay null under every policy and never count as unmatched.
+    The output type follows the mapping's value family.
+    """
 
     PREFIX_PATTERN = r".*__lookup$"
     RECOGNITION_ONLY_PATTERN = True
@@ -333,7 +339,14 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return cls._extract_policy_from_options(feature.options)
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def lookup(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_lookup: Callable[[Any, str, str, Mapping[Any, Any], str, Mapping[Any, Any]], Any],
+    ) -> Any:
+        """Shared loop: validate each feature, delegate to ``compute_lookup``."""
         table = data
 
         for feature in features.features:
@@ -347,18 +360,6 @@ class LookupFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if policy == "keep" and key_family(mapping) != value_family(mapping):
                 raise ValueError(keep_family_message(feature_name, mapping))
 
-            table = cls._compute_lookup(table, feature_name, source_col, mapping, policy, reasons)
+            table = compute_lookup(table, feature_name, source_col, mapping, policy, reasons)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_lookup(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        mapping: Mapping[Any, Any],
-        policy: str,
-        reasons: Mapping[Any, str],
-    ) -> Any: ...

@@ -7,7 +7,8 @@ Provides:
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
 - ``is_null``: True for None or a float NaN.
 - ``assert_values_with_nulls``: Assert two lists match, null-aware, with optional cast/approx.
-- ``calculate_with``: Run a FeatureGroup class or an Implementation class on data with a FeatureSet.
+- ``calculate_with``: Run a FeatureGroup class or an Implementation class on data with a FeatureSet
+  (``group=`` runs a subclass of the Implementation's group, e.g. a hook).
 - ``feature_group_of``: The FeatureGroup class of a FeatureGroup class or an Implementation class.
 - ``canonical_table_empty``: Canonical table with the same schema and zero rows, for empty-input cases.
 """
@@ -32,11 +33,14 @@ def feature_group_of(plugin: Any) -> Any:
     return plugin
 
 
-def calculate_with(plugin: Any, data: Any, features: FeatureSet) -> Any:
-    """Run a FeatureGroup class or an Implementation class on data with a FeatureSet."""
+def calculate_with(plugin: Any, data: Any, features: FeatureSet, *, group: Any = None) -> Any:
+    """Run a FeatureGroup class or an Implementation class on data with a FeatureSet.
+
+    For an Implementation, ``group`` (default ``plugin.feature_group``) is the group whose loop runs.
+    """
     if isinstance(plugin, type) and issubclass(plugin, Implementation):
         features.implementation = plugin
-        return plugin.feature_group.calculate_feature(data, features)
+        return (group or plugin.feature_group).calculate_feature(data, features)
     return plugin.calculate_feature(data, features)
 
 

@@ -660,6 +660,34 @@ def test_family_base_is_abstract_or_operation_group(cls: Any) -> None:
     )
 
 
+_OPERATION_GROUP_FAMILIES = ("aggregation", "lookup")
+
+
+def test_operation_group_families_are_converted() -> None:
+    converted = {key for key, cls in _real_classes().items() if issubclass(cls, OperationFeatureGroup)}
+    assert set(_OPERATION_GROUP_FAMILIES) <= converted
+
+
+@pytest.mark.parametrize("key", _OPERATION_GROUP_FAMILIES)
+def test_operation_group_manifest_lists_the_group_and_its_implementations(key: str) -> None:
+    """An operation-group family lists its group plus Implementations, one per compute framework."""
+    from mloda.provider import FeatureGroup, Implementation
+
+    spec = next(spec for spec in FAMILIES if spec.key == key)
+    group = _load_class(spec)
+    assert issubclass(group, OperationFeatureGroup)
+    manifest = importlib.import_module(spec.module.removesuffix(".base") + ".manifest")
+    assert group in manifest.FEATURE_GROUPS
+    implementations = [cls for cls in manifest.FEATURE_GROUPS if cls is not group]
+    assert implementations
+    for cls in implementations:
+        assert issubclass(cls, Implementation)
+        assert not issubclass(cls, FeatureGroup)
+        assert cls.feature_group is group
+    frameworks = [cls.compute_framework for cls in implementations]
+    assert len(set(frameworks)) == len(frameworks)
+
+
 def test_every_family_module_is_discovered_on_disk() -> None:
     missing = sorted({spec.module for spec in FAMILIES} - discover_family_base_modules())
     assert missing == [], (

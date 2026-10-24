@@ -1,4 +1,4 @@
-"""Tests for SqliteLookup compute implementation."""
+"""Tests for the SqliteLookup Implementation."""
 
 from __future__ import annotations
 
@@ -7,20 +7,14 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.sqlite_lookup import (
     SqliteLookup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.test_base import (
+    _EmptyMappingHookLookup,
+    _HookLookup,
+)
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
-    EmptyMappingHook,
     LookupTestBase,
-    NutsMappingHook,
 )
-
-
-class SqliteNutsLookup(NutsMappingHook, SqliteLookup):
-    """Hook subclass: matches ``*__nuts2024`` by name and resolves its own mapping."""
-
-
-class _EmptyMappingLookup(EmptyMappingHook, SqliteLookup):
-    """Hook subclass whose resolved mapping is empty (invalid)."""
 
 
 class TestSqliteLookup(SqliteTestMixin, LookupTestBase):
@@ -31,9 +25,9 @@ class TestSqliteLookup(SqliteTestMixin, LookupTestBase):
         return SqliteLookup
 
     @classmethod
-    def hook_implementation_class(cls) -> Any:
-        return SqliteNutsLookup
+    def hook_group_class(cls) -> Any:
+        return _HookLookup
 
     @classmethod
-    def invalid_hook_implementation_class(cls) -> Any:
-        return _EmptyMappingLookup
+    def invalid_hook_group_class(cls) -> Any:
+        return _EmptyMappingHookLookup

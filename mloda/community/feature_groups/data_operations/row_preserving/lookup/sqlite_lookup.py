@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -27,12 +27,17 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarro
 _AFFINITIES: dict[str, str] = {"str": "TEXT", "int": "INTEGER", "float": "REAL", "bool": "INTEGER"}
 
 
-class SqliteLookup(LookupFeatureGroup):
+class SqliteLookup(Implementation[LookupFeatureGroup]):
     """SQLite backend: the mapping goes into a temp table via ``executemany``, LEFT JOINed on the key."""
 
+    feature_group = LookupFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
 
     @classmethod
     def _null_result(

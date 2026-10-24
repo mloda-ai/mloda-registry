@@ -27,7 +27,11 @@ from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    calculate_with,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -70,7 +74,7 @@ HOOK_REASONS: dict[str, str] = {"C300": "discontinued"}
 
 
 class NutsMappingHook:
-    """Hook-path mixin: combine with a framework class, e.g. ``class X(NutsMappingHook, PyArrowLookup)``."""
+    """Hook-path mixin: combine with the group, e.g. ``class X(NutsMappingHook, LookupFeatureGroup)``."""
 
     MAPPING_FROM_OPTION = False
     PREFIX_PATTERN = rf".*__{HOOK_SUFFIX}$"
@@ -152,13 +156,13 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     # -- Hook path configuration -------------------------------------------------
 
     @classmethod
-    def hook_implementation_class(cls) -> Any:
-        """The module-level ``NutsMappingHook`` subclass for this framework, or None to skip hook tests."""
+    def hook_group_class(cls) -> Any:
+        """A ``NutsMappingHook`` subclass of ``LookupFeatureGroup``, or None to skip hook tests."""
         return None
 
     @classmethod
-    def invalid_hook_implementation_class(cls) -> Any:
-        """The module-level ``EmptyMappingHook`` subclass for this framework, or None to skip."""
+    def invalid_hook_group_class(cls) -> Any:
+        """An ``EmptyMappingHook`` subclass of ``LookupFeatureGroup``, or None to skip."""
         return None
 
     @classmethod
@@ -200,12 +204,13 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_lk0__", "__mloda_lv0__"}
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the PyArrow reference Implementation on the canonical table."""
         from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
             PyArrowLookup,
         )
 
-        return PyArrowLookup
+        return calculate_with(PyArrowLookup, table, features)
 
     @classmethod
     def source_arrow_table(cls) -> pa.Table:
@@ -240,7 +245,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         if policy is not None:
             context["on_unmatched"] = policy
         fs = make_feature_set(feature_name, **context)
-        return self.implementation_class().calculate_feature(self.test_data if data is None else data, fs)
+        return calculate_with(self.implementation_class(), self.test_data if data is None else data, fs)
 
     def _unmatched_error(self, feature_name: str, mapping: dict[Any, Any], policy: str | None = None) -> Any:
         with pytest.raises(LookupUnmatchedError) as excinfo:
@@ -327,7 +332,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert_values_with_nulls(self.extract_column(result, "my_result"), NULL_STR_PARTIAL)
 
     # -- on_unmatched="raise" ------------------------------------------------
@@ -378,7 +383,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         table = self.create_test_data(pa.table({"k": pa.array(["K11", *keys, None], type=pa.string())}))
         fs = make_feature_set("k__lookup", lookup_mapping={"zzz": "x"}, on_unmatched="raise")
         with pytest.raises(LookupUnmatchedError) as excinfo:
-            self.implementation_class().calculate_feature(table, fs)
+            calculate_with(self.implementation_class(), table, fs)
         err = excinfo.value
         assert err.unmatched_rows == 13
         assert err.distinct_keys == 12
@@ -541,9 +546,9 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     # -- Hook path --------------------------------------------------------------
 
     def _hook(self) -> Any:
-        hook = self.hook_implementation_class()
+        hook = self.hook_group_class()
         if hook is None:
-            pytest.skip("no hook subclass declared for this framework")
+            pytest.skip("no hook group declared for this framework")
         return hook
 
     def test_hook_matches_by_name_without_mapping_option(self) -> None:
@@ -568,23 +573,23 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_hook_output(self) -> None:
         hook = self._hook()
         fs = make_feature_set(f"product_code__{HOOK_SUFFIX}", on_unmatched="null")
-        result = hook.calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs, group=hook)
         col = self.extract_column(result, f"product_code__{HOOK_SUFFIX}")
         assert_values_with_nulls(col, NULL_STR_PARTIAL)
 
     def test_invalid_hook_mapping_raises_value_error(self) -> None:
-        hook = self.invalid_hook_implementation_class()
+        hook = self.invalid_hook_group_class()
         if hook is None:
-            pytest.skip("no invalid hook subclass declared for this framework")
+            pytest.skip("no invalid hook group declared for this framework")
         fs = make_feature_set("product_code__emptymap", on_unmatched="null")
         with pytest.raises(ValueError, match="invalid lookup mapping"):
-            hook.calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs, group=hook)
 
     def test_hook_reasons_in_error(self) -> None:
         hook = self._hook()
         name = f"product_code__{HOOK_SUFFIX}"
         with pytest.raises(LookupUnmatchedError) as excinfo:
-            hook.calculate_feature(self.test_data, make_feature_set(name))
+            calculate_with(self.implementation_class(), self.test_data, make_feature_set(name), group=hook)
         err = excinfo.value
         assert dict(err.reasons) == HOOK_REASONS
         assert str(err) == (

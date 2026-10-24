@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
@@ -35,12 +35,17 @@ def _source_family(duckdb_type: str) -> str:
     return "other"
 
 
-class DuckdbLookup(LookupFeatureGroup):
+class DuckdbLookup(Implementation[LookupFeatureGroup]):
     """DuckDB backend: the mapping is a registered Arrow relation, LEFT JOINed on the key."""
 
+    feature_group = LookupFeatureGroup
+    compute_framework = DuckDBFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {DuckDBFramework}
+    def calculate(
+        cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
 
     @classmethod
     def _compute_lookup(

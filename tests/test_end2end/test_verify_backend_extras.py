@@ -195,6 +195,13 @@ def test_probe_source_fails_naming_a_class_with_an_unavailable_framework(tmp_pat
     assert "BrokenClass" in result.stdout + result.stderr
 
 
+def test_probe_source_accepts_an_implementation_of_an_operation_group() -> None:
+    """An Implementation has no compute_framework_rule; the probe reads its compute_framework instead."""
+    aggregation = "mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation"
+    result = _run_probe(_fn("probe_source")([(aggregation, "PyArrowAggregation")], []))
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_probe_source_reports_every_failing_class() -> None:
     classes = [("no_such_module_one", "FirstClass"), ("no_such_module_two", "SecondClass")]
     result = _run_probe(_fn("probe_source")(classes, []))
