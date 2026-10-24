@@ -1,10 +1,11 @@
 """Per-op, per-framework capability checks via ``supports_compute_framework`` (issue #247).
 
 mloda core 0.9.0 evaluates ``FeatureGroup.supports_compute_framework(feature_name, options,
-compute_framework)`` per feature at match time. The data_operations backends must override
-it so that operations a backend cannot compute (e.g. ``median`` on SQLite) are rejected at
-match time instead of failing later inside ``calculate_feature``. Backends stay conservative:
-anything they cannot parse into an operation keeps the default ``True``.
+compute_framework)`` per feature at match time. Each operation group's Implementations declare
+capability via ``supported`` / ``accepts``, which the group's ``supports_compute_framework``
+checks, so operations a framework cannot compute (e.g. ``median`` on SQLite) are rejected at
+match time instead of failing later inside ``calculate_feature``. Unparsable feature names stay
+conservative and keep the default ``True``.
 
 The tests import only what the specific framework needs and skip when that framework's
 optional dependency is missing.

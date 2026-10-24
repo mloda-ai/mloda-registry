@@ -65,7 +65,7 @@ The test-side `supported_ops()` is only for test skipping. It does **not** by it
 
 | Declaration | Lives in | Purpose |
 |---|---|---|
-| `Implementation.supported` (or a `_validate_*_match` / `match_feature_group_criteria` override on a per-framework family) | `framework_{op}.py` | Refuses the feature name at resolution time so the mloda engine routes elsewhere (or errors). |
+| `Implementation.supported` / `accepts` | `framework_{op}.py` | Refuses the feature name at resolution time so the mloda engine routes elsewhere (or errors). |
 | `supported_ops()` (or `supported_agg_types`, etc.) | `tests/test_{framework}.py` | Makes the inherited test suite skip the ones the framework does not claim. |
 
 Keep them consistent. If your implementation silently drops an op at runtime but the test class still claims to support it, the suite will fail. If the test class over-restricts, you lose coverage for something you actually implemented.

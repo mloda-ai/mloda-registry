@@ -3,7 +3,7 @@
 The ``data_operations`` package init must export a ``DataOperationsCatalog``
 (implemented in a sibling ``catalog.py``) that describes every built-in data
 operation and its per-framework capability. Capability is derived from the
-mloda core match-time machinery: per concrete production class, a subtype is
+mloda core match-time machinery: per operation group and Implementation, a subtype is
 supported on a framework iff ``match_feature_group_criteria`` is truthy AND
 ``supports_compute_framework`` returns True for that framework. Frameworks
 without an implementation are simply absent from ``OperationInfo.frameworks``.

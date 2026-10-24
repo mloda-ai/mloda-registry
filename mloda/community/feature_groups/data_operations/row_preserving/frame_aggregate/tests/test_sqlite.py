@@ -52,6 +52,8 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
             ("value__cumstd", Options()),
             ("value__expanding_median", Options()),
             *(("value_frame", config_frame_options(t, "rolling")) for t in ("median", "std", "var")),
+            # No frame_type axis: the resolved agg type alone decides.
+            ("totally_unrelated", Options(context={"aggregation_type": "median"})),
         )
 
     @classmethod

@@ -1,7 +1,8 @@
 """Helpers for building entry-point manifests resilient to missing optional backends.
 
-A data_operations plugin package ships one concrete plugin class per compute
-framework, and each backend module top-imports its framework (pandas, polars,
+A data_operations plugin package ships one Implementation per compute
+framework. Each Implementation module top-imports its framework, so a manifest
+must still skip a backend whose optional framework is missing. Each backend module top-imports its framework (pandas, polars,
 duckdb, pyarrow) plus any transitive dependency it imports directly (numpy,
 which pandas_binning.py imports before pandas). mloda's entry-point loader
 skips a whole entry point if importing its manifest raises ImportError,

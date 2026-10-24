@@ -1,9 +1,7 @@
 """Drift check: the framework support matrix doc must match DataOperationsCatalog.
 
 The source of truth for ``docs/guides/data-operation-patterns/framework-support-matrix.md``
-is the production capability declared by each Implementation (its ``supported`` / ``accepts``,
-checked through the group's ``supports_compute_framework`` hook, and match-time restrictions), queried via
-``DataOperationsCatalog``. When ``test_framework_support_matrix_is_in_sync`` fails,
+is each operation group's Implementations, queried via ``DataOperationsCatalog``. When ``test_framework_support_matrix_is_in_sync`` fails,
 regenerate the block between the ``BEGIN GENERATED`` / ``END GENERATED`` markers so it
 matches what this module renders, then rerun.
 """
@@ -140,9 +138,10 @@ def render_generated_block(infos: list[OperationInfo]) -> str:
     out.append("## Summary")
     out.append("")
     out.append(
-        "Cells reflect the production capability declarations (each Implementation's `supported` / "
-        "`accepts`, the group's `supports_compute_framework` hook, and match-time restrictions), queryable via "
-        "`DataOperationsCatalog`. `full` means the framework's production implementation declares "
+        "Cells reflect each operation group's Implementations, queryable via `DataOperationsCatalog`: "
+        "the frameworks are those the loaded Implementations serve, and per-subtype support is each "
+        "Implementation's `supported` and `accepts`, which the group's `supports_compute_framework` "
+        "checks at match time. `full` means the framework's production implementation declares "
         "support for every subtype this operation defines. `partial (k/n)` means it declares k of "
         "the n subtypes and rejects the rest. `--` means no implementation ships for this framework."
     )

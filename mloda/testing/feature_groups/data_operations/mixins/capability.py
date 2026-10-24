@@ -91,18 +91,16 @@ class CapabilityHookTestMixin:
         backend = self.implementation_class()  # type: ignore[attr-defined]
         if not unsupported:
             # Guard the regression: a restriction with no probes would silently vanish.
-            # A non-None set means the backend restricts subtypes and must declare
+            # A non-None set means the Implementation restricts subtypes and must declare
             # capability_unsupported probes. None means unrestricted (nothing to probe).
-            restricted = backend.supported if issubclass(backend, Implementation) else backend.supported_op_subtypes()
-            assert restricted is None, (
-                f"{backend.__name__} declares a subtype restriction on its default axis via "
-                "supported_op_subtypes() (or supported) but ships no capability_unsupported probes; add them"
+            assert backend.supported is None, (
+                f"{backend.__name__} declares a subtype restriction via supported "
+                "but ships no capability_unsupported probes; add them"
             )
             # An accepts override is a restriction too and needs probes.
-            if issubclass(backend, Implementation):
-                assert backend.accepts.__func__ is Implementation.accepts.__func__, (  # type: ignore[attr-defined]
-                    f"{backend.__name__} overrides accepts but ships no capability_unsupported probes; add them"
-                )
+            assert backend.accepts.__func__ is Implementation.accepts.__func__, (  # type: ignore[attr-defined]
+                f"{backend.__name__} overrides accepts but ships no capability_unsupported probes; add them"
+            )
             pytest.skip("backend restricts no subtypes")
 
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
@@ -115,9 +113,6 @@ class CapabilityHookTestMixin:
         """The mixin's framework is one the backend declares and that is installed."""
         backend = self.implementation_class()  # type: ignore[attr-defined]
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
-        if issubclass(backend, Implementation):
-            assert framework is backend.compute_framework
-            assert backend.compute_framework in backend.feature_group.compute_framework_definition()
-        else:
-            assert framework in backend.compute_framework_definition()
+        assert framework is backend.compute_framework
+        assert backend.compute_framework in backend.feature_group.compute_framework_definition()
         assert framework.is_available()

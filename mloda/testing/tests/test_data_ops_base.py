@@ -322,7 +322,9 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
 
 
 def _make_impl(
-    divergent: dict[str, str] | None = None, accepts: Callable[[Any, str, Any], bool] | None = None
+    divergent: dict[str, str] | None = None,
+    accepts: Callable[[Any, str, Any], bool] | None = None,
+    supported: frozenset[str] | None = None,
 ) -> tuple[Any, Any]:
     """A throwaway (group, implementation) pair; use ``_with_probe_impl`` so it is unregistered again."""
     from mloda.provider import Implementation, OperationFeatureGroup
@@ -343,6 +345,8 @@ def _make_impl(
         _ProbeImpl.divergent = divergent
     if accepts is not None:
         _ProbeImpl.accepts = classmethod(accepts)  # type: ignore[method-assign, assignment]
+    if supported is not None:
+        _ProbeImpl.supported = supported
     return _ProbeGroup, _ProbeImpl
 
 
@@ -356,9 +360,10 @@ def _with_probe_impl(
     check: Callable[[Any, Any], None],
     divergent: dict[str, str] | None = None,
     accepts: Callable[[Any, str, Any], bool] | None = None,
+    supported: frozenset[str] | None = None,
 ) -> None:
     """Run ``check(group, impl)`` on a throwaway pair, then drop it and assert the probe is unregistered."""
-    group, impl = _make_impl(divergent, accepts)
+    group, impl = _make_impl(divergent, accepts, supported)
     try:
         check(group, impl)
     finally:
@@ -537,6 +542,17 @@ def test_capability_hook_rejects_fails_for_an_accepts_override_without_probes() 
             pytest.fail("guard skipped instead of asserting for an accepts() override without probes")
 
     _with_probe_impl(check, accepts=lambda cls, feature_name, options: False)
+
+
+def test_capability_hook_rejects_fails_for_a_supported_restriction_without_probes() -> None:
+    def check(_: Any, impl: Any) -> None:
+        try:
+            with pytest.raises(AssertionError, match="supported"):
+                _capability_host(impl).test_mixin_capability_hook_rejects()
+        except pytest.skip.Exception:
+            pytest.fail("guard skipped instead of asserting for a supported restriction without probes")
+
+    _with_probe_impl(check, supported=frozenset({"sum"}))
 
 
 def test_capability_hook_rejects_skips_an_unrestricted_implementation_without_probes() -> None:
