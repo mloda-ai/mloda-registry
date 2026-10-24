@@ -286,7 +286,7 @@ regression_test:
 <!-- machine-checked
 operation: frame_aggregate
 framework: pandas, polars_lazy, duckdb, sqlite, python_dict
-condition: a mask with source_col == order_by in a time frame cannot be simulated natively
+condition: a mask with source_col == order_by in a time frame is rejected on every backend (conservative, no parity test)
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
