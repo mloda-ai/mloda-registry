@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
@@ -11,10 +13,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 )
 
 
-class PolarsLazyDateTimeExtraction(DateTimeFeatureGroup):
+class PolarsLazyDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
+    feature_group = DateTimeFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls, group: type[DateTimeFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.extract_datetime(data, features, compute_datetime=cls._compute_datetime)
 
     @classmethod
     def _compute_datetime(

@@ -20,7 +20,7 @@ from mloda.provider import FeatureSet
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -120,7 +120,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_bin_3_value_int(self) -> None:
         """Equal-width binning of value_int into 3 bins."""
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -131,7 +131,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_null_propagation(self) -> None:
         """EC-013: Null values produce null bin assignments."""
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
         # Row 4 has value_int=None
@@ -140,7 +140,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_bin_values_in_range(self) -> None:
         """All non-null bin values must be in [0, n_bins-1]."""
         fs = make_feature_set("value_int__bin_5")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_5")
         for val in result_col:
@@ -153,7 +153,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """Quantile binning of value_int into 3 bins."""
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -165,7 +165,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """Quantile binning of value_int into 5 bins."""
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_5")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -177,7 +177,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """Null values produce null qbin assignments."""
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert result_col[4] is None
@@ -186,7 +186,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """All non-null qbin values must be in [0, n_bins-1]."""
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_5")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_5")
         for val in result_col:
@@ -222,7 +222,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert all(v == 0 for v in result_col)
@@ -234,7 +234,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert result_col == [0]
@@ -247,7 +247,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         for val in result_col:
@@ -257,7 +257,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_n_bins_zero_rejected(self) -> None:
         """A zero-bin name (bin_0) no longer matches the pattern, so params cannot be extracted."""
         with pytest.raises(ValueError, match="Could not extract binning parameters"):
-            self.implementation_class().get_binning_params("value_int__bin_0")
+            feature_group_of(self.implementation_class()).get_binning_params("value_int__bin_0")
 
     def test_qbin_single_value(self) -> None:
         """Quantile binning with a single value."""
@@ -267,7 +267,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert result_col == [0]
@@ -275,7 +275,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_n_bins_1(self) -> None:
         """n_bins=1: all non-null values should map to bin 0."""
         fs = make_feature_set("value_int__bin_1")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_1")
         for i, val in enumerate(result_col):
@@ -288,7 +288,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """qbin with n_bins=1: all non-null values should map to bin 0."""
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_1")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_1")
         for i, val in enumerate(result_col):
@@ -304,7 +304,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__bin_100")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_100")
         assert len(result_col) == 5
@@ -317,7 +317,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -329,7 +329,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -349,7 +349,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert result_col == [0, 1, 2, 2]
@@ -369,7 +369,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert result_col == [0, None, 1, 2, 2]
@@ -387,7 +387,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         test_data = self.create_test_data(arrow_table)
 
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(test_data, fs)
+        result = calculate_with(self.implementation_class(), test_data, fs)
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert result_col == [0, None, 0, 1, 2]
@@ -411,7 +411,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_bin_result")
         assert result_col == EXPECTED_BIN_3
@@ -434,7 +434,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Row-order preservation ------------------------------------------------
 
@@ -449,7 +449,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_3")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(
@@ -471,7 +471,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         Compares (value_int, category) tuples to detect tied-row swaps.
         """
         fs = make_feature_set("value_int__bin_3")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(

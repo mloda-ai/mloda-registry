@@ -10,6 +10,8 @@ feature group, then inherit the concrete test methods for free:
 - plugin discovery tests (discoverable + blocked when disabled)
 - pattern matching tests (valid names, invalid names, missing config)
 - an abstract family base is never selected without an implementation
+- an OperationFeatureGroup is rejected when none of its compute frameworks is enabled
+- an OperationFeatureGroup runs when several compute frameworks are enabled
 
 Usage::
 
@@ -32,7 +34,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import pytest
-from mloda.provider import FeatureGroup
+from mloda.provider import FeatureGroup, OperationFeatureGroup
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.data_creator.base import column_selective
@@ -271,6 +273,51 @@ class DataOpsIntegrationTestBase(ABC):
                 plugin_collector=plugin_collector,
             )
         assert excinfo.value.result.failure_kind == "abstract_only"
+
+    def _skip_unless_operation_group(self) -> None:
+        if not issubclass(self.feature_group_class(), OperationFeatureGroup):
+            pytest.skip("feature group is not an OperationFeatureGroup")
+
+    def test_group_is_rejected_when_none_of_its_frameworks_is_enabled(self) -> None:
+        """An operation group with a loaded Implementation fails on a framework it has no Implementation for."""
+        self._skip_unless_operation_group()
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
+
+        from mloda.testing.data_creator.polars import PolarsDataOpsTestDataCreator
+
+        group = self.feature_group_class()
+        frameworks = group.compute_framework_definition()
+        assert frameworks, f"{group.__name__} has no loaded Implementation"
+        if PolarsDataFrame in frameworks:
+            pytest.skip("eager Polars is served by this group")
+
+        plugin_collector = PluginCollector.enabled_feature_groups({PolarsDataOpsTestDataCreator, group})
+        feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())
+        with pytest.raises(FeatureResolutionError) as excinfo:
+            mloda.run_all([feature], compute_frameworks=[PolarsDataFrame], plugin_collector=plugin_collector)
+        message = str(excinfo.value)
+        assert group.__name__ in message
+        assert "none of its compute frameworks are enabled" in message
+
+    def test_several_frameworks_enabled_runs_the_primary_feature(self) -> None:
+        """Enabling a second framework still resolves one group; the values match whichever frame comes back."""
+        self._skip_unless_operation_group()
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        name = self.primary_feature_name()
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {self.data_creator_class(), self.feature_group_class()}
+        )
+        results = mloda.run_all(
+            [self._make_feature(name, self.primary_feature_options())],
+            compute_frameworks=list(dict.fromkeys([self.compute_framework_class(), PandasDataFrame])),
+            plugin_collector=plugin_collector,
+        )
+        frames = [frame for frame in results if name in result_column_names(frame)]
+        assert len(frames) == 1
+        self._assert_values_equal(extract_column(frames[0], name), self.primary_expected_values())
 
     def test_match_feature_group_criteria_valid(self) -> None:
         """Verify match_feature_group_criteria accepts valid feature names."""

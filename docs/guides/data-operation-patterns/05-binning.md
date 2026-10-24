@@ -2,7 +2,7 @@
 
 Binning maps a numeric column onto integer bucket indices `0..n-1`. Two variants ship: equal-width (`bin`) and quantile-based (`qbin`).
 
-**What**: `BinningFeatureGroup` accepts feature names of the form `{col}__bin_{N}` or `{col}__qbin_{N}`.
+**What**: `BinningFeatureGroup` (an `OperationFeatureGroup` whose loop is `assign_bins`) accepts feature names of the form `{col}__bin_{N}` or `{col}__qbin_{N}`; each backend (`PandasBinning`, `DuckdbBinning`, ...) is an `Implementation` of it.
 **When**: You need discretization for downstream grouping, charting, or model features.
 **Why**: Both operations are standard, but implementing them identically across frameworks is non-trivial because of NTILE reordering and NULL propagation.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/binning/`.

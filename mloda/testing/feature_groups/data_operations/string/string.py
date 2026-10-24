@@ -28,7 +28,7 @@ from mloda.provider import FeatureSet
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -169,7 +169,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         """Convert name column to uppercase."""
         self._skip_if_unsupported("upper")
         fs = make_feature_set("name__upper")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -181,7 +181,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         """Convert name column to lowercase."""
         self._skip_if_unsupported("lower")
         fs = make_feature_set("name__lower")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "name__lower")
@@ -190,7 +190,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
     def test_trim(self) -> None:
         """Strip whitespace from name column."""
         fs = make_feature_set("name__trim")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "name__trim")
@@ -199,7 +199,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
     def test_length(self) -> None:
         """Get length of name column values."""
         fs = make_feature_set("name__length")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "name__length")
@@ -209,7 +209,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         """Reverse name column values."""
         self._skip_if_unsupported("reverse")
         fs = make_feature_set("name__reverse")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "name__reverse")
@@ -221,7 +221,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         """Rows 2 and 11 have null names. All supported string ops should return None."""
         for op in sorted(self.supported_ops()):
             fs = make_feature_set(f"name__{op}")
-            result = self.implementation_class().calculate_feature(self.test_data, fs)
+            result = calculate_with(self.implementation_class(), self.test_data, fs)
             result_col = self.extract_column(result, f"name__{op}")
             assert result_col[2] is None, f"Expected None at row 2 for {op}, got {result_col[2]}"
             assert result_col[11] is None, f"Expected None at row 11 for {op}, got {result_col[11]}"
@@ -232,21 +232,21 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         """Row 3 has empty string. Upper of empty string is empty string."""
         self._skip_if_unsupported("upper")
         fs = make_feature_set("name__upper")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, "name__upper")
         assert result_col[3] == ""
 
     def test_empty_string_length(self) -> None:
         """Row 3 has empty string. Length of empty string is 0."""
         fs = make_feature_set("name__length")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, "name__length")
         assert result_col[3] == 0
 
     def test_whitespace_trim(self) -> None:
         """Row 4 has ' Eve ' and row 8 has '  '. Trim should strip whitespace."""
         fs = make_feature_set("name__trim")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, "name__trim")
         assert result_col[4] == "Eve"
         assert result_col[8] == ""
@@ -289,7 +289,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         )
         data = self.create_test_data(table)
         fs = make_feature_set("name__upper")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "name__upper")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -303,7 +303,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         )
         data = self.create_test_data(table)
         fs = make_feature_set("name__length")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "name__length")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -327,7 +327,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_upper")
         assert result_col == self.expected_upper()

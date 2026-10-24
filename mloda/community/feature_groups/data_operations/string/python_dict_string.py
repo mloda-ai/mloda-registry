@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -351,10 +351,15 @@ def _lower(value: str) -> str:
     return "".join(_LOWER_OVERRIDES.get(ch, ch.lower()) for ch in value)
 
 
-class PythonDictStringOps(StringFeatureGroup):
+class PythonDictStringOps(Implementation[StringFeatureGroup]):
+    feature_group = StringFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls, group: type[StringFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.transform_string(data, features, compute_string=cls._compute_string)
 
     @classmethod
     def _compute_string(

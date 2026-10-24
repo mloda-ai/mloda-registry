@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -11,6 +11,8 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
 from mloda.user import DataType, Feature
@@ -35,7 +37,8 @@ DATETIME_OPS = {
 }
 
 
-class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+# FeatureGroup is listed so the mixin stays ahead of it in the MRO.
+class DateTimeFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
     """Base class for element-wise datetime extraction operations.
 
     Extracts scalar integer components from datetime columns. The output
@@ -81,14 +84,10 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             ),
         )
 
-    ## Backend Contract
+    ## Reference Contract
 
-    Subclasses must implement ``_compute_datetime`` and must:
-
-    1. Handle all operation keys from ``DATETIME_OPS``
-    2. Propagate null timestamps as null output values
-    3. Use the Python dayofweek convention (0=Monday, 6=Sunday)
-    4. Return a result with the same row count as the input
+    Null input gives null output; the PyArrow implementation is the reference. Row count and order are
+    preserved. ``dayofweek`` uses 0=Monday, 6=Sunday. Every op declares INT64.
     """
 
     PREFIX_PATTERN = r".*__(year|month|day|hour|minute|second|dayofweek|is_weekend|quarter)$"
@@ -97,6 +96,8 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     MAX_IN_FEATURES = 1
 
     DATETIME_OP = "datetime_op"
+
+    SUBTYPES = SubtypeDeclaration(key=DATETIME_OP)
 
     PROPERTY_MAPPING = {
         DATETIME_OP: property_spec(
@@ -142,7 +143,14 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return DataType.INT64
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def extract_datetime(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_datetime: Callable[[Any, str, str, str], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_datetime``."""
         table = data
 
         for feature in features.features:
@@ -152,32 +160,6 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             assert_source_columns_present(data, [source_col])
             op = cls._extract_datetime_op(feature)
 
-            table = cls._compute_datetime(table, feature_name, source_col, op)
+            table = compute_datetime(table, feature_name, source_col, op)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_datetime(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        op: str,
-    ) -> Any:
-        """Subclasses must implement the actual datetime extraction.
-
-        Args:
-            data: Framework-native data (e.g. pa.Table, pd.DataFrame).
-            feature_name: Name for the new output column.
-            source_col: Name of the source datetime column.
-            op: One of the keys in ``DATETIME_OPS`` (e.g. "year", "dayofweek").
-
-        Returns:
-            The input data with the new column appended.
-
-        Contract:
-            - Null timestamps must produce null output.
-            - ``dayofweek`` must use 0=Monday, 6=Sunday convention.
-            - Output must have the same row count as input.
-        """

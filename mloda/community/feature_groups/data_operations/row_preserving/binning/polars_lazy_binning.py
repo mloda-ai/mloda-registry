@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
@@ -11,10 +13,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.base 
 )
 
 
-class PolarsLazyBinning(BinningFeatureGroup):
+class PolarsLazyBinning(Implementation[BinningFeatureGroup]):
+    feature_group = BinningFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
 
     @classmethod
     def _compute_binning(

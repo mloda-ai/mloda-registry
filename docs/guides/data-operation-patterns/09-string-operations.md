@@ -67,19 +67,12 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 | DuckDB | `UPPER`, `LOWER`, `TRIM`, `LENGTH`, `REVERSE` |
 | SQLite | `TRIM`, `LENGTH` only |
 
-SQLite refuses to match `upper`, `lower`, and `reverse` at resolution time. `UPPER`/`LOWER` are ASCII-only in SQLite and would diverge from the PyArrow reference on non-ASCII input; `REVERSE` has no native function. Rather than silently producing divergent results or emulating in SQL, the SQLite feature group excludes all three:
+SQLite refuses to match `upper`, `lower`, and `reverse` at resolution time. `UPPER`/`LOWER` are ASCII-only in SQLite and would diverge from the PyArrow reference on non-ASCII input; `REVERSE` has no native function. Rather than silently producing divergent results or emulating in SQL, the `SqliteStringOps` Implementation excludes all three through `supported`:
 
 ```py
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
-_SQLITE_STRING_EXPRS: dict[str, str] = {
-    "trim": "TRIM({col})",
-    "length": "LENGTH({col})",
-}
-
-
-@classmethod
-def _validate_string_match(cls, feature_name, operation_config, source_feature) -> bool:
-    return operation_config in _SQLITE_STRING_EXPRS
+class SqliteStringOps(Implementation[StringFeatureGroup]):
+    supported = frozenset({"trim", "length"})
 ```
 
 The SQLite test class mirrors the restriction:
@@ -91,7 +84,7 @@ class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
         return {"trim", "length"}
 ```
 
-If you request `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]`, the SQLite feature group will not match and the engine falls back to resolving the feature elsewhere (or errors). See [Supported ops](04-supported-ops.md) for how this pattern generalizes.
+If you request `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]`, the group rejects the feature on SQLite at match time (`supports_compute_framework`), name and config form alike, so it will not match and the engine falls back to resolving the feature elsewhere (or errors). See [Supported ops](04-supported-ops.md) for how this pattern generalizes.
 
 ---
 

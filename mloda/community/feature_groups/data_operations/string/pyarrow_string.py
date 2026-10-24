@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.string.base import (
@@ -20,10 +22,15 @@ _PYARROW_STRING_FUNCS: dict[str, str] = {
 }
 
 
-class PyArrowStringOps(StringFeatureGroup):
+class PyArrowStringOps(Implementation[StringFeatureGroup]):
+    feature_group = StringFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[StringFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.transform_string(data, features, compute_string=cls._compute_string)
 
     @classmethod
     def _compute_string(

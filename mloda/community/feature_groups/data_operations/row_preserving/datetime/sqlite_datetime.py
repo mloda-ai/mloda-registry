@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -27,10 +29,15 @@ _SQLITE_DATETIME_EXPRS: dict[str, str] = {
 }
 
 
-class SqliteDateTimeExtraction(DateTimeFeatureGroup):
+class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
+    feature_group = DateTimeFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls, group: type[DateTimeFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.extract_datetime(data, features, compute_datetime=cls._compute_datetime)
 
     @classmethod
     def _compute_datetime(

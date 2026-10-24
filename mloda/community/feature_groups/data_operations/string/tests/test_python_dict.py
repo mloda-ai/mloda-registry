@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.string.pyarrow_string import
 from mloda.community.feature_groups.data_operations.string.python_dict_string import (
     PythonDictStringOps,
 )
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
@@ -56,10 +56,10 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
         data = self.create_test_data(table)
         fs = make_feature_set("name__upper")
 
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         result_col = self.extract_column(result, "name__upper")
 
-        reference = PyArrowStringOps().calculate_feature(table, fs)
+        reference = calculate_with(PyArrowStringOps, table, fs)
         reference_col = extract_column(reference, "name__upper")
 
         assert result_col == reference_col == ["STRAẞE"], (
@@ -76,10 +76,10 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
         data = self.create_test_data(table)
         fs = make_feature_set("name__lower")
 
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         result_col = self.extract_column(result, "name__lower")
 
-        reference = PyArrowStringOps().calculate_feature(table, fs)
+        reference = calculate_with(PyArrowStringOps, table, fs)
         reference_col = extract_column(reference, "name__lower")
 
         assert result_col == reference_col == ["istanbul"], (
@@ -105,10 +105,10 @@ class TestPythonDictStringCaseMappingDriftCheck:
         fs = make_feature_set("name__upper")
 
         data = {"name": list(chars)}
-        result = PythonDictStringOps.calculate_feature(data, fs)
+        result = calculate_with(PythonDictStringOps, data, fs)
         result_col = extract_column(result, "name__upper")
 
-        reference = PyArrowStringOps().calculate_feature(table, fs)
+        reference = calculate_with(PyArrowStringOps, table, fs)
         reference_col = extract_column(reference, "name__upper")
 
         mismatches = [
@@ -124,10 +124,10 @@ class TestPythonDictStringCaseMappingDriftCheck:
         fs = make_feature_set("name__lower")
 
         data = {"name": list(chars)}
-        result = PythonDictStringOps.calculate_feature(data, fs)
+        result = calculate_with(PythonDictStringOps, data, fs)
         result_col = extract_column(result, "name__lower")
 
-        reference = PyArrowStringOps().calculate_feature(table, fs)
+        reference = calculate_with(PyArrowStringOps, table, fs)
         reference_col = extract_column(reference, "name__lower")
 
         mismatches = [

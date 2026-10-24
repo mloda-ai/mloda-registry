@@ -291,7 +291,7 @@ class PandasOnlyGroup(FeatureGroup):
         return {PandasDataFrame}
 ```
 
-`None` (the default) allows any framework. Aggregation, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset and percentile are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
+`None` (the default) allows any framework. Aggregation, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset, percentile, string, datetime and binning are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
 
 ## Column-Wise Data Hooks
 
@@ -378,6 +378,7 @@ A hook that is not a `@classmethod` or `@staticmethod` counts as missing: `cls._
 | [row_preserving/rank/pandas_rank.py](../../../mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py) | `PandasRank`, with `divergent` |
 | [row_preserving/offset/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/offset/base.py) | `OffsetFeatureGroup`, shared `offset` loop, `SUBTYPES` with parametric families |
 | [row_preserving/percentile/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/percentile/base.py) | `PercentileFeatureGroup`, shared `percentile` loop |
+| [string/sqlite_string.py](../../../mloda/community/feature_groups/data_operations/string/sqlite_string.py) | `SqliteStringOps`, with `supported` |
 | [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
 | [core aggregated_feature_group/pandas.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pandas.py) | Core's Pandas Implementation |
 | [core aggregated_feature_group/pyarrow.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pyarrow.py) | Core's PyArrow Implementation |

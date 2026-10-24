@@ -14,9 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-import pytest
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
-from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
+from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
@@ -38,7 +36,7 @@ class TestStringIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowStringOps
+        return StringFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -93,7 +91,12 @@ class TestStringIntegration(DataOpsIntegrationTestBase):
     def test_match_rejects_missing_config(self) -> None:
         """String uses pattern-based matching. A non-pattern name without config should fail."""
         options = Options()
-        assert not PyArrowStringOps.match_feature_group_criteria("my_custom_result", options)
+        assert not StringFeatureGroup.match_feature_group_criteria("my_custom_result", options)
+
+    def test_pyarrow_implementation_serves_the_group(self) -> None:
+        implementation: Any = PyArrowStringOps
+        assert implementation.feature_group is StringFeatureGroup
+        assert implementation.compute_framework is PyArrowTable
 
 
 class TestIntegrationMultipleFeatures:
@@ -101,7 +104,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_upper_and_lower_together(self) -> None:
         """Request both upper and lower features in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowStringOps})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, StringFeatureGroup})
 
         f_upper = Feature("name__upper", options=Options())
         f_lower = Feature("name__lower", options=Options())
@@ -159,7 +162,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_trim_and_length_together(self) -> None:
         """Request trim and length features in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowStringOps})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, StringFeatureGroup})
 
         f_trim = Feature("name__trim", options=Options())
         f_length = Feature("name__length", options=Options())
@@ -208,7 +211,7 @@ class TestConfigBasedExecution:
 
     def test_config_based_upper_through_pipeline(self) -> None:
         """Run a config-based upper feature (non-pattern name) through run_all."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowStringOps})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, StringFeatureGroup})
 
         feature = Feature(
             "uppercased_name",
@@ -254,7 +257,7 @@ class TestConfigBasedExecution:
 
     def test_config_based_lower_through_pipeline(self) -> None:
         """Run a config-based lower feature (non-pattern name) through run_all."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowStringOps})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, StringFeatureGroup})
 
         feature = Feature(
             "lowered_name",
@@ -297,42 +300,3 @@ class TestConfigBasedExecution:
                 found = True
 
         assert found, "lowered_name result not found in any result table"
-
-
-class _PolarsNameCreator(FeatureGroup):
-    """Local source serving a string column on eager Polars."""
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"name"})
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        import polars as pl
-
-        return pl.DataFrame({"name": ["a", "b"]})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
-
-        return {PolarsDataFrame}
-
-
-class TestStringBaseNotSelectedOnUnsupportedFramework:
-    """The string base must not be selected on a framework without an implementation."""
-
-    def test_upper_on_eager_polars_fails_resolution(self) -> None:
-        pytest.importorskip("polars")
-        from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
-
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {_PolarsNameCreator, StringFeatureGroup, PyArrowStringOps}
-        )
-        with pytest.raises(FeatureResolutionError) as excinfo:
-            mloda.run_all(
-                [Feature("name__upper", options=Options())],
-                compute_frameworks=[PolarsDataFrame],
-                plugin_collector=plugin_collector,
-            )
-        assert excinfo.value.result.failure_kind == "abstract_only"

@@ -12,7 +12,7 @@ duckdb = pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.binning.duckdb_binning import (
     DuckdbBinning,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
@@ -59,7 +59,7 @@ class TestDuckdbBinning(ReservedColumnsTestMixin, DuckdbTestMixin, BinningTestBa
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
         )
-        result = self.implementation_class().calculate_feature(colliding_data, fs)
+        result = calculate_with(self.implementation_class(), colliding_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         column_names = result.to_arrow_table().column_names

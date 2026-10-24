@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -11,6 +11,8 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
 from mloda.user import DataType, Feature
@@ -31,19 +33,14 @@ STRING_OPS = {
 }
 
 
-class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+# FeatureGroup is listed so the mixin stays ahead of it in the MRO.
+class StringFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
     """Base class for element-wise string operations that preserve row count.
 
     String operations transform a single string column element by element.
     The output always has the same number of rows as the input.
 
     Supported operations: upper, lower, trim, length, reverse.
-
-    Not every compute framework supports every operation. For example,
-    SQLite has no native ``REVERSE`` function, so ``SqliteStringOps``
-    restricts its supported set via ``_validate_string_match``.
-    SQLite's ``UPPER``/``LOWER`` only handle ASCII characters;
-    non-ASCII accented characters are not transformed.
 
     Feature Creation Methods
     ------------------------
@@ -67,6 +64,12 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                     "in_features": "name",
                 }),
             )
+
+    Reference Contract
+    ------------------
+
+    Null input gives null output; the PyArrow implementation is the reference. Row count and order are
+    preserved. ``length`` declares INT64. SQLite serves only trim and length (``SqliteStringOps.supported``).
     """
 
     PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
@@ -75,6 +78,8 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     MAX_IN_FEATURES = 1
 
     STRING_OP = "string_op"
+
+    SUBTYPES = SubtypeDeclaration(key=STRING_OP)
 
     PROPERTY_MAPPING = {
         STRING_OP: property_spec(
@@ -130,8 +135,14 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Shared loop: extract params from each feature, delegate to _compute_string."""
+    def transform_string(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_string: Callable[[Any, str, str, str], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_string``."""
         table = data
 
         for feature in features.features:
@@ -141,17 +152,6 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             assert_source_columns_present(data, [source_col])
             op = cls._extract_string_op(feature)
 
-            table = cls._compute_string(table, feature_name, source_col, op)
+            table = compute_string(table, feature_name, source_col, op)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_string(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        op: str,
-    ) -> Any:
-        """Subclasses must implement the actual string computation."""

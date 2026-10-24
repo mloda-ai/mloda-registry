@@ -6,9 +6,11 @@ avoiding row-by-row Python loops for performance on large datasets.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
@@ -16,10 +18,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 )
 
 
-class PyArrowDateTimeExtraction(DateTimeFeatureGroup):
+class PyArrowDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
+    feature_group = DateTimeFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[DateTimeFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.extract_datetime(data, features, compute_datetime=cls._compute_datetime)
 
     @classmethod
     def _compute_datetime(

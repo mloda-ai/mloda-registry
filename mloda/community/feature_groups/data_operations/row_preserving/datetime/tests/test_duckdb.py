@@ -17,6 +17,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.duckdb_datetime import (
     DuckdbDateTimeExtraction,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
@@ -82,7 +83,7 @@ class TestDuckdbTimezoneBoundary:
         """Day extraction near midnight should reflect UTC day, not local day."""
         data = self._make_boundary_data()
         fs = self._make_feature_set("timestamp__day")
-        result = DuckdbDateTimeExtraction.calculate_feature(data, fs)
+        result = calculate_with(DuckdbDateTimeExtraction, data, fs)
         days = self._extract_column(result, "timestamp__day")
         assert days == [15, 16, 31, 1]
 
@@ -90,7 +91,7 @@ class TestDuckdbTimezoneBoundary:
         """Hour extraction near midnight should reflect UTC hour."""
         data = self._make_boundary_data()
         fs = self._make_feature_set("timestamp__hour")
-        result = DuckdbDateTimeExtraction.calculate_feature(data, fs)
+        result = calculate_with(DuckdbDateTimeExtraction, data, fs)
         hours = self._extract_column(result, "timestamp__hour")
         assert hours == [23, 0, 23, 0]
 
@@ -98,7 +99,7 @@ class TestDuckdbTimezoneBoundary:
         """Year extraction at year boundary should reflect UTC year."""
         data = self._make_boundary_data()
         fs = self._make_feature_set("timestamp__year")
-        result = DuckdbDateTimeExtraction.calculate_feature(data, fs)
+        result = calculate_with(DuckdbDateTimeExtraction, data, fs)
         years = self._extract_column(result, "timestamp__year")
         assert years == [2023, 2023, 2023, 2024]
 
@@ -106,7 +107,7 @@ class TestDuckdbTimezoneBoundary:
         """Month extraction at year boundary should reflect UTC month."""
         data = self._make_boundary_data()
         fs = self._make_feature_set("timestamp__month")
-        result = DuckdbDateTimeExtraction.calculate_feature(data, fs)
+        result = calculate_with(DuckdbDateTimeExtraction, data, fs)
         months = self._extract_column(result, "timestamp__month")
         assert months == [6, 6, 12, 1]
 
@@ -117,7 +118,7 @@ class TestDuckdbTimezoneBoundary:
         """
         data = self._make_boundary_data()
         fs = self._make_feature_set("timestamp__dayofweek")
-        result = DuckdbDateTimeExtraction.calculate_feature(data, fs)
+        result = calculate_with(DuckdbDateTimeExtraction, data, fs)
         dows = self._extract_column(result, "timestamp__dayofweek")
         assert dows == [3, 4, 6, 0]
 
@@ -125,6 +126,6 @@ class TestDuckdbTimezoneBoundary:
         """Quarter extraction at year boundary should reflect UTC quarter."""
         data = self._make_boundary_data()
         fs = self._make_feature_set("timestamp__quarter")
-        result = DuckdbDateTimeExtraction.calculate_feature(data, fs)
+        result = calculate_with(DuckdbDateTimeExtraction, data, fs)
         quarters = self._extract_column(result, "timestamp__quarter")
         assert quarters == [2, 2, 4, 1]

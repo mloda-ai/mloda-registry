@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.string.base import (
@@ -11,10 +13,15 @@ from mloda.community.feature_groups.data_operations.string.base import (
 )
 
 
-class PolarsLazyStringOps(StringFeatureGroup):
+class PolarsLazyStringOps(Implementation[StringFeatureGroup]):
+    feature_group = StringFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls, group: type[StringFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.transform_string(data, features, compute_string=cls._compute_string)
 
     @classmethod
     def _compute_string(

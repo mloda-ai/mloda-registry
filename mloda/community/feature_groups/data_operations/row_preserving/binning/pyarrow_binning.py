@@ -6,7 +6,7 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
@@ -14,10 +14,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.base 
 )
 
 
-class PyArrowBinning(BinningFeatureGroup):
+class PyArrowBinning(Implementation[BinningFeatureGroup]):
+    feature_group = BinningFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
 
     @classmethod
     def _compute_binning(

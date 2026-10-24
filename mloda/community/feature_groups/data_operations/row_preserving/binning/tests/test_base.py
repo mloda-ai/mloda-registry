@@ -6,13 +6,16 @@ import logging
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BINNING_OPS,
     BinningFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestClassAttributes:
@@ -30,6 +33,93 @@ class TestClassAttributes:
 
     def test_max_in_features_is_one(self) -> None:
         assert BinningFeatureGroup.MAX_IN_FEATURES == 1
+
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestBinningOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return BinningFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.binning"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_binning",
+                "PyArrowBinning",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_binning",
+                "PandasBinning",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_binning",
+                "PolarsLazyBinning",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "duckdb",
+                "duckdb_binning",
+                "DuckdbBinning",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_binning",
+                "SqliteBinning",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_binning",
+                "PythonDictBinning",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "binning_op"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "assign_bins"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_binning"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("value_int__bin_3")
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("value__bin_5", "bin"), ("value__qbin_3", "qbin")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return [("my_result", Options(context={"binning_op": "qbin", "n_bins": 3, "in_features": "value"}), "qbin")]
 
 
 class TestPatternMatching:

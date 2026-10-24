@@ -5,13 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.string.base import (
     STRING_OPS,
     StringFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestStringOpsRegistry:
@@ -19,6 +22,94 @@ class TestStringOpsRegistry:
         expected_ops = {"upper", "lower", "trim", "length", "reverse"}
         for op in expected_ops:
             assert op in STRING_OPS, f"Missing operation: {op}"
+
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestStringOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return StringFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.string"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_string",
+                "PyArrowStringOps",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_string",
+                "PandasStringOps",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_string",
+                "PolarsLazyStringOps",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "duckdb",
+                "duckdb_string",
+                "DuckdbStringOps",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_string",
+                "SqliteStringOps",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+                supported=frozenset({"trim", "length"}),
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_string",
+                "PythonDictStringOps",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "string_op"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "transform_string"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_string"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("name__upper")
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("name__upper", "upper"), ("name__length", "length")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return [("my_result", Options(context={"string_op": "lower", "in_features": "name"}), "lower")]
 
 
 class TestPatternMatching:

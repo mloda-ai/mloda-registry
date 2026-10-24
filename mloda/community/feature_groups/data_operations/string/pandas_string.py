@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.string.base import (
@@ -11,10 +13,15 @@ from mloda.community.feature_groups.data_operations.string.base import (
 )
 
 
-class PandasStringOps(StringFeatureGroup):
+class PandasStringOps(Implementation[StringFeatureGroup]):
+    feature_group = StringFeatureGroup
+    compute_framework = PandasDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls, group: type[StringFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.transform_string(data, features, compute_string=cls._compute_string)
 
     @classmethod
     def _compute_string(

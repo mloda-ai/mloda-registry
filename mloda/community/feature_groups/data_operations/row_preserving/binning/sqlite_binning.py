@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -12,10 +14,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.base 
 )
 
 
-class SqliteBinning(BinningFeatureGroup):
+class SqliteBinning(Implementation[BinningFeatureGroup]):
+    feature_group = BinningFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
 
     @classmethod
     def _compute_binning(

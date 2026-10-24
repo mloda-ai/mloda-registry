@@ -5,13 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DATETIME_OPS,
     DateTimeFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestClassAttributes:
@@ -29,6 +32,93 @@ class TestClassAttributes:
 
     def test_max_in_features_is_one(self) -> None:
         assert DateTimeFeatureGroup.MAX_IN_FEATURES == 1
+
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestDateTimeOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return DateTimeFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.datetime"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_datetime",
+                "PyArrowDateTimeExtraction",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_datetime",
+                "PandasDateTimeExtraction",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_datetime",
+                "PolarsLazyDateTimeExtraction",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "duckdb",
+                "duckdb_datetime",
+                "DuckdbDateTimeExtraction",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_datetime",
+                "SqliteDateTimeExtraction",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_datetime",
+                "PythonDictDateTimeExtraction",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "datetime_op"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "extract_datetime"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_datetime"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("timestamp__year")
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("ts__dayofweek", "dayofweek"), ("ts__year", "year")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return [("my_result", Options(context={"datetime_op": "month", "in_features": "ts"}), "month")]
 
 
 class TestPatternMatching:

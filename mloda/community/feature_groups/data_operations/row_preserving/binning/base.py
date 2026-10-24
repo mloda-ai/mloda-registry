@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -11,6 +11,8 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
 from mloda.user import DataType, Feature
@@ -32,7 +34,19 @@ BINNING_OPS = {
 }
 
 
-class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+# FeatureGroup is listed so the mixin stays ahead of it in the MRO.
+class BinningFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, FeatureGroup):
+    """Base class for element-wise binning operations that preserve row count.
+
+    Supported operations: ``bin`` (equal-width) and ``qbin`` (quantile).
+
+    Reference Contract
+    ------------------
+
+    Null input gives null output; the PyArrow implementation is the reference. Row count and order are
+    preserved. ``bin`` and ``qbin`` declare INT64.
+    """
+
     PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
 
     MIN_IN_FEATURES = 1
@@ -40,6 +54,8 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     BINNING_OP = "binning_op"
     N_BINS = "n_bins"
+
+    SUBTYPES = SubtypeDeclaration(key=BINNING_OP)
 
     PROPERTY_MAPPING = {
         BINNING_OP: property_spec(
@@ -134,7 +150,14 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def assign_bins(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_binning: Callable[[Any, str, str, str, int], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_binning``."""
         table = data
 
         for feature in features.features:
@@ -144,17 +167,6 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             assert_source_columns_present(data, [source_col])
             op, n_bins = cls._extract_binning_params(feature)
 
-            table = cls._compute_binning(table, feature_name, source_col, op, n_bins)
+            table = compute_binning(table, feature_name, source_col, op, n_bins)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_binning(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        op: str,
-        n_bins: int,
-    ) -> Any: ...

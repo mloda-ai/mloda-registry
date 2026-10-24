@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -23,10 +23,15 @@ _DUCKDB_STRING_EXPRS: dict[str, str] = {
 }
 
 
-class DuckdbStringOps(StringFeatureGroup):
+class DuckdbStringOps(Implementation[StringFeatureGroup]):
+    feature_group = StringFeatureGroup
+    compute_framework = DuckDBFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {DuckDBFramework}
+    def calculate(
+        cls, group: type[StringFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.transform_string(data, features, compute_string=cls._compute_string)
 
     @classmethod
     def _compute_string(

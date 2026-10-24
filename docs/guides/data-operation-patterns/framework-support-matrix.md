@@ -296,7 +296,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 The three divergence kinds in [Known divergences](known-divergences.md) map to the detail tables as follows:
 
-- **Excluded subtype → ✗** (SQLite `upper` / `lower` / `reverse`, SQLite `percentile`, PyArrow aggregation/window `median` / `mode`): the framework has a test class for this operation, but the implementation refuses to match at resolution time (for aggregation, through `Implementation.supported`) and the test class's `supported_*()` override mirrors the refusal so inherited tests skip cleanly.
+- **Excluded subtype → ✗** (SQLite `upper` / `lower` / `reverse`, SQLite `percentile`, PyArrow aggregation/window `median` / `mode`): the framework has a test class for this operation, but the implementation refuses to match at resolution time (for aggregation and string, through `Implementation.supported`) and the test class's `supported_*()` override mirrors the refusal so inherited tests skip cleanly.
 - **Missing framework → `--`** (PyArrow `frame_aggregate`, `offset`, `percentile`, `rank`): no production implementation exists, and the framework has no test class for the operation. The operation requires native rolling / LAG / percentile / rank that PyArrow does not provide, and the reference implementation lives in pure Python over PyArrow arrays. Adding it requires a real framework implementation, not just relaxing an exclusion.
 - **Tolerance constrained, not marked**: float-accumulation tolerance is not exposed as ✗ or `--`; it shows up as `use_approx=True` on the relevant cross-framework assertions. See the "Float accumulation order" entry in Known divergences.
 

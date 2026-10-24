@@ -39,7 +39,7 @@ from mloda.provider import FeatureSet
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -162,7 +162,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_year_extraction(self) -> None:
         """Extract year from timestamp column."""
         fs = make_feature_set("timestamp__year")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -173,7 +173,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_month_extraction(self) -> None:
         """Extract month from timestamp column."""
         fs = make_feature_set("timestamp__month")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__month")
@@ -182,7 +182,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_day_extraction(self) -> None:
         """Extract day from timestamp column."""
         fs = make_feature_set("timestamp__day")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__day")
@@ -191,7 +191,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_hour_extraction(self) -> None:
         """Extract hour from timestamp column."""
         fs = make_feature_set("timestamp__hour")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__hour")
@@ -200,7 +200,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_minute_extraction(self) -> None:
         """Extract minute from timestamp column."""
         fs = make_feature_set("timestamp__minute")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__minute")
@@ -209,7 +209,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_second_extraction(self) -> None:
         """Extract second from timestamp column."""
         fs = make_feature_set("timestamp__second")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__second")
@@ -218,7 +218,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_dayofweek_extraction(self) -> None:
         """Extract day of week (0=Monday, 6=Sunday) from timestamp column."""
         fs = make_feature_set("timestamp__dayofweek")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__dayofweek")
@@ -227,7 +227,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_is_weekend_extraction(self) -> None:
         """Extract is_weekend (1 for Sat/Sun, 0 otherwise) from timestamp column."""
         fs = make_feature_set("timestamp__is_weekend")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__is_weekend")
@@ -236,7 +236,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_quarter_extraction(self) -> None:
         """Extract quarter (1-4) from timestamp column."""
         fs = make_feature_set("timestamp__quarter")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         result_col = self.extract_column(result, "timestamp__quarter")
@@ -247,35 +247,35 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def test_varied_hour_extraction(self) -> None:
         """Extract non-zero hours from the supplementary dataset."""
         fs = make_feature_set("timestamp__hour")
-        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
         result_col = self.extract_column(result, "timestamp__hour")
         assert result_col == VARIED_EXPECTED_HOUR
 
     def test_varied_minute_extraction(self) -> None:
         """Extract non-zero minutes from the supplementary dataset."""
         fs = make_feature_set("timestamp__minute")
-        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
         result_col = self.extract_column(result, "timestamp__minute")
         assert result_col == VARIED_EXPECTED_MINUTE
 
     def test_varied_second_extraction(self) -> None:
         """Extract non-zero seconds from the supplementary dataset."""
         fs = make_feature_set("timestamp__second")
-        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
         result_col = self.extract_column(result, "timestamp__second")
         assert result_col == VARIED_EXPECTED_SECOND
 
     def test_varied_quarter_extraction(self) -> None:
         """Extract quarters 2, 3, 4 from the supplementary dataset."""
         fs = make_feature_set("timestamp__quarter")
-        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
         result_col = self.extract_column(result, "timestamp__quarter")
         assert result_col == VARIED_EXPECTED_QUARTER
 
     def test_varied_month_extraction(self) -> None:
         """Extract months 6, 9, 12 from the supplementary dataset."""
         fs = make_feature_set("timestamp__month")
-        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
         result_col = self.extract_column(result, "timestamp__month")
         assert result_col == VARIED_EXPECTED_MONTH
 
@@ -285,7 +285,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         """Row 10 has a null timestamp. All datetime ops should return None."""
         for op in ("year", "month", "day", "hour", "minute", "second", "dayofweek", "is_weekend", "quarter"):
             fs = make_feature_set(f"timestamp__{op}")
-            result = self.implementation_class().calculate_feature(self.test_data, fs)
+            result = calculate_with(self.implementation_class(), self.test_data, fs)
             result_col = self.extract_column(result, f"timestamp__{op}")
             assert result_col[10] is None, f"Expected None at row 10 for {op}, got {result_col[10]}"
 
@@ -294,8 +294,8 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     def _compare_varied_with_reference(self, feature_name: str) -> None:
         """Run the feature on the supplementary dataset, compare with the reference."""
         fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(self._varied_arrow_table, fs)
+        result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
+        ref = self.reference_calculate(self._varied_arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = extract_column(ref, feature_name)
@@ -345,7 +345,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         )
         data = self.create_test_data(all_null_table)
         fs = make_feature_set("timestamp__year")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "timestamp__year")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -368,7 +368,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_year")
         assert result_col == EXPECTED_YEAR

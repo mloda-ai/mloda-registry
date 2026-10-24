@@ -17,7 +17,7 @@ Divergences fall into three kinds, handled in three different places.
 | Kind | Example | Mitigation |
 |---|---|---|
 | Implementation fix | Polars `sum()` returns `0` for an all-null group; PyArrow returns `null`. | The framework implementation detects the edge case and returns the PyArrow-equivalent result. |
-| Excluded op | SQLite `UPPER`/`LOWER` are ASCII-only; `REVERSE` has no native function. | `_validate_string_match` refuses to resolve the feature; `supported_ops()` skips the corresponding tests. See [Supported ops](04-supported-ops.md). |
+| Excluded op | SQLite `UPPER`/`LOWER` are ASCII-only; `REVERSE` has no native function. | `SqliteStringOps.supported` makes the group refuse to resolve the feature; `supported_ops()` skips the corresponding tests. See [Supported ops](04-supported-ops.md). |
 | Accepted tolerance | Float accumulation order differs between columnar reductions and SQL window functions. | Cross-framework comparison uses `pytest.approx(rel=1e-6)` when the test flips `use_approx=True`. |
 | Collision-free helper naming | Row-preserving implementations tag rows with helper columns (to restore input order after a reordering window function). A user column with the same name would collide silently. | Every backend picks a collision-free helper name at runtime, so any user column name is accepted. The SQL backends (DuckDB, SQLite) use `pick_helper_column_name`; the pandas/polars/pyarrow backends use `unique_helper_name` (`helper_columns.py`). The old `__mloda_` reject-guard was removed in #221. |
 
@@ -134,7 +134,7 @@ regression_test:
 - **Reference behavior**: PyArrow's `pc.utf8_upper("héllo")` is `"HÉLLO"`.
 - **Native SQLite behavior**: `UPPER('héllo')` returns `'HéLLO'`. `REVERSE` is not implemented.
 - **Mitigation kind**: Excluded op.
-- **How**: `SqliteStringOps._validate_string_match` returns `True` only for `trim` and `length`. Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]` refuses to match at resolution time. The test class mirrors the decision through `supported_ops()`.
+- **How**: `SqliteStringOps.supported` is `frozenset({"trim", "length"})`, so the group rejects any other op on SQLite at match time (`supports_compute_framework`). Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]` refuses to match at resolution time. The test class mirrors the decision through `supported_ops()`.
 - **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and `supported_ops()` restricts the test suite to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
 - **Related**: Resolved from #146 via #147.
 
@@ -224,7 +224,7 @@ regression_test:
 
 - **Operations**: `row_preserving/percentile` and `string`.
 - **Mitigation kind**: Excluded op.
-- **How**: SQLite has no `percentile` test class at all (`row_preserving/percentile/tests/` ships no `test_sqlite.py`), and `string/tests/test_sqlite.py` uses `supported_ops()` to restrict the covered set. The missing percentile column is pinned by the framework-support-matrix drift check.
+- **How**: SQLite has no `percentile` test class at all (`row_preserving/percentile/tests/` ships no `test_sqlite.py`), and `SqliteStringOps.supported` restricts SQLite string to `trim` and `length` (the test class mirrors it through `supported_ops()`). The missing percentile column is pinned by the framework-support-matrix drift check.
 - **Related**: Category 1 of issue #146.
 
 ### SQLite and DuckDB time-frame use correlated subqueries (O(N^2) per partition)

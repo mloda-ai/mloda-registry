@@ -3,7 +3,7 @@
 Row-preserving operations must return an output whose row count and row order match the input. This invariant is what lets users chain analytic transforms without surprise reshuffles.
 
 **What**: For every row-preserving operation, `len(output) == len(input)` and row *i* in the output corresponds to row *i* in the input.
-**When**: Applies to every feature group under `data_operations/row_preserving/`: binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime.
+**When**: Applies to every feature group or operation group under `data_operations/row_preserving/`: binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime.
 **Why**: Row-preserving ops broadcast a computed value back onto each row. If the framework reorders rows (some SQL window functions do), downstream joins on index position break silently.
 **Where**: The contract is enforced by cross-framework tests. Row count and row order are both asserted in `DataOpsTestBase._compare_with_reference`.
 **How**: Each framework implementation must return rows in the same order they came in. If the native operator reorders (DuckDB `NTILE`), the implementation records original positions and restores them.
@@ -103,7 +103,7 @@ If your framework reorders, you will see row-count assertions pass but value com
 
 ## Aggregation is different
 
-Aggregations under `data_operations/aggregation/` are **not** row-preserving. They reduce to one row per partition key. The [reference implementation](03-reference-implementation.md) still applies (PyArrow defines the expected result, through the function `reference_aggregation(table, features)`), but row count is expected to shrink. Aggregation is one `AggregationFeatureGroup` with one `Implementation` per framework (`PandasAggregation`, `PyArrowAggregation`, ...); see [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
+Aggregations under `data_operations/aggregation/` are **not** row-preserving. They reduce to one row per partition key. The [reference implementation](03-reference-implementation.md) still applies (PyArrow defines the expected result, through the function `reference_aggregation(table, features)`), but row count is expected to shrink. Aggregation is one `AggregationFeatureGroup` with one `Implementation` per framework (`PandasAggregation`, `PyArrowAggregation`, ...). The row-preserving binning and datetime families are operation groups too (`BinningFeatureGroup`, `DateTimeFeatureGroup`, with `DuckdbBinning` etc. as their Implementations); see [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 

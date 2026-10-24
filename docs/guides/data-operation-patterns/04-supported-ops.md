@@ -31,19 +31,12 @@ If none of the four is defined, the helper raises `TypeError` rather than skippi
 
 ## Example: SQLite excludes `upper`, `lower`, and `reverse`
 
-SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and would diverge from the PyArrow reference on non-ASCII input (e.g. `UPPER('héllo')` returns `'HéLLO'` instead of `'HÉLLO'`). Rather than silently produce divergent results or emulate in SQL, the framework implementation refuses to match all three at selection time:
+SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and would diverge from the PyArrow reference on non-ASCII input (e.g. `UPPER('héllo')` returns `'HéLLO'` instead of `'HÉLLO'`). Rather than silently produce divergent results or emulate in SQL, the `SqliteStringOps` Implementation declares `supported` without them, so the group refuses to match all three at selection time (`supports_compute_framework`, name and config form alike):
 
 ```py
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
-_SQLITE_STRING_EXPRS: dict[str, str] = {
-    "trim": "TRIM({col})",
-    "length": "LENGTH({col})",
-}
-
-
-@classmethod
-def _validate_string_match(cls, feature_name, operation_config, source_feature) -> bool:
-    return operation_config in _SQLITE_STRING_EXPRS
+class SqliteStringOps(Implementation[StringFeatureGroup]):
+    supported = frozenset({"trim", "length"})
 ```
 
 The test class mirrors that decision:
@@ -66,7 +59,7 @@ The test-side `supported_ops()` is only for test skipping. It does **not** by it
 
 | Declaration | Lives in | Purpose |
 |---|---|---|
-| `_validate_string_match` / `match_feature_group_criteria` override | `framework_{op}.py` | Refuses the feature name at resolution time so the mloda engine routes elsewhere (or errors). |
+| `Implementation.supported` (or a `_validate_*_match` / `match_feature_group_criteria` override on a per-framework family) | `framework_{op}.py` | Refuses the feature name at resolution time so the mloda engine routes elsewhere (or errors). |
 | `supported_ops()` (or `supported_agg_types`, etc.) | `tests/test_{framework}.py` | Makes the inherited test suite skip the ones the framework does not claim. |
 
 Keep them consistent. If your implementation silently drops an op at runtime but the test class still claims to support it, the suite will fail. If the test class over-restricts, you lose coverage for something you actually implemented.
