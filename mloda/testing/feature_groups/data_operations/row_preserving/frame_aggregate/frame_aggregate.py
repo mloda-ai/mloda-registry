@@ -956,8 +956,7 @@ class FrameAggregateTestBase(
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
-        # Masking changes counts in both modes: global day 3 is 2 unmasked vs 1 masked,
-        # region A day 10 is 1 unmasked vs 0 masked, region B day 3 is 1 unmasked vs 0 masked.
+        # Interleaved regions and mixed categories, so the mask changes counts both per region and globally.
         table = pa.table(
             {
                 "region": ["A", "B", "A", "B", "A"],

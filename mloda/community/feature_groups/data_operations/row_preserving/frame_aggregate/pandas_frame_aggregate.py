@@ -88,10 +88,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # kind="mergesort" (stable) preserves original row order on order_by ties.
         data = data.sort_values(by=[*partition_by, order_by], na_position="last", kind="mergesort")
 
-        # PyArrow parity: the reference applies masks before aggregation but
-        # sorts on unmasked values. Apply mask AFTER sorting so that sort
-        # order uses original (unmasked) values to match this behavior.
-        # Masked values go to a temp column so source_col (possibly also order_by) stays unmasked.
+        # PyArrow parity: sort on unmasked values; masked values go to a temp column.
         agg_col = source_col
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
