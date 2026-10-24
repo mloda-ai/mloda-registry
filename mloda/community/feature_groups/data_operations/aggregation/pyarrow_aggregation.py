@@ -20,6 +20,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import rename_aggregates_by_position
 
 # Aggregation types with direct PyArrow group_by support.
 _PA_AGG_FUNCS: dict[str, str] = {
@@ -90,11 +91,4 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
         ordered = any(spec.agg_type in _ORDERED_FUNCS for spec in specs)
         grouped = table.group_by(partition_by, use_threads=not ordered).aggregate(entries)
 
-        # Rename aggregate columns by position (auto names collide for a shared source + func).
-        # Newer PyArrow puts the keys first, older puts them last.
-        keys_first = grouped.column_names[: len(partition_by)] == partition_by
-        offset = len(partition_by) if keys_first else 0
-        names = list(grouped.column_names)
-        for i, spec in enumerate(specs):
-            names[offset + i] = spec.feature_name
-        return grouped.rename_columns(names)
+        return rename_aggregates_by_position(grouped, partition_by, [spec.feature_name for spec in specs])

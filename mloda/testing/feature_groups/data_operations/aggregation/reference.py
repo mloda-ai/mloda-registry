@@ -21,6 +21,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import rename_aggregates_by_position
 from mloda.testing.feature_groups.data_operations import aggregation_helpers
 
 # Aggregation types with direct PyArrow group_by support.
@@ -72,10 +73,7 @@ def _compute_single(table: pa.Table, spec: AggregationSpec, partition_by: list[s
     else:
         raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
 
-    # Rename auto-generated column (e.g. "val_sum") to feature_name.
-    auto_col = f"{source_col}_{pa_func}"
-    names = [feature_name if c == auto_col else c for c in grouped.column_names]
-    return grouped.rename_columns(names)
+    return rename_aggregates_by_position(grouped, partition_by, [feature_name])
 
 
 def _compute_via_list(
@@ -146,7 +144,7 @@ def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: 
         column = result.column(spec.feature_name)
         if i > 0:
             by_key = dict(zip(_group_key(result, partition_by), column.to_pylist()))
-            column = pa.array([by_key.get(key) for key in first_keys], type=column.type)
+            column = pa.array([by_key[key] for key in first_keys], type=column.type)
         arrays.append(column)
     return pa.table(arrays, names=[*partition_by, *(spec.feature_name for spec in specs)])
 

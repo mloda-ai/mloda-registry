@@ -206,6 +206,9 @@ class AggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase
             specs.append(AggregationSpec(feature.name, source_col, agg_type, mask_spec))
             grids.setdefault(tuple(partition_by), []).append(str(feature.name))
 
+        if not specs:
+            return data
+
         assert_single_grid(grids, lambda key: f"partition_by={list(key)}", "partition_by")
 
         (partition_key,) = grids

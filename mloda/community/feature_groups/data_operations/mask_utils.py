@@ -157,7 +157,8 @@ def apply_polars_mask(
     name of the column to aggregate (either *source_col* unchanged or the
     temporary masked column *temp_name*, ``_POLARS_MASK_TMP`` by default).
 
-    Callers must drop *temp_name* from the result when done.
+    Callers must drop *temp_name* from the result when done, except after a group_by
+    aggregation (only the keys and aggregates are returned there).
     """
     import polars as pl
 

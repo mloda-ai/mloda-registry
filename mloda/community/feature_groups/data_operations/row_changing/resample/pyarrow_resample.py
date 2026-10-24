@@ -16,6 +16,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import rename_aggregates_by_position
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleAgg,
@@ -67,11 +68,4 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
         keys = [*partition_by, time_column]
         grouped = data.group_by(keys).aggregate([(spec.source_col, _PA_AGG_FUNCS[spec.agg]) for spec in aggs])
 
-        # Rename aggregate columns by position (auto names collide for a shared source + func).
-        # Newer PyArrow puts the keys first, older puts them last.
-        keys_first = grouped.column_names[: len(keys)] == keys
-        offset = len(keys) if keys_first else 0
-        names = list(grouped.column_names)
-        for i, spec in enumerate(aggs):
-            names[offset + i] = spec.feature_name
-        return grouped.rename_columns(names)
+        return rename_aggregates_by_position(grouped, keys, [spec.feature_name for spec in aggs])

@@ -263,6 +263,9 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
             aggs.append(ResampleAgg(feature.name, source_col, agg))
             grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(str(feature.name))
 
+        if not aggs:
+            return data
+
         assert_single_grid(
             grids,
             lambda key: f"partition_by={list(key[0])}, time_column={key[1]!r}, bucket={key[2]}_{key[3]}",
