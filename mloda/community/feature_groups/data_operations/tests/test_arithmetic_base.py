@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from mloda.provider import FeatureChainParserMixin, FeatureGroup, OperationFeatureGroup
 from mloda.user import Options
 
@@ -38,22 +39,12 @@ class TestArithmeticOpMixin:
         """``ScalarArithmeticFeatureGroup`` inherits from the shared mixin."""
         assert issubclass(ScalarArithmeticFeatureGroup, ArithmeticOpMixin)
 
-    def test_mixin_is_not_a_feature_group(self) -> None:
-        """``ArithmeticOpMixin`` is a plain mixin outside the FeatureGroup subclass tree."""
-        assert not issubclass(ArithmeticOpMixin, FeatureGroup)
-
-    def test_point_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
-        """Point arithmetic lists the mixins before ``OperationFeatureGroup``."""
-        assert PointArithmeticFeatureGroup.__mro__[1:5] == (
-            ArithmeticOpMixin,
-            FeatureChainParserMixin,
-            OperationFeatureGroup,
-            FeatureGroup,
-        )
-
-    def test_scalar_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
-        """Scalar arithmetic lists the mixins before ``OperationFeatureGroup``."""
-        assert ScalarArithmeticFeatureGroup.__mro__[1:5] == (
+    @pytest.mark.parametrize(
+        "group", [PointArithmeticFeatureGroup, ScalarArithmeticFeatureGroup], ids=lambda g: g.__name__
+    )
+    def test_group_mro_puts_the_mixins_before_the_operation_group(self, group: Any) -> None:
+        """Each arithmetic family lists the mixins before ``OperationFeatureGroup``."""
+        assert group.__mro__[1:5] == (
             ArithmeticOpMixin,
             FeatureChainParserMixin,
             OperationFeatureGroup,

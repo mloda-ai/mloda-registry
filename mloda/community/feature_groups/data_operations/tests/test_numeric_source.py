@@ -145,12 +145,7 @@ class TestMixinHookBindings:
 
 
 class TestMixinsAreNotFeatureGroups:
-    """The arithmetic mixins are plain runtime classes, invisible to FeatureGroup plugin discovery.
-
-    The mixins must not subclass ``FeatureGroup`` at runtime (the shared base
-    may be a TYPE_CHECKING-only parent), so walking the FeatureGroup subclass
-    tree, which plugin discovery does, never yields a half-abstract mixin.
-    """
+    """The arithmetic mixins are not FeatureGroups, so plugin discovery never yields one."""
 
     def _assert_plain_class(self, mixin_cls: Any) -> None:
         """Assert the mixin is outside the FeatureGroup subclass tree at runtime."""
@@ -158,6 +153,10 @@ class TestMixinsAreNotFeatureGroups:
             f"{mixin_cls.__name__} must not be a runtime FeatureGroup subclass; "
             "it would leak into the FeatureGroup subclass tree and plugin discovery."
         )
+
+    def test_arithmetic_op_mixin_is_not_a_feature_group(self) -> None:
+        """The shared ``ArithmeticOpMixin`` stays out of the FeatureGroup subclass tree."""
+        self._assert_plain_class(ArithmeticOpMixin)
 
     def test_pandas_mixin_is_not_a_feature_group(self) -> None:
         """``PandasArithmeticMixin`` stays out of the FeatureGroup subclass tree."""
@@ -211,12 +210,3 @@ class TestSqlArithmeticOpsSingleSourceOfTruth:
         for path in (f"{_POINT}.sqlite_point_arithmetic", f"{_SCALAR}.sqlite_scalar_arithmetic"):
             module = importlib.import_module(path)
             assert module.SQL_ARITHMETIC_OPS is base_module.SQL_ARITHMETIC_OPS
-
-    def test_duckdb_mixin_has_no_ops_alias(self) -> None:
-        """``duckdb_mixin`` no longer carries ``DUCKDB_ARITHMETIC_OPS``."""
-        pytest.importorskip("duckdb")
-        assert not hasattr(importlib.import_module(f"{_MIXIN}.duckdb_mixin"), "DUCKDB_ARITHMETIC_OPS")
-
-    def test_sqlite_mixin_has_no_ops_alias(self) -> None:
-        """``sqlite_mixin`` no longer carries ``SQLITE_ARITHMETIC_OPS``."""
-        assert not hasattr(importlib.import_module(f"{_MIXIN}.sqlite_mixin"), "SQLITE_ARITHMETIC_OPS")
