@@ -76,6 +76,7 @@ _SQLITE_STRING_EXPRS: dict[str, str] = {
     "length": "LENGTH({col})",
 }
 
+
 class SqliteStringOps(Implementation[StringFeatureGroup]):
     supported = frozenset(_SQLITE_STRING_EXPRS)
 ```
