@@ -2,8 +2,8 @@
 
     python make_twin.py        # rewrites fixtures/twin_2025/gdpdu/ and datev/
 
-The bookings are self-made. The DATEV header and column line are taken from the ledermann
-sample (MIT, see fixtures/datev_ledermann/NOTICE) and only the fields named below are changed.
+The bookings are self-made. The DATEV header layout and column line come from the ledermann
+sample (MIT, see fixtures/datev_ledermann/NOTICE); the header values written below are ours.
 
 Four bookings, each written once as a DATEV row (Konto against Gegenkonto, +Soll) and as
 the GDPdU Sachkonten lines for both of its accounts, each in that account's own direction:
@@ -49,6 +49,10 @@ def write_datev(folder: Path) -> None:
     lines = LEDERMANN.read_bytes().split(b"\r\n")
     head = lines[0].split(b";")
     head[5] = b"20260110120000000"  # erzeugt am
+    head[7] = b'"ML"'  # Herkunft
+    head[8] = b'"mloda test"'  # Exportiert von
+    head[10] = b"2001"  # Berater
+    head[11] = b"77"  # Mandant
     head[12] = b"20250101"  # WJ-Beginn
     head[14] = b"20250101"  # Datum vom
     head[15] = b"20251231"  # Datum bis
