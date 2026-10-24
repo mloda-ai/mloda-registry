@@ -150,7 +150,7 @@ Pinning one reader by option key also resolves a single folder that holds both f
   refused. `exempt_readers` skips only the plan-time probe, not the run-start check. Raising the
   clearance is the intended lever. A reader subclass with a lower `CLASSIFICATION` also works:
   enable it in the `PluginCollector` in place of the stock reader, and every dossier it reads
-  carries the lower level.
+  carries the lower level. A subclass merely defined in the process still takes over every read when no `PluginCollector` excludes it. Where several dossiers of one format must be told apart, only the class-name pointer selects one (no `data_access_handle`).
 - **Resolution evidence:** `mloda.diagnose` says, per feature, the group chosen, the groups
   that also matched and those that declined, with stage and reason.
 

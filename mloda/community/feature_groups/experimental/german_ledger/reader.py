@@ -557,7 +557,7 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         candidates: list[Any]
         if pointer is not None:
             candidates = [options.get(pointer)]
-            if not isinstance(candidates[0], (str, Path)):
+            if not isinstance(candidates[0], (str, os.PathLike)):
                 record_match_rejection(cls.get_class_name(), "the pointer value must be a path", stage=INPUT_DATA_STAGE)
                 return []
         elif data_access_collection is not None:
@@ -566,7 +566,7 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
             candidates = []
         found: dict[str, SourceMatch] = {}
         for candidate in candidates:
-            folder = cls.dossier(str(candidate))
+            folder = cls.dossier(os.fspath(candidate) if isinstance(candidate, os.PathLike) else str(candidate))
             if folder is not None:
                 found.setdefault(os.path.abspath(folder), SourceMatch(source=os.path.abspath(folder), access=folder))
         return list(found.values())

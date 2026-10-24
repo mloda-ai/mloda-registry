@@ -8,11 +8,12 @@ from decimal import Decimal, localcontext
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, HookContext
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, HookContext, get_all_subclasses
 from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from .reader import ADMISSIBILITY_COLUMN, describe_verdicts, is_admitted, verdict_kind
+from .reader import ADMISSIBILITY_COLUMN, _ReaderJournal, describe_verdicts, is_admitted, verdict_kind
+from .skr import SkrAccountFeatureGroup
 
 
 class InadmissibleTotal(Exception):
@@ -46,7 +47,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     Totals are where provenance normally dies: sum reduces rows, and mloda's
     built-in aggregations do not carry row-level origins. Outputs are subcolumns of the
     *requested* name (``revenue__sources~value`` / ``~origins``), which is what column
-    selection keeps.
+    selection keeps. The input resolves through SkrAccountFeatureGroup unless the options point at a reader.
     """
 
     PREFIX_PATTERN = r".*__sources$"
@@ -58,7 +59,10 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
         source = str(feature_name).rsplit("__", 1)[0]
-        return {Feature(source)}
+        pointers = {k for reader in get_all_subclasses(_ReaderJournal) for k in reader.pointer_keys()}
+        if any(k in options for k in pointers):
+            return {Feature(source)}
+        return {Feature(source, feature_group=SkrAccountFeatureGroup)}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

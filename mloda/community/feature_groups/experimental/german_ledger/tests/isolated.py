@@ -113,12 +113,15 @@ def collision() -> dict[str, Any]:
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
     from mloda.community.feature_groups.experimental.german_ledger.tests._host import PLUGINS
 
-    class PermissiveReader(GdpduReader):
-        """Declares every name and does not gate on its own."""
+    class WideReader(GdpduReader):
+        """Declares every name, keeps the inherited name gate."""
 
         @classmethod
         def declared_name_prefixes(cls) -> tuple[str, ...]:
             return ("",)
+
+    class PermissiveReader(WideReader):
+        """Declares every name and does not gate on its own."""
 
         @classmethod
         def match_feature_group_criteria(
@@ -127,11 +130,11 @@ def collision() -> dict[str, Any]:
             unbound: Any = FeatureGroup.match_feature_group_criteria
             return bool(unbound.__func__(cls, feature_name, options, data_access_collection))
 
-    # The stock reader is enabled by name only, so the permissive one joins the same collector.
-    enabled = PLUGINS.enabled_feature_group_classes
-    gated = outcome(lambda: _revenue(FIX / "dossier_a", PLUGINS))
+    # Each leg enables its subclass in place of the stock reader.
+    others = PLUGINS.enabled_feature_group_classes - {GdpduReader}
+    gated = outcome(lambda: _revenue(FIX / "dossier_a", PluginCollector.enabled_feature_groups({*others, WideReader})))
     ungated = outcome(
-        lambda: _revenue(FIX / "dossier_a", PluginCollector.enabled_feature_groups({*enabled, PermissiveReader}))
+        lambda: _revenue(FIX / "dossier_a", PluginCollector.enabled_feature_groups({*others, PermissiveReader}))
     )
     return {"gated": gated, "ungated": ungated}
 

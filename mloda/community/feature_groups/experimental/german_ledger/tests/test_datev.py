@@ -569,13 +569,9 @@ def _run(folder: Path, features: list[str | Feature]) -> Any:
 
 
 def test_a_datev_folder_resolves_to_the_datev_journal() -> None:
-    from mloda.community.feature_groups.experimental.german_ledger.policy import (
-        DatevJournalFeatureGroup,
-        JournalFeatureGroup,
-    )
+    from mloda.community.feature_groups.experimental.german_ledger.policy import DatevJournalFeatureGroup
 
     assert _claimant(LEDERMANN) is DatevJournalFeatureGroup
-    assert _claimant(LEDERMANN) is not JournalFeatureGroup
     assert _claimant(LEDERMANN, "revenue__sources") is None
 
 
@@ -593,17 +589,14 @@ def test_the_late_entry_cutoff_refuses_a_datev_batch_it_cannot_evaluate() -> Non
 
 
 def test_a_folder_holding_both_formats_is_refused_not_shadowed(tmp_path: Path) -> None:
-    """Neither reader is pinned, so both journals claim the feature with their own reader and
-    core refuses the ambiguity (reader overlap) rather than picking one."""
+    """Neither reader is pinned, so both readers claim the feature and core refuses the ambiguity."""
     both = tmp_path / "both"
     shutil.copytree(HERE / "fixtures" / "dossier_a", both)
     shutil.copy(LEDERMANN / "EXTF_Buchungsstapel.csv", both)
     with pytest.raises(Exception) as info:
         _run(both, ["revenue__sources"])
     message = str(info.value)
-    assert ("GdpduReader" in message and "DatevExtfReader" in message) or (
-        "JournalFeatureGroup" in message and "DatevJournalFeatureGroup" in message
-    ), message
+    assert "GdpduReader" in message and "DatevExtfReader" in message, message
 
 
 @pytest.mark.parametrize("reader", [GdpduReader, DatevExtfReader])

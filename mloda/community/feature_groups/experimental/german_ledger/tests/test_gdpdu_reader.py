@@ -176,6 +176,38 @@ def test_a_pinned_gdpdu_reader_resolves_the_total_over_the_twin_pair() -> None:
     assert origins and all(o.startswith("GL.txt@") for o in origins), origins
 
 
+def _revenue_total_with_a_csv_beside(tmp_path: Path, options: dict[str, str]) -> Any:
+    from mloda.user import DataAccessCollection, Feature, PluginCollector, mloda
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+    from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
+
+    from ._host import PLUGINS
+
+    dossier = tmp_path / "dossier_a"
+    shutil.copytree(DOSSIER_A, dossier)
+    other = tmp_path / "plain"
+    other.mkdir()
+    (other / "plain.csv").write_text("revenue,other\n1,2\n", encoding="utf-8")
+    pointed = {k: str(dossier) if v == "dossier" else v for k, v in options.items()}
+    results = mloda.run_all(
+        features=[Feature("revenue__sources", Options(pointed))],
+        compute_frameworks=[PyArrowTable],
+        data_access_collection=DataAccessCollection(folders={str(dossier), str(other)}),
+        plugin_collector=PluginCollector.enabled_feature_groups({*PLUGINS.enabled_feature_group_classes, CsvFG}),
+    )
+    [value] = [v for t in results for v in t.column("revenue__sources~value").to_pylist()]
+    return str(value)
+
+
+def test_an_unpointed_total_ignores_a_csv_column_of_the_same_name(tmp_path: Path) -> None:
+    """The sources group scopes its input to the readers, so a plain CSV `revenue` column is not a rival."""
+    assert _revenue_total_with_a_csv_beside(tmp_path, {}) == "45385.06"
+
+
+def test_a_pointed_total_ignores_a_csv_column_of_the_same_name(tmp_path: Path) -> None:
+    assert _revenue_total_with_a_csv_beside(tmp_path, {"GdpduReader": "dossier"}) == "45385.06"
+
+
 def test_a_pinned_datev_reader_resolves_to_the_datev_journal_and_meets_the_cutoff() -> None:
     """Resolution reaches the DATEV journal; the GDPdU cutoff then fails closed (no Erfassungsdatum)."""
     from mloda.community.feature_groups.experimental.german_ledger.policy import LateEntryRefused
@@ -209,9 +241,10 @@ def test_a_host_subclass_of_the_gdpdu_reader_pinned_by_name_stands_the_datev_rea
         pass
 
     try:
-        folder = str(_twin_pair()[1])
-        result = claim([_twin_pair()[1]], "gdpdu_journal", {DatevExtfReader}, {"_HostGdpdu": folder})
-        assert result.feature_group is not DatevExtfReader, result.feature_group
+        gdpdu, datev = _twin_pair()
+        result = claim([gdpdu, datev], "gdpdu_journal", {DatevExtfReader, _HostGdpdu}, {"_HostGdpdu": str(gdpdu)})
+        assert result.error is None, result.error
+        assert result.feature_group is _HostGdpdu, result.feature_group
     finally:
         del _HostGdpdu
         gc.collect()
