@@ -682,12 +682,12 @@ def test_operation_group_families_are_converted() -> None:
 
 @pytest.mark.parametrize("key", _OPERATION_GROUP_FAMILIES)
 def test_operation_group_lists_mixins_first_and_the_operation_group_last(key: str) -> None:
-    """No explicit FeatureGroup base: the shared family bases are plain mixins listed before the group."""
+    """No explicit FeatureGroup base: the mixins are listed before the group, which comes last."""
     from mloda.provider import FeatureGroup
 
     group = _load_class(next(spec for spec in FAMILIES if spec.key == key))
     assert group.__bases__[-1] is OperationFeatureGroup
-    assert not [base for base in group.__bases__[:-1] if issubclass(base, FeatureGroup)]
+    assert FeatureGroup not in group.__bases__
 
 
 @pytest.mark.parametrize("key", _OPERATION_GROUP_FAMILIES)

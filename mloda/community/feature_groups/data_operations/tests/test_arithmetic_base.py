@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
@@ -36,6 +37,11 @@ class TestArithmeticFeatureGroupBase:
     def test_scalar_arithmetic_subclasses_base(self) -> None:
         """``ScalarArithmeticFeatureGroup`` inherits from the shared base."""
         assert issubclass(ScalarArithmeticFeatureGroup, ArithmeticFeatureGroupBase)
+
+    def test_missing_non_numeric_descriptor_hook_raises(self) -> None:
+        """The base is a plain class, so the hook must raise itself instead of relying on ``@abstractmethod``."""
+        with pytest.raises(NotImplementedError):
+            ArithmeticFeatureGroupBase._assert_source_column_is_numeric({"a": ["s"]}, "a")
 
 
 class TestArithmeticOpNamesSingleSourceOfTruth:

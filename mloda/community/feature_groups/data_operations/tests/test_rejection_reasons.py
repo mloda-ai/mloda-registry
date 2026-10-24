@@ -220,3 +220,11 @@ class TestReleasedLeafImportCompat:
 
         assert input_columns_and_framework({"a": [1]}) == (["a"], "PythonDict")
         assert ArithmeticFeatureGroupBase._input_columns_and_framework({"a": [1]}) == (["a"], "dict")
+
+    def test_aggregation_base_is_still_a_feature_group(self) -> None:
+        """Released aggregation-family leaves subclass ``AggregationFeatureGroupBase`` alone and must stay FeatureGroups."""
+        from mloda.provider import FeatureGroup
+
+        from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
+
+        assert issubclass(AggregationFeatureGroupBase, FeatureGroup)
