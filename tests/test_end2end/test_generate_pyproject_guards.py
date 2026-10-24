@@ -176,6 +176,62 @@ def test_generate_raises_when_keywords_not_a_list_of_strings(where: str, bad_key
         gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
 
 
+def _authors_fixture(pkg_authors: Any = None) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
+    """Shared config with one email author, plus a leaf package config, optionally with per-package authors."""
+    shared, packages_config = gen.load_configs()
+    shared = copy.deepcopy(shared)
+    shared["project"]["authors"] = [{"name": "Tom Kaltofen", "email": "info@mloda.ai"}]
+    pkg_config = copy.deepcopy(packages_config["packages"]["mloda-registry"])
+    pkg_config.pop("authors", None)
+    if pkg_authors is not None:
+        pkg_config["authors"] = pkg_authors
+    return shared, pkg_config, {"mloda-registry": pkg_config}
+
+
+def test_generate_appends_package_authors_after_shared_authors() -> None:
+    """Per-package authors follow the shared ones; a name-only entry renders without email."""
+    shared, pkg_config, packages = _authors_fixture([{"name": "Martin Kaiser"}, {"name": "Ada", "email": "a@b.c"}])
+
+    generated = gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
+
+    assert (
+        'authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }, { name = "Martin Kaiser" }, '
+        '{ name = "Ada", email = "a@b.c" }]'
+    ) in generated.splitlines(), generated
+    assert loads_toml(generated)["project"]["authors"] == [
+        {"name": "Tom Kaltofen", "email": "info@mloda.ai"},
+        {"name": "Martin Kaiser"},
+        {"name": "Ada", "email": "a@b.c"},
+    ]
+
+
+def test_generate_without_package_authors_emits_only_shared_authors() -> None:
+    """A package without authors keeps exactly the shared authors."""
+    shared, pkg_config, packages = _authors_fixture()
+
+    generated = gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
+
+    assert 'authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]' in generated.splitlines(), generated
+
+
+@pytest.mark.parametrize(
+    "bad_authors",
+    [
+        pytest.param("Martin Kaiser", id="string"),
+        pytest.param(["Martin Kaiser"], id="entry-not-a-table"),
+        pytest.param([{"email": "m@k.de"}], id="entry-missing-name"),
+        pytest.param([{"name": 1}], id="non-string-name"),
+        pytest.param([{"name": "Martin Kaiser", "email": 1}], id="non-string-email"),
+    ],
+)
+def test_generate_raises_when_package_authors_malformed(bad_authors: Any) -> None:
+    """A mistyped per-package authors value must raise ValueError naming authors and the package."""
+    shared, pkg_config, packages = _authors_fixture(bad_authors)
+
+    with pytest.raises(ValueError, match=r"(?s)(?=.*authors)(?=.*mloda-registry)"):
+        gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
+
+
 def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Write mode must return non-zero when the root mloda-core entry is unsyncable.
 
