@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mloda.provider import is_match_abort
+from mloda.provider import FeatureSet, is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
@@ -16,8 +16,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     WindowAggregationFeatureGroup,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    extract_column,
+    feature_set_for,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestClassAttributes:
@@ -406,3 +412,119 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
             feature_set_for("my_window_result", options),
         )
         return extract_column(result, "my_window_result")
+
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestWindowAggregationOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return WindowAggregationFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_window_aggregation",
+                "PyArrowWindowAggregation",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+                supported=frozenset(
+                    {
+                        "sum",
+                        "avg",
+                        "mean",
+                        "count",
+                        "min",
+                        "max",
+                        "nunique",
+                        "std",
+                        "var",
+                        "std_pop",
+                        "std_samp",
+                        "var_pop",
+                        "var_samp",
+                        "first",
+                        "last",
+                    }
+                ),
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_window_aggregation",
+                "PandasWindowAggregation",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                divergent=frozenset(
+                    {"mode", "sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
+                ),
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_window_aggregation",
+                "PolarsLazyWindowAggregation",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "duckdb",
+                "duckdb_window_aggregation",
+                "DuckdbWindowAggregation",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_window_aggregation",
+                "SqliteWindowAggregation",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+                supported=frozenset({"sum", "avg", "mean", "count", "min", "max"}),
+                divergent=frozenset({"sum", "avg", "mean", "count"}),
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_window_aggregation",
+                "PythonDictWindowAggregation",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str | None:
+        return "window_aggregation_type"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "aggregate"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_window"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("value_int__sum_window", ["region"])
+
+    @classmethod
+    def alias_pairs(cls) -> list[tuple[str, str]]:
+        return [("avg", "mean")]
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("x__sum_window", "sum")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        options = Options(context={"window_aggregation_type": "median", "in_features": "x", "partition_by": ["g"]})
+        return [("my_result", options, "median")]

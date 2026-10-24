@@ -25,9 +25,17 @@ import pytest
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+    ScalarAggregateFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+    WindowAggregationFeatureGroup,
 )
 from mloda.testing.feature_groups.data_operations.integration import load_group_implementations
 
@@ -214,3 +222,26 @@ class TestUnresolvedAxisStaysConservative:
             )
             is False
         )
+
+
+class TestAggregationBaseHasNoCapabilityHook:
+    """Capability lives on Implementation.supported; the shared aggregation base carries no hook."""
+
+    def test_base_is_not_a_subtype_capability_hook(self) -> None:
+        assert not issubclass(AggregationFeatureGroupBase, SubtypeCapabilityHook)
+
+    def test_base_has_no_capability_subtype(self) -> None:
+        assert not hasattr(AggregationFeatureGroupBase, "_capability_subtype")
+
+    @pytest.mark.parametrize(
+        "group",
+        [
+            AggregationFeatureGroup,
+            WindowAggregationFeatureGroup,
+            ScalarAggregateFeatureGroup,
+            FrameAggregateFeatureGroup,
+        ],
+        ids=["aggregation", "window", "scalar", "frame"],
+    )
+    def test_groups_carry_no_hook(self, group: type) -> None:
+        assert not issubclass(group, SubtypeCapabilityHook)

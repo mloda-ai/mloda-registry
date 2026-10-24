@@ -64,8 +64,8 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def subtype_key(cls) -> str:
-        """The ``SUBTYPES`` key (e.g. ``aggregation_type``)."""
+    def subtype_key(cls) -> str | None:
+        """The ``SUBTYPES`` key (e.g. ``aggregation_type``); None for a resolver-based declaration."""
 
     @classmethod
     @abstractmethod

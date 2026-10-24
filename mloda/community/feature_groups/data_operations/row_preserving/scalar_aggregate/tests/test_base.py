@@ -5,13 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     AGGREGATION_TYPES,
     ScalarAggregateFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestClassAttributes:
@@ -293,3 +296,100 @@ class TestScalarAggregateMatchValidation(MatchValidationTestBase):
             ScalarAggregateFeatureGroup._extract_aggregation_type(feature),
             ScalarAggregateFeatureGroup._resolve_agg_type("my_result", options),
         ]
+
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestScalarAggregateOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return ScalarAggregateFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_scalar_aggregate",
+                "PyArrowScalarAggregate",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_scalar_aggregate",
+                "PandasScalarAggregate",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                divergent=frozenset(
+                    {"sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
+                ),
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_scalar_aggregate",
+                "PolarsLazyScalarAggregate",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "duckdb",
+                "duckdb_scalar_aggregate",
+                "DuckdbScalarAggregate",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_scalar_aggregate",
+                "SqliteScalarAggregate",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+                supported=frozenset({"sum", "min", "max", "avg", "mean", "count"}),
+                divergent=frozenset({"sum", "avg", "mean", "count"}),
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_scalar_aggregate",
+                "PythonDictScalarAggregate",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str | None:
+        return "aggregation_type"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "aggregate"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_aggregation"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("value_int__sum_scalar", [])
+
+    @classmethod
+    def alias_pairs(cls) -> list[tuple[str, str]]:
+        return [("avg", "mean")]
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("x__sum_scalar", "sum")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        options = Options(context={"aggregation_type": "median", "in_features": "x"})
+        return [("my_result", options, "median")]
