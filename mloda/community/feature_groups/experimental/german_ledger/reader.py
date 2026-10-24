@@ -8,6 +8,7 @@ import os
 import re
 import xml.etree.ElementTree as ET  # nosec B405
 from abc import abstractmethod
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -80,13 +81,11 @@ def origin_format(origin: object) -> str | None:
 
 
 # A policy has three things it can say about a row, not two. "I examined this row and it
-# passed" is an admission. "I refused it" stops the run. The third -- "this row was never
-# mine to judge" -- was being written as an admission carrying a scope note, and the only
-# consumer reads the prefix, so a row the cutoff explicitly declined to evaluate was still
-# totalled as though it had been cleared. A closed-period guard that lets next year's
-# bookings into the answer protects nothing. Out-of-scope is therefore its own verdict, and
-# is_admitted is false for it: a total whose rows a policy did not vouch for is not a total
-# that policy backs.
+# passed" is an admission. "I refused it" stops the run. The third, "this row was never
+# mine to judge", is its own verdict and not an admission carrying a scope note: the only
+# consumer reads the prefix, so a row the cutoff declined to evaluate would otherwise be
+# totalled as though it had been cleared. is_admitted is false for it: a total whose rows a
+# policy did not vouch for is not a total that policy backs.
 OUTSIDE_SCOPE_PREFIX = "outside-scope:"
 
 # The policy identifier must be a real name, not merely non-empty. Prefix-plus-length
@@ -342,9 +341,8 @@ def parse_descriptor_bytes(descriptor: bytes, index_path: str) -> TableSpec:
             dates[col] = fmt
         # else AlphaNumeric (or unspecified) -> string
 
-    # The standard's default TextEncapsulator is the double quote. Defaulting to none split
-    # quoted fields containing the delimiter straight down the middle on any dossier that
-    # omitted the element.
+    # The standard's default TextEncapsulator is the double quote. Defaulting to none would
+    # split quoted fields containing the delimiter on any dossier that omits the element.
     encapsulator = _text(var, "TextEncapsulator", '"') or None
 
     # An explicitly empty <ColumnDelimiter/> is not a declaration this reader can honour:
@@ -398,11 +396,56 @@ def _within(base: str, path: str) -> bool:
 
 def _resolve_within(dossier_dir: str, url: str) -> str:
     """A descriptor is untrusted input: keep its URLs inside the dossier directory."""
-    base = Path(dossier_dir).resolve()
-    target = (base / url).resolve()
-    if not _within(str(base), str(target)):
+    target = os.path.join(dossier_dir, url)
+    if not _within(dossier_dir, target):
         raise ValueError(f"descriptor URL {url!r} escapes the dossier directory")
-    return str(target)
+    return os.path.realpath(target)
+
+
+def _descriptor(dossier_dir: str) -> str:
+    """The index.xml path, refused when it links outside the dossier."""
+    path = os.path.join(dossier_dir, INDEX_NAME)
+    if not _within(dossier_dir, path):
+        raise ValueError(f"{INDEX_NAME} links outside the dossier and is not read; copy it into the dossier")
+    return path
+
+
+class InadmissibleTotal(Exception):
+    """Rows were asked for a total or concept amount without a policy attesting their admissibility.
+
+    `verdicts` counts the rows by the stamp they carry (or `unstamped`), so the refusal says
+    how much of the journal stood in the way.
+    """
+
+    def __init__(self, message: str, verdicts: dict[str, int] | None = None) -> None:
+        super().__init__(message)
+        self.verdicts = verdicts
+
+
+def refuse_unadmitted(table: pa.Table, requested: str) -> None:
+    """Raise InadmissibleTotal unless every row carries an affirmative admissibility verdict.
+
+    PRESENCE of the stamp column is the contract, not a non-empty one: a dossier with no rows
+    is still an attested dossier. Each stamp must then be an AFFIRMATIVE verdict; a check for
+    non-null would admit "", "DENIED" and False alike.
+    """
+    if ADMISSIBILITY_COLUMN not in table.column_names:
+        raise InadmissibleTotal(
+            f"refusing {requested}: no admissibility evidence in {ADMISSIBILITY_COLUMN!r}. "
+            "An admissibility policy (see AdmissibilityPolicyGroup) must stamp the rows "
+            "before a citable total is produced.",
+            verdicts={"unstamped": table.num_rows},
+        )
+    stamps = table.column(ADMISSIBILITY_COLUMN).to_pylist()
+    bad = [e for e in stamps if not is_admitted(e)]
+    if bad:
+        counts = dict(Counter(verdict_kind(e) for e in stamps))
+        raise InadmissibleTotal(
+            f"refusing {requested}: {len(bad)} row(s) carry no affirmative admissibility "
+            f"verdict (e.g. {bad[0]!r}). A blank, negative or malformed stamp is not an "
+            f"admission ({describe_verdicts(counts)}).",
+            verdicts=counts,
+        )
 
 
 # Record delimiters an exporter declares as "a line ending". Declared CRLF is routinely
@@ -458,9 +501,9 @@ def _decimal(raw: str, spec: TableSpec, column: str) -> Decimal | None:
 
     # scaleb is ARITHMETIC, so it rounds to the active context -- 28 significant digits by
     # default, narrower than the decimal128(38, s) this reader is allowed to produce. A wide
-    # ImpliedAccuracy amount was therefore rounded here, at parse time, and no later context
-    # could recover what was already gone. Decimal(str) itself is exact; only the shift needed
-    # room. The digits of the value plus the declared shift is the exact requirement.
+    # ImpliedAccuracy amount would be rounded here, at parse time, beyond later recovery.
+    # Decimal(str) itself is exact; only the shift needs room. The digits of the value plus
+    # the declared shift is the exact requirement.
     shift = spec.accuracy[column]
     with localcontext() as ctx:
         ctx.prec = len(value.as_tuple().digits) + shift + 2
@@ -603,10 +646,17 @@ class GdpduReader(_ReaderJournal):
     @classmethod
     def dossier(cls, path: str) -> str | None:
         if os.path.isdir(path) and os.path.isfile(os.path.join(path, INDEX_NAME)):
-            return path
-        if os.path.basename(path) == INDEX_NAME and os.path.isfile(path):
-            return os.path.dirname(path)
-        return None
+            found = path
+        elif os.path.basename(path) == INDEX_NAME and os.path.isfile(path):
+            found = os.path.dirname(path)
+        else:
+            return None
+        if not _within(found, os.path.join(found, INDEX_NAME)):
+            record_match_rejection(
+                cls.get_class_name(), f"{INDEX_NAME} links outside its folder", stage=INPUT_DATA_STAGE
+            )
+            return None
+        return found
 
     @classmethod
     def columns(cls, match: SourceMatch) -> list[str] | None:
@@ -614,8 +664,8 @@ class GdpduReader(_ReaderJournal):
 
         `__admissibility` is deliberately absent: a policy adds it, not the reader.
         """
-        index_path = os.path.join(match.access, INDEX_NAME)
         try:
+            index_path = _descriptor(str(match.access))
             spec = parse_descriptor_bytes(Path(index_path).read_bytes(), index_path)
         except (OSError, ValueError, ET.ParseError):
             return None
@@ -641,8 +691,9 @@ class GdpduReader(_ReaderJournal):
         dossier_dir = str(match.access)
         name = os.path.basename(os.path.normpath(dossier_dir))
         try:
-            descriptor_bytes = Path(os.path.join(dossier_dir, INDEX_NAME)).read_bytes()
-            spec = parse_descriptor_bytes(descriptor_bytes, os.path.join(dossier_dir, INDEX_NAME))
+            index_path = _descriptor(dossier_dir)
+            descriptor_bytes = Path(index_path).read_bytes()
+            spec = parse_descriptor_bytes(descriptor_bytes, index_path)
             raw = Path(_resolve_within(dossier_dir, spec.url)).read_bytes()
         except (OSError, ValueError, ET.ParseError):
             return f"gdpdu:{name}"
@@ -653,7 +704,7 @@ class GdpduReader(_ReaderJournal):
         """Returns a materialised pa.Table -- not a FileSource -- so an INPUT_DATA_LOAD
         extender can inspect actual rows after delegating."""
         dossier_dir = str(data_access)
-        index_path = os.path.join(dossier_dir, INDEX_NAME)
+        index_path = _descriptor(dossier_dir)
 
         # Read the descriptor ONCE and both parse and hash those exact bytes. Reading it twice
         # would let an edit between the two reads produce a citation naming a descriptor that

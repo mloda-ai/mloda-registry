@@ -14,7 +14,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from .datev import SOLL_POSITIVE, VORZEICHEN
 from .policy import ADMITTED, unprefixed
-from .reader import ADMISSIBILITY_COLUMN, GdpduReader, is_admitted
+from .reader import ADMISSIBILITY_COLUMN, GdpduReader, is_admitted, refuse_unadmitted
 
 # Explicit, versioned, deliberately narrow -- and *stated*, not cited: these are two ranges
 # chosen and written down here, not a DATEV catalogue reproduced under licence. "Which
@@ -317,7 +317,9 @@ class SkrAccountFeatureGroup(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return cls._map_accounts(unprefixed(data, ADMITTED), features)
+        table = unprefixed(data, ADMITTED)
+        refuse_unadmitted(table, ", ".join(sorted(str(n) for n in features.get_all_names())))
+        return cls._map_accounts(table, features)
 
     @classmethod
     def _map_accounts(cls, table: Any, features: FeatureSet) -> Any:
@@ -344,8 +346,8 @@ class SkrAccountFeatureGroup(FeatureGroup):
         # where a line does not contribute. Filtering per concept would give each concept a
         # different length, and two concepts in one request could not share a table.
         # Only a DATEV journal carries a BU key; its revenue legs may be booked gross. A
-        # GDPdU line is booked as declared, so the check has nothing to read there. Rows no
-        # policy admitted are left to the aggregation, which refuses them first.
+        # GDPdU line is booked as declared, so the check has nothing to read there. Called
+        # directly, unadmitted rows are not refused here: calculate_feature does that first.
         n = len(konto)
         stated = table.column(VORZEICHEN).to_pylist() if VORZEICHEN in declared else [None] * n
         unknown = sorted({str(c) for c in stated if c not in (None, SOLL_POSITIVE)})

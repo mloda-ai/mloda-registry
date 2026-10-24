@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
 from decimal import Decimal, localcontext
 from typing import Any
 
@@ -12,20 +11,9 @@ from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, Ho
 from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from .reader import ADMISSIBILITY_COLUMN, _ReaderJournal, describe_verdicts, is_admitted, verdict_kind
+from .reader import InadmissibleTotal as InadmissibleTotal
+from .reader import _ReaderJournal, refuse_unadmitted
 from .skr import PARTS, SkrAccountFeatureGroup
-
-
-class InadmissibleTotal(Exception):
-    """Rows were asked to produce a total without any policy attesting their admissibility.
-
-    `verdicts` counts the rows by the stamp they carry (or `unstamped`), so the refusal says
-    how much of the journal stood in the way.
-    """
-
-    def __init__(self, message: str, verdicts: dict[str, int] | None = None) -> None:
-        super().__init__(message)
-        self.verdicts = verdicts
 
 
 class UncitedValue(Exception):
@@ -71,31 +59,9 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         available = set(data.column_names)
 
-        # No number without a source -- and no number at all without established admissibility.
-        # This is the join that makes the four pieces one chain: the aggregation will not total
-        # rows whose admissibility no policy has attested. Remove the policy and the pipeline
+        # No number without established admissibility: remove the policy and the pipeline
         # returns nothing, rather than an unvetted total that still looks like money.
-        # PRESENCE of the column is the contract, not a non-empty one: a dossier with no rows
-        # is still an attested dossier, and must reach the promised null total rather than
-        # dying here. Then every stamp must be an AFFIRMATIVE verdict -- checking only for
-        # non-null admitted "", "DENIED" and False alike.
-        if ADMISSIBILITY_COLUMN not in available:
-            raise InadmissibleTotal(
-                f"refusing to total: no admissibility evidence in {ADMISSIBILITY_COLUMN!r}. "
-                "An admissibility policy (see AdmissibilityPolicyGroup) must stamp the rows "
-                "before a citable total is produced.",
-                verdicts={"unstamped": data.num_rows},
-            )
-        stamps = data.column(ADMISSIBILITY_COLUMN).to_pylist()
-        bad = [e for e in stamps if not is_admitted(e)]
-        if bad:
-            counts = dict(Counter(verdict_kind(e) for e in stamps))
-            raise InadmissibleTotal(
-                f"refusing to total: {len(bad)} row(s) carry no affirmative admissibility "
-                f"verdict (e.g. {bad[0]!r}). A blank, negative or malformed stamp is not an "
-                f"admission ({describe_verdicts(counts)}).",
-                verdicts=counts,
-            )
+        refuse_unadmitted(data, ", ".join(sorted(str(n) for n in features.get_all_names())))
 
         out: dict[str, pa.Array] = {}
         published: dict[str, str] = {}
@@ -181,10 +147,9 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             scale = source_type.scale if pa.types.is_decimal(source_type) else 0
 
             # Python's default Decimal context rounds at 28 significant digits, which is
-            # narrower than the decimal128(38, s) money being summed: on a wide ledger the
-            # cents were silently rounded away. Sum with room for the carry, then let Arrow
-            # refuse a total that genuinely will not fit the declared type -- loudly, rather
-            # than handing back a rounded one.
+            # narrower than the decimal128(38, s) money being summed, so a wide ledger would lose
+            # cents. Sum with room for the carry, then let Arrow refuse a total that genuinely
+            # will not fit the declared type -- loudly, rather than handing back a rounded one.
             precision = source_type.precision if pa.types.is_decimal(source_type) else 38
             if amounts and not unpriced:
                 with localcontext() as ctx:
