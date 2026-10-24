@@ -6,6 +6,7 @@ The scenarios in isolated.py register classes process-wide, so each runs in a fr
 import json
 import shutil
 import tempfile
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -33,7 +34,7 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import So
 
 from ._host import PLUGINS, ListSink, audit_gate, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
-from .isolated import claim, run_isolated, source_match
+from .isolated import _run, claim, run_isolated, source_match
 
 HERE = Path(__file__).parent
 
@@ -146,17 +147,7 @@ def test_origins_survive_aggregation() -> None:
     assert json.loads(basis)["catalogue"]["name"] == "SKR04_2025"
 
 
-def _run_dossier_a(*names: str) -> dict[str, Any]:
-    res = mloda.run_all(
-        features=list(names),
-        compute_frameworks=[PyArrowTable],
-        data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
-        plugin_collector=PLUGINS,
-    )
-    return {k: v for t in res for k, v in t.to_pydict().items()}
-
-
-_PART_CHECKS: dict[str, Any] = {
+_PART_CHECKS: dict[str, Callable[[Any], bool]] = {
     "revenue__sources~value": lambda cell: str(cell) == "45385.06",
     "revenue__sources~origins": lambda cell: len(cell) == 5,
     "revenue__sources~basis": lambda cell: json.loads(cell)["catalogue"]["name"] == "SKR04_2025",
@@ -175,7 +166,7 @@ _PART_CHECKS: dict[str, Any] = {
 )
 def test_requested_parts_return_exactly_those_columns(names: tuple[str, ...]) -> None:
     """Requesting declared parts of the total returns exactly those columns, each with its expected content."""
-    got = _run_dossier_a(*names)
+    got = _run(FIX / "dossier_a", list(names), PLUGINS)
     assert set(got) == set(names), got
     for name in names:
         assert _PART_CHECKS[name](got[name][0]), got
@@ -183,15 +174,15 @@ def test_requested_parts_return_exactly_those_columns(names: tuple[str, ...]) ->
 
 def test_a_part_of_the_line_grain_concept_returns_only_that_part() -> None:
     """`revenue~value` is one column whose non-null values sum to the total."""
-    got = _run_dossier_a("revenue~value")
+    got = _run(FIX / "dossier_a", ["revenue~value"], PLUGINS)
     assert set(got) == {"revenue~value"}, got
     assert sum((v for v in got["revenue~value"] if v is not None), Decimal("0")) == Decimal("45385.06"), got
 
 
 def test_an_undeclared_part_fails_at_resolution() -> None:
     """A part the group does not declare is refused when the name is resolved."""
-    with pytest.raises(FeatureResolutionError, match=r"(?s)bogus.*is not an output part|is not an output part.*bogus"):
-        _run_dossier_a("revenue__sources~bogus")
+    with pytest.raises(FeatureResolutionError, match="'bogus' is not an output part"):
+        _run(FIX / "dossier_a", ["revenue__sources~bogus"], PLUGINS)
 
 
 def _stamped_rows(*bases: str | None) -> pa.Table:

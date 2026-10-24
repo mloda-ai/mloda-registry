@@ -259,9 +259,9 @@ class SkrAccountFeatureGroup(FeatureGroup):
     Its one input is `gdpdu_journal__admitted`, so a concept cannot be computed from rows
     no policy has seen: with no policy configured the input does not resolve.
 
-    Each concept returns two columns at row-preserving line grain -- ``name~value`` and
-    ``name~origins`` -- so a value and its source are one logical feature that nothing
-    downstream can separate into different FeatureSets. A single part (e.g. ``revenue~value``)
+    Each concept returns three columns at row-preserving line grain -- ``name~value``,
+    ``name~origins`` and ``name~basis`` -- so a value and its source are one logical feature
+    that nothing downstream can separate into different FeatureSets. A single part (e.g. ``revenue~value``)
     can be requested; the whole concept is still computed once.
 
     PROFILES lists the exporter shapes this host knows. The one that applies is chosen from
