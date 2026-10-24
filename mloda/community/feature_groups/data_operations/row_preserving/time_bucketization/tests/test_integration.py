@@ -28,6 +28,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 # Expected values on the canonical dataset (timestamp column). Midnight days
 # floor to themselves; the null row stays null.
@@ -54,7 +57,7 @@ _CANONICAL_FLOOR_1_MONTH: list[Any] = [datetime(2023, 1, 1, tzinfo=timezone.utc)
 ]
 
 
-class TestTimeBucketizationIntegration(DataOpsIntegrationTestBase):
+class TestTimeBucketizationIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class.
 
     Time-bucketization uses pattern-based matching, so

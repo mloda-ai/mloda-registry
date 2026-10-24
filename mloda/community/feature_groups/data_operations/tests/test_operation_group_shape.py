@@ -160,6 +160,9 @@ FAMILIES = [
 ]
 
 _BY_FAMILY = pytest.mark.parametrize("family", FAMILIES, ids=[f.key for f in FAMILIES])
+# ffill and time_bucketization run these checks via OperationGroupIntegrationTestMixin in their integration tests.
+_PIPELINE_FAMILIES = [f for f in FAMILIES if f.key not in ("ffill", "time_bucketization")]
+_BY_PIPELINE_FAMILY = pytest.mark.parametrize("family", _PIPELINE_FAMILIES, ids=[f.key for f in _PIPELINE_FAMILIES])
 _BY_IMPLEMENTATION = pytest.mark.parametrize(
     ("family", "impl"),
     [pytest.param(f, i, id=f"{f.key}-{i.name}") for f in FAMILIES for i in f.implementations],
@@ -237,7 +240,7 @@ class TestManifest:
 class TestRunThroughThePipeline:
     """Resolution and planning treat the family as one group with per-framework implementations."""
 
-    @_BY_FAMILY
+    @_BY_PIPELINE_FAMILY
     def test_no_implementation_on_the_run_framework_is_a_resolution_error(self, family: Family) -> None:
         """With every implementation for the framework disabled the group fails resolution, naming why."""
         group = family.group_class()
@@ -257,7 +260,7 @@ class TestRunThroughThePipeline:
             mloda.run_all([family.feature()], compute_frameworks=[framework], plugin_collector=collector)
         assert family.group in str(excinfo.value)
 
-    @_BY_FAMILY
+    @_BY_PIPELINE_FAMILY
     def test_several_frameworks_enabled_runs_the_feature(self, family: Family) -> None:
         frameworks = [getattr(pytest.importorskip(m), n) for m, n in family.frameworks]
 
@@ -270,7 +273,7 @@ class TestRunThroughThePipeline:
         ]
         assert len(holders) == 1
 
-    @_BY_FAMILY
+    @_BY_PIPELINE_FAMILY
     def test_several_frameworks_plan_one_compute_step_with_an_implementation(self, family: Family) -> None:
         frameworks = [getattr(pytest.importorskip(m), n) for m, n in family.frameworks]
         group = family.group_class()
