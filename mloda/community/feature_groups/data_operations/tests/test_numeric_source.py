@@ -1,30 +1,15 @@
 """Structural single-source-of-truth guards for the per-framework numeric-source modules.
 
-These tests guard the "exactly one place" Definition of Done for issue #214:
-the per-backend "what counts as numeric" logic lives in exactly one module per
-compute framework (``data_operations/<framework>_numeric_source.py``) and each
-such module is wired in by ONE per-backend mixin (under
-``data_operations/row_preserving/arithmetic/``) that BOTH the point- and scalar-arithmetic
-families inherit.
+Each framework's "what counts as numeric" logic lives in one module
+(``data_operations/<framework>_numeric_source.py``), wired in by ONE plain mixin per
+framework (under ``data_operations/row_preserving/arithmetic/``) that carries only
+``_non_numeric_descriptor``. Both the point and scalar Implementations import that mixin
+and pass its hook to the group's ``apply_arithmetic``; the groups and Implementations
+define no numeric-source hook. The SQL operator map exists once as
+``base.SQL_ARITHMETIC_OPS``, imported by the DuckDB and SQLite Implementations.
 
-The target shape they pin:
-
-- The mixins are plain classes at runtime, NOT ``FeatureGroup`` subclasses, so
-  they never show up in the FeatureGroup subclass tree / plugin discovery.
-- Each mixin contributes only the ``_non_numeric_descriptor`` hook (plus
-  ``compute_framework_rule``); the ``_assert_source_column_is_numeric``
-  template lives solely on ``ArithmeticFeatureGroupBase`` and nobody
-  overrides it.
-- Both backend modules per framework (point and scalar) import that one mixin and
-  pass its hook to the family group; their Implementations define no numeric-source hook.
-- The SQL operator map exists once as ``base.SQL_ARITHMETIC_OPS``; the DuckDB
-  and SQLite names alias that same object.
-
-They are deliberately structural (``is``-identity of functions and dicts, MRO
-order). The actual per-backend numeric behavior on real data is covered by the
-shared ``PointArithmeticTestBase`` / ``ScalarArithmeticTestBase`` non-numeric
-source rejection tests, which run across all five backends on the canonical
-12-row dataset and flow through the per-framework numeric-source modules.
+The tests are structural (``is``-identity of functions and dicts, class attributes); the
+numeric behavior on real data is covered by the shared non-numeric source rejection tests.
 """
 
 from __future__ import annotations
@@ -42,7 +27,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.arithmetic im
     pyarrow_numeric_source,
     sqlite_numeric_source,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticOpMixin
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
@@ -86,9 +71,8 @@ class TestMixinHookBindings:
     is the numeric-source module's function) and passes that hook to the family
     group's ``apply_arithmetic``. The Implementation itself defines none of
     ``_non_numeric_descriptor``, ``_assert_source_column_is_numeric`` or
-    ``compute_framework_rule``, and the group does not override the
-    ``_assert_source_column_is_numeric`` template owned by
-    ``ArithmeticFeatureGroupBase``.
+    ``compute_framework_rule``, the mixin defines no ``compute_framework_rule``, and
+    neither group defines or inherits the numeric-source hooks.
     """
 
     _HOOK_NAMES = ("_non_numeric_descriptor", "_assert_source_column_is_numeric", "compute_framework_rule")
@@ -104,14 +88,16 @@ class TestMixinHookBindings:
             assert hook not in vars(concrete_cls), f"{concrete_name} must not define {hook}"
             assert not hasattr(concrete_cls, hook), f"{concrete_name} must not inherit {hook}"
 
-    def _assert_groups_keep_the_template(self) -> None:
-        base_cls: Any = ArithmeticFeatureGroupBase
+    def _assert_groups_have_no_numeric_source_hook(self) -> None:
         for group in (PointArithmeticFeatureGroup, ScalarArithmeticFeatureGroup):
-            group_cls: Any = group
-            assert (
-                group_cls._assert_source_column_is_numeric.__func__
-                is base_cls._assert_source_column_is_numeric.__func__
-            ), f"{group.__name__} must not override the _assert_source_column_is_numeric template"
+            assert issubclass(group, ArithmeticOpMixin)
+            for hook in ("_non_numeric_descriptor", "_assert_source_column_is_numeric"):
+                assert not hasattr(group, hook), f"{group.__name__} must neither define nor inherit {hook}"
+
+    def _assert_mixin_defines_no_compute_framework_rule(self, mixin_cls: Any) -> None:
+        assert "compute_framework_rule" not in vars(mixin_cls), (
+            f"{mixin_cls.__name__} must not define compute_framework_rule"
+        )
 
     def _assert_both_families(self, mixin_cls: Any, backend: str, class_prefix: str) -> None:
         self._assert_module_binds_mixin(
@@ -120,7 +106,8 @@ class TestMixinHookBindings:
         self._assert_module_binds_mixin(
             mixin_cls, f"{_SCALAR}.{backend}_scalar_arithmetic", f"{class_prefix}ScalarArithmetic"
         )
-        self._assert_groups_keep_the_template()
+        self._assert_groups_have_no_numeric_source_hook()
+        self._assert_mixin_defines_no_compute_framework_rule(mixin_cls)
 
     def test_pandas_modules_bind_mixin_hook(self) -> None:
         """Both pandas backend modules import the pandas mixin."""
@@ -203,28 +190,33 @@ class TestMixinsAreNotFeatureGroups:
 
 
 class TestSqlArithmeticOpsSingleSourceOfTruth:
-    """The SQL operator map lives once in ``arithmetic.base`` and the SQL backends alias it.
-
-    DuckDB and SQLite previously each declared a byte-identical operator dict.
-    The shared map is ``base.SQL_ARITHMETIC_OPS``; the per-backend names
-    (``DUCKDB_ARITHMETIC_OPS`` / ``SQLITE_ARITHMETIC_OPS``) must be the SAME
-    object, not copies, so the dicts can never drift apart.
-    """
+    """The SQL operator map lives once in ``arithmetic.base`` and the SQL Implementations import it."""
 
     def test_sql_arithmetic_ops_content(self) -> None:
         """``base.SQL_ARITHMETIC_OPS`` maps the four shared op names to SQL operators."""
         base_module = importlib.import_module(f"{_MIXIN}.base")
         assert base_module.SQL_ARITHMETIC_OPS == {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
-    def test_duckdb_arithmetic_ops_is_shared_sql_ops(self) -> None:
-        """``DUCKDB_ARITHMETIC_OPS`` is the very object declared in ``arithmetic.base``."""
+    def test_duckdb_implementations_use_shared_sql_ops(self) -> None:
+        """The DuckDB point and scalar modules expose the very ``SQL_ARITHMETIC_OPS`` of ``arithmetic.base``."""
         pytest.importorskip("duckdb")
         base_module = importlib.import_module(f"{_MIXIN}.base")
-        mixin_module = importlib.import_module(f"{_MIXIN}.duckdb_mixin")
-        assert mixin_module.DUCKDB_ARITHMETIC_OPS is base_module.SQL_ARITHMETIC_OPS
+        for path in (f"{_POINT}.duckdb_point_arithmetic", f"{_SCALAR}.duckdb_scalar_arithmetic"):
+            module = importlib.import_module(path)
+            assert module.SQL_ARITHMETIC_OPS is base_module.SQL_ARITHMETIC_OPS
 
-    def test_sqlite_arithmetic_ops_is_shared_sql_ops(self) -> None:
-        """``SQLITE_ARITHMETIC_OPS`` is the very object declared in ``arithmetic.base``."""
+    def test_sqlite_implementations_use_shared_sql_ops(self) -> None:
+        """The SQLite point and scalar modules expose the very ``SQL_ARITHMETIC_OPS`` of ``arithmetic.base``."""
         base_module = importlib.import_module(f"{_MIXIN}.base")
-        mixin_module = importlib.import_module(f"{_MIXIN}.sqlite_mixin")
-        assert mixin_module.SQLITE_ARITHMETIC_OPS is base_module.SQL_ARITHMETIC_OPS
+        for path in (f"{_POINT}.sqlite_point_arithmetic", f"{_SCALAR}.sqlite_scalar_arithmetic"):
+            module = importlib.import_module(path)
+            assert module.SQL_ARITHMETIC_OPS is base_module.SQL_ARITHMETIC_OPS
+
+    def test_duckdb_mixin_has_no_ops_alias(self) -> None:
+        """``duckdb_mixin`` no longer carries ``DUCKDB_ARITHMETIC_OPS``."""
+        pytest.importorskip("duckdb")
+        assert not hasattr(importlib.import_module(f"{_MIXIN}.duckdb_mixin"), "DUCKDB_ARITHMETIC_OPS")
+
+    def test_sqlite_mixin_has_no_ops_alias(self) -> None:
+        """``sqlite_mixin`` no longer carries ``SQLITE_ARITHMETIC_OPS``."""
+        assert not hasattr(importlib.import_module(f"{_MIXIN}.sqlite_mixin"), "SQLITE_ARITHMETIC_OPS")

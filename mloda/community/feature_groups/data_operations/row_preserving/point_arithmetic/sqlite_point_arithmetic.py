@@ -10,8 +10,8 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framewor
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import SQL_ARITHMETIC_OPS
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_mixin import (
-    SQLITE_ARITHMETIC_OPS,
     SqliteArithmeticMixin,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
@@ -48,9 +48,9 @@ class SqlitePointArithmetic(Implementation[PointArithmeticFeatureGroup]):
         col_b: str,
         op: str,
     ) -> SqliteRelation:
-        sql_op = SQLITE_ARITHMETIC_OPS.get(op)
+        sql_op = SQL_ARITHMETIC_OPS.get(op)
         if sql_op is None:
-            raise unsupported_op_error(op, SQLITE_ARITHMETIC_OPS, framework="SQLite")
+            raise unsupported_op_error(op, SQL_ARITHMETIC_OPS, framework="SQLite")
 
         quoted_a = quote_ident(col_a)
         quoted_b = quote_ident(col_b)

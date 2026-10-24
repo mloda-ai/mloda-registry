@@ -1,15 +1,15 @@
-"""Structural guards for the arithmetic families: one shared base class and the operation-group shape."""
+"""Structural guards for the arithmetic families: one shared plain mixin and the operation-group shape."""
 
 from __future__ import annotations
 
 from typing import Any
 
-import pytest
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, OperationFeatureGroup
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
     ARITHMETIC_OP_NAMES,
-    ArithmeticFeatureGroupBase,
+    ArithmeticOpMixin,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS as POINT_ARITHMETIC_OPERATIONS,
@@ -27,21 +27,38 @@ from mloda.testing.feature_groups.data_operations.helpers import make_feature_se
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
-class TestArithmeticFeatureGroupBase:
-    """Both arithmetic families derive from the shared ``ArithmeticFeatureGroupBase``."""
+class TestArithmeticOpMixin:
+    """Both arithmetic families mix in the shared plain ``ArithmeticOpMixin``."""
 
-    def test_point_arithmetic_subclasses_base(self) -> None:
-        """``PointArithmeticFeatureGroup`` inherits from the shared base."""
-        assert issubclass(PointArithmeticFeatureGroup, ArithmeticFeatureGroupBase)
+    def test_point_arithmetic_subclasses_mixin(self) -> None:
+        """``PointArithmeticFeatureGroup`` inherits from the shared mixin."""
+        assert issubclass(PointArithmeticFeatureGroup, ArithmeticOpMixin)
 
-    def test_scalar_arithmetic_subclasses_base(self) -> None:
-        """``ScalarArithmeticFeatureGroup`` inherits from the shared base."""
-        assert issubclass(ScalarArithmeticFeatureGroup, ArithmeticFeatureGroupBase)
+    def test_scalar_arithmetic_subclasses_mixin(self) -> None:
+        """``ScalarArithmeticFeatureGroup`` inherits from the shared mixin."""
+        assert issubclass(ScalarArithmeticFeatureGroup, ArithmeticOpMixin)
 
-    def test_missing_non_numeric_descriptor_hook_raises(self) -> None:
-        """The base is a plain class, so the hook must raise itself instead of relying on ``@abstractmethod``."""
-        with pytest.raises(NotImplementedError):
-            ArithmeticFeatureGroupBase._assert_source_column_is_numeric({"a": ["s"]}, "a")
+    def test_mixin_is_not_a_feature_group(self) -> None:
+        """``ArithmeticOpMixin`` is a plain mixin outside the FeatureGroup subclass tree."""
+        assert not issubclass(ArithmeticOpMixin, FeatureGroup)
+
+    def test_point_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
+        """Point arithmetic lists the mixins before ``OperationFeatureGroup``."""
+        assert PointArithmeticFeatureGroup.__mro__[1:5] == (
+            ArithmeticOpMixin,
+            FeatureChainParserMixin,
+            OperationFeatureGroup,
+            FeatureGroup,
+        )
+
+    def test_scalar_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
+        """Scalar arithmetic lists the mixins before ``OperationFeatureGroup``."""
+        assert ScalarArithmeticFeatureGroup.__mro__[1:5] == (
+            ArithmeticOpMixin,
+            FeatureChainParserMixin,
+            OperationFeatureGroup,
+            FeatureGroup,
+        )
 
 
 class TestArithmeticOpNamesSingleSourceOfTruth:

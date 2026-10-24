@@ -44,7 +44,7 @@ from mloda.community.feature_groups.data_operations.base import (
     is_scalar_number,
     scalar_number_value,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticOpMixin
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",
@@ -54,8 +54,8 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
-class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureGroup):
-    SUBTYPES = SubtypeDeclaration(key=ArithmeticFeatureGroupBase.ARITHMETIC_OP)
+class ScalarArithmeticFeatureGroup(ArithmeticOpMixin, OperationFeatureGroup):
+    SUBTYPES = SubtypeDeclaration(key=ArithmeticOpMixin.ARITHMETIC_OP)
 
     PREFIX_PATTERN = r".*__([\w]+)_constant$"
 
@@ -66,7 +66,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureG
     CONSTANT = "constant"
 
     PROPERTY_MAPPING = {
-        ArithmeticFeatureGroupBase.ARITHMETIC_OP: property_spec(
+        ArithmeticOpMixin.ARITHMETIC_OP: property_spec(
             "Arithmetic operation applied between the source column and the constant",
             strict=True,
             allowed_values=ARITHMETIC_OPERATIONS,
@@ -108,13 +108,6 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureG
         if value == 0 and cls._extract_arithmetic_op(feature) == "divide":
             raise ValueError(f"Cannot divide by zero for feature {feature_name!r}")
         return value
-
-    @classmethod
-    def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
-        """Each Implementation passes its framework's check to ``apply_arithmetic``."""
-        raise TypeError(
-            f"{cls.__name__} has no framework check; each Implementation passes its own to apply_arithmetic."
-        )
 
     @classmethod
     def apply_arithmetic(

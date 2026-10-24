@@ -10,8 +10,8 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import SQL_ARITHMETIC_OPS
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_mixin import (
-    DUCKDB_ARITHMETIC_OPS,
     DuckdbArithmeticMixin,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
@@ -47,9 +47,9 @@ class DuckdbPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
         col_b: str,
         op: str,
     ) -> DuckdbRelation:
-        sql_op = DUCKDB_ARITHMETIC_OPS.get(op)
+        sql_op = SQL_ARITHMETIC_OPS.get(op)
         if sql_op is None:
-            raise unsupported_op_error(op, DUCKDB_ARITHMETIC_OPS, framework="DuckDB")
+            raise unsupported_op_error(op, SQL_ARITHMETIC_OPS, framework="DuckDB")
 
         quoted_a = quote_ident(col_a)
         quoted_b = quote_ident(col_b)

@@ -1,29 +1,17 @@
-"""Shared skeleton for the arithmetic feature-group families.
+"""Shared arithmetic-op parsing and non-numeric rejection message.
 
-The point-arithmetic and scalar-arithmetic families share the same
-arithmetic-op extraction and numeric-source contract: they parse the same four
-operation names (``add``/``subtract``/``multiply``/``divide``) out of the
-feature name or options, and they reject non-numeric source columns with the
-same error format. Issue #214 had this logic duplicated byte-for-byte across
-the two families' ``base.py`` files.
-
-``ArithmeticFeatureGroupBase`` holds the identical parts. The families subclass
-it and override ``OPERATION_LABEL`` (so the rejection message names the right
-operation) plus the family-specific bits (operand count, constant handling,
-PROPERTY_MAPPING). Per-backend numeric introspection lives in
-``numeric_source``; the per-backend mixins supply the
-``_non_numeric_descriptor`` hook consumed by the
-``_assert_source_column_is_numeric`` template defined here.
+Both arithmetic operation groups (point and scalar) mix ``ArithmeticOpMixin`` in
+for op parsing and the shared non-numeric rejection message. Each Implementation
+passes its framework mixin's ``_non_numeric_descriptor`` to the group's
+``apply_arithmetic``.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 from mloda.provider import FeatureChainParser, FeatureChainParserMixin
 from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.base import available_columns, op_token_value
+from mloda.community.feature_groups.data_operations.base import op_token_value
 
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
 
@@ -31,7 +19,7 @@ ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", 
 SQL_ARITHMETIC_OPS: dict[str, str] = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
 
-class ArithmeticFeatureGroupBase(FeatureChainParserMixin):
+class ArithmeticOpMixin(FeatureChainParserMixin):
     ARITHMETIC_OP = "arithmetic_op"
 
     #: Operation label used in the numeric-source rejection message.
@@ -66,32 +54,8 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin):
     def _raise_non_numeric_source(cls, source_col: str, got: object) -> None:
         """Shared error format for the numeric-source contract.
 
-        Backend overrides of ``_assert_source_column_is_numeric`` call this
-        helper so the message stays uniform across all backends. ``got`` is
-        inlined verbatim, allowing backends to pass a native dtype, an
-        affinity string, or any other descriptor.
+        The group's ``apply_arithmetic`` calls this when a framework mixin's
+        ``_non_numeric_descriptor`` reports a non-numeric column. ``got`` is
+        inlined verbatim (native dtype, affinity string, or any descriptor).
         """
         raise ValueError(f"Source column {source_col!r} must be numeric for {cls.OPERATION_LABEL}; got {got}.")
-
-    @classmethod
-    def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
-        """Return a native descriptor when ``source_col`` is NOT numeric, else ``None``; per-backend hook."""
-        raise NotImplementedError
-
-    @classmethod
-    def _assert_source_column_is_numeric(cls, data: Any, source_col: str) -> None:
-        """Reject non-numeric source columns with a clear ``ValueError``.
-
-        Template method: calls the per-backend ``_non_numeric_descriptor``
-        hook and, when it reports a non-numeric column, raises via
-        ``_raise_non_numeric_source`` so the message format stays uniform.
-        """
-        descriptor = cls._non_numeric_descriptor(data, source_col)
-        if descriptor is not None:
-            cls._raise_non_numeric_source(source_col, descriptor)
-
-    # Deprecated alias: released leaves still import this name.
-    @classmethod
-    def _input_columns_and_framework(cls, data: Any) -> tuple[list[str], str]:
-        """Column names and the input's class name, for a leaf still calling the removed hook."""
-        return available_columns(data), type(data).__name__

@@ -36,7 +36,7 @@ from mloda.community.feature_groups.data_operations.base import (
     assert_source_columns_present,
     is_op_token,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticOpMixin
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of two columns",
@@ -61,8 +61,8 @@ def _is_ordered_in_features(value: object) -> bool:
     return isinstance(value, (list, tuple))
 
 
-class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureGroup):
-    SUBTYPES = SubtypeDeclaration(key=ArithmeticFeatureGroupBase.ARITHMETIC_OP)
+class PointArithmeticFeatureGroup(ArithmeticOpMixin, OperationFeatureGroup):
+    SUBTYPES = SubtypeDeclaration(key=ArithmeticOpMixin.ARITHMETIC_OP)
 
     # The source side must carry the '&' separator: point arithmetic needs two
     # operands, so a one-operand name like 'x__add_point' cannot be computed.
@@ -78,7 +78,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureGr
     OPERATION_LABEL = "point arithmetic"
 
     PROPERTY_MAPPING = {
-        ArithmeticFeatureGroupBase.ARITHMETIC_OP: property_spec(
+        ArithmeticOpMixin.ARITHMETIC_OP: property_spec(
             "Element-wise arithmetic operation applied to the two source columns",
             strict=True,
             allowed_values=ARITHMETIC_OPERATIONS,
@@ -92,13 +92,6 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureGr
             expected="an ordered list or tuple of source features",
         ),
     }
-
-    @classmethod
-    def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
-        """Each Implementation passes its framework's check to ``apply_arithmetic``."""
-        raise TypeError(
-            f"{cls.__name__} has no framework check; each Implementation passes its own to apply_arithmetic."
-        )
 
     @classmethod
     def apply_arithmetic(

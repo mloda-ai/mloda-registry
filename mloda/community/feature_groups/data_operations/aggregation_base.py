@@ -6,8 +6,7 @@ same aggregation names out of the feature name or options, validate them against
 a canonical aggregation-type table, and declare INT64 for counting ops. Issue
 #246 had this logic duplicated across the families' ``base.py`` files.
 
-``AggregationFeatureGroupBase`` holds the identical parts, mirroring the
-``ArithmeticFeatureGroupBase`` consolidation from issue #214. The families
+``AggregationFeatureGroupBase`` holds the identical parts. The families
 subclass it and override ``AGGREGATION_TYPES`` (so each family advertises its
 own supported set / descriptions) and ``_COUNTING_AGG_TYPES`` (which agg types
 produce an integer count), plus the family-specific bits (operand count,
