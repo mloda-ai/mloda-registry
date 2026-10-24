@@ -84,7 +84,7 @@ class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
         return {"trim", "length"}
 ```
 
-If you request `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]`, the group rejects the feature on SQLite at match time (`supports_compute_framework`), name and config form alike, so it will not match and the engine falls back to resolving the feature elsewhere (or errors). See [Supported ops](04-supported-ops.md) for how this pattern generalizes.
+If you request `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteRelation"]`, the group will not match and the engine falls back to resolving the feature elsewhere (or errors). See [Supported ops](04-supported-ops.md) for how this pattern generalizes.
 
 ---
 

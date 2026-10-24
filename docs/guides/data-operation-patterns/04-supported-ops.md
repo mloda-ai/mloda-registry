@@ -31,7 +31,7 @@ If none of the four is defined, the helper raises `TypeError` rather than skippi
 
 ## Example: SQLite excludes `upper`, `lower`, and `reverse`
 
-SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and would diverge from the PyArrow reference on non-ASCII input (e.g. `UPPER('héllo')` returns `'HéLLO'` instead of `'HÉLLO'`). Rather than silently produce divergent results or emulate in SQL, the `SqliteStringOps` Implementation declares `supported` without them, so the group refuses to match all three at selection time (`supports_compute_framework`, name and config form alike):
+SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and would diverge from the PyArrow reference on non-ASCII input (e.g. `UPPER('héllo')` returns `'HéLLO'` instead of `'HÉLLO'`). Rather than silently produce divergent results or emulate in SQL, the `SqliteStringOps` Implementation declares `supported` without them, so the group refuses to match all three at selection time:
 
 ```py
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
