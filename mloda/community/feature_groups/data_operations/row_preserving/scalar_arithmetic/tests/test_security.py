@@ -20,6 +20,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
     PyArrowScalarArithmetic,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 
 
 def _make_fs(name: str, *, constant: int | float | None = None, op: str | None = None) -> FeatureSet:
@@ -128,13 +129,13 @@ class TestDivideByZero:
         df = arrow_table.to_pandas()
         fs = _make_fs("value_int__divide_constant", constant=0)
         with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
-            PandasScalarArithmetic.calculate_feature(df, fs)
+            calculate_with(PandasScalarArithmetic, df, fs)
 
     def test_pyarrow_divide_by_zero_raises(self) -> None:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("value_int__divide_constant", constant=0)
         with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
 
     def test_polars_divide_by_zero_raises(self) -> None:
         polars = pytest.importorskip("polars")
@@ -146,7 +147,7 @@ class TestDivideByZero:
         lf = polars.from_arrow(arrow_table).lazy()
         fs = _make_fs("value_int__divide_constant", constant=0)
         with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
-            PolarsLazyScalarArithmetic.calculate_feature(lf, fs)
+            calculate_with(PolarsLazyScalarArithmetic, lf, fs)
 
     def test_duckdb_divide_by_zero_raises(self) -> None:
         duckdb = pytest.importorskip("duckdb")
@@ -162,7 +163,7 @@ class TestDivideByZero:
             relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__divide_constant", constant=0)
             with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
-                DuckdbScalarArithmetic.calculate_feature(relation, fs)
+                calculate_with(DuckdbScalarArithmetic, relation, fs)
         finally:
             conn.close()
 
@@ -181,7 +182,7 @@ class TestDivideByZero:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__divide_constant", constant=0)
             with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
-                SqliteScalarArithmetic.calculate_feature(relation, fs)
+                calculate_with(SqliteScalarArithmetic, relation, fs)
         finally:
             conn.close()
 
@@ -199,13 +200,13 @@ class TestMissingConstant:
         df = arrow_table.to_pandas()
         fs = _make_fs("value_int__add_constant")
         with pytest.raises(ValueError, match="constant"):
-            PandasScalarArithmetic.calculate_feature(df, fs)
+            calculate_with(PandasScalarArithmetic, df, fs)
 
     def test_pyarrow_missing_constant_raises(self) -> None:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("value_int__add_constant")
         with pytest.raises(ValueError, match="constant"):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
 
     def test_polars_missing_constant_raises(self) -> None:
         polars = pytest.importorskip("polars")
@@ -217,7 +218,7 @@ class TestMissingConstant:
         lf = polars.from_arrow(arrow_table).lazy()
         fs = _make_fs("value_int__add_constant")
         with pytest.raises(ValueError, match="constant"):
-            PolarsLazyScalarArithmetic.calculate_feature(lf, fs)
+            calculate_with(PolarsLazyScalarArithmetic, lf, fs)
 
     def test_duckdb_missing_constant_raises(self) -> None:
         duckdb = pytest.importorskip("duckdb")
@@ -233,7 +234,7 @@ class TestMissingConstant:
             relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant")
             with pytest.raises(ValueError, match="constant"):
-                DuckdbScalarArithmetic.calculate_feature(relation, fs)
+                calculate_with(DuckdbScalarArithmetic, relation, fs)
         finally:
             conn.close()
 
@@ -252,7 +253,7 @@ class TestMissingConstant:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant")
             with pytest.raises(ValueError, match="constant"):
-                SqliteScalarArithmetic.calculate_feature(relation, fs)
+                calculate_with(SqliteScalarArithmetic, relation, fs)
         finally:
             conn.close()
 
@@ -288,7 +289,7 @@ class TestConstantTypeValidation:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs_with_constant("value_int__add_constant", constant)
         with pytest.raises(ValueError, match=match):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
 
     def test_constant_multi_element_list_rejected(self) -> None:
         # A one-element list is valid caller syntax for one constant (see TestConstantArity);
@@ -296,7 +297,7 @@ class TestConstantTypeValidation:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs_with_constant("value_int__add_constant", [5, 10])
         with pytest.raises(ValueError, match=r"int or float"):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
 
     def test_option_based_missing_constant_rejected(self) -> None:
         """Option-based feature (no string-pattern suffix) with no ``constant`` must raise.
@@ -306,7 +307,7 @@ class TestConstantTypeValidation:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("my_result", op="add")
         with pytest.raises(ValueError, match="constant"):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
 
 
 class TestReservedColumnAcceptedAllBackends:
@@ -333,13 +334,13 @@ class TestReservedColumnAcceptedAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         df = arrow_table.to_pandas()
         fs = _make_fs("value_int__add_constant", constant=5)
-        result = PandasScalarArithmetic.calculate_feature(df, fs)
+        result = calculate_with(PandasScalarArithmetic, df, fs)
         assert "__mloda_rn__" in result.columns
 
     def test_pyarrow_accepts_reserved_column(self) -> None:
         arrow_table = self._arrow_with_reserved_col()
         fs = _make_fs("value_int__add_constant", constant=5)
-        result = PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+        result = calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
         assert "__mloda_rn__" in result.column_names
 
     def test_polars_accepts_reserved_column(self) -> None:
@@ -351,7 +352,7 @@ class TestReservedColumnAcceptedAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         lf = polars.from_arrow(arrow_table).lazy()
         fs = _make_fs("value_int__add_constant", constant=5)
-        result = PolarsLazyScalarArithmetic.calculate_feature(lf, fs)
+        result = calculate_with(PolarsLazyScalarArithmetic, lf, fs)
         assert "__mloda_rn__" in result.collect_schema().names()
 
     def test_duckdb_accepts_reserved_column(self) -> None:
@@ -367,7 +368,7 @@ class TestReservedColumnAcceptedAllBackends:
         try:
             relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant", constant=5)
-            result = DuckdbScalarArithmetic.calculate_feature(relation, fs)
+            result = calculate_with(DuckdbScalarArithmetic, relation, fs)
             assert "__mloda_rn__" in result.to_arrow_table().column_names
         finally:
             conn.close()
@@ -386,7 +387,7 @@ class TestReservedColumnAcceptedAllBackends:
         try:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant", constant=5)
-            result = SqliteScalarArithmetic.calculate_feature(relation, fs)
+            result = calculate_with(SqliteScalarArithmetic, relation, fs)
             assert "__mloda_rn__" in result.to_arrow_table().column_names
         finally:
             conn.close()

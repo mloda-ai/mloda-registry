@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
@@ -17,7 +19,25 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 )
 
 
-class DuckdbPointArithmetic(DuckdbArithmeticMixin, PointArithmeticFeatureGroup):
+class DuckdbPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
+    feature_group = PointArithmeticFeatureGroup
+    compute_framework = DuckDBFramework
+
+    @classmethod
+    def calculate(
+        cls,
+        group: type[PointArithmeticFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.apply_arithmetic(
+            data,
+            features,
+            non_numeric=DuckdbArithmeticMixin._non_numeric_descriptor,
+            compute_arithmetic=cls._compute_arithmetic,
+        )
+
     @classmethod
     def _compute_arithmetic(
         cls,

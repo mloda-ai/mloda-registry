@@ -15,8 +15,8 @@ The target shape they pin:
   ``compute_framework_rule``); the ``_assert_source_column_is_numeric``
   template lives solely on ``ArithmeticFeatureGroupBase`` and nobody
   overrides it.
-- Both concrete classes per backend (point and scalar) bind the mixin's hook
-  and the base's template, with the mixin preceding the family base in the MRO.
+- Both backend modules per framework (point and scalar) import that one mixin and
+  pass its hook to the family group; their Implementations define no numeric-source hook.
 - The SQL operator map exists once as ``base.SQL_ARITHMETIC_OPS``; the DuckDB
   and SQLite names alias that same object.
 
@@ -79,94 +79,82 @@ class TestNumericSourceSingleSourceOfTruth:
 
 
 class TestMixinHookBindings:
-    """Each backend mixin contributes only the ``_non_numeric_descriptor`` hook; the base owns the template.
+    """Each backend module imports its framework's one mixin; the Implementation defines no numeric-source hook.
 
-    For every backend and BOTH families (point and scalar), the concrete class
-    must inherit ``_non_numeric_descriptor`` from the one mixin and
-    ``_assert_source_column_is_numeric`` from ``ArithmeticFeatureGroupBase``
-    (the template method that calls the hook and raises via
-    ``_raise_non_numeric_source``). The mixin must precede the family base in
-    the MRO so its classmethods win over any family-level defaults.
+    For every backend and BOTH families (point and scalar), the backend module
+    imports the one mixin of its framework (whose ``_non_numeric_descriptor`` hook
+    is the numeric-source module's function) and passes that hook to the family
+    group's ``apply_arithmetic``. The Implementation itself defines none of
+    ``_non_numeric_descriptor``, ``_assert_source_column_is_numeric`` or
+    ``compute_framework_rule``, and the group does not override the
+    ``_assert_source_column_is_numeric`` template owned by
+    ``ArithmeticFeatureGroupBase``.
     """
 
-    def _assert_concrete_bindings(self, mixin_cls: Any, concrete_cls: Any, family_base: type[Any]) -> None:
-        """Pin the mixin-hook / base-template binding contract on one concrete class."""
-        base_cls: Any = ArithmeticFeatureGroupBase
-        assert concrete_cls._non_numeric_descriptor.__func__ is mixin_cls._non_numeric_descriptor.__func__, (
-            f"{concrete_cls.__name__} must inherit _non_numeric_descriptor from {mixin_cls.__name__}"
-        )
-        assert (
-            concrete_cls._assert_source_column_is_numeric.__func__ is base_cls._assert_source_column_is_numeric.__func__
-        ), (
-            f"{concrete_cls.__name__} must not override the _assert_source_column_is_numeric "
-            "template owned by ArithmeticFeatureGroupBase"
-        )
-        assert concrete_cls.compute_framework_rule.__func__ is mixin_cls.compute_framework_rule.__func__, (
-            f"{concrete_cls.__name__} must inherit compute_framework_rule from {mixin_cls.__name__}"
-        )
-        mro = list(concrete_cls.__mro__)
-        assert mro.index(mixin_cls) < mro.index(family_base), (
-            f"{mixin_cls.__name__} must precede {family_base.__name__} in {concrete_cls.__name__}.__mro__"
-        )
+    _HOOK_NAMES = ("_non_numeric_descriptor", "_assert_source_column_is_numeric", "compute_framework_rule")
 
-    def test_pandas_concrete_classes_bind_mixin_hook(self) -> None:
-        """Both pandas concrete classes bind the pandas mixin hook and the base template."""
+    def _assert_module_binds_mixin(self, mixin_cls: Any, module_name: str, concrete_name: str) -> None:
+        """Pin the module-imports-mixin / Implementation-defines-no-hook contract on one backend module."""
+        module = importlib.import_module(module_name)
+        assert getattr(module, mixin_cls.__name__) is mixin_cls, (
+            f"{module_name} must import {mixin_cls.__name__} from the shared arithmetic package"
+        )
+        concrete_cls = getattr(module, concrete_name)
+        for hook in self._HOOK_NAMES:
+            assert hook not in vars(concrete_cls), f"{concrete_name} must not define {hook}"
+            assert not hasattr(concrete_cls, hook), f"{concrete_name} must not inherit {hook}"
+
+    def _assert_groups_keep_the_template(self) -> None:
+        base_cls: Any = ArithmeticFeatureGroupBase
+        for group in (PointArithmeticFeatureGroup, ScalarArithmeticFeatureGroup):
+            group_cls: Any = group
+            assert (
+                group_cls._assert_source_column_is_numeric.__func__
+                is base_cls._assert_source_column_is_numeric.__func__
+            ), f"{group.__name__} must not override the _assert_source_column_is_numeric template"
+
+    def _assert_both_families(self, mixin_cls: Any, backend: str, class_prefix: str) -> None:
+        self._assert_module_binds_mixin(
+            mixin_cls, f"{_POINT}.{backend}_point_arithmetic", f"{class_prefix}PointArithmetic"
+        )
+        self._assert_module_binds_mixin(
+            mixin_cls, f"{_SCALAR}.{backend}_scalar_arithmetic", f"{class_prefix}ScalarArithmetic"
+        )
+        self._assert_groups_keep_the_template()
+
+    def test_pandas_modules_bind_mixin_hook(self) -> None:
+        """Both pandas backend modules import the pandas mixin."""
         pytest.importorskip("pandas")
         mixin_module = importlib.import_module(f"{_MIXIN}.pandas_mixin")
         assert mixin_module.pandas_non_numeric_descriptor is pandas_numeric_source.pandas_non_numeric_descriptor
-        point_cls = importlib.import_module(f"{_POINT}.pandas_point_arithmetic").PandasPointArithmetic
-        scalar_cls = importlib.import_module(f"{_SCALAR}.pandas_scalar_arithmetic").PandasScalarArithmetic
+        self._assert_both_families(mixin_module.PandasArithmeticMixin, "pandas", "Pandas")
 
-        mixin_cls = mixin_module.PandasArithmeticMixin
-        self._assert_concrete_bindings(mixin_cls, point_cls, PointArithmeticFeatureGroup)
-        self._assert_concrete_bindings(mixin_cls, scalar_cls, ScalarArithmeticFeatureGroup)
-
-    def test_polars_concrete_classes_bind_mixin_hook(self) -> None:
-        """Both polars concrete classes bind the polars mixin hook and the base template."""
+    def test_polars_modules_bind_mixin_hook(self) -> None:
+        """Both polars backend modules import the polars mixin."""
         pytest.importorskip("polars")
         mixin_module = importlib.import_module(f"{_MIXIN}.polars_mixin")
         assert mixin_module.polars_non_numeric_descriptor is polars_numeric_source.polars_non_numeric_descriptor
-        point_cls = importlib.import_module(f"{_POINT}.polars_lazy_point_arithmetic").PolarsLazyPointArithmetic
-        scalar_cls = importlib.import_module(f"{_SCALAR}.polars_lazy_scalar_arithmetic").PolarsLazyScalarArithmetic
+        self._assert_both_families(mixin_module.PolarsArithmeticMixin, "polars_lazy", "PolarsLazy")
 
-        mixin_cls = mixin_module.PolarsArithmeticMixin
-        self._assert_concrete_bindings(mixin_cls, point_cls, PointArithmeticFeatureGroup)
-        self._assert_concrete_bindings(mixin_cls, scalar_cls, ScalarArithmeticFeatureGroup)
-
-    def test_pyarrow_concrete_classes_bind_mixin_hook(self) -> None:
-        """Both pyarrow concrete classes bind the pyarrow mixin hook and the base template."""
+    def test_pyarrow_modules_bind_mixin_hook(self) -> None:
+        """Both pyarrow backend modules import the pyarrow mixin."""
         pytest.importorskip("pyarrow")
         mixin_module = importlib.import_module(f"{_MIXIN}.pyarrow_mixin")
         assert mixin_module.pyarrow_non_numeric_descriptor is pyarrow_numeric_source.pyarrow_non_numeric_descriptor
-        point_cls = importlib.import_module(f"{_POINT}.pyarrow_point_arithmetic").PyArrowPointArithmetic
-        scalar_cls = importlib.import_module(f"{_SCALAR}.pyarrow_scalar_arithmetic").PyArrowScalarArithmetic
+        self._assert_both_families(mixin_module.PyArrowArithmeticMixin, "pyarrow", "PyArrow")
 
-        mixin_cls = mixin_module.PyArrowArithmeticMixin
-        self._assert_concrete_bindings(mixin_cls, point_cls, PointArithmeticFeatureGroup)
-        self._assert_concrete_bindings(mixin_cls, scalar_cls, ScalarArithmeticFeatureGroup)
-
-    def test_duckdb_concrete_classes_bind_mixin_hook(self) -> None:
-        """Both DuckDB concrete classes bind the DuckDB mixin hook and the base template."""
+    def test_duckdb_modules_bind_mixin_hook(self) -> None:
+        """Both DuckDB backend modules import the DuckDB mixin."""
         pytest.importorskip("duckdb")
         mixin_module = importlib.import_module(f"{_MIXIN}.duckdb_mixin")
         assert mixin_module.duckdb_non_numeric_descriptor is duckdb_numeric_source.duckdb_non_numeric_descriptor
-        point_cls = importlib.import_module(f"{_POINT}.duckdb_point_arithmetic").DuckdbPointArithmetic
-        scalar_cls = importlib.import_module(f"{_SCALAR}.duckdb_scalar_arithmetic").DuckdbScalarArithmetic
+        self._assert_both_families(mixin_module.DuckdbArithmeticMixin, "duckdb", "Duckdb")
 
-        mixin_cls = mixin_module.DuckdbArithmeticMixin
-        self._assert_concrete_bindings(mixin_cls, point_cls, PointArithmeticFeatureGroup)
-        self._assert_concrete_bindings(mixin_cls, scalar_cls, ScalarArithmeticFeatureGroup)
-
-    def test_sqlite_concrete_classes_bind_mixin_hook(self) -> None:
-        """Both SQLite concrete classes bind the SQLite mixin hook and the base template."""
+    def test_sqlite_modules_bind_mixin_hook(self) -> None:
+        """Both SQLite backend modules import the SQLite mixin."""
         mixin_module = importlib.import_module(f"{_MIXIN}.sqlite_mixin")
         assert mixin_module.sqlite_non_numeric_descriptor is sqlite_numeric_source.sqlite_non_numeric_descriptor
-        point_cls = importlib.import_module(f"{_POINT}.sqlite_point_arithmetic").SqlitePointArithmetic
-        scalar_cls = importlib.import_module(f"{_SCALAR}.sqlite_scalar_arithmetic").SqliteScalarArithmetic
-
-        mixin_cls = mixin_module.SqliteArithmeticMixin
-        self._assert_concrete_bindings(mixin_cls, point_cls, PointArithmeticFeatureGroup)
-        self._assert_concrete_bindings(mixin_cls, scalar_cls, ScalarArithmeticFeatureGroup)
+        self._assert_both_families(mixin_module.SqliteArithmeticMixin, "sqlite", "Sqlite")
 
 
 class TestMixinsAreNotFeatureGroups:

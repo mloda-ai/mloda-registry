@@ -25,8 +25,3 @@ class TestSqlitePointArithmetic(SqliteTestMixin, PointArithmeticTestBase):
         # source column is indistinguishable from int64 at the relation level.
         # We can still reject TEXT-affinity (string) columns.
         return {"string"}
-
-    @classmethod
-    def divide_zero_propagates_inf(cls) -> bool:
-        # SQLite has no IEEE-754 storage; divide-by-zero rows yield NULL.
-        return False

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pandas_mixin import PandasArithmeticMixin
@@ -12,7 +16,25 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 )
 
 
-class PandasPointArithmetic(PandasArithmeticMixin, PointArithmeticFeatureGroup):
+class PandasPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
+    feature_group = PointArithmeticFeatureGroup
+    compute_framework = PandasDataFrame
+
+    @classmethod
+    def calculate(
+        cls,
+        group: type[PointArithmeticFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.apply_arithmetic(
+            data,
+            features,
+            non_numeric=PandasArithmeticMixin._non_numeric_descriptor,
+            compute_arithmetic=cls._compute_arithmetic,
+        )
+
     @classmethod
     def _compute_arithmetic(
         cls,

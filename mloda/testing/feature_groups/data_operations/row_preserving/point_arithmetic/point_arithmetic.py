@@ -23,7 +23,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -149,21 +149,19 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     @classmethod
     def divide_zero_propagates_inf(cls) -> bool:
-        """Whether divide-by-zero produces IEEE-754 inf/nan or NULL.
+        """Whether divide-by-zero produces IEEE-754 inf/nan, read from the Implementation's ``divergent``.
 
-        On divide, PyArrow / Pandas / Polars / DuckDB produce float
-        results and propagate IEEE-754 special values. SQLite has no
-        IEEE-754 storage and overrides this to ``False`` (NULL for
-        divide-by-zero rows).
+        An Implementation that lists ``divide`` as divergent (SQLite: no IEEE-754
+        storage, NULL for divide-by-zero rows) does not propagate inf.
         """
-        return True
+        return "divide" not in cls.implementation_class().divergent
 
     # -- Concrete tests -----------------------------------------------------
 
     def test_add(self) -> None:
         """value_int + amount, null in either operand propagates."""
         fs = make_feature_set("value_int&amount__add_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -178,7 +176,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
     def test_subtract(self) -> None:
         """value_int - amount, null propagates."""
         fs = make_feature_set("value_int&amount__subtract_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int&amount__subtract_point")
         for actual, expected in zip(result_col, EXPECTED_SUBTRACT):
@@ -190,7 +188,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
     def test_multiply(self) -> None:
         """value_int * amount, null propagates."""
         fs = make_feature_set("value_int&amount__multiply_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int&amount__multiply_point")
         for actual, expected in zip(result_col, EXPECTED_MULTIPLY):
@@ -206,7 +204,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         verified separately in ``test_divide_by_zero_returns_inf_or_null_per_backend``.
         """
         fs = make_feature_set("value_int&amount__divide_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int&amount__divide_point")
         for i, (actual, expected) in enumerate(zip(result_col, EXPECTED_DIVIDE_INF)):
@@ -224,7 +222,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         Row index 4 of value_int is None.
         """
         fs = make_feature_set("value_int&amount__multiply_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int&amount__multiply_point")
         assert result_col[4] is None
@@ -235,7 +233,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         Row index 1 of amount is None.
         """
         fs = make_feature_set("value_int&amount__add_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int&amount__add_point")
         assert result_col[1] is None
@@ -249,7 +247,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Option-based configuration -----------------------------------------
 
@@ -266,7 +264,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_custom_add")
         for actual, expected in zip(result_col, EXPECTED_ADD):
@@ -289,7 +287,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_diff")
         for actual, expected in zip(result_col, EXPECTED_SUBTRACT):
@@ -311,7 +309,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_product")
         for actual, expected in zip(result_col, EXPECTED_MULTIPLY):
@@ -336,7 +334,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match="at least 2"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Source-column dtype enforcement ------------------------------------
 
@@ -348,7 +346,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
         fs = make_feature_set("name&value_int__add_point")
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
         assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
             f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
         )
@@ -361,7 +359,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
         fs = make_feature_set("value_int&name__add_point")
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
         assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
             f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
         )
@@ -372,7 +370,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
             pytest.skip("Backend cannot distinguish boolean source columns at relation level")
         fs = make_feature_set("is_active&value_int__add_point")
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
         assert "is_active" in str(exc_info.value)
 
     def test_boolean_source_column_rejected_col_b(self) -> None:
@@ -381,7 +379,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
             pytest.skip("Backend cannot distinguish boolean source columns at relation level")
         fs = make_feature_set("value_int&is_active__add_point")
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
         assert "is_active" in str(exc_info.value)
 
     # -- Cross-framework comparison -----------------------------------------
@@ -394,8 +392,8 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         IEEE-754 backends). Default ``None`` compares every row.
         """
         fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        ref = self.reference_calculate(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         # Reference is a pyarrow.Table.
@@ -435,7 +433,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         SQLite has no IEEE-754 storage and returns NULL.
         """
         fs = make_feature_set("value_int&amount__divide_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, "value_int&amount__divide_point")
 
         expected = EXPECTED_DIVIDE_INF if self.divide_zero_propagates_inf() else EXPECTED_DIVIDE_NULL_FOR_ZERO
@@ -465,7 +463,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         Python float (or compatible) after the divide cast, never an int.
         """
         fs = make_feature_set("value_int&value_int__divide_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, "value_int&value_int__divide_point")
 
         for i, value in enumerate(result_col):

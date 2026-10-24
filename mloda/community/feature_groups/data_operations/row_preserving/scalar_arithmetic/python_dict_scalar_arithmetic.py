@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -17,14 +17,21 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 )
 
 
-class PythonDictScalarArithmetic(ScalarArithmeticFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+class PythonDictScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
+    feature_group = ScalarArithmeticFeatureGroup
+    compute_framework = PythonDictFramework
 
     @classmethod
-    def _non_numeric_descriptor(cls, data: dict[str, list[Any]], source_col: str) -> object | None:
-        return non_numeric_descriptor(data, source_col)
+    def calculate(
+        cls,
+        group: type[ScalarArithmeticFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.apply_arithmetic(
+            data, features, non_numeric=non_numeric_descriptor, compute_arithmetic=cls._compute_arithmetic
+        )
 
     @classmethod
     def _compute_arithmetic(

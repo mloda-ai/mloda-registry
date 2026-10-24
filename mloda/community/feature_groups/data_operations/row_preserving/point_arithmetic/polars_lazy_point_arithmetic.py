@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.polars_mixin import PolarsArithmeticMixin
@@ -12,7 +16,25 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 )
 
 
-class PolarsLazyPointArithmetic(PolarsArithmeticMixin, PointArithmeticFeatureGroup):
+class PolarsLazyPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
+    feature_group = PointArithmeticFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
+    @classmethod
+    def calculate(
+        cls,
+        group: type[PointArithmeticFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.apply_arithmetic(
+            data,
+            features,
+            non_numeric=PolarsArithmeticMixin._non_numeric_descriptor,
+            compute_arithmetic=cls._compute_arithmetic,
+        )
+
     @classmethod
     def _compute_arithmetic(
         cls,

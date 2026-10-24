@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pyarrow_mixin import (
@@ -15,7 +19,25 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 )
 
 
-class PyArrowScalarArithmetic(PyArrowArithmeticMixin, ScalarArithmeticFeatureGroup):
+class PyArrowScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
+    feature_group = ScalarArithmeticFeatureGroup
+    compute_framework = PyArrowTable
+
+    @classmethod
+    def calculate(
+        cls,
+        group: type[ScalarArithmeticFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.apply_arithmetic(
+            data,
+            features,
+            non_numeric=PyArrowArithmeticMixin._non_numeric_descriptor,
+            compute_arithmetic=cls._compute_arithmetic,
+        )
+
     @classmethod
     def _compute_arithmetic(
         cls,

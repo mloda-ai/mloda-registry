@@ -85,8 +85,11 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
-        """Run the reference on the canonical PyArrow table; override when the reference is not a FeatureGroup."""
-        return cls.reference_implementation_class().calculate_feature(table, features)
+        """Run the reference (a FeatureGroup or an Implementation class) on the canonical PyArrow table.
+
+        Override when the reference is neither.
+        """
+        return calculate_with(cls.reference_implementation_class(), table, features)
 
     # -- Setup / teardown ------------------------------------------------------
 

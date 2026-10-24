@@ -20,7 +20,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -99,7 +99,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     def test_add_constant(self) -> None:
         """value_int + 5, null preserved."""
         fs = make_feature_set("value_int__add_constant", constant=5)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -114,7 +114,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     def test_subtract_constant(self) -> None:
         """value_int - 10, null preserved."""
         fs = make_feature_set("value_int__subtract_constant", constant=10)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__subtract_constant")
         for actual, expected in zip(result_col, EXPECTED_SUBTRACT_10):
@@ -126,7 +126,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     def test_multiply_constant(self) -> None:
         """value_int * 2, null preserved."""
         fs = make_feature_set("value_int__multiply_constant", constant=2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__multiply_constant")
         for actual, expected in zip(result_col, EXPECTED_MULTIPLY_2):
@@ -138,7 +138,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     def test_divide_constant(self) -> None:
         """value_int / 2.0, null preserved."""
         fs = make_feature_set("value_int__divide_constant", constant=2.0)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__divide_constant")
         for actual, expected in zip(result_col, EXPECTED_DIVIDE_2):
@@ -150,7 +150,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     def test_null_values_preserved(self) -> None:
         """A null in the source must remain null in the result, regardless of op."""
         fs = make_feature_set("value_int__multiply_constant", constant=7)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__multiply_constant")
         # Row index 4 of value_int is None.
@@ -160,7 +160,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         """Dividing by zero must raise ValueError."""
         fs = make_feature_set("value_int__divide_constant", constant=0)
         with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     def test_missing_constant_raises(self) -> None:
         """If Options has no constant key, calculate_feature must raise ValueError."""
@@ -168,7 +168,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match="constant"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     def test_unsupported_operation_raises(self) -> None:
         """An unrecognized arithmetic operation must raise ValueError."""
@@ -179,7 +179,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     def test_option_based_add(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
@@ -195,7 +195,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_custom_add")
         for actual, expected in zip(result_col, EXPECTED_ADD_5):
@@ -219,7 +219,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_doubled")
         for actual, expected in zip(result_col, EXPECTED_MULTIPLY_2):
@@ -249,7 +249,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
 
         fs = make_feature_set("name__add_constant", constant=5)
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
         # Quoted form keeps the assertion from accidentally matching against the
         # ``name__add_constant`` feature name. Most existing mloda errors quote column
         # names via ``!r`` or ``repr``.
@@ -263,7 +263,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
             pytest.skip("Backend cannot distinguish boolean source columns at relation level")
         fs = make_feature_set("is_active__add_constant", constant=5)
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
         assert "is_active" in str(exc_info.value)
 
     # -- Cross-framework comparison -----------------------------------------
@@ -275,8 +275,8 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
     ) -> None:
         """Compute the feature on this framework and on the reference; assert equal."""
         fs = make_feature_set(feature_name, constant=constant)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        ref = self.reference_calculate(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         # Reference is a pyarrow.Table.
@@ -309,7 +309,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         must agree on the float-output semantics.
         """
         fs = make_feature_set("value_int__divide_constant", constant=3)  # int constant
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__divide_constant")
         # value_int = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]

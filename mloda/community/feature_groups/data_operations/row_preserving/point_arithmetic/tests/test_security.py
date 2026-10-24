@@ -22,6 +22,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
     PyArrowPointArithmetic,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 
 
 def _make_fs(
@@ -183,7 +184,7 @@ class TestDivideByZeroPerRow:
     def test_pyarrow_divide_by_zero_per_row(self) -> None:
         arrow_table = self._truth_table_arrow()
         fs = self._make_divide_fs()
-        result = PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+        result = calculate_with(PyArrowPointArithmetic, arrow_table, fs)
         values = result.column("a&b__divide_point").to_pylist()
         self._assert_inf_nan_table(values)
 
@@ -195,7 +196,7 @@ class TestDivideByZeroPerRow:
 
         df = self._truth_table_arrow().to_pandas()
         fs = self._make_divide_fs()
-        result = PandasPointArithmetic.calculate_feature(df, fs)
+        result = calculate_with(PandasPointArithmetic, df, fs)
         # ``Series.tolist()`` keeps NaN/inf as Python floats but coerces missing
         # entries to NaN. Distinguish "row had null operand" (we want None) from
         # "row computed to NaN" (we want NaN preserved) by checking the input
@@ -220,7 +221,7 @@ class TestDivideByZeroPerRow:
         arrow_table = self._truth_table_arrow()
         lf = polars.from_arrow(arrow_table).lazy()
         fs = self._make_divide_fs()
-        result = PolarsLazyPointArithmetic.calculate_feature(lf, fs)
+        result = calculate_with(PolarsLazyPointArithmetic, lf, fs)
         collected = result.collect()
         values = collected["a&b__divide_point"].to_list()
         self._assert_inf_nan_table(values)
@@ -238,7 +239,7 @@ class TestDivideByZeroPerRow:
         try:
             relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = self._make_divide_fs()
-            result = DuckdbPointArithmetic.calculate_feature(relation, fs)
+            result = calculate_with(DuckdbPointArithmetic, relation, fs)
             values = list(result.to_arrow_table().column("a&b__divide_point").to_pylist())
             self._assert_inf_nan_table(values)
         finally:
@@ -258,7 +259,7 @@ class TestDivideByZeroPerRow:
         try:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = self._make_divide_fs()
-            result = SqlitePointArithmetic.calculate_feature(relation, fs)
+            result = calculate_with(SqlitePointArithmetic, relation, fs)
             values = list(result.to_arrow_table().column("a&b__divide_point").to_pylist())
             self._assert_null_for_zero_table(values)
         finally:
@@ -282,12 +283,12 @@ class TestMissingInFeatures:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         df = arrow_table.to_pandas()
         with pytest.raises(ValueError, match="at least 2"):
-            PandasPointArithmetic.calculate_feature(df, self._fs_one_feature())
+            calculate_with(PandasPointArithmetic, df, self._fs_one_feature())
 
     def test_pyarrow_rejects_one_in_feature(self) -> None:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         with pytest.raises(ValueError, match="at least 2"):
-            PyArrowPointArithmetic.calculate_feature(arrow_table, self._fs_one_feature())
+            calculate_with(PyArrowPointArithmetic, arrow_table, self._fs_one_feature())
 
     def test_polars_rejects_one_in_feature(self) -> None:
         polars = pytest.importorskip("polars")
@@ -298,7 +299,7 @@ class TestMissingInFeatures:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         lf = polars.from_arrow(arrow_table).lazy()
         with pytest.raises(ValueError, match="at least 2"):
-            PolarsLazyPointArithmetic.calculate_feature(lf, self._fs_one_feature())
+            calculate_with(PolarsLazyPointArithmetic, lf, self._fs_one_feature())
 
     def test_duckdb_rejects_one_in_feature(self) -> None:
         duckdb = pytest.importorskip("duckdb")
@@ -313,7 +314,7 @@ class TestMissingInFeatures:
         try:
             relation = DuckdbRelation.from_arrow(conn, arrow_table)
             with pytest.raises(ValueError, match="at least 2"):
-                DuckdbPointArithmetic.calculate_feature(relation, self._fs_one_feature())
+                calculate_with(DuckdbPointArithmetic, relation, self._fs_one_feature())
         finally:
             conn.close()
 
@@ -331,7 +332,7 @@ class TestMissingInFeatures:
         try:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             with pytest.raises(ValueError, match="at least 2"):
-                SqlitePointArithmetic.calculate_feature(relation, self._fs_one_feature())
+                calculate_with(SqlitePointArithmetic, relation, self._fs_one_feature())
         finally:
             conn.close()
 
@@ -343,27 +344,27 @@ class TestInFeaturesTypeValidation:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("bad", op="add", in_features=["value_int"])
         with pytest.raises(ValueError, match="at least 2"):
-            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowPointArithmetic, arrow_table, fs)
 
     def test_at_most_2_error_on_three_in_features(self) -> None:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("bad", op="add", in_features=["value_int", "amount", "value_float"])
         with pytest.raises(ValueError, match="at most 2"):
-            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowPointArithmetic, arrow_table, fs)
 
     def test_missing_column_named_in_error(self) -> None:
         """An in_feature that names a non-existent column must surface that column name."""
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("bad", op="add", in_features=["value_int", "fake_col"])
         with pytest.raises(ValueError, match=r"fake_col"):
-            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowPointArithmetic, arrow_table, fs)
 
     def test_empty_operand_error(self) -> None:
         """An empty in_feature operand is rejected up-front, not reported as a missing column."""
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("bad", op="add", in_features=["value_int", ""])
         with pytest.raises(ValueError, match="empty in_feature operand"):
-            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowPointArithmetic, arrow_table, fs)
 
 
 class TestReservedColumnAcceptedAllBackends:
@@ -390,13 +391,13 @@ class TestReservedColumnAcceptedAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         df = arrow_table.to_pandas()
         fs = _make_fs("value_int&amount__add_point")
-        result = PandasPointArithmetic.calculate_feature(df, fs)
+        result = calculate_with(PandasPointArithmetic, df, fs)
         assert "__mloda_rn__" in result.columns
 
     def test_pyarrow_accepts_reserved_column(self) -> None:
         arrow_table = self._arrow_with_reserved_col()
         fs = _make_fs("value_int&amount__add_point")
-        result = PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+        result = calculate_with(PyArrowPointArithmetic, arrow_table, fs)
         assert "__mloda_rn__" in result.column_names
 
     def test_polars_accepts_reserved_column(self) -> None:
@@ -408,7 +409,7 @@ class TestReservedColumnAcceptedAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         lf = polars.from_arrow(arrow_table).lazy()
         fs = _make_fs("value_int&amount__add_point")
-        result = PolarsLazyPointArithmetic.calculate_feature(lf, fs)
+        result = calculate_with(PolarsLazyPointArithmetic, lf, fs)
         assert "__mloda_rn__" in result.collect_schema().names()
 
     def test_duckdb_accepts_reserved_column(self) -> None:
@@ -424,7 +425,7 @@ class TestReservedColumnAcceptedAllBackends:
         try:
             relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int&amount__add_point")
-            result = DuckdbPointArithmetic.calculate_feature(relation, fs)
+            result = calculate_with(DuckdbPointArithmetic, relation, fs)
             assert "__mloda_rn__" in result.to_arrow_table().column_names
         finally:
             conn.close()
@@ -443,7 +444,7 @@ class TestReservedColumnAcceptedAllBackends:
         try:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int&amount__add_point")
-            result = SqlitePointArithmetic.calculate_feature(relation, fs)
+            result = calculate_with(SqlitePointArithmetic, relation, fs)
             assert "__mloda_rn__" in result.to_arrow_table().column_names
         finally:
             conn.close()
@@ -459,7 +460,7 @@ class TestSourceColumnTypeValidation:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("name&value_int__add_point")
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowPointArithmetic, arrow_table, fs)
         assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
             f"Expected offending column 'name' to be quoted, got: {exc_info.value!r}"
         )
@@ -471,7 +472,7 @@ class TestSourceColumnTypeValidation:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         fs = _make_fs("value_int&name__add_point")
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+            calculate_with(PyArrowPointArithmetic, arrow_table, fs)
         assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
             f"Expected offending column 'name' to be quoted, got: {exc_info.value!r}"
         )

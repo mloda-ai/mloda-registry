@@ -13,11 +13,14 @@ import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
-    PyArrowScalarArithmetic,
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
+    ScalarArithmeticFeatureGroup,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     EXPECTED_ADD_5,
     EXPECTED_DIVIDE_2,
@@ -39,10 +42,10 @@ def _approx_equal(actual: list[Any], expected: list[Any]) -> bool:
     return True
 
 
-class TestScalarArithmeticIntegration(DataOpsIntegrationTestBase):
+class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowScalarArithmetic
+        return ScalarArithmeticFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -112,7 +115,7 @@ class TestScalarArithmeticIntegration(DataOpsIntegrationTestBase):
 class TestIntegrationMultipleFeatures:
     def test_add_and_multiply_together(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         f_add = Feature("value_int__add_constant", options=Options(context={"constant": 5}))
@@ -149,7 +152,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_add_through_pipeline(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         feature = Feature(
@@ -183,7 +186,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_subtract_through_pipeline(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         feature = Feature(
@@ -216,7 +219,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_divide_through_pipeline(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         feature = Feature(
@@ -249,7 +252,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_string_and_option_features_together(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         f_pattern = Feature(
@@ -296,7 +299,7 @@ class TestMistypedConstantReported:
 
     def test_mistyped_constant_reported_in_resolution_error(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         feature = Feature(
@@ -323,7 +326,7 @@ class TestMistypedPatternConstantReported:
 
     def test_pattern_path_mistyped_constant_reported_in_resolution_error(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+            {PyArrowDataOpsTestDataCreator, ScalarArithmeticFeatureGroup}
         )
 
         feature = Feature("value_int__add_constant", options=Options(context={"constant": "five"}))

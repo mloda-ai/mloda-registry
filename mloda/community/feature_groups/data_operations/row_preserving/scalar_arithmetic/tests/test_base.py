@@ -15,7 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
     PyArrowScalarArithmetic,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
@@ -366,8 +366,8 @@ class TestScalarArithmeticMatchValidation(MatchValidationTestBase):
     @classmethod
     def compute_values(cls, options: Options) -> list[Any] | None:
         # The #339 regression: constant=(5,) matched at discovery and then raised
-        # "must be int or float, got tuple" inside calculate_feature.
-        result = PyArrowScalarArithmetic.calculate_feature(
-            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_result", options)
+        # "must be int or float, got tuple" while computing.
+        result = calculate_with(
+            PyArrowScalarArithmetic, PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_result", options)
         )
         return extract_column(result, "my_result")

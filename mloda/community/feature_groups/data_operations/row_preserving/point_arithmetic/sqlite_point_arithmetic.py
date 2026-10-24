@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
@@ -15,7 +19,26 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 )
 
 
-class SqlitePointArithmetic(SqliteArithmeticMixin, PointArithmeticFeatureGroup):
+class SqlitePointArithmetic(Implementation[PointArithmeticFeatureGroup]):
+    feature_group = PointArithmeticFeatureGroup
+    compute_framework = SqliteFramework
+    divergent = {"divide": "returns NULL on divide by zero"}
+
+    @classmethod
+    def calculate(
+        cls,
+        group: type[PointArithmeticFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.apply_arithmetic(
+            data,
+            features,
+            non_numeric=SqliteArithmeticMixin._non_numeric_descriptor,
+            compute_arithmetic=cls._compute_arithmetic,
+        )
+
     @classmethod
     def _compute_arithmetic(
         cls,

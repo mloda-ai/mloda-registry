@@ -6,7 +6,7 @@ Four row-preserving single-column-or-pair families. Scalar aggregate broadcasts 
 **When**: You need a reference value on every row (scalar), a moving aggregate (frame), a per-row arithmetic combination with a constant (scalar arithmetic), or a per-row arithmetic combination between two columns (point arithmetic).
 **Why**: All four preserve row count, which lets them chain with other row-preserving ops. The group-reducing variant lives in `aggregation/` and is covered separately.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/{scalar_aggregate,frame_aggregate,scalar_arithmetic,point_arithmetic}/`.
-**How**: Encode the operation in the feature name. Aggregate variants also encode the window kind and size; scalar arithmetic carries the constant in `Options(context={"constant": <number>})`; point arithmetic uses the `&` separator to name two source columns.
+**How**: Encode the operation in the feature name. Aggregate variants also encode the window kind and size; scalar arithmetic carries the constant in `Options(context={"constant": <number>})`; point arithmetic uses the `&` separator to name two source columns. Both arithmetic families are one `OperationFeatureGroup` each, served by one `Implementation` per framework (`PyArrowPointArithmetic`, `SqliteScalarArithmetic`, ...); see [Pattern 9](../feature-group-patterns/09-framework-specific.md).
 
 ---
 
@@ -92,7 +92,7 @@ Supported operations are `add`, `subtract`, `multiply`, and `divide`. Both sourc
 Type semantics across backends:
 
 - `add`, `subtract`, `multiply`: each backend's native operator is used. Integer + integer stays integer; mixed int/float promotes to float on every backend.
-- `divide`: both operands are cast to float (`float64` on PyArrow, `DOUBLE` on DuckDB, `REAL` on SQLite). Per-row divide-by-zero is allowed, with the contract that PyArrow / Pandas / Polars lazy / DuckDB return IEEE-754 `inf` / `-inf` / `NaN` and propagate `null` from null operands. **SQLite returns `NULL` for any divide-by-zero**, because SQLite has no native IEEE-754 inf/nan storage; this is documented as a known divergence in [Known divergences](known-divergences.md). The cross-framework test base exposes `divide_zero_propagates_inf()` so the SQLite test class can override the expectation to `NULL` and the other backends inherit the `inf` expectation.
+- `divide`: both operands are cast to float (`float64` on PyArrow, `DOUBLE` on DuckDB, `REAL` on SQLite). Per-row divide-by-zero is allowed, with the contract that PyArrow / Pandas / Polars lazy / DuckDB return IEEE-754 `inf` / `-inf` / `NaN` and propagate `null` from null operands. **SQLite returns `NULL` for any divide-by-zero**, because SQLite has no native IEEE-754 inf/nan storage; this is documented as a known divergence in [Known divergences](known-divergences.md). `SqlitePointArithmetic` declares it as `divergent = {"divide": ...}`, so with several frameworks enabled `divide` runs on a non-divergent framework first, and the test suite reads the expectation from that declaration.
 
 Point arithmetic does **not** accept the `mask` option in this initial cut, for parity with scalar arithmetic.
 

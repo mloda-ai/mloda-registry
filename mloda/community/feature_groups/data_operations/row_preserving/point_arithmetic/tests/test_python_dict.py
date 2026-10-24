@@ -51,7 +51,11 @@ class TestPythonDictDivideSignedZeroAndNan:
         from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
             PyArrowPointArithmetic,
         )
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
 
         arrow_table = pa.table(
             {
@@ -62,8 +66,8 @@ class TestPythonDictDivideSignedZeroAndNan:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("a&b__divide_point")
 
-        result = PythonDictPointArithmetic.calculate_feature(data, fs)
-        oracle = PyArrowPointArithmetic.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictPointArithmetic, data, fs)
+        oracle = calculate_with(PyArrowPointArithmetic, arrow_table, fs)
 
         result_val = extract_column(result, "a&b__divide_point")[0]
         oracle_val = extract_column(oracle, "a&b__divide_point")[0]

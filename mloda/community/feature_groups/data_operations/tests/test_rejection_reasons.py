@@ -13,12 +13,12 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
-    PyArrowPointArithmetic,
+from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
+    PointArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import PandasRank
-from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
-    PyArrowScalarArithmetic,
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
+    ScalarArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
     PyArrowSessionization,
@@ -35,7 +35,7 @@ class TestPatternPathGuardRejectionReported:
         records), not a match_guard-worded one.
         """
         options = Options(context={"constant": "five"})
-        reason = PyArrowScalarArithmetic._strict_validation_rejection_reason("value_int__add_constant", options)
+        reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("value_int__add_constant", options)
         assert reason is not None
         assert "failed validation" in reason
         assert "'constant'" in reason
@@ -44,16 +44,21 @@ class TestPatternPathGuardRejectionReported:
     def test_nested_singleton_constant_reports_a_reason(self) -> None:
         """``[[5]]`` fails ``constant``'s element_validator, not a guard, so the reason still names it."""
         options = Options(context={"constant": [[5]]})
-        reason = PyArrowScalarArithmetic._strict_validation_rejection_reason("value_int__add_constant", options)
+        reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("value_int__add_constant", options)
         assert reason is not None
         assert "'constant'" in reason
 
     def test_valid_constant_reports_nothing(self) -> None:
         options = Options(context={"constant": 5})
-        assert PyArrowScalarArithmetic._strict_validation_rejection_reason("value_int__add_constant", options) is None
+        assert (
+            ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("value_int__add_constant", options) is None
+        )
 
     def test_unrelated_candidate_reports_nothing(self) -> None:
-        assert PyArrowScalarArithmetic._strict_validation_rejection_reason("some_unrelated_feature", Options()) is None
+        assert (
+            ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("some_unrelated_feature", Options())
+            is None
+        )
 
 
 class TestConfigPathGuardRejectionReported:
@@ -119,8 +124,8 @@ class TestMultiElementArityRejectionReported:
         The set holds exactly two strings so the in_features count gate passes and the guard is reached.
         """
         options = Options(context={"arithmetic_op": "add", "in_features": {"a", "b"}})
-        assert PyArrowPointArithmetic.match_feature_group_criteria("my_result", options, None) is False
-        reason = PyArrowPointArithmetic._strict_validation_rejection_reason("my_result", options)
+        assert PointArithmeticFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+        reason = PointArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
         assert "option 'in_features' must be" in reason
         assert "got set" in reason

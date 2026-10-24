@@ -282,3 +282,42 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
     result = _CompareStub.reference_calculate(table, fs)
     assert result.column("f").to_pylist() == [1]
     assert _RecordingImpl.seen == [{"partition_by": ["g"]}]
+
+
+def _reference_calculate_with_an_implementation_reference() -> Any:
+    from mloda.provider import Implementation, OperationFeatureGroup
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+    class _RefGroup(OperationFeatureGroup):
+        @classmethod
+        def calculate_feature(cls, data: Any, features: Any) -> Any:
+            return ("group", data, features.implementation)
+
+    class _RefImpl(Implementation[_RefGroup]):
+        feature_group = _RefGroup
+        compute_framework = PyArrowTable
+
+    class _ImplRefStub(_StubDataOpsTestBase):
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return _RefImpl
+
+        @classmethod
+        def reference_implementation_class(cls) -> Any:
+            return _RefImpl
+
+    result = _ImplRefStub.reference_calculate("data", helpers.make_feature_set("f"))
+    return result, _RefImpl.__name__
+
+
+def test_reference_calculate_runs_an_implementation_reference_through_its_feature_group() -> None:
+    import gc
+
+    from mloda.provider import Implementation, get_all_subclasses
+
+    (tag, data, implementation), name = _reference_calculate_with_an_implementation_reference()
+    assert (tag, data) == ("group", "data")
+    assert implementation.__name__ == name
+    del implementation
+    gc.collect()
+    assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == name]

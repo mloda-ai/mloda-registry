@@ -23,10 +23,16 @@ time with a clear error.
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    property_spec,
+)
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.base import (
@@ -48,7 +54,9 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
-class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
+class ScalarArithmeticFeatureGroup(OperationFeatureGroup, ArithmeticFeatureGroupBase):
+    SUBTYPES = SubtypeDeclaration(key=ArithmeticFeatureGroupBase.ARITHMETIC_OP)
+
     PREFIX_PATTERN = r".*__([\w]+)_constant$"
 
     MIN_IN_FEATURES = 1
@@ -102,12 +110,17 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         return value
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Compute an element-wise arithmetic operation per source column.
+    def apply_arithmetic(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        non_numeric: Callable[[Any, str], object | None],
+        compute_arithmetic: Callable[[Any, str, str, str, int | float], Any],
+    ) -> Any:
+        """Shared loop: one new column ``source {op} constant`` per feature, null source gives null.
 
-        Each feature produces one new column containing ``source {op} constant``.
-        Null values in the source propagate to the result. Divide-by-zero and
-        missing constant are rejected before dispatching to the backend.
+        Divide-by-zero and a missing constant are rejected before dispatching to the backend.
         """
         table = data
 
@@ -118,21 +131,12 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             assert_source_columns_present(data, [source_col])
             op = cls._extract_arithmetic_op(feature)
 
-            cls._assert_source_column_is_numeric(data, source_col)
+            descriptor = non_numeric(data, source_col)
+            if descriptor is not None:
+                cls._raise_non_numeric_source(source_col, descriptor)
 
             constant = cls._extract_constant(feature)
 
-            table = cls._compute_arithmetic(table, feature_name, source_col, op, constant)
+            table = compute_arithmetic(table, feature_name, source_col, op, constant)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_arithmetic(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        op: str,
-        constant: int | float,
-    ) -> Any: ...

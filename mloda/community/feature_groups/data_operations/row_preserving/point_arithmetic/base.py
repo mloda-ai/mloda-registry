@@ -20,10 +20,16 @@ inf/nan) and returns NULL on SQLite.
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    property_spec,
+)
 
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
@@ -55,7 +61,9 @@ def _is_ordered_in_features(value: object) -> bool:
     return isinstance(value, (list, tuple))
 
 
-class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
+class PointArithmeticFeatureGroup(OperationFeatureGroup, ArithmeticFeatureGroupBase):
+    SUBTYPES = SubtypeDeclaration(key=ArithmeticFeatureGroupBase.ARITHMETIC_OP)
+
     # The source side must carry the '&' separator: point arithmetic needs two
     # operands, so a one-operand name like 'x__add_point' cannot be computed.
     # Without the '&' here such a name matched at resolution time and only blew
@@ -86,12 +94,15 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     }
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Compute an element-wise arithmetic operation per pair of source columns.
-
-        Each feature produces one new column containing ``col_a {op} col_b``.
-        Null values in either source propagate to the result.
-        """
+    def apply_arithmetic(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        non_numeric: Callable[[Any, str], object | None],
+        compute_arithmetic: Callable[[Any, str, str, str, str], Any],
+    ) -> Any:
+        """Shared loop: one new column ``col_a {op} col_b`` per feature, null in either operand gives null."""
         table = data
 
         for feature in features.features:
@@ -102,22 +113,13 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
 
             assert_source_columns_present(data, [col_a, col_b])
 
-            cls._assert_source_column_is_numeric(data, col_a)
-            cls._assert_source_column_is_numeric(data, col_b)
+            for col in (col_a, col_b):
+                descriptor = non_numeric(data, col)
+                if descriptor is not None:
+                    cls._raise_non_numeric_source(col, descriptor)
 
             op = cls._extract_arithmetic_op(feature)
 
-            table = cls._compute_arithmetic(table, feature_name, col_a, col_b, op)
+            table = compute_arithmetic(table, feature_name, col_a, col_b, op)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_arithmetic(
-        cls,
-        data: Any,
-        feature_name: str,
-        col_a: str,
-        col_b: str,
-        op: str,
-    ) -> Any: ...
