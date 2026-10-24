@@ -283,6 +283,20 @@ published = true
 optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
+# --- Experimental ---
+# Published, no stability guarantee, owned by mloda-community through its german-ledger extra and [all], see
+# docs/packaging.md#experimental-packages.
+
+[packages.mloda-community-german-ledger]
+description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"
+keywords = ["gdpdu", "gobd", "datev", "accounting", "bookkeeping"]
+authors = [{ name = "Martin Kaiser" }]
+dependencies = ["{core_dependency}", "pyarrow>=14.0.1"]
+path = "mloda/community/feature_groups/experimental/german_ledger"
+entry_point_groups = ["mloda.feature_groups"]
+published = true
+py_typed = true
+
 # --- Bundles ---
 # Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
 # pinned '<name>=={version}': the bundle ships only the unpublished rest, so each shipped path keeps
@@ -291,7 +305,7 @@ entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community]
 description = "All community plugins for mloda"
-keywords = ["feature-engineering", "data-operations", "opentelemetry", "openlineage"]
+keywords = ["feature-engineering", "data-operations", "opentelemetry", "openlineage", "gdpdu", "datev"]
 dependencies = [
     "{core_dependency}",
     "mloda-community-extenders-shared=={version}",
@@ -321,7 +335,7 @@ dependencies = [
 path = "mloda/community"
 published = true
 entry_point_bundle = true
-optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}"] }
+optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], german-ledger = ["mloda-community-german-ledger=={version}"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}", "mloda-community-german-ledger=={version}"] }
 py_typed = true
 
 [packages.mloda-enterprise]

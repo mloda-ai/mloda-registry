@@ -44,7 +44,7 @@ _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
 # The released set, in config order: registry, the shared extenders package, the examples, the otel and
-# openlineage extenders, the data-operations base plus its plugin packages, the two bundles, which own
+# openlineage extenders, the data-operations base plus its plugin packages, german-ledger, the two bundles, which own
 # (dependencies/extras) every published package nested under their path, and finally testing, whose
 # binary-model extra pins the mloda-community-binary-model package.
 _EXPECTED_PUBLISHED = [
@@ -74,6 +74,7 @@ _EXPECTED_PUBLISHED = [
     "mloda-community-sessionization",
     "mloda-community-resample",
     "mloda-community-lookup",
+    "mloda-community-german-ledger",
     "mloda-community",
     "mloda-enterprise",
     "mloda-testing",
@@ -996,7 +997,12 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
         (_DATA_OPERATIONS, "all", _published_children()),
         ("mloda-community", "otel", ["mloda-community-otel"]),
         ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
-        ("mloda-community", "all", ["mloda-community-otel", "mloda-community-openlineage"]),
+        ("mloda-community", "german-ledger", ["mloda-community-german-ledger"]),
+        (
+            "mloda-community",
+            "all",
+            ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
+        ),
         ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
         ("mloda-testing", "binary-model", ["mloda-community-binary-model"]),
     ]
@@ -1049,14 +1055,20 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
         (_COMMUNITY_EXAMPLE, f"{_COMMUNITY_EXAMPLE}[all]==9.9.9", True, ["mloda-community-example-a"]),
         (_DATA_OPERATIONS, f"{_DATA_OPERATIONS}==9.9.9", False, _published_children()),
         (_DATA_OPERATIONS, f"{_DATA_OPERATIONS}[all]==9.9.9", True, _published_children()),
-        ("mloda-community", "mloda-community==9.9.9", False, ["mloda-community-otel", "mloda-community-openlineage"]),
+        (
+            "mloda-community",
+            "mloda-community==9.9.9",
+            False,
+            ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
+        ),
         ("mloda-community", "mloda-community[otel]==9.9.9", True, ["mloda-community-otel"]),
         ("mloda-community", "mloda-community[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
+        ("mloda-community", "mloda-community[german-ledger]==9.9.9", True, ["mloda-community-german-ledger"]),
         (
             "mloda-community",
             "mloda-community[all]==9.9.9",
             True,
-            ["mloda-community-otel", "mloda-community-openlineage"],
+            ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
         ),
         ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
         ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),

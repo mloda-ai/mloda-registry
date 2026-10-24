@@ -37,6 +37,7 @@ members = [
     "mloda-community-extenders-shared",
     "mloda-community-ffill",
     "mloda-community-frame-aggregate",
+    "mloda-community-german-ledger",
     "mloda-community-lookup",
     "mloda-community-offset",
     "mloda-community-openlineage",
@@ -792,8 +793,12 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "mloda-community-german-ledger" },
     { name = "mloda-community-openlineage" },
     { name = "mloda-community-otel" },
+]
+german-ledger = [
+    { name = "mloda-community-german-ledger" },
 ]
 openlineage = [
     { name = "mloda-community-openlineage" },
@@ -816,6 +821,8 @@ requires-dist = [
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "mloda-community-ffill", editable = "mloda/community/feature_groups/data_operations/row_preserving/ffill" },
     { name = "mloda-community-frame-aggregate", editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" },
+    { name = "mloda-community-german-ledger", marker = "extra == 'all'", editable = "mloda/community/feature_groups/experimental/german_ledger" },
+    { name = "mloda-community-german-ledger", marker = "extra == 'german-ledger'", editable = "mloda/community/feature_groups/experimental/german_ledger" },
     { name = "mloda-community-lookup", editable = "mloda/community/feature_groups/data_operations/row_preserving/lookup" },
     { name = "mloda-community-offset", editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" },
     { name = "mloda-community-openlineage", marker = "extra == 'all'", editable = "mloda/community/extenders/openlineage" },
@@ -833,7 +840,7 @@ requires-dist = [
     { name = "mloda-community-time-bucketization", editable = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization" },
     { name = "mloda-community-window-aggregation", editable = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation" },
 ]
-provides-extras = ["otel", "openlineage", "all"]
+provides-extras = ["otel", "openlineage", "german-ledger", "all"]
 
 [[package]]
 name = "mloda-community-aggregation"
@@ -1304,6 +1311,30 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
+
+[[package]]
+name = "mloda-community-german-ledger"
+version = "0.10.0"
+source = { editable = "mloda/community/feature_groups/experimental/german_ledger" }
+dependencies = [
+    { name = "mloda" },
+    { name = "pyarrow" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.17.0,<0.18.0" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pyarrow", specifier = ">=14.0.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-lookup"

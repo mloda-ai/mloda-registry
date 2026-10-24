@@ -100,3 +100,21 @@ You can also import plugin classes directly:
 ```python
 from mloda.community.feature_groups.example import CommunityExampleFeatureGroup
 ```
+
+### Names Claimed by an Installed Package
+
+The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` answers `revenue` and `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, only when a ledger source (a GDPdU dossier or DATEV batch folder) is in the data access collection or a reader option points at one, so a plain CSV `revenue` column resolves as usual. A request needs `feature_group=` only when the same collection also holds another source that answers the name; the example scopes the ledger's own group (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
+
+```py
+from mloda.user import DataAccessCollection, Feature, PluginLoader, mloda
+
+from mloda.community.feature_groups.experimental.german_ledger import SkrAccountFeatureGroup
+
+PluginLoader.all()
+# With your AdmissibilityPolicyGroup subclass defined, as in the package README.
+result = mloda.run_all(
+    [Feature("revenue", feature_group=SkrAccountFeatureGroup)],
+    compute_frameworks=["PyArrowTable"],
+    data_access_collection=DataAccessCollection(folders={"path/to/dossier"}),
+)
+```

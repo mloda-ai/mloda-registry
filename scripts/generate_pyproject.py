@@ -654,11 +654,23 @@ def generate_pyproject(
     lines.append(f"license-files = {to_toml_list(sorted(license_copies(pkg_config)))}")
 
     # Authors - format as inline table
-    authors = shared["project"]["authors"]
-    author_strs = [
-        f"{{ name = {quote_toml_basic_string(a['name'])}, email = {quote_toml_basic_string(a['email'])} }}"
-        for a in authors
-    ]
+    pkg_authors = pkg_config.get("authors", [])
+    if not isinstance(pkg_authors, list) or not all(
+        isinstance(a, dict)
+        and isinstance(a.get("name"), str)
+        and (a.get("email") is None or isinstance(a["email"], str))
+        for a in pkg_authors
+    ):
+        raise ValueError(
+            f"{pkg_name}: authors must be a list of tables with a string name and optional string email, "
+            f"got {pkg_authors!r}"
+        )
+    author_strs = []
+    for a in [*shared["project"]["authors"], *pkg_authors]:
+        fields = [f"name = {quote_toml_basic_string(a['name'])}"]
+        if "email" in a:
+            fields.append(f"email = {quote_toml_basic_string(a['email'])}")
+        author_strs.append(f"{{ {', '.join(fields)} }}")
     lines.append(f"authors = [{', '.join(author_strs)}]")
 
     for source, value in (
