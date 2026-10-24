@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -159,19 +160,20 @@ class PercentileTestBase(
         """p50/median has no unsupported case; percentile skips nothing."""
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the PyArrow-backed reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
-            ReferencePercentile,
+            reference_percentile,
         )
 
-        return ReferencePercentile
+        return reference_percentile(table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 
     def test_p50_percentile_region(self) -> None:
         """P50 of value_int partitioned by region, broadcast back to every row."""
         fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -182,7 +184,7 @@ class PercentileTestBase(
     def test_p25_percentile_region(self) -> None:
         """P25 of value_int partitioned by region."""
         fs = make_feature_set("value_int__p25_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p25_percentile")
         assert result_col == pytest.approx(EXPECTED_P25_BY_REGION, rel=1e-6)
@@ -190,7 +192,7 @@ class PercentileTestBase(
     def test_p75_percentile_region(self) -> None:
         """P75 of value_int partitioned by region."""
         fs = make_feature_set("value_int__p75_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p75_percentile")
         assert result_col == pytest.approx(EXPECTED_P75_BY_REGION, rel=1e-6)
@@ -198,7 +200,7 @@ class PercentileTestBase(
     def test_p0_percentile_region(self) -> None:
         """P0 equals the minimum of value_int per region."""
         fs = make_feature_set("value_int__p0_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p0_percentile")
         assert result_col == pytest.approx(EXPECTED_P0_BY_REGION, rel=1e-6)
@@ -206,7 +208,7 @@ class PercentileTestBase(
     def test_p100_percentile_region(self) -> None:
         """P100 equals the maximum of value_int per region."""
         fs = make_feature_set("value_int__p100_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p100_percentile")
         assert result_col == pytest.approx(EXPECTED_P100_BY_REGION, rel=1e-6)
@@ -214,7 +216,7 @@ class PercentileTestBase(
     def test_null_policy_skip_p50_with_null_values(self) -> None:
         """NullPolicy.SKIP: Group B has a null value_int at row 4. P50 should skip it."""
         fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p50_percentile")
         assert result_col[4] == pytest.approx(50.0, rel=1e-6)
@@ -225,7 +227,7 @@ class PercentileTestBase(
     def test_null_policy_null_is_group(self) -> None:
         """NullPolicy.NULL_IS_GROUP: Row 11 has region=None. It should form its own group."""
         fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p50_percentile")
         assert result_col[11] == pytest.approx(-10.0, rel=1e-6)
@@ -233,7 +235,7 @@ class PercentileTestBase(
     def test_null_policy_skip_all_null_column(self) -> None:
         """NullPolicy.SKIP: score column is all null. Percentile should produce all nulls."""
         fs = make_feature_set("score__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "score__p50_percentile")
         assert all(v is None for v in result_col)
@@ -241,7 +243,7 @@ class PercentileTestBase(
     def test_multi_key_partition_p50(self) -> None:
         """P50 of value_int partitioned by [region, category]."""
         fs = make_feature_set("value_int__p50_percentile", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__p50_percentile")
         assert result_col[0] == pytest.approx(5.0, rel=1e-6)  # A/X
@@ -271,7 +273,7 @@ class PercentileTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_custom_percentile")
         assert result_col == pytest.approx(EXPECTED_P50_BY_REGION, rel=1e-6)
@@ -281,7 +283,7 @@ class PercentileTestBase(
     def test_multi_key_float_p50(self) -> None:
         """P50 of value_float partitioned by [region, category]."""
         fs = make_feature_set("value_float__p50_percentile", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_float__p50_percentile")
         # A/X: [1.5, None] -> p50 = 1.5
@@ -296,7 +298,7 @@ class PercentileTestBase(
     def test_multi_null_column_p50(self) -> None:
         """value_float has 2 nulls (rows 2, 11). Percentile should skip them."""
         fs = make_feature_set("value_float__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_float__p50_percentile")
         # A: value_float non-null = [1.5, 0.0, 2.5] -> sorted [0.0, 1.5, 2.5] -> p50 = 1.5
@@ -307,7 +309,7 @@ class PercentileTestBase(
     def test_amount_p50_by_region(self) -> None:
         """amount has 2 nulls (rows 1, 7). Percentile should skip them."""
         fs = make_feature_set("amount__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "amount__p50_percentile")
         # A: amount non-null = [100.0, 250.0, 75.0] -> sorted [75.0, 100.0, 250.0] -> p50 = 100.0
@@ -336,8 +338,6 @@ class PercentileTestBase(
 
     def test_empty_data_returns_zero_rows(self) -> None:
         """Percentile on an empty table (0 rows) should return 0 rows with the new column."""
-        import pyarrow as pa
-
         empty_arrow = pa.table(
             {
                 "region": pa.array([], type=pa.string()),
@@ -346,7 +346,7 @@ class PercentileTestBase(
         )
         empty_data = self.create_test_data(empty_arrow)
         fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(empty_data, fs)
+        result = calculate_with(self.implementation_class(), empty_data, fs)
         assert self.get_row_count(result) == 0
 
     def test_single_row_partitions_return_own_value(self) -> None:
@@ -365,7 +365,7 @@ class PercentileTestBase(
         for pctl in ("p0", "p50", "p100"):
             feature_name = f"value_int__{pctl}_percentile"
             fs = make_feature_set(feature_name, ["region"])
-            result = self.implementation_class().calculate_feature(custom_data, fs)
+            result = calculate_with(self.implementation_class(), custom_data, fs)
 
             result_col = self.extract_column(result, feature_name)
             assert result_col == pytest.approx([10.0, 20.0, 30.0], rel=1e-6), (
@@ -377,7 +377,7 @@ class PercentileTestBase(
     def test_mask_p50_percentile_equal(self) -> None:
         """P50 of value_int where category='X', partitioned by region."""
         fs = make_feature_set("value_int__p50_percentile", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__p50_percentile")
         assert result_col == pytest.approx(
@@ -391,7 +391,7 @@ class PercentileTestBase(
             ["region"],
             mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__p50_percentile")
         # A: [10] -> 10.0, B: [60] -> 60.0, C: [15] -> 15.0, None: [] -> None
@@ -413,7 +413,7 @@ class PercentileTestBase(
         custom_data = self.create_test_data(arrow)
 
         fs = make_feature_set("w\u00e9rt__p50_percentile", ["r\u00e9gion"])
-        result = self.implementation_class().calculate_feature(custom_data, fs)
+        result = calculate_with(self.implementation_class(), custom_data, fs)
 
         result_col = self.extract_column(result, "w\u00e9rt__p50_percentile")
         # A: [10, 20] -> p50 = 15.0, B: [30, 40] -> p50 = 35.0

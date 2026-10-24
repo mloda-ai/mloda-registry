@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
     PandasMaskEngine,
@@ -17,10 +17,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ba
 )
 
 
-class PandasPercentile(PercentileFeatureGroup):
+class PandasPercentile(Implementation[PercentileFeatureGroup]):
+    feature_group = PercentileFeatureGroup
+    compute_framework = PandasDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls, group: type[PercentileFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.percentile(data, features, compute_percentile=cls._compute_percentile)
 
     @classmethod
     def _compute_percentile(

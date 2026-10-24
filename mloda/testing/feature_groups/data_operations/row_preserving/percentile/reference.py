@@ -12,8 +12,7 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda.provider import FeatureSet
 
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
@@ -23,55 +22,53 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ba
 _IDX_COL = "__mloda_pctl_idx__"
 
 
-class ReferencePercentile(PercentileFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+def _compute_percentile(
+    table: pa.Table,
+    feature_name: str,
+    source_col: str,
+    partition_by: list[str],
+    percentile: float,
+    mask_spec: list[tuple[str, str, Any]] | None = None,
+) -> pa.Table:
+    if mask_spec is not None:
+        table = apply_pyarrow_mask(table, source_col, mask_spec)
 
-    @classmethod
-    def _compute_percentile(
-        cls,
-        table: pa.Table,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        percentile: float,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> pa.Table:
-        if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
+    num_rows = table.num_rows
+    t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
 
-        num_rows = table.num_rows
-        t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
+    grouped = t_with_idx.group_by(partition_by).aggregate(
+        [
+            (source_col, "list"),
+            (_IDX_COL, "list"),
+        ]
+    )
+    list_col = f"{source_col}_list"
+    idx_list_col = f"{_IDX_COL}_list"
 
-        grouped = t_with_idx.group_by(partition_by).aggregate(
-            [
-                (source_col, "list"),
-                (_IDX_COL, "list"),
-            ]
-        )
-        list_col = f"{source_col}_list"
-        idx_list_col = f"{_IDX_COL}_list"
+    result_values: list[Any] = [None] * num_rows
 
-        result_values: list[Any] = [None] * num_rows
+    for g in range(grouped.num_rows):
+        vals = grouped.column(list_col)[g].as_py()
+        indices = grouped.column(idx_list_col)[g].as_py()
+        non_null = [v for v in vals if v is not None]
 
-        for g in range(grouped.num_rows):
-            vals = grouped.column(list_col)[g].as_py()
-            indices = grouped.column(idx_list_col)[g].as_py()
-            non_null = [v for v in vals if v is not None]
+        if not non_null:
+            agg_val = None
+        else:
+            arr = pa.array(non_null, type=pa.float64())
+            q_result = pc.quantile(arr, q=percentile)
+            if len(q_result) == 0:
+                raise ValueError(
+                    f"pc.quantile returned an empty result for q={percentile} on {len(non_null)} non-null values"
+                )
+            agg_val = q_result[0].as_py()
 
-            if not non_null:
-                agg_val = None
-            else:
-                arr = pa.array(non_null, type=pa.float64())
-                q_result = pc.quantile(arr, q=percentile)
-                if len(q_result) == 0:
-                    raise ValueError(
-                        f"pc.quantile returned an empty result for q={percentile} on {len(non_null)} non-null values"
-                    )
-                agg_val = q_result[0].as_py()
+        for idx in indices:
+            result_values[idx] = agg_val
 
-            for idx in indices:
-                result_values[idx] = agg_val
+    return table.append_column(feature_name, pa.array(result_values))
 
-        return table.append_column(feature_name, pa.array(result_values))
+
+def reference_percentile(table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the shared percentile loop with the PyArrow-backed reference compute."""
+    return PercentileFeatureGroup.percentile(table, features, compute_percentile=_compute_percentile)

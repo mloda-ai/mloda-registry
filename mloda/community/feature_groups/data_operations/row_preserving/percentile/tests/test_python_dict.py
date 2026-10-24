@@ -33,16 +33,20 @@ class TestPythonDictNanPartitionKeyGrouping:
 
     Verified empirically: PyArrow's own ``Table.group_by()`` merges all NaN
     keys of a column into a single group, so "one shared NaN group" is the
-    correct target. ``ReferencePercentile`` drives its grouping through
+    correct target. ``reference_percentile`` drives its grouping through
     PyArrow's real ``group_by().aggregate()``, so it is a valid oracle here.
     """
 
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
         from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
-            ReferencePercentile,
+            reference_percentile,
         )
 
         arrow_table = pa.table(
@@ -54,8 +58,8 @@ class TestPythonDictNanPartitionKeyGrouping:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__p50_percentile", ["grp"])
 
-        result = PythonDictPercentile.calculate_feature(data, fs)
-        oracle = ReferencePercentile.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictPercentile, data, fs)
+        oracle = reference_percentile(arrow_table, fs)
 
         result_col = extract_column(result, "val__p50_percentile")
         oracle_col = extract_column(oracle, "val__p50_percentile")
@@ -73,7 +77,7 @@ class TestPythonDictPercentileNanValueSkipped:
     Building ``non_null`` as ``sorted(v for v in values if v is not None)`` keeps NaN
     (``v is not None`` is True for NaN); NaN's comparisons are never ``True``, so it can
     land anywhere in the "sorted" list, and PERCENTILE_CONT interpolation over that list
-    then produces garbage. ``ReferencePercentile`` interpolates via PyArrow's own
+    then produces garbage. ``reference_percentile`` interpolates via PyArrow's own
     ``pyarrow.compute.quantile``, which skips NaN like a null (verified empirically), so
     it is a valid live oracle here, unlike the reference implementations for
     rank/offset/frame_aggregate, whose hand-rolled group reducers reproduce the identical
@@ -88,9 +92,13 @@ class TestPythonDictPercentileNanValueSkipped:
     def test_nan_value_skipped_matches_pyarrow_oracle(self) -> None:
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
         from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
-            ReferencePercentile,
+            reference_percentile,
         )
 
         arrow_table = pa.table(
@@ -102,8 +110,8 @@ class TestPythonDictPercentileNanValueSkipped:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__p50_percentile", ["grp"])
 
-        result = PythonDictPercentile.calculate_feature(data, fs)
-        oracle = ReferencePercentile.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictPercentile, data, fs)
+        oracle = reference_percentile(arrow_table, fs)
 
         result_col = extract_column(result, "val__p50_percentile")
         oracle_col = extract_column(oracle, "val__p50_percentile")

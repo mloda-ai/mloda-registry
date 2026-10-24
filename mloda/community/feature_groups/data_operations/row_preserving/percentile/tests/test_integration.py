@@ -1,8 +1,7 @@
 """Integration tests for percentile through mloda's full pipeline.
 
-Uses the ReferencePercentile implementation (a test utility that accepts PyArrow
-tables and computes in Python) because PyArrow lacks native grouped percentile.
-The tests verify that percentile operations work end-to-end through mloda's
+PyArrow has no native grouped percentile, so percentile runs on pandas here: the group is
+served by PandasPercentile. The tests verify that percentile operations work end-to-end through mloda's
 runtime, including plugin discovery, feature resolution, and PluginCollector.
 """
 
@@ -10,30 +9,40 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
-    ReferencePercentile,
+pd = pytest.importorskip("pandas")
+
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame  # noqa: E402
+
+from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (  # noqa: E402
+    PercentileFeatureGroup,
+)
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator  # noqa: E402
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator  # noqa: E402
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase  # noqa: E402
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import (  # noqa: E402
+    MaskIntegrationTestMixin,
 )
 
 
 class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
     def feature_group_class(cls) -> type:
-        return ReferencePercentile
+        return PercentileFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
-        return PyArrowDataOpsTestDataCreator
+        return PandasDataOpsTestDataCreator
 
     @classmethod
     def compute_framework_class(cls) -> type:
+        return PandasDataFrame
+
+    @classmethod
+    def no_implementation_framework(cls) -> type | None:
         return PyArrowTable
 
     @classmethod
@@ -124,7 +133,9 @@ class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTest
 class TestIntegrationMultipleFeatures:
     def test_p50_and_p75_together(self) -> None:
         """Request both p50 and p75 in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferencePercentile})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PandasDataOpsTestDataCreator, PercentileFeatureGroup}
+        )
 
         f_p50 = Feature(
             "value_int__p50_percentile",
@@ -137,7 +148,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_p50, f_p75],
-            compute_frameworks=[PyArrowTable],
+            compute_frameworks=[PandasDataFrame],
             plugin_collector=plugin_collector,
         )
 
@@ -146,15 +157,15 @@ class TestIntegrationMultipleFeatures:
         p50_found = False
         p75_found = False
         for table in results:
-            if not isinstance(table, pa.Table):
+            if not isinstance(table, pd.DataFrame):
                 continue
-            if "value_int__p50_percentile" in table.column_names:
-                p50_col = table.column("value_int__p50_percentile").to_pylist()
+            if "value_int__p50_percentile" in table.columns:
+                p50_col = table["value_int__p50_percentile"].tolist()
                 expected_p50 = [5.0, 5.0, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 15.0, 15.0, 15.0, -10.0]
                 assert p50_col == pytest.approx(expected_p50, rel=1e-3)
                 p50_found = True
-            if "value_int__p75_percentile" in table.column_names:
-                p75_col = table.column("value_int__p75_percentile").to_pylist()
+            if "value_int__p75_percentile" in table.columns:
+                p75_col = table["value_int__p75_percentile"].tolist()
                 expected_p75 = [12.5, 12.5, 12.5, 12.5, 55.0, 55.0, 55.0, 55.0, 27.5, 27.5, 27.5, -10.0]
                 assert p75_col == pytest.approx(expected_p75, rel=1e-3)
                 p75_found = True
@@ -164,7 +175,9 @@ class TestIntegrationMultipleFeatures:
 
     def test_different_percentiles(self) -> None:
         """Request p25 and p100 in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferencePercentile})
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PandasDataOpsTestDataCreator, PercentileFeatureGroup}
+        )
 
         f_p25 = Feature(
             "value_int__p25_percentile",
@@ -177,7 +190,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_p25, f_p100],
-            compute_frameworks=[PyArrowTable],
+            compute_frameworks=[PandasDataFrame],
             plugin_collector=plugin_collector,
         )
 
@@ -186,18 +199,59 @@ class TestIntegrationMultipleFeatures:
         p25_found = False
         p100_found = False
         for table in results:
-            if not isinstance(table, pa.Table):
+            if not isinstance(table, pd.DataFrame):
                 continue
-            if "value_int__p25_percentile" in table.column_names:
-                p25_col = table.column("value_int__p25_percentile").to_pylist()
+            if "value_int__p25_percentile" in table.columns:
+                p25_col = table["value_int__p25_percentile"].tolist()
                 expected_p25 = [-1.25, -1.25, -1.25, -1.25, 40.0, 40.0, 40.0, 40.0, 15.0, 15.0, 15.0, -10.0]
                 assert p25_col == pytest.approx(expected_p25, rel=1e-3)
                 p25_found = True
-            if "value_int__p100_percentile" in table.column_names:
-                p100_col = table.column("value_int__p100_percentile").to_pylist()
+            if "value_int__p100_percentile" in table.columns:
+                p100_col = table["value_int__p100_percentile"].tolist()
                 expected_p100 = [20.0, 20.0, 20.0, 20.0, 60.0, 60.0, 60.0, 60.0, 40.0, 40.0, 40.0, -10.0]
                 assert p100_col == pytest.approx(expected_p100, rel=1e-3)
                 p100_found = True
 
         assert p25_found, "p25_percentile result not found in any result table"
         assert p100_found, "p100_percentile result not found in any result table"
+
+
+class TestIntegrationSeveralFrameworks:
+    """One PercentileFeatureGroup is served by one Implementation per framework, chosen per feature."""
+
+    @staticmethod
+    def _feature(name: str) -> Feature:
+        return Feature(name, options=Options(context={"partition_by": ["region"]}))
+
+    def test_several_frameworks_enabled_runs_p50(self) -> None:
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        name = "value_int__p50_percentile"
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PandasDataOpsTestDataCreator, PercentileFeatureGroup}
+        )
+
+        results = mloda.run_all(
+            [self._feature(name)],
+            compute_frameworks=[PandasDataFrame, PolarsLazyDataFrame],
+            plugin_collector=plugin_collector,
+        )
+
+        frames = [f for f in results if isinstance(f, pd.DataFrame) and name in f.columns]
+        assert len(frames) == 1
+        expected = [5.0, 5.0, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 15.0, 15.0, 15.0, -10.0]
+        assert frames[0][name].tolist() == pytest.approx(expected, rel=1e-3)
+
+    def test_pyarrow_alone_is_a_resolution_error(self) -> None:
+        """No percentile Implementation serves PyArrow, so the group is unresolvable there."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PercentileFeatureGroup}
+        )
+
+        with pytest.raises(FeatureResolutionError):
+            mloda.run_all(
+                [self._feature("value_int__p50_percentile")],
+                compute_frameworks=[PyArrowTable],
+                plugin_collector=plugin_collector,
+            )

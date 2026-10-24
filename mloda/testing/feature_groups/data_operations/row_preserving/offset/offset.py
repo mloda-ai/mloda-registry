@@ -21,7 +21,12 @@ from mloda.user import Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    extract_column,
+    feature_group_of,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -134,18 +139,18 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return cls.ALL_OFFSET_TYPES
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        """Return the reference implementation class."""
-        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the PyArrow-backed reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
-        return ReferenceOffset
+        return reference_offset(table, features)
 
     # -- Concrete tests ------------------------------------------------------
 
     def test_lag_1(self) -> None:
         """Lag 1 of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -155,7 +160,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_lead_1(self) -> None:
         """Lead 1 of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__lead_1_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -165,7 +170,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_first_value(self) -> None:
         """First value of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__first_value_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -175,7 +180,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_last_value(self) -> None:
         """Last value of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__last_value_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -186,7 +191,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         """Diff 1 of value_int partitioned by region, ordered by value_int."""
         self._skip_if_unsupported("diff")
         fs = make_feature_set("value_int__diff_1_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -205,7 +210,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         """Pct change 1 of value_int partitioned by region, ordered by value_int."""
         self._skip_if_unsupported("pct_change")
         fs = make_feature_set("value_int__pct_change_1_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -241,7 +246,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_null_policy_edge_null(self) -> None:
         """NullPolicy.EDGE_NULL: lag at start of partition produces null."""
         fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__lag_1_offset")
         # Row 1 (val -5, first in A) should have lag=None
@@ -283,7 +288,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__lag_1_offset", ["region"], "score")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "score__lag_1_offset")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -298,7 +303,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__first_value_offset", ["region"], "score")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "score__first_value_offset")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
@@ -323,7 +328,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_lag_result")
         assert result_col == EXPECTED_LAG_1
@@ -345,24 +350,28 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Matching tests -------------------------------------------------------
 
     def test_match_rejects_empty_partition_by(self) -> None:
         """Empty partition_by must be rejected at match time, not reach backend-specific compute."""
         options = Options(context={"partition_by": [], "order_by": "value_int"})
-        assert not self.implementation_class().match_feature_group_criteria("value_int__lag_1_offset", options, None)
+        assert not feature_group_of(self.implementation_class()).match_feature_group_criteria(
+            "value_int__lag_1_offset", options, None
+        )
 
         valid_options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        assert self.implementation_class().match_feature_group_criteria("value_int__lag_1_offset", valid_options, None)
+        assert feature_group_of(self.implementation_class()).match_feature_group_criteria(
+            "value_int__lag_1_offset", valid_options, None
+        )
 
     # -- Tier 3: Partition / order_by null tests ------------------------------
 
     def test_null_partition_key(self) -> None:
         """Null in partition_by forms its own group. Row 11 has region=None."""
         fs = make_feature_set("value_int__first_value_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__first_value_offset")
         # Row 11 has region=None, value_int=-10. Only member of its group.
@@ -372,7 +381,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_multi_key_partition_lag(self) -> None:
         """Lag partitioned by [region, category] produces correct grouping."""
         fs = make_feature_set("value_int__lag_1_offset", ["region", "category"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__lag_1_offset")
         # Group A/X: values [10, 0] sorted by value_int -> [0, 10]
@@ -392,7 +401,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         )
         data = self.create_test_data(table)
         fs = make_feature_set("value__lag_1_offset", ["region"], "ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "value__lag_1_offset")
         # Sorted by ts: 1->10, 2->20, None->100
@@ -412,7 +421,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         (rows 8 and 9 both have value_int=15).
         """
         fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(

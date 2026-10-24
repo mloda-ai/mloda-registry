@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -11,6 +11,8 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
 from mloda.user import DataType, Feature
@@ -39,6 +41,13 @@ _OFFSET_TYPES = {
 #: Parametric offset families; each accepts a positive integer suffix (e.g. ``lag_3``).
 _PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = ("lag", "lead", "diff", "pct_change")
 
+_PARAMETRIC_OFFSET_DESCRIPTIONS = {
+    "lag": "Value N rows before the current row",
+    "lead": "Value N rows after the current row",
+    "diff": "Difference from the value N rows before",
+    "pct_change": "Percentage change from the value N rows before",
+}
+
 
 def _is_supported_offset_type(value: object) -> bool:
     """Fixed offset types plus parametric lag_N / lead_N / diff_N / pct_change_N with N >= 1."""
@@ -54,7 +63,7 @@ def _is_supported_offset_type(value: object) -> bool:
     return False
 
 
-class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class OffsetFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for offset operations that preserve row count.
 
     Offset operations access values at a fixed offset from the current row
@@ -119,6 +128,11 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
     - ``order_by``: Column to order by within each partition
     """
 
+    SUBTYPES = SubtypeDeclaration(
+        key="offset_type",
+        parametric_families={family: _PARAMETRIC_OFFSET_DESCRIPTIONS[family] for family in _PARAMETRIC_OFFSET_FAMILIES},
+    )
+
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     MIN_IN_FEATURES = 1
@@ -133,7 +147,7 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
     PREFIX_PATTERN = rf".*__(?P<{OFFSET_TYPE}>[\w]+)_offset$"
 
     # Aliases of the module tables the validator reads: overriding them in a subclass has no
-    # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
+    # effect, per-backend narrowing belongs in Implementation.supported.
     OFFSET_TYPES = _OFFSET_TYPES
 
     PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = _PARAMETRIC_OFFSET_FAMILIES
@@ -168,7 +182,7 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
     @classmethod
     def _supports_offset_type(cls, offset_type: str) -> bool:
         """Check if the given offset type is supported."""
-        # Per-backend narrowing lives in SubtypeCapabilityHook, not here.
+        # Per-backend narrowing lives in Implementation.supported, not here.
         return _is_supported_offset_type(offset_type)
 
     @classmethod
@@ -231,8 +245,14 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Shared loop: extract params from each feature, delegate to _compute_offset."""
+    def offset(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_offset: Callable[[Any, str, str, list[str], str, str], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to compute_offset."""
         table = data
 
         for feature in features.features:
@@ -251,19 +271,6 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureG
             order_by: Any = option_value(feature.options, cls.ORDER_BY, column_ref_value)
             assert_key_columns_present(data, partition_by, order_by)
 
-            table = cls._compute_offset(table, feature_name, source_col, partition_by, order_by, offset_type)
+            table = compute_offset(table, feature_name, source_col, partition_by, order_by, offset_type)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_offset(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        order_by: str,
-        offset_type: str,
-    ) -> Any:
-        """Subclasses must implement the actual offset computation."""

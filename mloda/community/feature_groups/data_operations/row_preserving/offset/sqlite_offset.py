@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -13,10 +15,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 )
 
 
-class SqliteOffset(OffsetFeatureGroup):
+class SqliteOffset(Implementation[OffsetFeatureGroup]):
+    feature_group = OffsetFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls, group: type[OffsetFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.offset(data, features, compute_offset=cls._compute_offset)
 
     @classmethod
     def _compute_offset(

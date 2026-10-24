@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
@@ -12,10 +14,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 )
 
 
-class PolarsLazyOffset(OffsetFeatureGroup):
+class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
+    feature_group = OffsetFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls, group: type[OffsetFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.offset(data, features, compute_offset=cls._compute_offset)
 
     @classmethod
     def _compute_offset(

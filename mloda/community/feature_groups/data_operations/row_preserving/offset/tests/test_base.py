@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import inspect
 from typing import Any
 
 import pytest
+from mloda.provider import (
+    FeatureChainParserMixin,
+    FeatureGroup,
+    Implementation,
+    OperationFeatureGroup,
+)
 from mloda.user import DataType, Feature, Options
 
+from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for, make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
-from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
 
 class TestClassAttributes:
@@ -54,6 +64,179 @@ class TestClassAttributes:
     def test_min_max_in_features(self) -> None:
         assert OffsetFeatureGroup.MIN_IN_FEATURES == 1
         assert OffsetFeatureGroup.MAX_IN_FEATURES == 1
+
+
+_IMPLEMENTATIONS = [
+    pytest.param(
+        "pandas_offset",
+        "PandasOffset",
+        "mloda_plugins.compute_framework.base_implementations.pandas.dataframe",
+        "PandasDataFrame",
+        id="pandas",
+    ),
+    pytest.param(
+        "polars_lazy_offset",
+        "PolarsLazyOffset",
+        "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe",
+        "PolarsLazyDataFrame",
+        id="polars_lazy",
+    ),
+    pytest.param(
+        "duckdb_offset",
+        "DuckdbOffset",
+        "mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework",
+        "DuckDBFramework",
+        id="duckdb",
+    ),
+    pytest.param(
+        "sqlite_offset",
+        "SqliteOffset",
+        "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework",
+        "SqliteFramework",
+        id="sqlite",
+    ),
+    pytest.param(
+        "python_dict_offset",
+        "PythonDictOffset",
+        "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework",
+        "PythonDictFramework",
+        id="python_dict",
+    ),
+]
+
+_OFFSET_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.offset"
+
+
+def _implementation(module: str, name: str) -> Any:
+    """The named offset Implementation; skips when its optional backend is not installed."""
+    return getattr(pytest.importorskip(f"{_OFFSET_PACKAGE}.{module}"), name)
+
+
+class TestOperationGroupShape:
+    """OffsetFeatureGroup is one OperationFeatureGroup served by one Implementation per framework."""
+
+    def test_group_is_a_concrete_operation_group(self) -> None:
+        assert issubclass(OffsetFeatureGroup, OperationFeatureGroup)
+        assert not inspect.isabstract(OffsetFeatureGroup)
+
+    def test_group_mro_puts_the_mixins_before_feature_group(self) -> None:
+        assert OffsetFeatureGroup.__mro__[1:5] == (
+            OperationFeatureGroup,
+            KeyColumnInputsMixin,
+            FeatureChainParserMixin,
+            FeatureGroup,
+        )
+
+    def test_group_declares_the_offset_type_subtype_key(self) -> None:
+        declaration = OffsetFeatureGroup.SUBTYPES
+        assert declaration is not None
+        assert declaration.key == "offset_type"
+
+    def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
+        assert callable(OffsetFeatureGroup.offset)
+        assert not hasattr(OffsetFeatureGroup, "_compute_offset")
+
+    def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
+        """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
+        fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
+        with pytest.raises(ValueError, match="no implementation"):
+            OffsetFeatureGroup.calculate_feature(PyArrowDataOpsTestDataCreator.create(), fs)
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_implementation_names_its_pair(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        impl = _implementation(module, name)
+        framework = getattr(pytest.importorskip(framework_module), framework_name)
+        assert issubclass(impl, Implementation)
+        assert not issubclass(impl, FeatureGroup)
+        assert impl.feature_group is OffsetFeatureGroup
+        assert impl.compute_framework is framework
+        assert impl.__module__ == f"{_OFFSET_PACKAGE}.{module}"
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_implementation_keeps_its_compute_offset(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert callable(_implementation(module, name)._compute_offset)
+
+
+class TestSubtypes:
+    """The offset_type subtype dimension, including the parametric families."""
+
+    def test_universe_is_the_named_types_and_family_names(self) -> None:
+        assert OffsetFeatureGroup.subtype_universe() == {
+            "first_value",
+            "last_value",
+            "lag",
+            "lead",
+            "diff",
+            "pct_change",
+        }
+
+    @pytest.mark.parametrize(
+        ("instance", "family"),
+        [
+            ("lag_2", "lag"),
+            ("lead_1", "lead"),
+            ("diff_4", "diff"),
+            ("pct_change_3", "pct_change"),
+            ("first_value", "first_value"),
+        ],
+    )
+    def test_canonical_subtype_collapses_a_parametric_instance(self, instance: str, family: str) -> None:
+        assert OffsetFeatureGroup.canonical_subtype(instance) == family
+
+    def test_resolves_from_the_feature_name(self) -> None:
+        assert OffsetFeatureGroup.resolve_subtype("x__lag_2_offset", Options()) == "lag_2"
+
+    def test_resolves_from_the_config_option(self) -> None:
+        options = Options(
+            context={"offset_type": "pct_change_3", "in_features": "x", "partition_by": ["g"], "order_by": "x"}
+        )
+        assert OffsetFeatureGroup.resolve_subtype("my_result", options) == "pct_change_3"
+
+    @pytest.mark.parametrize("feature_name", ["value_int__lag_x_offset", "value_int__lag_0_offset"])
+    def test_malformed_parametric_instance_is_rejected_at_match(self, feature_name: str) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        assert OffsetFeatureGroup.match_feature_group_criteria(feature_name, options, None) is False
+
+
+class TestSupportedAndDivergent:
+    """No offset Implementation restricts its subtypes or declares a divergence."""
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_no_implementation_restricts_supported(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert _implementation(module, name).supported is None
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_no_implementation_declares_a_divergence(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert not _implementation(module, name).divergent
+
+
+class TestManifest:
+    """The entry-point manifest lists the group and its Implementations."""
+
+    def test_manifest_lists_the_group_and_every_installed_implementation(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.offset.manifest import FEATURE_GROUPS
+
+        assert OffsetFeatureGroup in FEATURE_GROUPS
+        listed = {cls.__name__ for cls in FEATURE_GROUPS if issubclass(cls, Implementation)}
+        expected = {"SqliteOffset", "PythonDictOffset"}
+        for name, dependency in (
+            ("PandasOffset", "pandas"),
+            ("PolarsLazyOffset", "polars"),
+            ("DuckdbOffset", "duckdb"),
+        ):
+            if importlib.util.find_spec(dependency) is not None:
+                expected.add(name)
+        assert listed == expected
+        implementations: list[Any] = [cls for cls in FEATURE_GROUPS if cls is not OffsetFeatureGroup]
+        assert all(cls.feature_group is OffsetFeatureGroup for cls in implementations)
 
 
 class TestPatternMatching:
@@ -161,7 +344,7 @@ class TestConfigBasedFeatures:
         from mloda.user import Feature
 
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
+        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
         table = PyArrowDataOpsTestDataCreator.create()
         feature = Feature(
@@ -178,7 +361,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = ReferenceOffset.calculate_feature(table, fs)
+        result = reference_offset(table, fs)
         assert isinstance(result, pa.Table)
         assert "my_lag" in result.column_names
         assert result.num_rows == 12
@@ -385,7 +568,5 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
     def compute_values(cls, options: Options) -> list[Any] | None:
         # Offset reads order_by inline in calculate_feature rather than through an extractor,
         # so only a run through the backend shows a container reaching it unwrapped.
-        result = ReferenceOffset.calculate_feature(
-            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options)
-        )
+        result = reference_offset(PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options))
         return extract_column(result, "my_lag")

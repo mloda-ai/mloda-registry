@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import importlib.util
+import inspect
 import logging
 from dataclasses import replace
 from typing import Any
 
 import pytest
+from mloda.provider import (
+    FeatureChainParserMixin,
+    FeatureGroup,
+    Implementation,
+    OperationFeatureGroup,
+)
 from mloda.user import Feature, Options
 
+from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
@@ -31,6 +42,130 @@ class TestClassAttributes:
 
     def test_partition_by_constant_defined(self) -> None:
         assert PercentileFeatureGroup.PARTITION_BY == "partition_by"
+
+
+_IMPLEMENTATIONS = [
+    pytest.param(
+        "pandas_percentile",
+        "PandasPercentile",
+        "mloda_plugins.compute_framework.base_implementations.pandas.dataframe",
+        "PandasDataFrame",
+        id="pandas",
+    ),
+    pytest.param(
+        "polars_lazy_percentile",
+        "PolarsLazyPercentile",
+        "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe",
+        "PolarsLazyDataFrame",
+        id="polars_lazy",
+    ),
+    pytest.param(
+        "duckdb_percentile",
+        "DuckdbPercentile",
+        "mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework",
+        "DuckDBFramework",
+        id="duckdb",
+    ),
+    pytest.param(
+        "python_dict_percentile",
+        "PythonDictPercentile",
+        "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework",
+        "PythonDictFramework",
+        id="python_dict",
+    ),
+]
+
+_PERCENTILE_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.percentile"
+
+
+def _implementation(module: str, name: str) -> Any:
+    """The named percentile Implementation; skips when its optional backend is not installed."""
+    return getattr(pytest.importorskip(f"{_PERCENTILE_PACKAGE}.{module}"), name)
+
+
+class TestOperationGroupShape:
+    """PercentileFeatureGroup is one OperationFeatureGroup served by one Implementation per framework."""
+
+    def test_group_is_a_concrete_operation_group(self) -> None:
+        assert issubclass(PercentileFeatureGroup, OperationFeatureGroup)
+        assert not inspect.isabstract(PercentileFeatureGroup)
+
+    def test_group_mro_puts_the_mixins_before_feature_group(self) -> None:
+        assert PercentileFeatureGroup.__mro__[1:5] == (
+            OperationFeatureGroup,
+            KeyColumnInputsMixin,
+            FeatureChainParserMixin,
+            FeatureGroup,
+        )
+
+    def test_group_declares_no_subtypes(self) -> None:
+        """The percentile key is a float, not a subtype dimension."""
+        assert PercentileFeatureGroup.SUBTYPES is None
+
+    def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
+        assert callable(PercentileFeatureGroup.percentile)
+        assert not hasattr(PercentileFeatureGroup, "_compute_percentile")
+
+    def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
+        """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
+        fs = make_feature_set("value_int__p50_percentile", ["region"])
+        with pytest.raises(ValueError, match="no implementation"):
+            PercentileFeatureGroup.calculate_feature(PyArrowDataOpsTestDataCreator.create(), fs)
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_implementation_names_its_pair(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        impl = _implementation(module, name)
+        framework = getattr(pytest.importorskip(framework_module), framework_name)
+        assert issubclass(impl, Implementation)
+        assert not issubclass(impl, FeatureGroup)
+        assert impl.feature_group is PercentileFeatureGroup
+        assert impl.compute_framework is framework
+        assert impl.__module__ == f"{_PERCENTILE_PACKAGE}.{module}"
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_implementation_keeps_its_compute_percentile(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert callable(_implementation(module, name)._compute_percentile)
+
+
+class TestSupportedAndDivergent:
+    """No percentile Implementation restricts its subtypes or declares a divergence."""
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_no_implementation_restricts_supported(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert _implementation(module, name).supported is None
+
+    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
+    def test_no_implementation_declares_a_divergence(
+        self, module: str, name: str, framework_module: str, framework_name: str
+    ) -> None:
+        assert not _implementation(module, name).divergent
+
+
+class TestManifest:
+    """The entry-point manifest lists the group and its Implementations."""
+
+    def test_manifest_lists_the_group_and_every_installed_implementation(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.percentile.manifest import FEATURE_GROUPS
+
+        assert PercentileFeatureGroup in FEATURE_GROUPS
+        listed = {cls.__name__ for cls in FEATURE_GROUPS if issubclass(cls, Implementation)}
+        expected = {"PythonDictPercentile"}
+        for name, dependency in (
+            ("PandasPercentile", "pandas"),
+            ("PolarsLazyPercentile", "polars"),
+            ("DuckdbPercentile", "duckdb"),
+        ):
+            if importlib.util.find_spec(dependency) is not None:
+                expected.add(name)
+        assert listed == expected
+        implementations: list[Any] = [cls for cls in FEATURE_GROUPS if cls is not PercentileFeatureGroup]
+        assert all(cls.feature_group is PercentileFeatureGroup for cls in implementations)
 
 
 class TestPatternMatching:

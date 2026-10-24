@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -11,6 +11,7 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
     property_spec,
 )
 from mloda.user import Feature
@@ -47,7 +48,7 @@ def _is_unit_interval_element(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
 
 
-class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class PercentileFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for percentile operations that preserve row count.
 
     Computes a percentile over a partitioned group using PERCENTILE_CONT
@@ -229,7 +230,13 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
         return percentile
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def percentile(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_percentile: Callable[[Any, str, str, list[str], float, list[tuple[str, str, Any]] | None], Any],
+    ) -> Any:
         """Compute a percentile per source column, partitioned, and broadcast to all rows.
 
         Each feature in the feature set produces one new column containing the
@@ -252,19 +259,6 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Feat
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
             assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
 
-            table = cls._compute_percentile(table, feature_name, source_col, partition_by, percentile, mask_spec)
+            table = compute_percentile(table, feature_name, source_col, partition_by, percentile, mask_spec)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_percentile(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        percentile: float,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> Any:
-        """Subclasses must implement the actual percentile computation."""

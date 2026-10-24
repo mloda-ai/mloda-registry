@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -28,10 +28,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ba
 )
 
 
-class PythonDictPercentile(PercentileFeatureGroup):
+class PythonDictPercentile(Implementation[PercentileFeatureGroup]):
+    feature_group = PercentileFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls, group: type[PercentileFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.percentile(data, features, compute_percentile=cls._compute_percentile)
 
     @classmethod
     def _compute_percentile(
