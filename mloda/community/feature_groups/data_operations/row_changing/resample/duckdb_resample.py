@@ -24,6 +24,7 @@ from mloda.community.feature_groups.data_operations.duckdb_helpers import (
 )
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
+    ResampleAgg,
     ResampleFeatureGroup,
 )
 
@@ -55,21 +56,19 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
     def _compute_resample(
         cls,
         data: DuckdbRelation,
-        feature_name: str,
-        source_col: str,
+        aggs: list[ResampleAgg],
         time_column: str,
         partition_by: list[str],
         n: int,
         unit: str,
-        agg: str,
     ) -> DuckdbRelation:
-        agg_func = _DUCKDB_AGG_FUNCS.get(agg)
-        if agg_func is None:
-            raise ValueError(f"Unsupported resample agg {agg!r} for DuckDB; supported: {sorted(RESAMPLE_AGGS)}.")
+        for spec in aggs:
+            if spec.agg not in _DUCKDB_AGG_FUNCS:
+                raise ValueError(
+                    f"Unsupported resample agg {spec.agg!r} for DuckDB; supported: {sorted(RESAMPLE_AGGS)}."
+                )
 
-        quoted_source = quote_ident(source_col)
         quoted_time = quote_ident(time_column)
-        quoted_feature = quote_ident(feature_name)
         floor_sql = floor_expr(quoted_time, n, unit)
 
         # Group keys: partition columns first, then the floored bucket. The
@@ -78,12 +77,12 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
         partition_quoted = [quote_ident(col) for col in partition_by]
         group_exprs = [*partition_quoted, floor_sql]
 
-        agg_call = nan_policy_agg_sql(data, source_col, quoted_source, agg, agg_func)
-        select_parts = [
-            *partition_quoted,
-            f"{floor_sql} AS {quoted_time}",
-            f"{agg_call} AS {quoted_feature}",
+        agg_parts = [
+            f"{nan_policy_agg_sql(data, spec.source_col, quote_ident(spec.source_col), spec.agg, _DUCKDB_AGG_FUNCS[spec.agg])}"
+            f" AS {quote_ident(spec.feature_name)}"
+            for spec in aggs
         ]
+        select_parts = [*partition_quoted, f"{floor_sql} AS {quoted_time}", *agg_parts]
 
         agg_sql = ", ".join(select_parts)
         group_sql = ", ".join(group_exprs)

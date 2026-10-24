@@ -17,6 +17,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 from mloda.community.feature_groups.data_operations.polars_helpers import duration_token
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
+    ResampleAgg,
     ResampleFeatureGroup,
 )
 
@@ -46,30 +47,34 @@ class PolarsLazyResample(Implementation[ResampleFeatureGroup]):
     def _compute_resample(
         cls,
         data: pl.LazyFrame,
-        feature_name: str,
-        source_col: str,
+        aggs: list[ResampleAgg],
         time_column: str,
         partition_by: list[str],
         n: int,
         unit: str,
-        agg: str,
     ) -> pl.LazyFrame:
-        if agg not in _POLARS_AGG_EXPRS:
-            raise ValueError(f"Unsupported resample agg {agg!r} for Polars; supported: {sorted(RESAMPLE_AGGS)}.")
+        for spec in aggs:
+            if spec.agg not in _POLARS_AGG_EXPRS:
+                raise ValueError(
+                    f"Unsupported resample agg {spec.agg!r} for Polars; supported: {sorted(RESAMPLE_AGGS)}."
+                )
 
         duration = duration_token(n, unit)
         # Floor the time column in place (bucket start keeps the original name).
         data = data.with_columns(pl.col(time_column).dt.truncate(duration).alias(time_column))
 
-        if agg == "sum":
-            # Polars sum() returns 0 for all-null groups; correct to None.
-            has_values = pl.col(source_col).count() > 0
-            expr = pl.when(has_values).then(pl.col(source_col).sum()).otherwise(None).alias(feature_name)
-        else:
-            expr = _POLARS_AGG_EXPRS[agg](source_col).alias(feature_name)
+        exprs = []
+        for spec in aggs:
+            if spec.agg == "sum":
+                # Polars sum() returns 0 for all-null groups; correct to None.
+                has_values = pl.col(spec.source_col).count() > 0
+                expr = pl.when(has_values).then(pl.col(spec.source_col).sum()).otherwise(None).alias(spec.feature_name)
+            else:
+                expr = _POLARS_AGG_EXPRS[spec.agg](spec.source_col).alias(spec.feature_name)
+            exprs.append(expr)
 
         keys = [*partition_by, time_column]
         # maintain_order=True so repeated ``.collect()`` calls (the test extracts
         # each column separately) return a stable row order, keeping bucket keys
         # aligned with their aggregate values.
-        return data.group_by(keys, maintain_order=True).agg(expr)
+        return data.group_by(keys, maintain_order=True).agg(*exprs)

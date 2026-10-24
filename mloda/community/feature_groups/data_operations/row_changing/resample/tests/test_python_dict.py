@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleAgg
 from mloda.community.feature_groups.data_operations.row_changing.resample.python_dict_resample import (
     PythonDictResample,
 )
@@ -257,7 +258,7 @@ class TestPythonDictNanPartitionColumnLeaksGroupKeySentinel:
             "v": [1.0, 2.0, 5.0],
         }
 
-        result = PythonDictResample._compute_resample(data, "s", "v", "ts", ["grp"], 1, "hour", "sum")
+        result = PythonDictResample._compute_resample(data, [ResampleAgg("s", "v", "sum")], "ts", ["grp"], 1, "hour")
 
         assert all(isinstance(v, float) for v in result["grp"]), (
             f"expected the partition column to hold plain float values, got a leaked "

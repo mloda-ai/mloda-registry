@@ -27,18 +27,19 @@ Options context:
 - ``in_features``: the single source column (when not derivable from the name).
 
 Output columns are the ``partition_by`` columns, the bucketed ``time_column``
-(SAME NAME, bucket-start value) and the aggregate column named exactly
+(SAME NAME, bucket-start value) and one aggregate column per feature named exactly
 ``{src}__resample_{n}_{unit}_{agg}``. Output row order is not guaranteed.
 
-PyArrow is the cross-framework reference. Each backend is an ``Implementation`` supplying
-the floor + group + aggregate to ``resample``; presence guards are shared via
+PyArrow is the cross-framework reference. Features sharing one bucket grid are aggregated
+together; a different grid needs its own request. Each backend is an ``Implementation``
+supplying the floor + group + aggregate to ``resample``; presence guards are shared via
 ``assert_source_columns_present``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from mloda.provider import (
     DefaultOptionKeys,
@@ -79,6 +80,14 @@ RESAMPLE_UNITS: dict[str, str] = {
     "hour": "Hour-aligned buckets (sub-day, fixed length)",
     "day": "Day-aligned buckets (calendar day, midnight UTC)",
 }
+
+
+class ResampleAgg(NamedTuple):
+    """One aggregate to compute: output column ``feature_name`` = ``agg`` of ``source_col``."""
+
+    feature_name: str
+    source_col: str
+    agg: str
 
 
 def _parse_resample_op(token: str) -> tuple[int, str, str]:
@@ -231,23 +240,33 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
         data: Any,
         features: FeatureSet,
         *,
-        compute_resample: Callable[[Any, str, str, str, list[str], int, str, str], Any],
+        compute_resample: Callable[[Any, list[ResampleAgg], str, list[str], int, str], Any],
     ) -> Any:
-        """Compute one resample output per feature in ``features``."""
-        table = data
+        """Compute all resample aggregates of ``features`` in one group-by.
+
+        Raises:
+            ValueError: if the features use more than one bucket grid (partition_by, time_column, n, unit).
+        """
+        aggs: list[ResampleAgg] = []
+        grids: dict[tuple[tuple[str, ...], str, int, str], list[str]] = {}
 
         for feature in features.features:
-            feature_name = feature.name
-
             source_col = cls._extract_single_source_feature(feature)
-            op_token = cls._extract_resample_op(feature)
-            n, unit, agg = _parse_resample_op(op_token)
+            n, unit, agg = _parse_resample_op(cls._extract_resample_op(feature))
             partition_by = cls._extract_partition_by(feature)
             time_column = cls._extract_time_column(feature)
 
             assert_key_columns_present(data, partition_by, time_column, order_label="time_column")
             assert_source_columns_present(data, [source_col])
 
-            table = compute_resample(table, feature_name, source_col, time_column, partition_by, n, unit, agg)
+            aggs.append(ResampleAgg(feature.name, source_col, agg))
+            grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(feature.name)
 
-        return table
+        if len(grids) > 1:
+            raise ValueError(
+                f"Resample features with different bucket grids cannot share one request: {sorted(grids.values())}. "
+                "Each bucket grid needs its own request."
+            )
+
+        ((partition_key, time_column, n, unit),) = grids
+        return compute_resample(data, aggs, time_column, list(partition_key), n, unit)

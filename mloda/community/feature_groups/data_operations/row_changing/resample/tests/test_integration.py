@@ -45,6 +45,8 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 _NUM_BUCKETS = 11
 _MEAN_SORTED: list[Any] = [0.0, 0.0, 1e-15, 1.18, 1.5, 2.5, 6.5, 7.5, 100.0, None, None]
 _COUNT_SORTED: list[Any] = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2]
+# Daily sum per region bucket, computed with plain pyarrow.
+_SUM_SORTED: list[Any] = [0.0, 0.0, 1e-15, 1.5, 2.36, 2.5, 6.5, 7.5, 100.0, None, None]
 
 
 def _sort_none_last(values: list[Any]) -> list[Any]:
@@ -52,22 +54,23 @@ def _sort_none_last(values: list[Any]) -> list[Any]:
     return sorted(values, key=lambda x: (x is None, x))
 
 
-def _run_resample(name: str, context: dict[str, Any]) -> pa.Table:
-    """Run a single resample feature through ``run_all`` and return its table."""
+def _run_resample(name: str, context: dict[str, Any], *more_names: str) -> pa.Table:
+    """Run resample features (all sharing ``context``) through ``run_all`` and return the table holding them."""
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ResampleFeatureGroup})
-    feature = Feature(name, options=Options(context=context))
+    names = (name, *more_names)
+    features = [Feature(n, options=Options(context=context)) for n in names]
 
     results = mloda.run_all(
-        [feature],
+        features,
         compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
     )
 
     for table in results:
-        if isinstance(table, pa.Table) and name in table.column_names:
+        if isinstance(table, pa.Table) and all(n in table.column_names for n in names):
             return table
 
-    raise AssertionError(f"No result table with {name} found")
+    raise AssertionError(f"No result table with {names} found")
 
 
 class TestResampleIntegration:
@@ -90,6 +93,17 @@ class TestResampleIntegration:
 
         col = table.column(name).to_pylist()
         assert sorted(col) == _COUNT_SORTED
+
+    def test_daily_mean_and_sum_in_one_run(self) -> None:
+        mean_name = "value_float__resample_1_day_mean"
+        sum_name = "value_float__resample_1_day_sum"
+        table = _run_resample(mean_name, {"time_column": "timestamp", "partition_by": ["region"]}, sum_name)
+
+        assert table.num_rows == _NUM_BUCKETS
+        assert _sort_none_last(table.column(mean_name).to_pylist()) == _MEAN_SORTED
+        sums = _sort_none_last(table.column(sum_name).to_pylist())
+        assert sums.count(None) == _SUM_SORTED.count(None)
+        assert [v for v in sums if v is not None] == pytest.approx([v for v in _SUM_SORTED if v is not None], abs=1e-12)
 
     def test_daily_mean_with_column_selective_source(self) -> None:
         name = "value_float__resample_1_day_mean"

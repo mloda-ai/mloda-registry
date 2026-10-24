@@ -24,6 +24,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
 )
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
+    ResampleAgg,
     ResampleFeatureGroup,
 )
 
@@ -51,32 +52,42 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
     def _compute_resample(
         cls,
         data: pd.DataFrame,
-        feature_name: str,
-        source_col: str,
+        aggs: list[ResampleAgg],
         time_column: str,
         partition_by: list[str],
         n: int,
         unit: str,
-        agg: str,
     ) -> pd.DataFrame:
-        pandas_func = PANDAS_AGG_FUNCS.get(agg)
-        if pandas_func is None:
-            raise ValueError(f"Unsupported resample agg {agg!r} for Pandas; supported: {sorted(RESAMPLE_AGGS)}.")
+        for spec in aggs:
+            if spec.agg not in PANDAS_AGG_FUNCS:
+                raise ValueError(
+                    f"Unsupported resample agg {spec.agg!r} for Pandas; supported: {sorted(RESAMPLE_AGGS)}."
+                )
 
         data = data.copy()
         # Floor the time column in place (bucket start keeps the original name).
         data[time_column] = data[time_column].dt.floor(f"{n}{FIXED_FREQ_ALIASES[unit]}")
 
         keys = [*partition_by, time_column]
-        grouped = null_safe_groupby(data, keys, source_col)
-        result = apply_null_safe_agg(grouped, pandas_func, agg).reset_index()
-        result = result.rename(columns={source_col: feature_name})
+        result: pd.DataFrame | None = None
+        for spec in aggs:
+            grouped = null_safe_groupby(data, keys, spec.source_col)
+            part = apply_null_safe_agg(grouped, PANDAS_AGG_FUNCS[spec.agg], spec.agg).reset_index()
+            part = part.rename(columns={spec.source_col: spec.feature_name})
+            coerce_count_dtype(part, spec.feature_name, spec.agg)
 
-        coerce_count_dtype(result, feature_name, agg)
+            if spec.agg != "count":
+                # NaN (all-null sum / mean) must surface as real None to match the
+                # PyArrow oracle (the harness asserts identity ``is None``).
+                part[spec.feature_name] = (
+                    part[spec.feature_name].astype(object).where(part[spec.feature_name].notna(), None)
+                )
 
-        if agg != "count":
-            # NaN (all-null sum / mean) must surface as real None to match the
-            # PyArrow oracle (the harness asserts identity ``is None``).
-            result[feature_name] = result[feature_name].astype(object).where(result[feature_name].notna(), None)
+            if result is None:
+                result = part
+            else:
+                # Same data and keys, so the group order is identical: attach positionally (keys may be null).
+                result[spec.feature_name] = part[spec.feature_name].to_numpy()
 
+        assert result is not None
         return result

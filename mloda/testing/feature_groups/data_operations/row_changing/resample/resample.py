@@ -599,6 +599,37 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         result_map = self._build_resample_map(result, "value__resample_1_hour_mean", "ts", ["region"])
         self._assert_map_equals(result_map, EXPECTED_1_HOUR_MEAN, use_approx=True)
 
+    # -- Several features in one FeatureSet ----------------------------------
+
+    def _multi_feature_set(self, feature_names: list[str], partition_by: list[str]) -> FeatureSet:
+        fs = FeatureSet()
+        for name in feature_names:
+            fs.add(Feature(name, options=Options(context={"time_column": "ts", "partition_by": partition_by})))
+        return fs
+
+    def test_multiple_features_same_grid(self) -> None:
+        """Features sharing a bucket grid are aggregated together from the original input."""
+        names = ["value__resample_1_hour_mean", "value__resample_1_hour_sum", "value__resample_1_hour_count"]
+        fs = self._multi_feature_set(names, ["region"])
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+
+        assert self.get_row_count(result) == len(EXPECTED_1_HOUR_MEAN)
+        expected = [
+            (names[0], EXPECTED_1_HOUR_MEAN, True),
+            (names[1], EXPECTED_1_HOUR_SUM, True),
+            (names[2], EXPECTED_1_HOUR_COUNT, False),
+        ]
+        for name, exp, approx in expected:
+            result_map = self._build_resample_map(result, name, "ts", ["region"])
+            self._assert_map_equals(result_map, exp, use_approx=approx)
+
+    def test_mixed_bucket_sizes_rejected(self) -> None:
+        """Features with different bucket grids in one FeatureSet are rejected."""
+        names = ["value__resample_1_hour_mean", "value__resample_15_minute_mean"]
+        fs = self._multi_feature_set(names, ["region"])
+        with pytest.raises(ValueError, match=r"(?i)bucket"):
+            calculate_with(self.implementation_class(), self.test_data, fs)
+
     # -- Cross-framework comparison (map-based vs PyArrow oracle) ------------
 
     def _compare_resample_with_reference(

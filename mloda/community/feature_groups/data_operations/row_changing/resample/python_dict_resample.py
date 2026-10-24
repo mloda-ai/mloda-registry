@@ -26,6 +26,7 @@ from mloda.community.feature_groups.data_operations.python_dict_helpers import (
 )
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
+    ResampleAgg,
     ResampleFeatureGroup,
 )
 
@@ -58,19 +59,17 @@ class PythonDictResample(Implementation[ResampleFeatureGroup]):
     def _compute_resample(
         cls,
         data: dict[str, list[Any]],
-        feature_name: str,
-        source_col: str,
+        aggs: list[ResampleAgg],
         time_column: str,
         partition_by: list[str],
         n: int,
         unit: str,
-        agg: str,
     ) -> dict[str, list[Any]]:
-        if agg not in RESAMPLE_AGGS:
-            raise unsupported_agg_type_error(agg, RESAMPLE_AGGS, framework="PythonDict")
+        for spec in aggs:
+            if spec.agg not in RESAMPLE_AGGS:
+                raise unsupported_agg_type_error(spec.agg, RESAMPLE_AGGS, framework="PythonDict")
 
         time_col = data[time_column]
-        source_values = data[source_col]
         partition_cols = [data[col] for col in partition_by]
 
         buckets = [None if value is None else _floor_dt(value, n, unit) for value in time_col]
@@ -83,14 +82,16 @@ class PythonDictResample(Implementation[ResampleFeatureGroup]):
 
         result: dict[str, list[Any]] = {col: [] for col in partition_by}
         result[time_column] = []
-        result[feature_name] = []
+        for spec in aggs:
+            result[spec.feature_name] = []
 
         for key, indices in groups.items():
             first_idx = indices[0]
             for col_name, col in zip(partition_by, partition_cols):
                 result[col_name].append(col[first_idx])
             result[time_column].append(key[-1])
-            values = [source_values[i] for i in indices]
-            result[feature_name].append(_reduce(agg, values))
+            for spec in aggs:
+                values = [data[spec.source_col][i] for i in indices]
+                result[spec.feature_name].append(_reduce(spec.agg, values))
 
         return result
