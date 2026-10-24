@@ -2,7 +2,7 @@
 
 One-page lookup for "does operation *X* work on framework *Y*?". Rows are the data operations (and their subtypes, where applicable); columns are the compute frameworks mloda ships: PyArrow, Pandas, Polars lazy, DuckDB, SQLite, Python dict.
 
-**What**: A capability matrix rendered from the production capability declarations (the frameworks come from the loaded Implementations, per-subtype support from each Implementation's `supported` / `accepts`, checked by the group's `supports_compute_framework` at match time), queryable at runtime via `DataOperationsCatalog` (`from mloda.community.feature_groups.data_operations import DataOperationsCatalog`). If a cell is ✓, the framework's production implementation declares support for that subtype and the shared reference-based test suite runs it against that framework. If a cell is ✗, the implementation rejects the subtype at match time (see [Known divergences](known-divergences.md)).
+**What**: A capability matrix rendered from the production capability declarations (the frameworks come from the built-in Implementations, per-subtype support from each Implementation's `supported` / `accepts`, checked by the group's `supports_compute_framework` at match time), queryable at runtime via `DataOperationsCatalog` (`from mloda.community.feature_groups.data_operations import DataOperationsCatalog`). If a cell is ✓, the framework's production implementation declares support for that subtype and the shared reference-based test suite runs it against that framework. If a cell is ✗, the implementation rejects the subtype at match time (see [Known divergences](known-divergences.md)).
 **When**: Use before picking an op/framework pair, before adding a new framework implementation for an existing op, or while debugging why a feature resolves on one framework but skips on another.
 **Why**: The authoritative information is the capability each Implementation declares in production code. `DataOperationsCatalog` flattens those declarations into one queryable structure; this page renders it as a single table and keeps it in sync via a drift check. The test-twin `supported_*()` sets are checked mirrors of the catalog, enforced by `tests/test_twin_catalog_consistency.py`.
 **Where**: The tables below are guarded by a pytest drift check in `mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`. Do not edit the block between the `BEGIN GENERATED` and `END GENERATED` markers by hand. After changing any capability declaration, run `tox` (or at minimum that one test file). If the drift check fails, regenerate the block with a coding agent so its contents match what the test produces, then rerun until the test passes.
@@ -42,7 +42,7 @@ for op in DataOperationsCatalog.list():
     print(op.name, op.prefix_pattern)
 ```
 
-Framework names are the compute framework class names (`PyArrowTable`, `PandasDataFrame`, `PolarsLazyDataFrame`, `DuckDBFramework`, `SqliteFramework`), matched case-insensitively. Unknown operations and out-of-universe subtypes raise a `ValueError` listing the valid values; an unknown framework simply returns `False`.
+Framework names are the compute framework class names (`PyArrowTable`, `PandasDataFrame`, `PolarsLazyDataFrame`, `DuckDBFramework`, `SqliteFramework`, `PythonDictFramework`), matched case-insensitively. Unknown operations and out-of-universe subtypes raise a `ValueError` listing the valid values; an unknown framework simply returns `False`.
 
 To check a concrete feature name instead of an op/subtype pair, use core's `resolve_feature`; the same `supported` / `accepts` capability feeds both:
 
@@ -68,7 +68,7 @@ This matrix only covers data-operation feature groups (single-source column tran
 
 ## Summary
 
-Cells reflect each operation group's Implementations, queryable via `DataOperationsCatalog`: the frameworks are those the loaded Implementations serve, and per-subtype support is each Implementation's `supported` and `accepts`, which the group's `supports_compute_framework` checks at match time. `full` means the framework's production implementation declares support for every subtype this operation defines. `partial (k/n)` means it declares k of the n subtypes and rejects the rest. `--` means no implementation ships for this framework.
+Cells reflect each operation group's Implementations, queryable via `DataOperationsCatalog`: the frameworks are those the built-in Implementations serve, and per-subtype support is each Implementation's `supported` and `accepts`, which the group's `supports_compute_framework` checks at match time. `full` means the framework's production implementation declares support for every subtype this operation defines. `partial (k/n)` means it declares k of the n subtypes and rejects the rest. `--` means no implementation ships for this framework.
 
 | Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
@@ -303,7 +303,7 @@ The three divergence kinds in [Known divergences](known-divergences.md) map to t
 To promote a ✗ to ✓:
 
 1. Read the Known-divergences entry for the cell to understand why it is ✗.
-2. Implement the missing native expression (or remove the subtype from the Implementation's `supported`, or relax its `accepts`).
+2. Implement the missing native expression and add the subtype to the Implementation's `supported` (or relax its `accepts`).
 3. Update the framework test class's `supported_*()` override, or remove it if the framework now matches the full default set.
 4. Rerun the pytest drift check (`pytest mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`). If it fails, regenerate the `BEGIN GENERATED` / `END GENERATED` block with a coding agent and rerun.
 5. Run `PYTEST_WORKERS=1 tox` to confirm the inherited tests now pass.

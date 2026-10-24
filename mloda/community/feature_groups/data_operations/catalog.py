@@ -419,13 +419,12 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
         impl = _module_local_subclass(backend_module, Implementation, base_cls)
         if impl is None:
             continue
-        concrete, backend_frameworks = base_cls, (impl.compute_framework,)
-        for framework in backend_frameworks:
-            key = str(framework.__name__)
-            if subtypes is None or spec.probe is None:
-                frameworks[key] = None
-            else:
-                frameworks[key] = _supported_subtypes(concrete, framework, base_module, subtypes, spec.probe)
+        framework = impl.compute_framework
+        key = str(framework.__name__)
+        if subtypes is None or spec.probe is None:
+            frameworks[key] = None
+        else:
+            frameworks[key] = _supported_subtypes(base_cls, framework, base_module, subtypes, spec.probe)
 
     return OperationInfo(
         name=spec.name,

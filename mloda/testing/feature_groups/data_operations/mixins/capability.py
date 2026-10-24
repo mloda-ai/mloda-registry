@@ -31,8 +31,6 @@ import pytest
 from mloda.provider import Implementation
 from mloda.user import Options
 
-from mloda.testing.feature_groups.data_operations.helpers import feature_group_of
-
 
 class CapabilityHookTestMixin:
     """Mixin providing shared match-time capability-hook tests.
@@ -75,7 +73,7 @@ class CapabilityHookTestMixin:
         backend = self.implementation_class()  # type: ignore[attr-defined]
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
         for name, opts in (*self.capability_supported(), *self.capability_conservative()):
-            assert feature_group_of(backend).supports_compute_framework(name, opts, framework) is True, (
+            assert backend.feature_group.supports_compute_framework(name, opts, framework) is True, (
                 f"expected {name!r} accepted by {framework.__name__}"
             )
 
@@ -105,7 +103,7 @@ class CapabilityHookTestMixin:
 
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
         for name, opts in unsupported:
-            assert feature_group_of(backend).supports_compute_framework(name, opts, framework) is False, (
+            assert backend.feature_group.supports_compute_framework(name, opts, framework) is False, (
                 f"expected {name!r} rejected by {framework.__name__}"
             )
 
