@@ -21,9 +21,12 @@ from mloda.community.feature_groups.data_operations.string import manifest  # no
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 
-class TestStringIntegration(DataOpsIntegrationTestBase):
+class TestStringIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class.
 
     String operations use pattern-based matching (``<source>__<op>``),

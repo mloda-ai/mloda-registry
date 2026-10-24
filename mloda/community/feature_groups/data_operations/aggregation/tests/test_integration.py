@@ -34,9 +34,14 @@ from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 
-class TestAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
+class TestAggregationIntegration(
+    OperationGroupIntegrationTestMixin, MaskIntegrationTestMixin, DataOpsIntegrationTestBase
+):
     """Standard integration tests inherited from the base class."""
 
     @classmethod

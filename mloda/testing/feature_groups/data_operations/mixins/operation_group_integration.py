@@ -1,6 +1,8 @@
 """Reusable operation-group integration test mixin for data-operations feature groups.
 
-Verifies an OperationFeatureGroup is served by one Implementation per compute framework.
+Verifies an OperationFeatureGroup is served by one Implementation per compute framework:
+rejected when none of its frameworks is enabled, resolution error without an Implementation on the
+framework, and runnable with several frameworks enabled.
 Mix into an integration test class alongside DataOpsIntegrationTestBase.
 """
 
@@ -55,6 +57,30 @@ class OperationGroupIntegrationTestMixin:
                 compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
                 plugin_collector=collector,
             )
+
+    def test_group_is_rejected_when_none_of_its_frameworks_is_enabled(self) -> None:
+        """An operation group with a loaded Implementation fails on a framework it has no Implementation for."""
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
+
+        from mloda.testing.data_creator.polars import PolarsDataOpsTestDataCreator
+
+        group = self.feature_group_class()  # type: ignore[attr-defined]
+        frameworks = group.compute_framework_definition()
+        assert frameworks, f"{group.__name__} has no loaded Implementation"
+        if PolarsDataFrame in frameworks:
+            pytest.skip("eager Polars is served by this group")
+
+        plugin_collector = PluginCollector.enabled_feature_groups({PolarsDataOpsTestDataCreator, group})
+        feature = self._make_feature(  # type: ignore[attr-defined]
+            self.primary_feature_name(),  # type: ignore[attr-defined]
+            self.primary_feature_options(),  # type: ignore[attr-defined]
+        )
+        with pytest.raises(FeatureResolutionError) as excinfo:
+            mloda.run_all([feature], compute_frameworks=[PolarsDataFrame], plugin_collector=plugin_collector)
+        message = str(excinfo.value)
+        assert group.__name__ in message
+        assert "none of its compute frameworks are enabled" in message
 
     def test_several_frameworks_enabled_runs(self) -> None:
         """Enabling a second framework still plans one compute step for the group and returns the same values."""

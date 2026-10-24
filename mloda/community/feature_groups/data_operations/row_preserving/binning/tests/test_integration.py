@@ -13,13 +13,16 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning impor
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     EXPECTED_BIN_3,
     EXPECTED_QBIN_3,
 )
 
 
-class TestBinningIntegration(DataOpsIntegrationTestBase):
+class TestBinningIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class."""
 
     @classmethod

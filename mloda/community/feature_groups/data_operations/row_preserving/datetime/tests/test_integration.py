@@ -20,9 +20,12 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime impo
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 
-class TestDateTimeIntegration(DataOpsIntegrationTestBase):
+class TestDateTimeIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class.
 
     Datetime operations use pattern-based matching (``<source>__<op>``),
