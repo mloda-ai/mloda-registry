@@ -96,6 +96,7 @@ def test_plugin_loader_all() -> None:
     """After PluginLoader.all() the revenue__sources total resolves; a bare `revenue` waits on mloda#1745."""
     facts = run_isolated("plugin_loader_all")
     assert facts["revenue"] == "45385.06", facts
+    assert facts["part"] == "45385.06", facts
     columns = ["revenue~basis", "revenue~origins", "revenue~value"]
     assert facts["scoped"] == columns, facts
     unscoped = facts["unscoped"]
@@ -143,6 +144,53 @@ def test_origins_survive_aggregation() -> None:
     basis = [t.column("revenue__sources~basis").to_pylist()[0] for t in res][0]
     assert basis is not None and json.loads(basis)["profile"] is not None
     assert json.loads(basis)["catalogue"]["name"] == "SKR04_2025"
+
+
+def _run_dossier_a(*names: str) -> dict[str, Any]:
+    res = mloda.run_all(
+        features=list(names),
+        compute_frameworks=[PyArrowTable],
+        data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
+        plugin_collector=PLUGINS,
+    )
+    return {k: v for t in res for k, v in t.to_pydict().items()}
+
+
+@pytest.mark.parametrize("requested", ["revenue__sources~value", "revenue__sources~origins", "revenue__sources~basis"])
+def test_a_part_request_returns_only_that_part(requested: str) -> None:
+    """Requesting one declared part of the total returns exactly that column."""
+    got = _run_dossier_a(requested)
+    assert set(got) == {requested}, got
+    [cell] = got[requested]
+    if requested.endswith("~value"):
+        assert str(cell) == "45385.06", cell
+    elif requested.endswith("~origins"):
+        assert len(cell) == 5, cell
+    else:
+        assert json.loads(cell)["catalogue"]["name"] == "SKR04_2025", cell
+
+
+def test_two_parts_requested_together_return_exactly_those() -> None:
+    """Two declared parts of the total in one run give exactly two columns."""
+    got = _run_dossier_a("revenue__sources~value", "revenue__sources~origins")
+    assert set(got) == {"revenue__sources~value", "revenue__sources~origins"}, got
+    assert str(got["revenue__sources~value"][0]) == "45385.06", got
+    assert len(got["revenue__sources~origins"][0]) == 5, got
+
+
+def test_a_part_of_the_line_grain_concept_returns_only_that_part() -> None:
+    """`revenue~value` is one column whose non-null values sum to the total."""
+    got = _run_dossier_a("revenue~value")
+    assert set(got) == {"revenue~value"}, got
+    assert sum((v for v in got["revenue~value"] if v is not None), Decimal("0")) == Decimal("45385.06"), got
+
+
+def test_an_undeclared_part_fails_at_resolution() -> None:
+    """A part the group does not declare is refused when the name is resolved."""
+    with pytest.raises(Exception) as info:
+        _run_dossier_a("revenue__sources~bogus")
+    message = str(info.value)
+    assert "is not an output part" in message and "bogus" in message, message
 
 
 def _stamped_rows(*bases: str | None) -> pa.Table:
@@ -735,7 +783,8 @@ def test_citation_binds_the_descriptor_not_only_the_data() -> None:
         assert origins_of(touched_data) != before, "data edit left the citation unchanged"
 
 
-def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
+@pytest.mark.parametrize("requested", ["revenue__sources", "revenue__sources~value"])
+def test_a_dossier_running_past_the_closed_period_yields_no_number(requested: str) -> None:
     """A booking after the closed period is out of the policy's scope: neither refused nor admitted.
 
     An empty Erfassungsdatum is only the guard's business on a line booked into the closed
@@ -755,7 +804,7 @@ def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
 
         try:
             mloda.run_all(
-                features=["revenue__sources"],
+                features=[requested],
                 compute_frameworks=[PyArrowTable],
                 data_access_collection=DataAccessCollection(folders={str(d)}),
                 plugin_collector=PLUGINS,

@@ -72,6 +72,8 @@ revenue, receivables     SkrAccountFeatureGroup                           concep
 revenue__sources         SourcesFeatureGroup                              total + citations
 ```
 
+A single part such as `revenue__sources~value` can be requested and returns only that column; the total is still computed and checked whole, so every refusal still applies. `revenue~value` is the concept at line grain, not a total.
+
 A `__sources` total is built only over a concept from `SkrAccountFeatureGroup` or a subclass.
 The policy is a step in the resolution graph, so it shows in `RunResult.plan`. Removing it is a
 resolution failure, not an unvetted total.

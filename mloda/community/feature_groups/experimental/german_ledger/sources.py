@@ -13,7 +13,7 @@ from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from .reader import ADMISSIBILITY_COLUMN, _ReaderJournal, describe_verdicts, is_admitted, verdict_kind
-from .skr import SkrAccountFeatureGroup
+from .skr import PARTS, SkrAccountFeatureGroup
 
 
 class InadmissibleTotal(Exception):
@@ -48,8 +48,10 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     built-in aggregations do not carry row-level origins. Outputs are subcolumns of the
     *requested* name (``revenue__sources~value`` / ``~origins``), which is what column
     selection keeps. The input resolves through SkrAccountFeatureGroup unless the options point at a reader.
+    A single part such as ``revenue__sources~value`` returns only the total; the whole total and its refusals still run.
     """
 
+    OUTPUT_PARTS = PARTS
     PREFIX_PATTERN = r".*__sources$"
     RECOGNITION_ONLY_PATTERN = True
 
