@@ -32,6 +32,10 @@ from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregat
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
+    EXPECTED_AVG_BY_REGION,
+    EXPECTED_SUM_BY_REGION,
+)
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
@@ -431,9 +435,9 @@ class TestIntegrationMultipleFeatures:
         assert len(tables) == 1
         table = tables[0]
         assert table.num_rows == 4
-        assert sorted(table.column("value_int__sum_agg").to_pylist()) == sorted([25, 140, 70, -10])
+        assert sorted(table.column("value_int__sum_agg").to_pylist()) == sorted(EXPECTED_SUM_BY_REGION.values())
         assert sorted(table.column("value_int__avg_agg").to_pylist()) == pytest.approx(
-            sorted([6.25, 46.667, 23.333, -10.0]), rel=1e-3
+            sorted(EXPECTED_AVG_BY_REGION.values()), rel=1e-3
         )
 
     def test_sum_and_avg_consistent(self) -> None:

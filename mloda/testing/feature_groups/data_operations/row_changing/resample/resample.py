@@ -65,7 +65,11 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    make_feature_set,
+    make_multi_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -601,13 +605,14 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     # -- Several features in one FeatureSet ----------------------------------
 
-    def _multi_feature_set(self, feature_names: list[str], partition_by: list[str] | list[list[str]]) -> FeatureSet:
+    @staticmethod
+    def _multi_feature_set(feature_names: list[str], partition_by: list[str] | list[list[str]]) -> FeatureSet:
         """Build a FeatureSet; a list of lists gives each feature its own partition_by."""
-        fs = FeatureSet()
+        specs: list[tuple[str, dict[str, Any]]] = []
         for i, name in enumerate(feature_names):
             part = partition_by[i] if partition_by and isinstance(partition_by[0], list) else partition_by
-            fs.add(Feature(name, options=Options(context={"time_column": "ts", "partition_by": part})))
-        return fs
+            specs.append((name, {"time_column": "ts", "partition_by": part}))
+        return make_multi_feature_set(specs)
 
     def test_multiple_features_same_grid(self) -> None:
         """Features sharing a bucket grid are aggregated together from the original input."""

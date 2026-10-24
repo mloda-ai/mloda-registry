@@ -21,7 +21,7 @@ from typing import Any, Callable
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -32,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     extract_column,
     feature_group_of,
     make_feature_set,
+    make_multi_feature_set,
     result_column_names,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -493,16 +494,22 @@ class AggregationTestBase(
             )
             return
 
-        region_col = self.extract_column(result, partition_by[0])
-        result_col = self.extract_column(result, feature_name)
-        result_map = _build_result_map(region_col, result_col)
+        self._assert_groups_match_reference(result, ref, feature_name, partition_by[0], use_approx)
 
-        ref_region_col = extract_column(ref, partition_by[0])
-        ref_col = extract_column(ref, feature_name)
-        ref_map = _build_result_map(ref_region_col, ref_col)
+    def _assert_groups_match_reference(
+        self, result: Any, ref: Any, feature_name: str, group_column: str, use_approx: bool
+    ) -> None:
+        """Compare one feature's {group: value} map in ``result`` with the reference's, group by group."""
+        result_map = _build_result_map(
+            self.extract_column(result, group_column), self.extract_column(result, feature_name)
+        )
+        ref_map = _build_result_map(extract_column(ref, group_column), extract_column(ref, feature_name))
 
-        assert len(result_map) == len(ref_map), f"group count {len(result_map)} != reference {len(ref_map)}"
+        assert len(result_map) == len(ref_map), (
+            f"{feature_name}: group count {len(result_map)} != reference {len(ref_map)}"
+        )
         for key in ref_map:
+            assert key in result_map, f"{feature_name}: group {key} missing from result"
             if use_approx:
                 if ref_map[key] is None:
                     assert result_map[key] is None, f"group {key}: expected None, got {result_map[key]}"
@@ -528,38 +535,25 @@ class AggregationTestBase(
 
     # -- Several features in one FeatureSet (aggregated together from the original input) ----
 
-    @staticmethod
-    def _multi_feature_set(specs: list[tuple[str, dict[str, Any]]]) -> FeatureSet:
-        """A FeatureSet holding one Feature per (name, context) pair."""
-        fs = FeatureSet()
-        for name, context in specs:
-            fs.add(Feature(name, options=Options(context=dict(context))))
-        return fs
-
     def _assert_multi_matches_reference(
         self, specs: list[tuple[str, dict[str, Any]]], use_approx: bool = False
     ) -> None:
         """Run all specs in one FeatureSet; each column must equal its single-feature reference run."""
-        result = calculate_with(self.implementation_class(), self.test_data, self._multi_feature_set(specs))
+        result = calculate_with(self.implementation_class(), self.test_data, make_multi_feature_set(specs))
         partition_by = list(specs[0][1]["partition_by"])
+        names = [name for name, _ in specs]
+        assert set(result_column_names(result)) == {*partition_by, *names}, (
+            f"expected columns {sorted({*partition_by, *names})}, got {result_column_names(result)}"
+        )
         for name, context in specs:
-            ref = self.reference_calculate(self._arrow_table, self._multi_feature_set([(name, context)]))
+            ref = self.reference_calculate(self._arrow_table, make_multi_feature_set([(name, context)]))
             assert self.get_row_count(result) == ref.num_rows, f"{name}: row count differs from reference"
             if not partition_by:
                 assert_values_with_nulls(
                     self.extract_column(result, name), extract_column(ref, name), approx=use_approx
                 )
-                continue
-            result_keys = zip(*[self.extract_column(result, c) for c in partition_by])
-            ref_keys = zip(*[extract_column(ref, c) for c in partition_by])
-            result_map = dict(zip(result_keys, self.extract_column(result, name)))
-            ref_map = dict(zip(ref_keys, extract_column(ref, name)))
-            assert len(result_map) == len(ref_map), f"{name}: group count differs from reference"
-            for key, expected in ref_map.items():
-                if expected is None or not use_approx:
-                    assert result_map[key] == expected, f"{name} group {key}: {result_map[key]} != {expected}"
-                else:
-                    assert result_map[key] == pytest.approx(expected, rel=1e-6), f"{name} group {key}"
+            else:
+                self._assert_groups_match_reference(result, ref, name, partition_by[0], use_approx)
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     @pytest.mark.parametrize(
@@ -583,12 +577,7 @@ class AggregationTestBase(
         self._skip_if_unsupported("mean")
         context = {"partition_by": ["region"]}
         specs = [("value_int__avg_agg", context), ("value_int__mean_agg", context)]
-        result = calculate_with(self.implementation_class(), self.test_data, self._multi_feature_set(specs))
-        regions = self.extract_column(result, "region")
-        for name, _ in specs:
-            result_map = _build_result_map(regions, self.extract_column(result, name))
-            for region, expected in EXPECTED_AVG_BY_REGION.items():
-                assert result_map[region] == pytest.approx(expected, rel=1e-3), f"{name} region={region}"
+        self._assert_multi_matches_reference(specs, use_approx=True)
 
     @pytest.mark.parametrize(
         "mask",
@@ -620,7 +609,7 @@ class AggregationTestBase(
 
     def test_multi_feature_set_mixed_partition_by_rejected(self) -> None:
         """Features with different partition_by in one FeatureSet raise, naming the remedy."""
-        fs = self._multi_feature_set(
+        fs = make_multi_feature_set(
             [
                 ("value_int__sum_agg", {"partition_by": ["region"]}),
                 ("value_int__max_agg", {"partition_by": []}),

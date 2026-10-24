@@ -4,6 +4,7 @@ Provides:
 - ``extract_column``: Extract a column from any framework result as a Python list.
 - ``result_column_names``: The column names of any framework result.
 - ``make_feature_set``: Build a FeatureSet with optional partition_by/order_by.
+- ``make_multi_feature_set``: Build a FeatureSet holding one Feature per (name, context) pair.
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
 - ``is_null``: True for None or a float NaN.
 - ``assert_values_with_nulls``: Assert two lists match, null-aware, with optional cast/approx.
@@ -145,9 +146,14 @@ def make_feature_set(
         context["order_by"] = order_by
     if mask is not None:
         context["mask"] = mask
-    feature = Feature(feature_name, options=Options(context=context))
+    return make_multi_feature_set([(feature_name, context)])
+
+
+def make_multi_feature_set(specs: list[tuple[str, dict[str, Any]]]) -> FeatureSet:
+    """Build a FeatureSet holding one Feature per (name, context) pair, each with its own Options context."""
     fs = FeatureSet()
-    fs.add(feature)
+    for name, context in specs:
+        fs.add(Feature(name, options=Options(context=dict(context))))
     return fs
 
 
