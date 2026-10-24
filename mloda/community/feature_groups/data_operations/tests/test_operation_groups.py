@@ -8,11 +8,12 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 from mloda.provider import FeatureGroup, Implementation, OperationFeatureGroup
+from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
@@ -26,7 +27,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import load_implementation, make_feature_set
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
+    config_frame_options,
+)
 
 _PYARROW = ("mloda_plugins.compute_framework.base_implementations.pyarrow.table", "PyArrowTable")
 _PANDAS = ("mloda_plugins.compute_framework.base_implementations.pandas.dataframe", "PandasDataFrame")
@@ -48,6 +52,15 @@ class _Impl:
 
 
 @dataclass(frozen=True)
+class _Resolve:
+    """A ``resolve_subtype(feature_name, options)`` call and the subtype it must return."""
+
+    feature_name: str
+    options: Options
+    expected: str | None
+
+
+@dataclass(frozen=True)
 class _Family:
     id: str
     group: type[Any]
@@ -57,6 +70,12 @@ class _Family:
     partition_by: list[str]
     implementations: tuple[_Impl, ...]
     order_by: str | None = None
+    # The SUBTYPES key, None for a resolver-based declaration.
+    subtype_key: str | None = None
+    # Exact ``supported`` / ``divergent`` sets by implementation module; a module not listed is unrestricted / clean.
+    supported: dict[str, frozenset[str]] = field(default_factory=dict)
+    divergent: dict[str, frozenset[str]] = field(default_factory=dict)
+    resolve_cases: tuple[_Resolve, ...] = ()
 
 
 _AGGREGATION = _Family(
@@ -73,6 +92,43 @@ _AGGREGATION = _Family(
         _Impl("duckdb_aggregation", "DuckdbAggregation", _DUCKDB, "duckdb"),
         _Impl("sqlite_aggregation", "SqliteAggregation", _SQLITE),
         _Impl("python_dict_aggregation", "PythonDictAggregation", _PYTHON_DICT),
+    ),
+    subtype_key="aggregation_type",
+    supported={
+        "pyarrow_aggregation": frozenset(
+            {
+                "sum",
+                "avg",
+                "mean",
+                "count",
+                "min",
+                "max",
+                "std",
+                "var",
+                "std_pop",
+                "std_samp",
+                "var_pop",
+                "var_samp",
+                "nunique",
+                "first",
+                "last",
+            }
+        ),
+        "sqlite_aggregation": frozenset({"sum", "avg", "mean", "count", "min", "max"}),
+    },
+    divergent={
+        "pandas_aggregation": frozenset(
+            {"mode", "sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
+        ),
+        "sqlite_aggregation": frozenset({"sum", "avg", "mean", "count"}),
+    },
+    resolve_cases=(
+        _Resolve("x__sum_agg", Options(), "sum"),
+        _Resolve(
+            "my_result",
+            Options(context={"aggregation_type": "median", "in_features": "x", "partition_by": ["g"]}),
+            "median",
+        ),
     ),
 )
 
@@ -91,6 +147,43 @@ _WINDOW = _Family(
         _Impl("sqlite_window_aggregation", "SqliteWindowAggregation", _SQLITE),
         _Impl("python_dict_window_aggregation", "PythonDictWindowAggregation", _PYTHON_DICT),
     ),
+    subtype_key="window_aggregation_type",
+    supported={
+        "pyarrow_window_aggregation": frozenset(
+            {
+                "sum",
+                "avg",
+                "mean",
+                "count",
+                "min",
+                "max",
+                "nunique",
+                "std",
+                "var",
+                "std_pop",
+                "std_samp",
+                "var_pop",
+                "var_samp",
+                "first",
+                "last",
+            }
+        ),
+        "sqlite_window_aggregation": frozenset({"sum", "avg", "mean", "count", "min", "max"}),
+    },
+    divergent={
+        "pandas_window_aggregation": frozenset(
+            {"mode", "sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
+        ),
+        "sqlite_window_aggregation": frozenset({"sum", "avg", "mean", "count"}),
+    },
+    resolve_cases=(
+        _Resolve("x__sum_window", Options(), "sum"),
+        _Resolve(
+            "my_result",
+            Options(context={"window_aggregation_type": "median", "in_features": "x", "partition_by": ["g"]}),
+            "median",
+        ),
+    ),
 )
 
 _SCALAR = _Family(
@@ -107,6 +200,22 @@ _SCALAR = _Family(
         _Impl("duckdb_scalar_aggregate", "DuckdbScalarAggregate", _DUCKDB, "duckdb"),
         _Impl("sqlite_scalar_aggregate", "SqliteScalarAggregate", _SQLITE),
         _Impl("python_dict_scalar_aggregate", "PythonDictScalarAggregate", _PYTHON_DICT),
+    ),
+    subtype_key="aggregation_type",
+    supported={"sqlite_scalar_aggregate": frozenset({"sum", "min", "max", "avg", "mean", "count"})},
+    divergent={
+        "pandas_scalar_aggregate": frozenset(
+            {"sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
+        ),
+        "sqlite_scalar_aggregate": frozenset({"sum", "avg", "mean", "count"}),
+    },
+    resolve_cases=(
+        _Resolve("x__sum_scalar", Options(), "sum"),
+        _Resolve(
+            "my_result",
+            Options(context={"aggregation_type": "median", "in_features": "x"}),
+            "median",
+        ),
     ),
 )
 
@@ -126,11 +235,33 @@ _FRAME = _Family(
         _Impl("sqlite_frame_aggregate", "SqliteFrameAggregate", _SQLITE),
         _Impl("python_dict_frame_aggregate", "PythonDictFrameAggregate", _PYTHON_DICT),
     ),
+    supported={"sqlite_frame_aggregate": frozenset({"sum", "avg", "count", "min", "max"})},
+    divergent={
+        "pandas_frame_aggregate": frozenset({"sum", "avg", "count", "std", "var"}),
+        "sqlite_frame_aggregate": frozenset({"sum", "avg", "count"}),
+    },
+    resolve_cases=(
+        _Resolve("x__sum_rolling_3", Options(), "sum"),
+        _Resolve("x__avg_7_day_window", Options(), "avg"),
+        _Resolve("x__cumsum", Options(), "sum"),
+        _Resolve("x__expanding_max", Options(), "max"),
+        _Resolve("my_result", config_frame_options("median", "rolling"), "median"),
+        # A name matching no shape resolves to None.
+        _Resolve("plain_feature", Options(), None),
+    ),
 )
 
 FAMILIES: list[_Family] = [_AGGREGATION, _WINDOW, _SCALAR, _FRAME]
 
 _family = pytest.mark.parametrize("family", FAMILIES, ids=lambda family: family.id)
+_family_resolve = pytest.mark.parametrize(
+    ("family", "case"),
+    [
+        pytest.param(family, case, id=f"{family.id}-{case.feature_name}")
+        for family in FAMILIES
+        for case in family.resolve_cases
+    ],
+)
 _family_impl = pytest.mark.parametrize(
     ("family", "impl"),
     [
@@ -143,7 +274,7 @@ _family_impl = pytest.mark.parametrize(
 
 def _implementation(family: _Family, impl: _Impl) -> Any:
     """The named Implementation; skips when its optional backend is not installed."""
-    return getattr(pytest.importorskip(f"{family.package}.{impl.module}"), impl.name)
+    return load_implementation(family.package, impl.module, impl.name)
 
 
 class TestOperationGroupShape:
@@ -183,7 +314,16 @@ class TestOperationGroupShape:
 
 
 class TestSupportedAndDivergent:
-    """Capability and NaN-divergence declarations stay inside the group's subtype universe."""
+    """Capability and NaN-divergence are declared per Implementation, inside the group's subtype universe."""
+
+    @_family_impl
+    def test_supported_is_the_declared_set_or_unrestricted(self, family: _Family, impl: _Impl) -> None:
+        assert _implementation(family, impl).supported == family.supported.get(impl.module)
+
+    @_family_impl
+    def test_divergent_is_the_declared_set_or_empty(self, family: _Family, impl: _Impl) -> None:
+        divergent = _implementation(family, impl).divergent
+        assert set(divergent) == family.divergent.get(impl.module, frozenset())
 
     @_family_impl
     def test_divergent_is_inside_the_universe_with_a_reason(self, family: _Family, impl: _Impl) -> None:
@@ -207,6 +347,20 @@ class TestSupportedAndDivergent:
         if supported is None:
             pytest.skip("unrestricted implementation")
         assert supported <= family.group.subtype_universe()
+
+
+class TestSubtypeDeclaration:
+    """supported and divergent apply only if the group resolves the subtype; a miss is silent None."""
+
+    @_family
+    def test_group_declares_its_subtype_key(self, family: _Family) -> None:
+        declaration = family.group.SUBTYPES
+        assert declaration is not None
+        assert declaration.key == family.subtype_key
+
+    @_family_resolve
+    def test_resolve_subtype(self, family: _Family, case: _Resolve) -> None:
+        assert family.group.resolve_subtype(case.feature_name, case.options) == case.expected
 
 
 class TestManifest:
@@ -238,14 +392,6 @@ class TestAggregationBaseHasNoCapabilityHook:
     def test_base_has_no_capability_subtype(self) -> None:
         assert not hasattr(AggregationFeatureGroupBase, "_capability_subtype")
 
-    @pytest.mark.parametrize(
-        "group",
-        [
-            AggregationFeatureGroup,
-            WindowAggregationFeatureGroup,
-            ScalarAggregateFeatureGroup,
-            FrameAggregateFeatureGroup,
-        ],
-    )
-    def test_groups_carry_no_hook(self, group: type[Any]) -> None:
-        assert not issubclass(group, SubtypeCapabilityHook)
+    @_family
+    def test_groups_carry_no_hook(self, family: _Family) -> None:
+        assert not issubclass(family.group, SubtypeCapabilityHook)

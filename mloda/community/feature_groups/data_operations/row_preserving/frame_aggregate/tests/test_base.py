@@ -16,6 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
     _AGGREGATION_TYPES,
     FrameAggregateFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import load_implementation
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     config_frame_options,
@@ -939,12 +940,7 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
         ]
 
 
-def _implementation(module: str, name: str) -> Any:
-    """The named frame Implementation; skips when its optional backend is not installed."""
-    package = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate"
-    return getattr(pytest.importorskip(f"{package}.{module}"), name)
-
-
+_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate"
 _ROLLING_OPTIONS = Options(context={"partition_by": ["region"], "order_by": "ts"})
 
 
@@ -960,71 +956,12 @@ class TestOperationGroupShape:
     def test_subtypes_is_shape_b_over_the_aggregation_universe(self) -> None:
         declaration = FrameAggregateFeatureGroup.SUBTYPES
         assert declaration is not None
-        assert declaration.key is None
         assert declaration.resolver is not None
         assert declaration.universe == frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
 
 
-class TestSubtypeResolution:
-    """supported and divergent apply only if the group resolves the agg type; a miss is silent None."""
-
-    @pytest.mark.parametrize(
-        ("feature_name", "expected"),
-        [
-            pytest.param("x__sum_rolling_3", "sum", id="rolling"),
-            pytest.param("x__avg_7_day_window", "avg", id="time_window"),
-            pytest.param("x__cumsum", "sum", id="cumulative"),
-            pytest.param("x__expanding_max", "max", id="expanding"),
-        ],
-    )
-    def test_resolves_from_each_name_shape(self, feature_name: str, expected: str) -> None:
-        assert FrameAggregateFeatureGroup.resolve_subtype(feature_name, Options()) == expected
-
-    def test_resolves_from_the_config_option(self) -> None:
-        options = config_frame_options("median", "rolling")
-        assert FrameAggregateFeatureGroup.resolve_subtype("my_result", options) == "median"
-
-    def test_name_matching_no_shape_resolves_to_none(self) -> None:
-        assert FrameAggregateFeatureGroup.resolve_subtype("plain_feature", Options()) is None
-
-
-class TestSupportedAndDivergent:
-    """Capability and NaN-divergence are declared on the shipped Implementations."""
-
-    def test_sqlite_supported_is_the_basic_aggregates(self) -> None:
-        supported = _implementation("sqlite_frame_aggregate", "SqliteFrameAggregate").supported
-        assert supported == frozenset({"sum", "avg", "count", "min", "max"})
-
-    @pytest.mark.parametrize(
-        ("module", "name"),
-        [
-            ("pandas_frame_aggregate", "PandasFrameAggregate"),
-            ("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate"),
-            ("duckdb_frame_aggregate", "DuckdbFrameAggregate"),
-            ("python_dict_frame_aggregate", "PythonDictFrameAggregate"),
-        ],
-    )
-    def test_other_implementations_are_unrestricted(self, module: str, name: str) -> None:
-        assert _implementation(module, name).supported is None
-
-    def test_pandas_divergent_agg_types(self) -> None:
-        divergent = _implementation("pandas_frame_aggregate", "PandasFrameAggregate").divergent
-        assert set(divergent) == {"sum", "avg", "count", "std", "var"}
-
-    def test_sqlite_divergent_agg_types(self) -> None:
-        divergent = _implementation("sqlite_frame_aggregate", "SqliteFrameAggregate").divergent
-        assert set(divergent) == {"sum", "avg", "count"}
-
-    @pytest.mark.parametrize(
-        ("module", "name"),
-        [
-            ("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate"),
-            ("duckdb_frame_aggregate", "DuckdbFrameAggregate"),
-            ("python_dict_frame_aggregate", "PythonDictFrameAggregate"),
-        ],
-    )
-    def test_other_implementations_declare_no_divergence(self, module: str, name: str) -> None:
-        assert not _implementation(module, name).divergent
+class TestTimeUnits:
+    """Time units are declared per Implementation; supported and divergent pins live in test_operation_groups.py."""
 
     @pytest.mark.parametrize(
         ("module", "name"),
@@ -1034,7 +971,7 @@ class TestSupportedAndDivergent:
         ],
     )
     def test_time_units_live_on_the_implementation(self, module: str, name: str) -> None:
-        units = _implementation(module, name).SUPPORTED_TIME_UNITS
+        units = load_implementation(_PACKAGE, module, name).SUPPORTED_TIME_UNITS
         assert set(units) == {"second", "minute", "hour", "day", "week"}
 
 
@@ -1049,7 +986,7 @@ class TestImplementationAccepts:
         ],
     )
     def test_month_and_year_windows_are_rejected(self, module: str, name: str) -> None:
-        impl = _implementation(module, name)
+        impl = load_implementation(_PACKAGE, module, name)
         assert not impl.accepts("value__sum_1_month_window", _ROLLING_OPTIONS)
         assert not impl.accepts("value__sum_1_year_window", _ROLLING_OPTIONS)
         assert not impl.accepts("value_time_frame", time_frame_options("month"))
@@ -1063,7 +1000,7 @@ class TestImplementationAccepts:
         ],
     )
     def test_day_and_week_windows_are_accepted(self, module: str, name: str) -> None:
-        impl = _implementation(module, name)
+        impl = load_implementation(_PACKAGE, module, name)
         assert impl.accepts("value__sum_3_day_window", _ROLLING_OPTIONS)
         assert impl.accepts("value__sum_1_week_window", _ROLLING_OPTIONS)
         assert impl.accepts("value_time_frame", time_frame_options("day"))
@@ -1072,19 +1009,19 @@ class TestImplementationAccepts:
     @pytest.mark.parametrize("agg_type", ["std", "var", "median"])
     @pytest.mark.parametrize("frame_type", ["cumulative", "expanding"])
     def test_polars_rejects_std_var_median_on_cumulative_and_expanding(self, agg_type: str, frame_type: str) -> None:
-        impl = _implementation("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate")
+        impl = load_implementation(_PACKAGE, "polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate")
         assert not impl.accepts("value_frame", config_frame_options(agg_type, frame_type))
 
     @pytest.mark.parametrize(
         "feature_name", ["value__cumstd", "value__cumvar", "value__cummedian", "value__expanding_std"]
     )
     def test_polars_rejects_cumulative_names(self, feature_name: str) -> None:
-        impl = _implementation("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate")
+        impl = load_implementation(_PACKAGE, "polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate")
         assert not impl.accepts(feature_name, _ROLLING_OPTIONS)
 
     @pytest.mark.parametrize("agg_type", ["std", "var", "median"])
     def test_polars_accepts_std_var_median_on_rolling_and_time(self, agg_type: str) -> None:
-        impl = _implementation("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate")
+        impl = load_implementation(_PACKAGE, "polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate")
         assert impl.accepts("value_frame", config_frame_options(agg_type, "rolling"))
         assert impl.accepts(f"value__{agg_type}_rolling_3", _ROLLING_OPTIONS)
         assert impl.accepts(f"value__{agg_type}_7_day_window", _ROLLING_OPTIONS)
@@ -1097,7 +1034,7 @@ class TestImplementationAccepts:
         ],
     )
     def test_unrestricted_implementations_accept_everything(self, module: str, name: str) -> None:
-        impl = _implementation(module, name)
+        impl = load_implementation(_PACKAGE, module, name)
         assert impl.accepts("value__sum_1_month_window", _ROLLING_OPTIONS)
         assert impl.accepts("value__cumstd", _ROLLING_OPTIONS)
         assert impl.accepts("value_time_frame", time_frame_options("year"))

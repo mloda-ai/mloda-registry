@@ -19,7 +19,6 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import (
     DataOpsIntegrationTestBase,
@@ -27,7 +26,10 @@ from mloda.testing.feature_groups.data_operations.integration import (
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PANDAS_DATAFRAME,
+    PYARROW_TABLE,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
 )
 
 
@@ -88,6 +90,32 @@ class TestWindowAggregationIntegration(
     def use_approx(cls) -> bool:
         return True
 
+    # -- OperationGroupIntegrationTestMixin configuration ----------------------
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation"
+        options = {"partition_by": ["region"]}
+        return [
+            RoutingCase(
+                "value_int__sum_window",
+                options,
+                f"{package}.pyarrow_window_aggregation:PyArrowWindowAggregation",
+                PYARROW_TABLE,
+            ),
+            RoutingCase(
+                "value_int__max_window",
+                options,
+                f"{package}.pandas_window_aggregation:PandasWindowAggregation",
+                PANDAS_DATAFRAME,
+            ),
+        ]
+
+    @classmethod
+    def unsupported_framework_case(cls) -> tuple[str, dict[str, Any]] | None:
+        # PyArrow has no window median.
+        return "value_int__median_window", {"partition_by": ["region"]}
+
     # -- MaskIntegrationTestMixin configuration --------------------------------
 
     @classmethod
@@ -111,56 +139,6 @@ class TestWindowAggregationIntegration(
     @classmethod
     def mask_integration_unmasked_expected(cls) -> list[Any]:
         return [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
-
-
-class TestIntegrationDivergentPandas:
-    """Pandas declares sum divergent (it skips NaN), so data already in Pandas is still summed by PyArrow."""
-
-    @staticmethod
-    def _step(name: str) -> Any:
-        pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, WindowAggregationFeatureGroup})
-        feature = Feature(name, options=Options(context={"partition_by": ["region"]}))
-        plan = mloda.explain([feature], compute_frameworks=[PandasDataFrame, PyArrowTable], plugin_collector=collector)
-        steps = [
-            step for step in plan if step.step_kind == "compute" and step.feature_group is WindowAggregationFeatureGroup
-        ]
-        assert len(steps) == 1
-        return steps[0]
-
-    def test_divergent_pandas_sum_is_served_by_pyarrow(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
-            PyArrowWindowAggregation,
-        )
-
-        step = self._step("value_int__sum_window")
-        assert step.implementation is PyArrowWindowAggregation
-        assert step.compute_framework is PyArrowTable
-
-    def test_non_divergent_pandas_max_stays_on_pandas(self) -> None:
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
-            PandasWindowAggregation,
-        )
-
-        step = self._step("value_int__max_window")
-        assert step.implementation is PandasWindowAggregation
-        assert step.compute_framework is PandasDataFrame
-
-
-class TestIntegrationUnsupportedFrameworkRejected:
-    """PyArrow does not support median, so a PyArrow-only run is rejected at resolve time, not at compute time."""
-
-    def test_median_window_is_rejected_on_pyarrow_only(self) -> None:
-        from mloda.user import FeatureResolutionError
-
-        collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup})
-        feature = Feature("value_int__median_window", options=Options(context={"partition_by": ["region"]}))
-        with pytest.raises(FeatureResolutionError):
-            mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=collector)
 
 
 class TestIntegrationMultipleFeatures:

@@ -9,7 +9,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
+from mloda.user import Feature, FeatureResolutionError, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
@@ -25,9 +25,14 @@ from mloda.testing.feature_groups.data_operations.integration import (
     enabled_with_implementations,
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 
-class TestFrameAggregateIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
+class TestFrameAggregateIntegration(
+    MaskIntegrationTestMixin, OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase
+):
     """Standard integration tests inherited from the base class.
 
     Uses the unified DataOpsIntegrationTestBase framework with real expected
@@ -248,48 +253,6 @@ class TestFrameAggregateMultiFeature:
 
         assert expanding_found, "expanding_avg result not found in any result table"
         assert rolling_min_found, "min_rolling_2 result not found in any result table"
-
-
-class TestFrameAggregateFrameworkServing:
-    """Frame has no PyArrow Implementation: frameworks decide which Implementation can serve a feature."""
-
-    _OPTIONS = {"partition_by": ["region"], "order_by": "value_int"}
-
-    def _collector(self) -> PluginCollector:
-        return enabled_with_implementations({PyArrowDataOpsTestDataCreator, FrameAggregateFeatureGroup})
-
-    def test_pyarrow_alone_has_no_implementation(self) -> None:
-        feature = Feature("value_int__sum_rolling_3", options=Options(context=self._OPTIONS))
-        with pytest.raises(FeatureResolutionError):
-            mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=self._collector())
-
-    def test_several_frameworks_enabled_runs(self) -> None:
-        pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        feature = Feature("value_int__sum_rolling_3", options=Options(context=self._OPTIONS))
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks=[PyArrowTable, PandasDataFrame, PythonDictFramework],
-            plugin_collector=self._collector(),
-            output_framework=PyArrowTable,
-        )
-        tables = [t for t in results if isinstance(t, pa.Table) and "value_int__sum_rolling_3" in t.column_names]
-        assert len(tables) == 1
-        assert tables[0].column("value_int__sum_rolling_3").to_pylist() == [
-            5,
-            -5,
-            -5,
-            30,
-            110,
-            80,
-            30,
-            140,
-            15,
-            30,
-            70,
-            -10,
-        ]
 
 
 class TestFrameAggregateResolveTimeRejection:

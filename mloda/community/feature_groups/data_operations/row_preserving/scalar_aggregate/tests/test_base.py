@@ -11,9 +11,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     AGGREGATION_TYPES,
     ScalarAggregateFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
-    PyArrowScalarAggregate,
-)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -32,84 +29,6 @@ class TestClassAttributes:
 
     def test_max_in_features_is_one(self) -> None:
         assert ScalarAggregateFeatureGroup.MAX_IN_FEATURES == 1
-
-
-def _implementation(module: str, name: str) -> Any:
-    """The named scalar Implementation; skips when its optional backend is not installed."""
-    package = "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate"
-    return getattr(pytest.importorskip(f"{package}.{module}"), name)
-
-
-class TestOperationGroupShape:
-    """Scalar-specific value pins; the generic shape checks live in test_operation_groups.py."""
-
-    def test_group_declares_the_aggregation_type_subtype_key(self) -> None:
-        declaration = ScalarAggregateFeatureGroup.SUBTYPES
-        assert declaration is not None
-        assert declaration.key == "aggregation_type"
-
-
-class TestSupportedAndDivergent:
-    """Capability and NaN-divergence are declared on the shipped Implementations."""
-
-    def test_sqlite_supported_is_the_basic_aggregates(self) -> None:
-        supported = _implementation("sqlite_scalar_aggregate", "SqliteScalarAggregate").supported
-        assert supported == frozenset({"sum", "min", "max", "avg", "mean", "count"})
-
-    @pytest.mark.parametrize(
-        ("module", "name"),
-        [
-            ("pyarrow_scalar_aggregate", "PyArrowScalarAggregate"),
-            ("pandas_scalar_aggregate", "PandasScalarAggregate"),
-            ("polars_lazy_scalar_aggregate", "PolarsLazyScalarAggregate"),
-            ("duckdb_scalar_aggregate", "DuckdbScalarAggregate"),
-            ("python_dict_scalar_aggregate", "PythonDictScalarAggregate"),
-        ],
-    )
-    def test_other_implementations_are_unrestricted(self, module: str, name: str) -> None:
-        assert _implementation(module, name).supported is None
-
-    def test_pandas_divergent_agg_types(self) -> None:
-        divergent = _implementation("pandas_scalar_aggregate", "PandasScalarAggregate").divergent
-        assert set(divergent) == {
-            "sum",
-            "avg",
-            "mean",
-            "count",
-            "std",
-            "var",
-            "std_pop",
-            "var_pop",
-            "std_samp",
-            "var_samp",
-        }
-
-    def test_sqlite_divergent_agg_types(self) -> None:
-        divergent = _implementation("sqlite_scalar_aggregate", "SqliteScalarAggregate").divergent
-        assert set(divergent) == {"sum", "avg", "mean", "count"}
-
-    @pytest.mark.parametrize(
-        ("module", "name"),
-        [
-            ("pyarrow_scalar_aggregate", "PyArrowScalarAggregate"),
-            ("polars_lazy_scalar_aggregate", "PolarsLazyScalarAggregate"),
-            ("duckdb_scalar_aggregate", "DuckdbScalarAggregate"),
-            ("python_dict_scalar_aggregate", "PythonDictScalarAggregate"),
-        ],
-    )
-    def test_other_implementations_declare_no_divergence(self, module: str, name: str) -> None:
-        assert not _implementation(module, name).divergent
-
-
-class TestSubtypeResolution:
-    """supported and divergent apply only if the group resolves the agg type; a miss is silent None."""
-
-    def test_resolves_from_the_feature_name(self) -> None:
-        assert ScalarAggregateFeatureGroup.resolve_subtype("x__sum_scalar", Options()) == "sum"
-
-    def test_resolves_from_the_config_option(self) -> None:
-        options = Options(context={"aggregation_type": "median", "in_features": "x"})
-        assert ScalarAggregateFeatureGroup.resolve_subtype("my_result", options) == "median"
 
 
 class TestPatternMatching:
@@ -230,7 +149,7 @@ class TestSingleColumnEnforcement:
                 "in_features": ["col_a", "col_b"],
             }
         )
-        instance = PyArrowScalarAggregate()
+        instance = ScalarAggregateFeatureGroup()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -272,7 +191,7 @@ class TestSingleColumnEnforcement:
 
     def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
         options = Options()
-        instance = PyArrowScalarAggregate()
+        instance = ScalarAggregateFeatureGroup()
         result = instance.input_features(options, FeatureName("value_int__sum_scalar"))
         assert result is not None
         assert len(result) == 1
@@ -286,7 +205,7 @@ class TestSingleColumnEnforcement:
                 "in_features": "revenue",
             }
         )
-        instance = PyArrowScalarAggregate()
+        instance = ScalarAggregateFeatureGroup()
         result = instance.input_features(options, FeatureName("my_max_result"))
         assert result is not None
         assert len(result) == 1

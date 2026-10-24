@@ -16,7 +16,6 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
-from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import (
     DataOpsIntegrationTestBase,
@@ -24,7 +23,10 @@ from mloda.testing.feature_groups.data_operations.integration import (
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PANDAS_DATAFRAME,
+    PYARROW_TABLE,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
     EXPECTED_AVG,
@@ -95,6 +97,26 @@ class TestScalarAggregateIntegration(
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
 
+    # -- OperationGroupIntegrationTestMixin configuration ----------------------
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate"
+        return [
+            RoutingCase(
+                "value_int__sum_scalar",
+                {},
+                f"{package}.pyarrow_scalar_aggregate:PyArrowScalarAggregate",
+                PYARROW_TABLE,
+            ),
+            RoutingCase(
+                "value_int__max_scalar",
+                {},
+                f"{package}.pandas_scalar_aggregate:PandasScalarAggregate",
+                PANDAS_DATAFRAME,
+            ),
+        ]
+
     # -- MaskIntegrationTestMixin configuration --------------------------------
 
     @classmethod
@@ -118,47 +140,6 @@ class TestScalarAggregateIntegration(
     @classmethod
     def mask_integration_unmasked_expected(cls) -> list[Any]:
         return [EXPECTED_SUM] * 12
-
-
-class TestIntegrationDivergentPandas:
-    """Pandas declares sum divergent (it skips NaN), so data already in Pandas is still summed by PyArrow."""
-
-    @staticmethod
-    def _step(name: str) -> Any:
-        pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
-        plan = mloda.explain(
-            [Feature(name, options=Options())],
-            compute_frameworks=[PandasDataFrame, PyArrowTable],
-            plugin_collector=collector,
-        )
-        steps = [
-            step for step in plan if step.step_kind == "compute" and step.feature_group is ScalarAggregateFeatureGroup
-        ]
-        assert len(steps) == 1
-        return steps[0]
-
-    def test_divergent_pandas_sum_is_served_by_pyarrow(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
-            PyArrowScalarAggregate,
-        )
-
-        step = self._step("value_int__sum_scalar")
-        assert step.implementation is PyArrowScalarAggregate
-        assert step.compute_framework is PyArrowTable
-
-    def test_non_divergent_pandas_max_stays_on_pandas(self) -> None:
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate import (
-            PandasScalarAggregate,
-        )
-
-        step = self._step("value_int__max_scalar")
-        assert step.implementation is PandasScalarAggregate
-        assert step.compute_framework is PandasDataFrame
 
 
 class TestIntegrationMultipleFeatures:

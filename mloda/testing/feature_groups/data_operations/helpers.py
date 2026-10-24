@@ -11,6 +11,7 @@ Provides:
 - ``calculate_with``: Run a FeatureGroup class or an Implementation class on data with a FeatureSet
   (``group=`` runs a subclass of the Implementation's group, e.g. a hook).
 - ``feature_group_of``: The FeatureGroup class of a FeatureGroup class or an Implementation class.
+- ``load_implementation``: A named Implementation of a family package; skips when its optional backend is missing.
 - ``canonical_table_empty``: Canonical table with the same schema and zero rows, for empty-input cases.
 """
 
@@ -32,6 +33,11 @@ def feature_group_of(plugin: Any) -> Any:
     if isinstance(plugin, type) and issubclass(plugin, Implementation):
         return plugin.feature_group
     return plugin
+
+
+def load_implementation(package: str, module: str, name: str) -> Any:
+    """The Implementation ``name`` in ``<package>.<module>``; skips when its optional backend is not installed."""
+    return getattr(pytest.importorskip(f"{package}.{module}"), name)
 
 
 def calculate_with(plugin: Any, data: Any, features: FeatureSet, *, group: Any = None) -> Any:
