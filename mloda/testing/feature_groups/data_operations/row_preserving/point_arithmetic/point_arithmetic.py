@@ -23,7 +23,11 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    calculate_with,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -392,12 +396,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         for name in ("is_active&value_int__add_point", "value_int&is_active__add_point"):
             result = calculate_with(self.implementation_class(), self.test_data, make_feature_set(name))
             result_col = self.extract_column(result, name)
-            assert len(result_col) == len(expected)
-            for actual, exp in zip(result_col, expected):
-                if exp is None:
-                    assert actual is None
-                else:
-                    assert actual == pytest.approx(exp, rel=1e-6)
+            assert_values_with_nulls(result_col, expected, approx=True)
 
     # -- Cross-framework comparison -----------------------------------------
 
