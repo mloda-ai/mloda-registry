@@ -103,7 +103,7 @@ from mloda.community.feature_groups.example import CommunityExampleFeatureGroup
 
 ### Names Claimed by an Installed Package
 
-The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` makes its groups candidates in every process. `SkrAccountFeatureGroup` claims `revenue` and `receivables` by name and the readers claim `gdpdu_journal`, so your own feature or column of that name then needs `feature_group=` (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
+The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` claims `revenue` and `receivables` by name, so a request for either name then needs `feature_group=` naming the group you mean; the example scopes the ledger's own (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
 
 ```py
 from mloda.user import DataAccessCollection, Feature, PluginLoader, mloda

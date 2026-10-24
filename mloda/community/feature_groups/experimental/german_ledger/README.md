@@ -50,7 +50,8 @@ Three rules keep it predictable:
 
 1. **Install it.** `PluginLoader.all()` discovers the package through its entry point, and
    importing it also registers its groups. Its concept groups then claim `revenue` and
-   `receivables` by name, so another source of those names needs `feature_group=`, see
+   `receivables` by name, so a request for either name needs `feature_group=` naming the group
+   meant, see
    [Names Claimed by an Installed Package](../../../../../docs/guides/01-use-existing-plugin.md#names-claimed-by-an-installed-package).
    A collection holding both formats (GDPdU and DATEV), or several dossiers of one format, must
    point at one source with a reader option key, e.g. `options={"GdpduReader": <folder>}`;
