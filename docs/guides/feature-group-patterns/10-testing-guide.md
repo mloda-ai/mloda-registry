@@ -111,7 +111,7 @@ Use when upstream features are slow (API calls, ML inference) or you need contro
 
 ## Operation Groups: Conformance to the Reference Contract
 
-Test that each result differs from the reference exactly where `divergent` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#operation-groups-one-group-one-implementation-per-framework) (in the same namespace, not imported again).
+Test that each result differs from the reference exactly where `divergent` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#reference-contract-and-divergence) (in the same namespace, not imported again).
 
 ```python
 import math

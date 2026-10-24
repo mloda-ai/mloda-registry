@@ -61,8 +61,8 @@ WAY_3_MODULE = "guide_28_way_3"
 TEST_HEADING = "\n## Test\n"
 FRAMEWORK_SPECIFIC_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "09-framework-specific.md"
 TESTING_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "10-testing-guide.md"
-OPERATION_GROUPS_HEADING = "## Operation Groups: One Group, One Implementation per Framework"
-OPERATION_GROUPS_MODULE = "guide_09_operation_groups"
+REFERENCE_CONTRACT_HEADING = "## Reference Contract and Divergence"
+REFERENCE_CONTRACT_MODULE = "guide_09_reference_contract"
 CONFORMANCE_HEADING = "## Operation Groups: Conformance to the Reference Contract"
 
 _FENCE_RE = re.compile(r"```(json|python|py)\n(.*?)```", re.DOTALL)
@@ -384,8 +384,8 @@ def _price_source() -> type[FeatureGroup]:
 
 def _column_total_request(feature: str | Feature) -> tuple[dict[str, Any], dict[str, Any]]:
     """The guide 09 namespace and the shared ``explain``/``run_all`` keyword arguments for *feature*."""
-    namespace = _load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE)
-    assert "ColumnTotal" in namespace, "the Operation Groups block no longer defines ColumnTotal"
+    namespace = _load_namespace(REFERENCE_CONTRACT_HEADING, REFERENCE_CONTRACT_MODULE, FRAMEWORK_SPECIFIC_GUIDE)
+    assert "ColumnTotal" in namespace, "the Reference Contract block no longer defines ColumnTotal"
     kwargs: dict[str, Any] = {
         "compute_frameworks": [PandasDataFrame, PyArrowTable],
         "plugin_collector": PluginCollector.enabled_feature_groups({_price_source(), namespace["ColumnTotal"]}),
@@ -402,8 +402,10 @@ def _column_total_step(feature: str | Feature) -> tuple[dict[str, Any], Any]:
 
 
 def _operation_groups_usage_feature() -> Feature:
-    fences = _python_fences(OPERATION_GROUPS_HEADING, FRAMEWORK_SPECIFIC_GUIDE)
-    assert len(fences) >= 2, "the Operation Groups section no longer has a second python block with the pin expression"
+    fences = _python_fences(REFERENCE_CONTRACT_HEADING, FRAMEWORK_SPECIFIC_GUIDE)
+    assert len(fences) >= 2, (
+        "the Reference Contract section no longer has a second python block with the pin expression"
+    )
     code = compile(fences[1], f"<{FRAMEWORK_SPECIFIC_GUIDE.name} pin>", "eval", dont_inherit=True)
     feature = eval(code, {"Feature": Feature})  # nosec
     assert isinstance(feature, Feature), f"the pin block no longer evaluates to a Feature: {feature!r}"
@@ -476,7 +478,7 @@ def test_conformance_section_test_passes_against_the_operation_group_example() -
     tests = _exec_section_tests(
         fences[0],
         f"{TESTING_GUIDE.name} Conformance",
-        _load_namespace(OPERATION_GROUPS_HEADING, OPERATION_GROUPS_MODULE, FRAMEWORK_SPECIFIC_GUIDE),
+        _load_namespace(REFERENCE_CONTRACT_HEADING, REFERENCE_CONTRACT_MODULE, FRAMEWORK_SPECIFIC_GUIDE),
         "Conformance section",
     )
     calls = 0
