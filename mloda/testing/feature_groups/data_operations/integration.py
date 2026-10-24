@@ -250,8 +250,13 @@ class DataOpsIntegrationTestBase(ABC):
             and base.__module__.startswith("mloda.community.feature_groups.data_operations")
             and "PREFIX_PATTERN" in vars(base)
         ]
+        options = Options(context=self.primary_feature_options())
+        # A subclass may override PREFIX_PATTERN, so keep only bases that match the primary name.
+        bases = [
+            base for base in bases if base.match_feature_group_criteria(self.primary_feature_name(), options, None)
+        ]
         if not bases:
-            pytest.skip("no data-operations family base among the ancestors")
+            pytest.skip("no data-operations family base matches the primary feature")
 
         plugin_collector = PluginCollector.enabled_feature_groups({self.data_creator_class(), *bases})
         feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())

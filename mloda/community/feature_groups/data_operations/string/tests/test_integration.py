@@ -308,7 +308,8 @@ class _PolarsNameCreator(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        pl = pytest.importorskip("polars")
+        import polars as pl
+
         return pl.DataFrame({"name": ["a", "b"]})
 
     @classmethod

@@ -6,7 +6,7 @@ Feature resolution is name-driven: the matcher routes a feature like
 catalog grows, two families could claim overlapping name patterns, producing
 order-dependent or ambiguous routing that nothing currently catches. This module
 is the guardrail (issue #248), in the same spirit as the reflection invariants
-in ``test_framework_support_matrix.py``.
+in ``test_framework_support_matrix.py``. It also asserts every family base is abstract.
 
 Two complementary checks run here:
 

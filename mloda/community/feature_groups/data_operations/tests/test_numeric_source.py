@@ -89,7 +89,7 @@ class TestMixinHookBindings:
     the MRO so its classmethods win over any family-level defaults.
     """
 
-    def _assert_concrete_bindings(self, mixin_cls: Any, concrete_cls: Any, family_base: Any) -> None:
+    def _assert_concrete_bindings(self, mixin_cls: Any, concrete_cls: Any, family_base: type[Any]) -> None:
         """Pin the mixin-hook / base-template binding contract on one concrete class."""
         base_cls: Any = ArithmeticFeatureGroupBase
         assert concrete_cls._non_numeric_descriptor.__func__ is mixin_cls._non_numeric_descriptor.__func__, (

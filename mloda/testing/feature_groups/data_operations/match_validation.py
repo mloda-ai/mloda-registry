@@ -39,7 +39,7 @@ from mloda.user import FeatureName, Options
 
 
 def _instance_of(group: Any) -> Any:
-    """An instance of ``group``, even when it is an abstract family base (only its non-abstract methods are used)."""
+    """An instance of ``group``, even when abstract (no subclass is defined: plugin discovery walks ``__subclasses__()``)."""
     abstract = group.__abstractmethods__
     group.__abstractmethods__ = frozenset()
     try:
