@@ -1,19 +1,9 @@
-"""Structural guard that both arithmetic families share one base class.
-
-The point- and scalar-arithmetic feature groups both subclass a single base
-(``ArithmeticFeatureGroupBase`` in ``data_operations/row_preserving/arithmetic/base.py``) that
-holds the common arithmetic-op extraction and numeric-source skeleton.
-"""
+"""Structural guards for the arithmetic families: one shared base class and the operation-group shape."""
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
-import inspect
 from typing import Any
 
-import pytest
-from mloda.provider import FeatureGroup, Implementation, OperationFeatureGroup
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
@@ -32,6 +22,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestArithmeticFeatureGroupBase:
@@ -103,120 +95,95 @@ _CLASS_NAMES = {
 }
 _OPTIONAL_DEPENDENCIES = {"pandas": "pandas", "polars_lazy": "polars", "duckdb": "duckdb"}
 _FAMILY_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving"
-# (family, group, name feature, config options) per family
-_FAMILIES: dict[str, tuple[Any, str, dict[str, Any]]] = {
-    "point": (PointArithmeticFeatureGroup, "a&b__add_point", {"arithmetic_op": "add", "in_features": ["a", "b"]}),
-    "scalar": (ScalarArithmeticFeatureGroup, "v__add_constant", {"arithmetic_op": "add", "in_features": "v"}),
-}
-_IMPLEMENTATIONS = [
-    pytest.param(family, backend, id=f"{family}-{backend}") for family in _FAMILIES for backend in _FRAMEWORKS
-]
-_GROUPS = [pytest.param(family, id=family) for family in _FAMILIES]
 
 
-def _context(family: str, config: dict[str, Any]) -> dict[str, Any]:
-    """The family's config options; the scalar family also needs a constant."""
-    return {**config, "constant": 1} if family == "scalar" else dict(config)
+def _implementation_specs(family: str) -> list[ImplSpec]:
+    """The family's Implementations; only point arithmetic on SQLite diverges, on ``divide``."""
+    return [
+        ImplSpec(
+            backend,
+            f"{backend}_{family}_arithmetic",
+            f"{_CLASS_NAMES[backend]}{family.capitalize()}Arithmetic",
+            _FRAMEWORKS[backend][0],
+            _FRAMEWORKS[backend][1],
+            divergent=frozenset({"divide"}) if (family, backend) == ("point", "sqlite") else frozenset(),
+            dependency=_OPTIONAL_DEPENDENCIES.get(backend),
+        )
+        for backend in _FRAMEWORKS
+    ]
 
 
-def _implementation(family: str, backend: str) -> Any:
-    """The named arithmetic Implementation; skips when its optional backend is not installed."""
-    name = f"{_CLASS_NAMES[backend]}{family.capitalize()}Arithmetic"
-    module = f"{_FAMILY_PACKAGE}.{family}_arithmetic.{backend}_{family}_arithmetic"
-    return getattr(pytest.importorskip(module), name)
+class TestPointArithmeticOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return PointArithmeticFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return f"{_FAMILY_PACKAGE}.point_arithmetic"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return _implementation_specs("point")
+
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "arithmetic_op"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "apply_arithmetic"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_arithmetic"
+
+    @classmethod
+    def probe_feature_set(cls) -> Any:
+        return make_feature_set("a&b__add_point")
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("a&b__add_point", "add")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return [("my_result", Options(context={"arithmetic_op": "add", "in_features": ["a", "b"]}), "add")]
 
 
-class TestOperationGroupShape:
-    """Each arithmetic family is one OperationFeatureGroup served by one Implementation per framework."""
+class TestScalarArithmeticOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return ScalarArithmeticFeatureGroup
 
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_group_is_a_concrete_operation_group(self, family: str) -> None:
-        group = _FAMILIES[family][0]
-        assert issubclass(group, OperationFeatureGroup)
-        assert not inspect.isabstract(group)
+    @classmethod
+    def backend_package(cls) -> str:
+        return f"{_FAMILY_PACKAGE}.scalar_arithmetic"
 
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_group_declares_the_arithmetic_op_subtype_key(self, family: str) -> None:
-        declaration = _FAMILIES[family][0].SUBTYPES
-        assert declaration is not None
-        assert declaration.key == "arithmetic_op"
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return _implementation_specs("scalar")
 
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_group_owns_the_loop_and_no_per_framework_compute(self, family: str) -> None:
-        group = _FAMILIES[family][0]
-        assert callable(group.apply_arithmetic)
-        assert not hasattr(group, "_compute_arithmetic")
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "arithmetic_op"
 
-    @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
-    def test_implementation_names_its_pair(self, family: str, backend: str) -> None:
-        impl = _implementation(family, backend)
-        framework_module, framework_name = _FRAMEWORKS[backend]
-        framework = getattr(pytest.importorskip(framework_module), framework_name)
-        assert issubclass(impl, Implementation)
-        assert not issubclass(impl, FeatureGroup)
-        assert impl.feature_group is _FAMILIES[family][0]
-        assert impl.compute_framework is framework
+    @classmethod
+    def loop_method(cls) -> str:
+        return "apply_arithmetic"
 
-    @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
-    def test_implementation_keeps_its_compute_arithmetic(self, family: str, backend: str) -> None:
-        assert callable(_implementation(family, backend)._compute_arithmetic)
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_arithmetic"
 
+    @classmethod
+    def probe_feature_set(cls) -> Any:
+        return make_feature_set("v__add_constant", constant=1)
 
-class TestSupportedAndDivergent:
-    """Capability and divergence are declared on the shipped Implementations."""
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("v__add_constant", "add")]
 
-    @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
-    def test_supported_is_unrestricted(self, family: str, backend: str) -> None:
-        assert _implementation(family, backend).supported is None
-
-    @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
-    def test_sqlite_point_divide_is_the_only_divergence(self, family: str, backend: str) -> None:
-        expected = {"divide"} if (family, backend) == ("point", "sqlite") else set()
-        assert set(_implementation(family, backend).divergent) == expected
-
-    @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
-    def test_divergent_is_inside_the_universe_with_a_reason(self, family: str, backend: str) -> None:
-        divergent = _implementation(family, backend).divergent
-        assert set(divergent) <= _FAMILIES[family][0].subtype_universe()
-        assert all(isinstance(reason, str) and reason for reason in divergent.values())
-
-
-class TestSubtypeResolution:
-    """supported and divergent apply only if the group resolves the arithmetic op; a miss is silent None."""
-
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_resolves_from_the_feature_name(self, family: str) -> None:
-        group, name, _ = _FAMILIES[family]
-        assert group.resolve_subtype(name, Options()) == "add"
-
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_resolves_from_the_config_option(self, family: str) -> None:
-        group, _, config = _FAMILIES[family]
-        context = _context(family, config)
-        assert group.resolve_subtype("my_result", Options(context=context)) == "add"
-
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_group_matches_name_and_config_forms(self, family: str) -> None:
-        group, name, config = _FAMILIES[family]
-        context = _context(family, config)
-        assert group.match_feature_group_criteria(name, Options(), None) is True
-        assert group.match_feature_group_criteria("my_result", Options(context=context), None) is True
-
-
-class TestManifest:
-    """The entry-point manifest lists each group and its Implementations."""
-
-    @pytest.mark.parametrize("family", _GROUPS)
-    def test_manifest_lists_the_group_and_every_installed_implementation(self, family: str) -> None:
-        manifest = importlib.import_module(f"{_FAMILY_PACKAGE}.{family}_arithmetic.manifest")
-        group = _FAMILIES[family][0]
-        assert group in manifest.FEATURE_GROUPS
-        listed = {cls.__name__ for cls in manifest.FEATURE_GROUPS if issubclass(cls, Implementation)}
-        expected = {
-            f"{_CLASS_NAMES[backend]}{family.capitalize()}Arithmetic"
-            for backend in _FRAMEWORKS
-            if backend not in _OPTIONAL_DEPENDENCIES or importlib.util.find_spec(_OPTIONAL_DEPENDENCIES[backend])
-        }
-        assert listed == expected
-        implementations: list[Any] = [cls for cls in manifest.FEATURE_GROUPS if cls is not group]
-        assert all(cls.feature_group is group for cls in implementations)
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return [("my_result", Options(context={"arithmetic_op": "add", "in_features": "v", "constant": 1}), "add")]

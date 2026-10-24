@@ -311,12 +311,8 @@ class TestIntegrationMedianAggType:
         assert median_col == pytest.approx(sorted([-10.0, 5.0, 15.0, 50.0]))
 
 
-class TestIntegrationSeveralFrameworks:
-    """One AggregationFeatureGroup is served by one Implementation per framework, chosen per feature.
-
-    Before the operation-group shape every framework was its own feature group, so enabling several
-    frameworks failed with "Multiple feature groups".
-    """
+class TestImplementationPin:
+    """Feature(..., implementation=...) pins one of the group's Implementations."""
 
     @staticmethod
     def _collector() -> PluginCollector:

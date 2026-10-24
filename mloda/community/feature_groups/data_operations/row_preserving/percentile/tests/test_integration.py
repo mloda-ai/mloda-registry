@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
@@ -21,7 +20,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ma
     FEATURE_GROUPS as _LOADED_FEATURE_GROUPS,  # noqa: F401  loads the installed implementations
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import (
     MaskIntegrationTestMixin,
@@ -233,24 +231,3 @@ class TestIntegrationMultipleFeatures:
 
         assert p25_found, "p25_percentile result not found in any result table"
         assert p100_found, "p100_percentile result not found in any result table"
-
-
-class TestIntegrationSeveralFrameworks:
-    """One PercentileFeatureGroup is served by one Implementation per framework, chosen per feature."""
-
-    @staticmethod
-    def _feature(name: str) -> Feature:
-        return Feature(name, options=Options(context={"partition_by": ["region"]}))
-
-    def test_pyarrow_alone_is_a_resolution_error(self) -> None:
-        """No percentile Implementation serves PyArrow, so the group is unresolvable there."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PercentileFeatureGroup}
-        )
-
-        with pytest.raises(FeatureResolutionError):
-            mloda.run_all(
-                [self._feature("value_int__p50_percentile")],
-                compute_frameworks=[PyArrowTable],
-                plugin_collector=plugin_collector,
-            )

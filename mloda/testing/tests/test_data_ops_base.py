@@ -2,6 +2,7 @@
 
 import gc
 import importlib
+import sqlite3
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ import pyarrow as pa
 import pytest
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import ResampleTestBase
@@ -167,6 +169,15 @@ def test_setup_method_uses_source_arrow_table_default() -> None:
     stub = _StubDataOpsTestBase()
     stub.setup_method()
     assert stub._arrow_table.equals(PyArrowDataOpsTestDataCreator.create())
+
+
+def test_sqlite_creator_round_trips_to_the_canonical_table() -> None:
+    connection = sqlite3.connect(":memory:")
+    try:
+        relation = SqliteDataOpsTestDataCreator.create(connection)
+        assert relation.to_arrow_table().equals(PyArrowDataOpsTestDataCreator.create())
+    finally:
+        connection.close()
 
 
 class _StubWithCustomSourceTable(_StubDataOpsTestBase):

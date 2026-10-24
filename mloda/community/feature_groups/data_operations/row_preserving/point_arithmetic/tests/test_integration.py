@@ -20,9 +20,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
     FEATURE_GROUPS as _LOADED_FEATURE_GROUPS,  # noqa: F401  loads the installed implementations
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PYARROW_TABLE,
+    SQLITE_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
     EXPECTED_ADD,
@@ -108,6 +112,28 @@ class TestPointArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOps
     @classmethod
     def use_approx(cls) -> bool:
         return True
+
+    # -- OperationGroupIntegrationTestMixin configuration ----------------------
+
+    @classmethod
+    def routing_data_creator(cls) -> type[Any]:
+        return SqliteDataOpsTestDataCreator
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic"
+        return [
+            RoutingCase(
+                "value_int&amount__divide_point",
+                implementation=f"{package}.pyarrow_point_arithmetic:PyArrowPointArithmetic",
+                compute_framework=PYARROW_TABLE,
+            ),
+            RoutingCase(
+                "value_int&amount__add_point",
+                implementation=f"{package}.sqlite_point_arithmetic:SqlitePointArithmetic",
+                compute_framework=SQLITE_FRAMEWORK,
+            ),
+        ]
 
     def test_match_rejects_missing_config(self) -> None:
         """Override: point_arithmetic pattern features match even without any Options.

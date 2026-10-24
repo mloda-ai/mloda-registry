@@ -21,6 +21,7 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column,
 
 PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.table:PyArrowTable"
 PANDAS_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.pandas.dataframe:PandasDataFrame"
+SQLITE_FRAMEWORK = "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework:SqliteFramework"
 
 
 @dataclass(frozen=True)
@@ -55,16 +56,25 @@ class OperationGroupIntegrationTestMixin:
 
     Optional hooks:
     - ``several_frameworks()``: the frameworks enabled together in ``test_several_frameworks_enabled_runs``.
-    - ``divergent_routing_cases()``: features that data held in Pandas must see served by another
-      Implementation (a divergent Pandas aggregate) or kept on Pandas (a non-divergent one).
+    - ``divergent_routing_cases()``: features that data held in the ``routing_data_creator()`` framework
+      must see served by another Implementation (a divergent one) or kept on it (a non-divergent one).
+    - ``routing_data_creator()``: the data creator whose framework holds the routed data. Default: Pandas.
     - ``unsupported_framework_case()``: a (feature name, options) that ``compute_framework_class()`` alone
       cannot serve, so a run on it is rejected at resolve time.
     """
 
     @classmethod
     def divergent_routing_cases(cls) -> list[RoutingCase]:
-        """Cases for ``test_pandas_data_is_routed_by_divergence``. Default: none (the test skips)."""
+        """Cases for ``test_data_is_routed_by_divergence``. Default: none (the test skips)."""
         return []
+
+    @classmethod
+    def routing_data_creator(cls) -> type[Any]:
+        """The data creator for ``test_data_is_routed_by_divergence``. Default: Pandas (skips without it)."""
+        pytest.importorskip("pandas")
+        from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
+
+        return PandasDataOpsTestDataCreator
 
     @classmethod
     def unsupported_framework_case(cls) -> tuple[str, dict[str, Any]] | None:
@@ -168,20 +178,17 @@ class OperationGroupIntegrationTestMixin:
             self.primary_expected_values(),  # type: ignore[attr-defined]
         )
 
-    def test_pandas_data_is_routed_by_divergence(self) -> None:
-        """Data already in Pandas is served by the declared Implementation, not always by Pandas."""
+    def test_data_is_routed_by_divergence(self) -> None:
+        """Data already in the creator's framework is served by the declared Implementation, not always by it."""
         cases = self.divergent_routing_cases()
         if not cases:
             pytest.skip("the group declares no divergent routing cases")
-        pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
+        creator = self.routing_data_creator()
         group = self.feature_group_class()  # type: ignore[attr-defined]
-        frameworks = list(dict.fromkeys([PandasDataFrame, *self.pipeline_compute_frameworks()]))  # type: ignore[attr-defined]
-        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, group})
+        frameworks = list(dict.fromkeys([creator.compute_framework, *self.pipeline_compute_frameworks()]))  # type: ignore[attr-defined]
+        collector = enabled_with_implementations({creator, group})
         for case in cases:
             feature = Feature(case.feature_name, options=Options(context=case.options))
             plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
