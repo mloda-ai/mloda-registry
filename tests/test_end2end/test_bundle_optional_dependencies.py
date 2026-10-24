@@ -304,7 +304,7 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
     groups = [g for g in groups if g != gen.OPTIONAL_DEPENDENCIES_GROUP]
 
     with pytest.MonkeyPatch.context() as mp:
-        # Warm every other manifest of the group first, so only the leaf is cold-loaded with the root blocked.
+        # Warm the group's manifests first so only the evicted leaf is cold-loaded with the root blocked.
         for group in groups:
             PluginLoader().load_entry_points(group=group)
         block_root(mp, root)
@@ -501,6 +501,7 @@ _TRANSITIVE_DEPENDENCY_OF_ROOT: dict[str, str] = {
 }
 
 
+# Rows whose root has no hard dependency to block (pyarrow) have no transitive case.
 @pytest.mark.parametrize(
     "extra_name, distribution_name, leaf_name, root, exposed",
     [row for row in _ROWS if row[3] in _TRANSITIVE_DEPENDENCY_OF_ROOT],

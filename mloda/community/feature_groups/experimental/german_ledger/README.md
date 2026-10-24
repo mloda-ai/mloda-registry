@@ -49,9 +49,10 @@ for table in results:
 Three rules keep it predictable:
 
 1. **Install it.** `PluginLoader.all()` discovers the package through its entry point, and
-   importing it also registers its groups. Its concept groups then claim `revenue` and
-   `receivables` by name, so a request for either name needs `feature_group=` naming the group
-   meant, see
+   importing it also registers its groups. `SkrAccountFeatureGroup` then answers `revenue` and
+   `receivables` by name alone, and `SourcesFeatureGroup` answers any `<name>__sources`. Scope a
+   request with `feature_group=` only when another group also answers the name (e.g. a file
+   column called `revenue`), see
    [Names Claimed by an Installed Package](../../../../../docs/guides/01-use-existing-plugin.md#names-claimed-by-an-installed-package).
    A collection holding both formats (GDPdU and DATEV), or several dossiers of one format, must
    point at one source with a reader option key, e.g. `options={"GdpduReader": <folder>}`;

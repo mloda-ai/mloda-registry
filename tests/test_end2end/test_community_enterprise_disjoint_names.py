@@ -4,7 +4,6 @@ Examples are sampled under each side's own options; groups needing extra options
 from __future__ import annotations
 
 import importlib
-import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,7 +70,7 @@ def _enterprise_examples() -> list[Example]:
 
 def _community_explicit_examples() -> list[Example]:
     ledger = "mloda-community-german-ledger"
-    fixtures = Path(os.path.dirname(german_ledger_reader.__file__)) / "tests" / "fixtures"
+    fixtures = Path(german_ledger_reader.__file__).parent / "tests" / "fixtures"
     # A reader claims only a name with a dossier behind it, so each example points at a real fixture dossier.
     gdpdu = Options({GdpduReader.__name__: str(fixtures / "dossier_a")})
     datev = Options({DatevExtfReader.__name__: str(fixtures / "datev_ledermann")})

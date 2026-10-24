@@ -12,6 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from mloda.core.abstract_plugins.plugin_registry.plugin_registry import PluginSource
 from mloda.provider import FeatureGroup, FeatureSet, SourceMatch
 from mloda.steward import PluginRegistry, resolve_feature, verified_context
 from mloda.user import DataAccessCollection, Feature, Options, PluginCollector, PluginLoader, mloda
@@ -43,6 +44,7 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import ( 
 )
 
 FIX = Path(__file__).parent / "fixtures"
+GERMAN_LEDGER_PACKAGE = "mloda.community.feature_groups.experimental.german_ledger."
 
 
 def run_isolated(name: str) -> dict[str, Any]:
@@ -149,8 +151,7 @@ def plugin_loader_all() -> dict[str, Any]:
     registered = sorted(
         entry.cls.__qualname__
         for entry in PluginRegistry.default().snapshot().values()
-        if entry.source.value == "entry_point"
-        and entry.cls.__module__.startswith(f"{SkrAccountFeatureGroup.__module__.rpartition('.')[0]}.")
+        if entry.source is PluginSource.ENTRY_POINT and entry.cls.__module__.startswith(GERMAN_LEDGER_PACKAGE)
     )
 
     def direct(feature: Feature | str) -> list[str]:
