@@ -771,7 +771,7 @@ def test_citation_binds_the_descriptor_not_only_the_data() -> None:
         assert origins_of(touched_data) != before, "data edit left the citation unchanged"
 
 
-@pytest.mark.parametrize("requested", ["revenue__sources", "revenue__sources~value"])
+@pytest.mark.parametrize("requested", ["revenue__sources", "revenue__sources~value", "revenue", "revenue~value"])
 def test_a_dossier_running_past_the_closed_period_yields_no_number(requested: str) -> None:
     """A booking after the closed period is out of the policy's scope: neither refused nor admitted.
 
@@ -779,8 +779,8 @@ def test_a_dossier_running_past_the_closed_period_yields_no_number(requested: st
     period -- a 2026 booking is not a late entry into 2025, so it is not refused. But it is
     not admitted either: the policy has no jurisdiction and says so with an out-of-scope
     verdict, and the aggregation totals only rows a policy affirmatively vouched for. So the
-    request returns no number rather than a total mixing vetted and unvetted rows. Scoping a
-    total to a period the feature name carries is not built here.
+    request, total or direct concept, returns no number rather than amounts mixing vetted and
+    unvetted rows. Scoping a total to a period the feature name carries is not built here.
     """
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "after_period"
@@ -804,7 +804,7 @@ def test_a_dossier_running_past_the_closed_period_yields_no_number(requested: st
             assert isinstance(root, InadmissibleTotal), f"{type(root).__name__}: {root}"
             assert "outside-scope" in str(root), root
             return
-        raise AssertionError("a dossier running past the closed period produced a total")
+        raise AssertionError("a dossier running past the closed period produced a number")
 
 
 def test_empty_column_delimiter_is_refused_at_descriptor_parse() -> None:

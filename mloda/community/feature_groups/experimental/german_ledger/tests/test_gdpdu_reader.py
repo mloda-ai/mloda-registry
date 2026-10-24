@@ -6,6 +6,7 @@ parser's own checks.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,9 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Options
 
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
 from mloda.community.feature_groups.experimental.german_ledger.reader import (
+    JOURNAL,
     GdpduReader,
     parse_citation,
     parse_descriptor_bytes,
@@ -275,3 +278,70 @@ def test_a_citation_is_read_field_by_field() -> None:
 def test_a_malformed_citation_is_refused(bad: str) -> None:
     with pytest.raises(ValueError):
         parse_citation(bad)
+
+
+# --- containment: links leaving the dossier -----------------------------------------------------
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="symlinks need POSIX")
+
+
+@posix_only
+def test_an_index_link_leaving_the_dossier_is_refused_unclaimed_and_unfingerprinted(tmp_path: Path) -> None:
+    """An index.xml whose real path leaves the folder is not read, claimed or fingerprinted."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    shutil.copy(DOSSIER_A / "index.xml", outside / "index.xml")
+    folder = tmp_path / "books"
+    folder.mkdir()
+    shutil.copy(DOSSIER_A / "GL.txt", folder / "GL.txt")
+    (folder / "index.xml").symlink_to(outside / "index.xml")
+
+    with pytest.raises(ValueError, match="links outside") as err:
+        GdpduReader.load_data(str(folder), FeatureSet())
+    assert "index.xml" in str(err.value)
+    assert str(outside) not in str(err.value)
+    assert GdpduReader.data_access_identity(source_match(folder)) == f"gdpdu:{folder.name}"
+    assert GdpduReader.columns(source_match(folder)) is None
+    assert GdpduReader.dossier(str(folder / "index.xml")) is None
+
+    refused = claim([folder], JOURNAL, {GdpduReader, DatevExtfReader})
+    assert refused.error
+    assert "index.xml" in str(refused.error)
+    assert "links outside its folder" in str(refused.error)
+    assert str(outside) not in str(refused.error)
+
+    # A link that stays inside the dossier still reads.
+    inner = tmp_path / "inner"
+    shutil.copytree(DOSSIER_A, inner)
+    (inner / "sub").mkdir()
+    (inner / "index.xml").rename(inner / "sub" / "real.xml")
+    (inner / "index.xml").symlink_to(inner / "sub" / "real.xml")
+    assert GdpduReader.load_data(str(inner), FeatureSet()).num_rows > 0
+    assert GdpduReader.dossier(str(inner)) == str(inner)
+
+
+def _dossier_naming(tmp_path: Path, url: str) -> Path:
+    folder = tmp_path / "dossier"
+    shutil.copytree(DOSSIER_A, folder)
+    index = folder / "index.xml"
+    index.write_text(index.read_text().replace("<URL>GL.txt</URL>", f"<URL>{url}</URL>"))
+    return folder
+
+
+@posix_only
+@pytest.mark.parametrize("chain", [False, True], ids=["self_loop", "loop_through_outside"])
+def test_a_descriptor_url_naming_a_symlink_loop_is_a_value_error_not_a_crash(tmp_path: Path, chain: bool) -> None:
+    """A looping link, inside or through the outside, is refused on load and leaves the identity a bare name.
+
+    Guards a RuntimeError that Python 3.10 to 3.12 raised on a loop.
+    """
+    folder = _dossier_naming(tmp_path, "a" if chain else "loop")
+    if chain:
+        (tmp_path / "outside").mkdir()
+        (folder / "a").symlink_to("../outside/b")
+        (tmp_path / "outside" / "b").symlink_to(folder / "a")
+    else:
+        (folder / "loop").symlink_to("loop")
+    assert GdpduReader.data_access_identity(source_match(folder)) == f"gdpdu:{folder.name}"
+    with pytest.raises(ValueError, match="absent"):
+        GdpduReader.load_data(str(folder), FeatureSet())
