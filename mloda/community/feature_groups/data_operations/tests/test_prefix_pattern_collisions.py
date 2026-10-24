@@ -660,7 +660,20 @@ def test_family_base_is_abstract_or_operation_group(cls: Any) -> None:
     )
 
 
-_OPERATION_GROUP_FAMILIES = ("aggregation", "lookup", "point_arithmetic", "scalar_arithmetic")
+_OPERATION_GROUP_FAMILIES = (
+    "aggregation",
+    "ema",
+    "ffill",
+    "lookup",
+    "offset",
+    "percentile",
+    "point_arithmetic",
+    "rank",
+    "resample",
+    "scalar_arithmetic",
+    "sessionization",
+    "time_bucketization",
+)
 
 
 def test_operation_group_families_are_converted() -> None:
