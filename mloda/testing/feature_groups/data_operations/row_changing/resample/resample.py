@@ -601,10 +601,12 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     # -- Several features in one FeatureSet ----------------------------------
 
-    def _multi_feature_set(self, feature_names: list[str], partition_by: list[str]) -> FeatureSet:
+    def _multi_feature_set(self, feature_names: list[str], partition_by: list[str] | list[list[str]]) -> FeatureSet:
+        """Build a FeatureSet; a list of lists gives each feature its own partition_by."""
         fs = FeatureSet()
-        for name in feature_names:
-            fs.add(Feature(name, options=Options(context={"time_column": "ts", "partition_by": partition_by})))
+        for i, name in enumerate(feature_names):
+            part = partition_by[i] if partition_by and isinstance(partition_by[0], list) else partition_by
+            fs.add(Feature(name, options=Options(context={"time_column": "ts", "partition_by": part})))
         return fs
 
     def test_multiple_features_same_grid(self) -> None:
@@ -623,12 +625,20 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
             result_map = self._build_resample_map(result, name, "ts", ["region"])
             self._assert_map_equals(result_map, exp, use_approx=approx)
 
-    def test_mixed_bucket_sizes_rejected(self) -> None:
-        """Features with different bucket grids in one FeatureSet are rejected."""
-        names = ["value__resample_1_hour_mean", "value__resample_15_minute_mean"]
-        fs = self._multi_feature_set(names, ["region"])
-        with pytest.raises(ValueError, match=r"(?i)bucket"):
+    @pytest.mark.parametrize(
+        "names, partition_by",
+        [
+            (["value__resample_1_hour_mean", "value__resample_15_minute_mean"], [["region"], ["region"]]),
+            (["value__resample_1_hour_mean", "value__resample_1_hour_sum"], [["region"], []]),
+        ],
+        ids=["bucket_size", "partition_by"],
+    )
+    def test_mixed_bucket_grids_rejected(self, names: list[str], partition_by: list[list[str]]) -> None:
+        """Features with different bucket grids in one FeatureSet are rejected, naming the remedy."""
+        fs = self._multi_feature_set(names, partition_by)
+        with pytest.raises(ValueError, match=r"(?i)bucket") as exc_info:
             calculate_with(self.implementation_class(), self.test_data, fs)
+        assert "run_all" in str(exc_info.value)
 
     # -- Cross-framework comparison (map-based vs PyArrow oracle) ------------
 
