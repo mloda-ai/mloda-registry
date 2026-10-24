@@ -204,13 +204,12 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_lk0__", "__mloda_lv0__"}
 
     @classmethod
-    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
-        """Run the PyArrow reference Implementation on the canonical table."""
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
             PyArrowLookup,
         )
 
-        return calculate_with(PyArrowLookup, table, features)
+        return PyArrowLookup
 
     @classmethod
     def source_arrow_table(cls) -> pa.Table:
