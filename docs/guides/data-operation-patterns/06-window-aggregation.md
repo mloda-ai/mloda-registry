@@ -6,7 +6,7 @@ Window aggregation computes a group aggregate (sum, avg, etc.) and broadcasts it
 **When**: You want a group aggregate alongside the original rows (e.g. "total sales per region on every order row").
 **Why**: Unlike `aggregation`, which reduces rows, window aggregation keeps them. You get per-row context plus a per-partition aggregate without a join.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/`.
-**How**: One group with one `Implementation` per framework (`PandasWindowAggregation`, ...). PyArrow and SQLite narrow their agg types through `supported`. Encode the aggregation in the feature name. Pass `partition_by` (and optionally `order_by` for ordered aggregates) via `Options(context=...)`.
+**How**: One group with one `Implementation` per framework (`PandasWindowAggregation`, ...). Encode the aggregation in the feature name. Pass `partition_by` (and optionally `order_by` for ordered aggregates) via `Options(context=...)`.
 
 ---
 

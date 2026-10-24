@@ -543,7 +543,7 @@ class FrameAggregateTestBase(
     # -- Time window support tests -------------------------------------------
 
     def test_time_frame_match_rejected_when_unsupported(self) -> None:
-        """Frameworks that do not support time frames must reject them at match time."""
+        """Frameworks that do not support time frames must reject them when the framework is checked."""
         if "time" in self.supported_frame_types():
             pytest.skip("This framework supports time frames")
 
@@ -554,7 +554,7 @@ class FrameAggregateTestBase(
         )
 
     def test_time_frame_config_rejected_when_unsupported(self) -> None:
-        """Config-based time frame features must be rejected at match time when unsupported."""
+        """Config-based time frame features must be rejected when unsupported."""
         if "time" in self.supported_frame_types():
             pytest.skip("This framework supports time frames")
 

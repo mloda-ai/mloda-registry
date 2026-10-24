@@ -169,9 +169,7 @@ class FrameAggregateFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, Fe
     - ``cumulative``: Running aggregate from the first row to the current row.
     - ``expanding``: Same as cumulative (alias for clarity).
 
-    Subclasses declare which frame types they support via
-    ``SUPPORTED_FRAME_TYPES``. Features requesting an unsupported frame type
-    are rejected at discovery time (match_feature_group_criteria returns False).
+    Each Implementation narrows frame types, time units and aggregations through ``accepts`` (see ``frame_accepts``).
 
     ## Supported Aggregation Types
 
@@ -337,7 +335,6 @@ class FrameAggregateFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, Fe
             return False
         if parsed["frame_type"] not in cls.SUPPORTED_FRAME_TYPES:
             return False
-        # SUPPORTED_TIME_UNITS defaults to _TIME_UNITS and subclasses only narrow it, so it subsumes it.
         if parsed["frame_type"] == "time" and parsed["frame_unit"] not in cls.SUPPORTED_TIME_UNITS:
             return False
         return True
@@ -349,7 +346,7 @@ class FrameAggregateFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, Fe
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend the declaration-driven mixin match with per-subclass capability and shape checks.
+        """Extend the declaration-driven mixin match with frame and shape checks.
 
         PROPERTY_MAPPING owns the value spaces; order_by is declared always-required, frame_size and
         frame_unit stay config-path only (the name supplies them), and partition_by presence is hand-enforced below.
@@ -361,7 +358,7 @@ class FrameAggregateFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, Fe
         if parsed is not None:
             cls._validate_frame_name_agreement(feature_name, options, parsed)
 
-        # Config path only: SUPPORTED_* narrows per subclass, so it cannot be declared once on the base.
+        # Config path only.
         # frame_size/frame_unit requiredness is hand-enforced here (not via PROPERTY_MAPPING
         # required_when) so it can never mis-fire on the name path; see the PROPERTY_MAPPING comment.
         if parsed is None:

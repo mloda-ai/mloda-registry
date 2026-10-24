@@ -43,7 +43,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
     # ``dateutil.relativedelta`` semantics (Mar 31 -1mo = Feb 28) used by the reference
     # implementation. Rather than fall back to Python-side calendar arithmetic (which
     # would defeat the point of running inside the SQLite engine), month/year units are
-    # rejected at match time. See known-divergences.md.
+    # rejected by ``accepts``. See known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
     supported = frozenset(_SQLITE_AGG_FUNCS)
     divergent = {

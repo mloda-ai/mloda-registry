@@ -40,7 +40,7 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
     compute_framework = PandasDataFrame
     # Pandas .rolling(window="...", on=ts) only accepts fixed-frequency units. Month/year
     # are calendar-anchored and would require a per-row Python loop, which defeats the
-    # point of running inside pandas. They are rejected at match time. See
+    # point of running inside pandas. They are rejected by ``accepts``. See
     # known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
     divergent = {
@@ -129,9 +129,8 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
             if unit not in cls._FIXED_FREQ_CODES:
-                # Defense-in-depth: month/year are rejected at match time via
-                # SUPPORTED_TIME_UNITS. Hitting this path means a caller bypassed
-                # match_feature_group_criteria.
+                # Defense-in-depth: month/year are rejected by ``accepts`` via
+                # SUPPORTED_TIME_UNITS. Hitting this path means a caller bypassed it.
                 raise unsupported_frame_type_error(
                     f"time:{unit}",
                     {f"time:{u}" for u in cls._FIXED_FREQ_CODES},
