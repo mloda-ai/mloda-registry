@@ -291,7 +291,7 @@ class PandasOnlyGroup(FeatureGroup):
         return {PandasDataFrame}
 ```
 
-`None` (the default) allows any framework. Aggregation, point/scalar arithmetic, time bucketization, ffill, EMA, resample and sessionization are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
+`None` (the default) allows any framework. Aggregation, point/scalar arithmetic, time bucketization, ffill, EMA, resample, sessionization, rank, offset and percentile are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
 
 ## Column-Wise Data Hooks
 
@@ -374,6 +374,10 @@ A hook that is not a `@classmethod` or `@staticmethod` counts as missing: `cls._
 | [aggregation/python_dict_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/python_dict_aggregation.py) | `PythonDictAggregation` |
 | [point_arithmetic/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/base.py) | `PointArithmeticFeatureGroup`, shared loop with two keyword-only callables |
 | [point_arithmetic/sqlite_point_arithmetic.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py) | `SqlitePointArithmetic`, with `divergent` |
+| [row_preserving/rank/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/rank/base.py) | `RankFeatureGroup`, shared `rank` loop, `SUBTYPES` with parametric families |
+| [row_preserving/rank/pandas_rank.py](../../../mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py) | `PandasRank`, with `divergent` |
+| [row_preserving/offset/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/offset/base.py) | `OffsetFeatureGroup`, shared `offset` loop, `SUBTYPES` with parametric families |
+| [row_preserving/percentile/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/percentile/base.py) | `PercentileFeatureGroup`, shared `percentile` loop |
 | [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
 | [core aggregated_feature_group/pandas.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pandas.py) | Core's Pandas Implementation |
 | [core aggregated_feature_group/pyarrow.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pyarrow.py) | Core's PyArrow Implementation |

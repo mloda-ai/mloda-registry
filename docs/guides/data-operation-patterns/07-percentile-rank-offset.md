@@ -12,7 +12,7 @@ Three related row-preserving families for analytic windows: percentile (value-at
 
 ## Percentile
 
-`PercentileFeatureGroup` computes the value at percentile N within each partition and broadcasts it to every row.
+`PercentileFeatureGroup` computes the value at percentile N within each partition and broadcasts it to every row. It is one `OperationFeatureGroup` (shared `percentile` loop, no `SUBTYPES`) with `Implementation` classes such as `PandasPercentile`; there is no PyArrow implementation.
 
 | Pattern | Example |
 |---|---|
@@ -35,7 +35,7 @@ All rows of the same `service` share the same P95 value. Percentiles use the fra
 
 ## Rank
 
-`RankFeatureGroup` assigns each row a rank within its partition.
+`RankFeatureGroup` assigns each row a rank within its partition. It is one `OperationFeatureGroup` (shared `rank` loop, `SUBTYPES` on `rank_type`) with `Implementation` classes such as `PandasRank`; there is no PyArrow implementation. `PandasRank`, `SqliteRank` and `PythonDictRank` declare `divergent` for `rank`, `dense_rank` and `percent_rank` (None and NaN `order_by` values tie), so with several frameworks enabled a request runs on a non-divergent one when it can.
 
 | Pattern | Example |
 |---|---|
@@ -60,13 +60,13 @@ Feature(
 )
 ```
 
-`order_by` is required for every rank type; the matcher rejects the feature if it is missing. That includes `ntile_N` as well as the standard numeric and boolean variants. Framework test classes may restrict `supported_rank_types` when their engine does not implement one variant; see [Supported ops](04-supported-ops.md).
+`order_by` is required for every rank type; the matcher rejects the feature if it is missing. That includes `ntile_N` as well as the standard numeric and boolean variants. Framework test classes may restrict `supported_rank_types` (and an Implementation may set `supported`) when their engine does not implement one variant; see [Supported ops](04-supported-ops.md).
 
 ---
 
 ## Offset
 
-`OffsetFeatureGroup` shifts a column by a fixed number of rows inside each partition.
+`OffsetFeatureGroup` shifts a column by a fixed number of rows inside each partition. It is one `OperationFeatureGroup` (shared `offset` loop, `SUBTYPES` on `offset_type`) with `Implementation` classes such as `PandasOffset`; there is no PyArrow implementation.
 
 | Pattern | Example |
 |---|---|
