@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
@@ -38,10 +38,19 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
 }
 
 
-class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
+class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
+    feature_group = FrameAggregateFeatureGroup
+    compute_framework = DuckDBFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {DuckDBFramework}
+    def calculate(
+        cls,
+        group: type[FrameAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_frame=cls._compute_frame)
 
     @classmethod
     def _compute_frame(
@@ -104,7 +113,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise unsupported_frame_type_error(
                 frame_type,
-                cls.SUPPORTED_FRAME_TYPES,
+                FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES,
                 framework="DuckDB",
             )
 

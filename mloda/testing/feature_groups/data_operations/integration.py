@@ -29,6 +29,7 @@ Usage::
 
 from __future__ import annotations
 
+import importlib
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -42,6 +43,19 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     extract_column,
     result_column_names,
 )
+
+
+def load_group_implementations(group: Any) -> None:
+    """Import the manifest next to an operation group, which loads every installed Implementation of it."""
+    if isinstance(group, type) and issubclass(group, OperationFeatureGroup):
+        importlib.import_module(group.__module__.rsplit(".", 1)[0] + ".manifest")
+
+
+def enabled_with_implementations(classes: set[Any]) -> PluginCollector:
+    """``PluginCollector.enabled_feature_groups(classes)`` after loading the Implementations of any operation group."""
+    for cls in classes:
+        load_group_implementations(cls)
+    return PluginCollector.enabled_feature_groups(classes)
 
 
 class DataOpsIntegrationTestBase(ABC):
@@ -158,9 +172,7 @@ class DataOpsIntegrationTestBase(ABC):
 
     def _plugin_collector(self, creator: type | None = None) -> PluginCollector:
         """Create a PluginCollector with the feature group and data creator (or ``creator``) enabled."""
-        return PluginCollector.enabled_feature_groups(
-            {creator or self.data_creator_class(), self.feature_group_class()}
-        )
+        return enabled_with_implementations({creator or self.data_creator_class(), self.feature_group_class()})
 
     def _run_single_feature(self, name: str, options_context: dict[str, Any], creator: type | None = None) -> Any:
         """Run a single feature through the pipeline and return the framework result holding it."""

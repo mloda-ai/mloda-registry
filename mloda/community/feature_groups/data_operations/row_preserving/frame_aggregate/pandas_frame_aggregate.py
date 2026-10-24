@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
     PandasMaskEngine,
@@ -34,12 +35,35 @@ _PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
 }
 
 
-class PandasFrameAggregate(FrameAggregateFeatureGroup):
+class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
+    feature_group = FrameAggregateFeatureGroup
+    compute_framework = PandasDataFrame
     # Pandas .rolling(window="...", on=ts) only accepts fixed-frequency units. Month/year
     # are calendar-anchored and would require a per-row Python loop, which defeats the
     # point of running inside pandas. They are rejected at match time. See
     # known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
+    divergent = {
+        "sum": "skips NaN",
+        "avg": "skips NaN",
+        "count": "does not count NaN",
+        "std": "skips NaN",
+        "var": "skips NaN",
+    }
+
+    @classmethod
+    def calculate(
+        cls,
+        group: type[FrameAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_frame=cls._compute_frame)
+
+    @classmethod
+    def accepts(cls, feature_name: str, options: Options) -> bool:
+        return FrameAggregateFeatureGroup.frame_accepts(feature_name, options, time_units=cls.SUPPORTED_TIME_UNITS)
 
     _FIXED_FREQ_CODES: dict[str, str] = {
         "second": "s",
@@ -48,10 +72,6 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         "day": "D",
         "week": "W",
     }
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
 
     @classmethod
     def _compute_frame(
@@ -139,7 +159,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise unsupported_frame_type_error(
                 frame_type,
-                cls.SUPPORTED_FRAME_TYPES,
+                FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES,
                 framework="Pandas",
             )
 

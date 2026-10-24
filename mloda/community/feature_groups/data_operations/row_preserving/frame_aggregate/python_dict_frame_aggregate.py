@@ -14,7 +14,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -74,10 +74,19 @@ def _subtract_months(dt: datetime, months: int) -> datetime:
     return dt.replace(year=year, month=month, day=day)
 
 
-class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
+class PythonDictFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
+    feature_group = FrameAggregateFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls,
+        group: type[FrameAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_frame=cls._compute_frame)
 
     @classmethod
     def _compute_frame(
@@ -93,8 +102,10 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> dict[str, list[Any]]:
-        if frame_type not in cls.SUPPORTED_FRAME_TYPES:
-            raise unsupported_frame_type_error(frame_type, cls.SUPPORTED_FRAME_TYPES, framework="PythonDict")
+        if frame_type not in FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES:
+            raise unsupported_frame_type_error(
+                frame_type, FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES, framework="PythonDict"
+            )
         if agg_type not in _SUPPORTED_AGG_TYPES:
             raise unsupported_agg_type_error(
                 agg_type, _SUPPORTED_AGG_TYPES, framework="PythonDict", operation="frame aggregate"
@@ -133,7 +144,9 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
                 elif frame_type == "time":
                     window = cls._time_window(rows, pos, order_val, frame_size or 1, str(frame_unit or "day"))
                 else:  # pragma: no cover - guarded by the SUPPORTED_FRAME_TYPES check above
-                    raise unsupported_frame_type_error(frame_type, cls.SUPPORTED_FRAME_TYPES, framework="PythonDict")
+                    raise unsupported_frame_type_error(
+                        frame_type, FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES, framework="PythonDict"
+                    )
 
                 result_values[orig_idx] = cls._reduce_window(window, agg_type)
 

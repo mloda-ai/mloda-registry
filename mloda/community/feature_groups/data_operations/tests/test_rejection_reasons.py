@@ -10,8 +10,8 @@ from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
-    PandasFrameAggregate,
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+    FrameAggregateFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
@@ -166,8 +166,8 @@ class TestFrameAggregateNamePathReportsNothing:
         # The env downgrade is set because the stray frame_type now contradicts the name.
         monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
-        assert PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)
-        assert PandasFrameAggregate._strict_validation_rejection_reason("sales__sum_rolling_3", options) is None
+        assert FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options)
+        assert FrameAggregateFeatureGroup._strict_validation_rejection_reason("sales__sum_rolling_3", options) is None
 
 
 class TestFrameAggregateInheritedFrameTypeReported:
@@ -177,8 +177,8 @@ class TestFrameAggregateInheritedFrameTypeReported:
         options = Options(context={"aggregation_type": "sum", "in_features": "v", "partition_by": ["g"]})
         options.inherit_from(Options(group={"frame_type": "rolling"}))
         with collect_match_rejections() as reasons:
-            assert PandasFrameAggregate.match_feature_group_criteria("my_result", options, None) is False
-        reason = reasons[PandasFrameAggregate.get_class_name()].reason
+            assert FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+        reason = reasons[FrameAggregateFeatureGroup.get_class_name()].reason
         assert "frame_type" in reason
         assert "inherited" in reason
 

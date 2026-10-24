@@ -16,6 +16,7 @@ from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
+from mloda.testing.feature_groups.data_operations.helpers import feature_group_of
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pandas import (
     PandasNullableIntTestMixin,
@@ -55,11 +56,6 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         return {"second", "minute", "hour", "day", "week"}
 
     @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count/std/var."""
-        return frozenset({"sum", "avg", "count", "std", "var"})
-
-    @classmethod
     def supports_null_order_in_time_window(cls) -> bool:
         # pandas groupby().rolling(on=ts) raises "ts values must not have NaT"
         # when the order_by column contains null timestamps. The implementation
@@ -71,11 +67,13 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
     def test_pandas_rejects_month_time_window_at_match_time(self) -> None:
         """Pandas rejects month/year time windows because they would require a Python loop."""
         options = Options(context={"partition_by": ["region"], "order_by": "ts"})
-        assert not self.implementation_class().match_feature_group_criteria("value__sum_1_month_window", options)
-        assert not self.implementation_class().match_feature_group_criteria("value__sum_1_year_window", options)
+        group = feature_group_of(self.implementation_class())
+        framework = self.compute_framework_class()
+        assert not group.supports_compute_framework("value__sum_1_month_window", options, framework)
+        assert not group.supports_compute_framework("value__sum_1_year_window", options, framework)
         # day/week still match
-        assert self.implementation_class().match_feature_group_criteria("value__sum_3_day_window", options)
-        assert self.implementation_class().match_feature_group_criteria("value__sum_1_week_window", options)
+        assert group.supports_compute_framework("value__sum_3_day_window", options, framework)
+        assert group.supports_compute_framework("value__sum_1_week_window", options, framework)
 
     def test_pandas_dep_pinned_to_22_for_lowercase_freq_codes(self) -> None:
         """_FIXED_FREQ_CODES uses lowercase 's','min','h' which require pandas>=2.2."""

@@ -36,7 +36,10 @@ from mloda.testing.feature_groups.data_operations.aggregation.aggregation import
     EXPECTED_AVG_BY_REGION,
     EXPECTED_SUM_BY_REGION,
 )
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.integration import (
+    DataOpsIntegrationTestBase,
+    enabled_with_implementations,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     OperationGroupIntegrationTestMixin,
@@ -152,9 +155,7 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_min_agg_through_pipeline(self) -> None:
         """Run value_int__min_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         feature = Feature(
             "value_int__min_agg",
@@ -180,9 +181,7 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_max_agg_through_pipeline(self) -> None:
         """Run value_int__max_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         feature = Feature(
             "value_int__max_agg",
@@ -208,9 +207,7 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_std_agg_through_pipeline(self) -> None:
         """Run value_int__std_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         feature = Feature(
             "value_int__std_agg",
@@ -234,9 +231,7 @@ class TestIntegrationAdditionalAggTypes:
 
     def test_nunique_agg_through_pipeline(self) -> None:
         """Run value_int__nunique_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         feature = Feature(
             "value_int__nunique_agg",
@@ -272,9 +267,7 @@ class TestIntegrationMedianAggType:
         import pandas as pd
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         feature = Feature(
             "value_int__median_agg",
@@ -303,9 +296,7 @@ class TestIntegrationMedianAggType:
 
     def test_median_agg_is_rejected_at_match_time_on_pyarrow_only(self) -> None:
         """PyArrow alone cannot serve median: the group is dropped at match time, not at compute time."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         feature = Feature(
             "value_int__median_agg",
@@ -329,7 +320,7 @@ class TestIntegrationSeveralFrameworks:
 
     @staticmethod
     def _collector() -> PluginCollector:
-        return PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
+        return enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
     @staticmethod
     def _feature(**kwargs: Any) -> Feature:
@@ -356,7 +347,7 @@ class TestIntegrationSeveralFrameworks:
 
         from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
 
-        collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
         frameworks = [PandasDataFrame, PyArrowTable]
         options = Options(context={"partition_by": ["region"]})
 
@@ -418,9 +409,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_sum_and_avg_in_one_run(self) -> None:
         """Sum and avg of value_int by region in ONE run_all call share one result table."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
         options = Options(context={"partition_by": ["region"]})
         results = mloda.run_all(
             [Feature("value_int__sum_agg", options=options), Feature("value_int__avg_agg", options=options)],
@@ -443,9 +432,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_sum_and_avg_consistent(self) -> None:
         """Run sum and avg separately and verify both produce correct results."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         f_sum = Feature(
             "value_int__sum_agg",
@@ -490,9 +477,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_min_and_max_consistent(self) -> None:
         """Run min and max separately and verify both produce correct results."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
 
         f_min = Feature(
             "value_int__min_agg",

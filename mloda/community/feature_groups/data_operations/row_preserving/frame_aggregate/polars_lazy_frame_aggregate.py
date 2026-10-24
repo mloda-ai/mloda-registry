@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import (
@@ -28,17 +29,27 @@ def _over(expr: pl.Expr, partition_by: list[str]) -> pl.Expr:
     return expr.over(partition_by) if partition_by else expr
 
 
-class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
+    feature_group = FrameAggregateFeatureGroup
+    compute_framework = PolarsLazyDataFrame
 
     @classmethod
-    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
+    def calculate(
+        cls,
+        group: type[FrameAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_frame=cls._compute_frame)
+
+    @classmethod
+    def accepts(cls, feature_name: str, options: Options) -> bool:
         """Polars cumulative/expanding frames exclude std/var/median; rolling/time support all."""
-        if secondary in ("cumulative", "expanding"):
-            return frozenset(_CUMULATIVE_AGG_TYPES)
-        return frozenset(_ROLLING_AGG_TYPES)
+        cumulative = frozenset(_CUMULATIVE_AGG_TYPES)
+        return FrameAggregateFeatureGroup.frame_accepts(
+            feature_name, options, agg_types_by_frame={"cumulative": cumulative, "expanding": cumulative}
+        )
 
     @classmethod
     def _compute_frame(
@@ -266,7 +277,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise unsupported_frame_type_error(
                 frame_type,
-                cls.SUPPORTED_FRAME_TYPES,
+                FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES,
                 framework="Polars",
             )
 

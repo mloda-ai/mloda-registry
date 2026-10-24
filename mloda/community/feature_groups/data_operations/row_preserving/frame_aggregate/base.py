@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -12,6 +12,8 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     escalate_match_abort,
     property_spec,
     record_match_rejection,
@@ -47,7 +49,6 @@ from mloda.community.feature_groups.data_operations.base import (
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_UNIT as _FRAME_UNIT_KEY,
 )
-from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 # Patterns for string-based feature names; group 1 is the aggregation token, matching what
@@ -145,7 +146,16 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     return None
 
 
-class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+def _resolve_frame_agg_type(feature_name: str, options: Options) -> str | None:
+    """The aggregation type from any of the four name shapes, else the ``aggregation_type`` option."""
+    parsed = _parse_frame_feature_cached(feature_name)
+    if parsed is not None:
+        return str(parsed["agg_type"])
+    agg_type = options.get("aggregation_type")
+    return None if agg_type is None else op_token_value(agg_type)
+
+
+class FrameAggregateFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window
@@ -211,6 +221,8 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
     - ``order_by``: Column to order by (required for all frame types)
     """
 
+    SUBTYPES = SubtypeDeclaration(universe=_AGGREGATION_TYPES, resolver=_resolve_frame_agg_type)
+
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")
 
     # PREFIX_PATTERN is the rolling member; FRAME_PATTERNS is the full matching set the mixin uses.
@@ -227,9 +239,6 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
-
-    #: agg-type support depends on frame_type.
-    _CAPABILITY_HAS_AXIS: bool = True
 
     AGGREGATION_TYPE = "aggregation_type"
     # Aliases of the shared keys, so the literals stay defined once in data_operations/base.py.
@@ -424,34 +433,28 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         cls._reject_unused_frame_options(feature_name, options, str(name_type))
 
     @classmethod
-    def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
+    def frame_accepts(
+        cls,
+        feature_name: str,
+        options: Options,
+        *,
+        time_units: set[str] | frozenset[str] = frozenset(_TIME_UNITS),
+        agg_types_by_frame: dict[str, frozenset[str]] | None = None,
+    ) -> bool:
+        """For Implementations' ``accepts``: reject a time unit outside ``time_units`` and an aggregation
+        outside ``agg_types_by_frame[frame_type]``; anything unresolved stays True."""
         parsed = cls._parse_frame_feature(feature_name)
         if parsed is not None:
-            return str(parsed["agg_type"])
-        agg_type = options.get(cls.AGGREGATION_TYPE)
-        return None if agg_type is None else op_token_value(agg_type)
-
-    @classmethod
-    def _capability_secondary(cls, feature_name: str, options: Options) -> str | None:
-        parsed = cls._parse_frame_feature(feature_name)
-        if parsed is not None:
-            return str(parsed["frame_type"])
-        frame_type = options.get(cls.FRAME_TYPE)
-        return None if frame_type is None else op_token_value(frame_type)
-
-    @classmethod
-    def _capability_guard(cls, feature_name: str, options: Options) -> bool:
-        """Reject frame types and time units the backend cannot compute; unresolved frame type stays True."""
-        frame_type = cls._capability_secondary(feature_name, options)
-        if frame_type is None:
-            return True
-        if frame_type not in cls.SUPPORTED_FRAME_TYPES:
+            frame_type, frame_unit, agg_type = parsed["frame_type"], parsed["frame_unit"], parsed["agg_type"]
+        else:
+            raw_type = options.get(cls.FRAME_TYPE)
+            frame_type = None if raw_type is None else op_token_value(raw_type)
+            frame_unit = _option_token(options, cls.FRAME_UNIT)
+            agg_type = _resolve_frame_agg_type(feature_name, options)
+        if frame_type == "time" and frame_unit is not None and frame_unit not in time_units:
             return False
-        if frame_type == "time":
-            parsed = cls._parse_frame_feature(feature_name)
-            frame_unit = parsed["frame_unit"] if parsed is not None else options.get(cls.FRAME_UNIT)
-            if frame_unit is not None and op_token_value(frame_unit) not in cls.SUPPORTED_TIME_UNITS:
-                return False
+        if agg_types_by_frame is not None and frame_type in agg_types_by_frame and agg_type is not None:
+            return bool(agg_type in agg_types_by_frame[frame_type])
         return True
 
     @classmethod
@@ -495,8 +498,14 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Extract params from each feature, delegate to _compute_frame."""
+    def aggregate(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_frame: Callable[..., Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_frame``."""
         table = data
 
         for feature in features.features:
@@ -507,7 +516,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
             assert_key_columns_present(data, params["partition_by"], params["order_by"], mask_spec)
 
-            table = cls._compute_frame(
+            table = compute_frame(
                 table,
                 feature_name,
                 params["source_col"],
@@ -521,20 +530,3 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, Fe
             )
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_frame(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        order_by: str,
-        agg_type: str,
-        frame_type: str,
-        frame_size: int | None = None,
-        frame_unit: str | None = None,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> Any:
-        """Subclasses must implement the actual frame computation."""

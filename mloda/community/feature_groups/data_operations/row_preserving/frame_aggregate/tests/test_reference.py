@@ -1,7 +1,7 @@
 """Tests for the reference frame aggregate implementation.
 
 Covers time window and null handling edge cases using
-the ReferenceFrameAggregate from the testing library.
+reference_frame_aggregate from the testing library.
 """
 
 from __future__ import annotations
@@ -12,8 +12,11 @@ import pyarrow as pa
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+    FrameAggregateFeatureGroup,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
-    ReferenceFrameAggregate,
+    reference_frame_aggregate,
 )
 
 
@@ -23,7 +26,7 @@ class TestReferenceTimeWindow:
     def test_time_frame_match_accepted(self) -> None:
         """Reference supports time frames, so matching should succeed."""
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        assert ReferenceFrameAggregate.match_feature_group_criteria("value_int__avg_7_day_window", options)
+        assert FrameAggregateFeatureGroup.match_feature_group_criteria("value_int__avg_7_day_window", options)
 
     def test_time_window_via_config(self) -> None:
         """Time-based window using config-based feature creation."""
@@ -56,7 +59,7 @@ class TestReferenceTimeWindow:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = ReferenceFrameAggregate.calculate_feature(table, fs)
+        result = reference_frame_aggregate(table, fs)
         col = result.column("my_time_sum").to_pylist()
 
         # 2-day window:
@@ -86,7 +89,7 @@ class TestReferenceNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = ReferenceFrameAggregate.calculate_feature(table, fs)
+        result = reference_frame_aggregate(table, fs)
         col = result.column("value__sum_rolling_3").to_pylist()
 
         assert col == [10, 10, 40, 70]
@@ -107,7 +110,7 @@ class TestReferenceNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = ReferenceFrameAggregate.calculate_feature(table, fs)
+        result = reference_frame_aggregate(table, fs)
         col = result.column("value__cumsum").to_pylist()
 
         assert col == [130, 10, 30]
@@ -128,7 +131,7 @@ class TestReferenceNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = ReferenceFrameAggregate.calculate_feature(table, fs)
+        result = reference_frame_aggregate(table, fs)
         col = result.column("value__cumsum").to_pylist()
 
         assert col == [None, None]

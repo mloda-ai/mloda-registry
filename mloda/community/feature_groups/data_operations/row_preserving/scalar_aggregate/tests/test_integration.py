@@ -10,7 +10,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
@@ -18,7 +18,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.integration import (
+    DataOpsIntegrationTestBase,
+    enabled_with_implementations,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     OperationGroupIntegrationTestMixin,
@@ -125,7 +128,7 @@ class TestIntegrationDivergentPandas:
         pytest.importorskip("pandas")
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
-        collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
+        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
         plan = mloda.explain(
             [Feature(name, options=Options())],
             compute_frameworks=[PandasDataFrame, PyArrowTable],
@@ -160,9 +163,7 @@ class TestIntegrationDivergentPandas:
 
 class TestIntegrationMultipleFeatures:
     def test_sum_and_avg_together(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
 
         f_sum = Feature("value_int__sum_scalar", options=Options())
         f_avg = Feature("value_int__avg_scalar", options=Options())
@@ -202,9 +203,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_sum_through_pipeline(self) -> None:
         """Option-based sum produces the same result as the string pattern."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
 
         feature = Feature(
             "my_custom_sum",
@@ -236,9 +235,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_min_through_pipeline(self) -> None:
         """Option-based min aggregation through the full pipeline."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
 
         feature = Feature(
             "lowest_value",
@@ -269,9 +266,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_max_through_pipeline(self) -> None:
         """Option-based max aggregation through the full pipeline."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
 
         feature = Feature(
             "highest_value",
@@ -302,9 +297,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_string_and_option_features_together(self) -> None:
         """Combining string-pattern and option-based features in one run."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, ScalarAggregateFeatureGroup})
 
         f_pattern = Feature("value_int__sum_scalar", options=Options())
         f_option = Feature(

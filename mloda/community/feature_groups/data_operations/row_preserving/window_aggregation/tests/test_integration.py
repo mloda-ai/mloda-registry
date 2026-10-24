@@ -13,7 +13,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -21,7 +21,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.integration import (
+    DataOpsIntegrationTestBase,
+    enabled_with_implementations,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     OperationGroupIntegrationTestMixin,
@@ -118,9 +121,7 @@ class TestIntegrationDivergentPandas:
         pytest.importorskip("pandas")
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
-        collector = PluginCollector.enabled_feature_groups(
-            {PandasDataOpsTestDataCreator, WindowAggregationFeatureGroup}
-        )
+        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, WindowAggregationFeatureGroup})
         feature = Feature(name, options=Options(context={"partition_by": ["region"]}))
         plan = mloda.explain([feature], compute_frameworks=[PandasDataFrame, PyArrowTable], plugin_collector=collector)
         steps = [
@@ -156,9 +157,7 @@ class TestIntegrationUnsupportedFrameworkRejected:
     def test_median_window_is_rejected_on_pyarrow_only(self) -> None:
         from mloda.user import FeatureResolutionError
 
-        collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup}
-        )
+        collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup})
         feature = Feature("value_int__median_window", options=Options(context={"partition_by": ["region"]}))
         with pytest.raises(FeatureResolutionError):
             mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=collector)
@@ -169,9 +168,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_sum_and_avg_together(self) -> None:
         """Request both sum and avg features in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup})
 
         f_sum = Feature(
             "value_int__sum_window",
@@ -224,9 +221,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_different_aggregation_types(self) -> None:
         """Request min and max features in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup}
-        )
+        plugin_collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup})
 
         f_min = Feature(
             "value_int__min_window",

@@ -1,10 +1,8 @@
 """Shared match-time capability hook for the data-operation families (issue #299).
 
-Used by frame_aggregate and by the families on ``AggregationFeatureGroupBase``
-(aggregation, window_aggregation, scalar_aggregate). A family declares supported
-subtypes once via ``supported_op_subtypes(secondary)``, optionally keyed by a
-secondary axis value (e.g. frame_type). The catalog stays single-axis; this hook
-is the authority for higher-dimensional (frame_type x agg_type) capability.
+No family uses this hook any more: the families that did moved to ``Implementation.supported``
+and ``accepts``. A subclass declares supported subtypes once via ``supported_op_subtypes(secondary)``,
+optionally keyed by a secondary axis value.
 """
 
 from __future__ import annotations
@@ -16,8 +14,7 @@ from mloda.user import FeatureName, Options
 class SubtypeCapabilityHook:
     # True when supported_op_subtypes depends on a secondary axis. When that axis is
     # unresolved the hook must NOT consult supported_op_subtypes(None): a keyed backend
-    # would return the wrong set (e.g. SqliteFrameAggregate returns its restricted set
-    # and would wrongly reject median). This branch is load-bearing, not defensive.
+    # would return the wrong set for an unknown axis value.
     _CAPABILITY_HAS_AXIS: bool = False
 
     def __init_subclass__(cls, **kwargs: object) -> None:

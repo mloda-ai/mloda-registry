@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
@@ -34,7 +35,9 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
 }
 
 
-class SqliteFrameAggregate(FrameAggregateFeatureGroup):
+class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
+    feature_group = FrameAggregateFeatureGroup
+    compute_framework = SqliteFramework
     # SQLite has no native calendar-anchored INTERVAL arithmetic: ``datetime(ts, '-N months')``
     # uses fixed-day-of-month rollover (Mar 31 -1mo = Mar 3) which diverges from the
     # ``dateutil.relativedelta`` semantics (Mar 31 -1mo = Feb 28) used by the reference
@@ -42,15 +45,26 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
     # would defeat the point of running inside the SQLite engine), month/year units are
     # rejected at match time. See known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
+    supported = frozenset(_SQLITE_AGG_FUNCS)
+    divergent = {
+        "sum": "skips NaN",
+        "avg": "skips NaN",
+        "count": "does not count NaN",
+    }
 
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls,
+        group: type[FrameAggregateFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_frame=cls._compute_frame)
 
     @classmethod
-    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
-        """SQLite supports sum/avg/count/min/max for every frame type."""
-        return frozenset(_SQLITE_AGG_FUNCS)
+    def accepts(cls, feature_name: str, options: Options) -> bool:
+        return FrameAggregateFeatureGroup.frame_accepts(feature_name, options, time_units=cls.SUPPORTED_TIME_UNITS)
 
     @classmethod
     def _compute_frame(
@@ -103,7 +117,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise unsupported_frame_type_error(
                 frame_type,
-                cls.SUPPORTED_FRAME_TYPES,
+                FrameAggregateFeatureGroup.SUPPORTED_FRAME_TYPES,
                 framework="SQLite",
             )
 

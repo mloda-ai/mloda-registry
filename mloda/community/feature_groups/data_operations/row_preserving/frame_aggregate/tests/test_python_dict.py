@@ -13,6 +13,7 @@ from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.python_dict_frame_aggregate import (
     PythonDictFrameAggregate,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
@@ -46,7 +47,7 @@ class TestPythonDictNanPartitionKeyGrouping:
     separate one-row groups/windows instead of one shared partition.
 
     Note: this operation's own cross-framework test reference,
-    ``ReferenceFrameAggregate`` (row_preserving/frame_aggregate/reference.py),
+    ``reference_frame_aggregate`` (row_preserving/frame_aggregate/reference.py),
     builds its group key the exact same way (``key = tuple(partition_lists[col][i]
     for col in partition_by)``) and therefore reproduces this identical bug --
     it is NOT a valid oracle here. Instead, this test asks PyArrow's own
@@ -82,7 +83,7 @@ class TestPythonDictNanPartitionKeyGrouping:
 
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__expanding_sum", ["grp"], order_by="ts")
-        result = PythonDictFrameAggregate.calculate_feature(data, fs)
+        result = calculate_with(PythonDictFrameAggregate, data, fs)
         result_col = extract_column(result, "val__expanding_sum")
 
         # Row 1 (ts=2, val=20.0) is second (by ts) in the shared NaN partition PyArrow
@@ -113,7 +114,7 @@ class TestPythonDictMinMaxSkipsNan:
         )
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"val__expanding_{agg_type}", ["grp"], order_by="ts")
-        result = PythonDictFrameAggregate.calculate_feature(data, fs)
+        result = calculate_with(PythonDictFrameAggregate, data, fs)
         result_col = extract_column(result, f"val__expanding_{agg_type}")
 
         pa_func = pc.min if agg_type == "min" else pc.max

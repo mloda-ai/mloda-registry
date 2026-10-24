@@ -15,6 +15,7 @@ from mloda.user import Feature, Options
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
     SqliteFrameAggregate,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
@@ -54,11 +55,6 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         )
 
     @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """sqlite3 coerces NaN to NULL on ingest, so it skips NaN in sum/avg/count."""
-        return frozenset({"sum", "avg", "count"})
-
-    @classmethod
     def supported_time_units(cls) -> set[str]:
         # SQLite's native ``datetime(ts, '-N months')`` rolls over by day-of-month
         # (Mar 31 -1mo = Mar 3) whereas the reference uses ``relativedelta``
@@ -72,11 +68,13 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
     def test_sqlite_rejects_month_time_window_at_match_time(self) -> None:
         """SQLite rejects month/year time windows because its calendar arithmetic diverges from the reference."""
         options = Options(context={"partition_by": ["region"], "order_by": "ts"})
-        assert not self.implementation_class().match_feature_group_criteria("value__sum_1_month_window", options)
-        assert not self.implementation_class().match_feature_group_criteria("value__sum_1_year_window", options)
+        group = feature_group_of(self.implementation_class())
+        framework = self.compute_framework_class()
+        assert not group.supports_compute_framework("value__sum_1_month_window", options, framework)
+        assert not group.supports_compute_framework("value__sum_1_year_window", options, framework)
         # day/week still match
-        assert self.implementation_class().match_feature_group_criteria("value__sum_3_day_window", options)
-        assert self.implementation_class().match_feature_group_criteria("value__sum_1_week_window", options)
+        assert group.supports_compute_framework("value__sum_3_day_window", options, framework)
+        assert group.supports_compute_framework("value__sum_1_week_window", options, framework)
 
     def test_sqlite_second_window_preserves_subsecond_precision(self) -> None:
         """3-second window should respect sub-second precision.
@@ -101,8 +99,8 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col, f"got {result_col}, expected {ref_col}"

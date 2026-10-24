@@ -1,17 +1,19 @@
 """Behavioral guard for the unified match-time capability surface (issue #299).
 
 The aggregation, rank, and frame-aggregate families previously hand-rolled their own
-``supports_compute_framework`` plus a differently-shaped supported-types method. They were folded into one shared ``SubtypeCapabilityHook`` mixin (aggregation and rank have since moved
-to ``Implementation.supported``, where core owns the check; frame_aggregate and the families built on
-``AggregationFeatureGroupBase``, window_aggregation and scalar_aggregate, are still on the hook): a family declares its
+``supports_compute_framework`` plus a differently-shaped supported-types method. They were folded into one shared ``SubtypeCapabilityHook`` mixin (all three have since moved
+to ``Implementation.supported`` and ``accepts``, so no family is on the hook): a hook subclass declares its
 supported subtypes once via ``supported_op_subtypes(secondary)`` and the mixin turns that
 single declaration into match-time rejection through ``supports_compute_framework``.
 
 These tests pin that shared *behaviour* through the public hook (True/False), not through
-class structure: restricting the one declaration method rejects the unlisted subtype and
-accepts the listed one, the unrestricted default accepts everything, and frame-aggregate's
-optional secondary axis (frame_type) keys the restriction. Asserting on observable capability
-keeps them protecting the contract across future refactors of the class hierarchy.
+class structure, using a small local frame-like subclass: restricting the one declaration method
+rejects the unlisted subtype and accepts the listed one, the unrestricted default accepts everything,
+and the hook's optional secondary axis keys the restriction. Asserting on observable capability keeps them
+protecting the contract across future refactors of the class hierarchy.
+
+Aggregation's own restriction (``Implementation.supported``) is covered in
+``aggregation/tests/test_base.py``.
 
 ``SqliteFramework`` is a neutral driver: ``supports_compute_framework`` derives capability
 from the class's own ``supported_op_subtypes``, not from the framework argument.
@@ -27,9 +29,29 @@ from mloda.community.feature_groups.data_operations.capability_hook import Subty
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
-    SqliteFrameAggregate,
-)
+from mloda.testing.feature_groups.data_operations.integration import load_group_implementations
+
+
+class _FrameAxisHook(SubtypeCapabilityHook):
+    """Minimal hook subclass with a secondary axis (frame_type), so the hook's axis code stays covered."""
+
+    _CAPABILITY_HAS_AXIS = True
+
+    @classmethod
+    def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
+        parsed = FrameAggregateFeatureGroup._parse_frame_feature(feature_name)
+        if parsed is not None:
+            return str(parsed["agg_type"])
+        agg_type = options.get("aggregation_type")
+        return None if agg_type is None else str(agg_type)
+
+    @classmethod
+    def _capability_secondary(cls, feature_name: str, options: Options) -> str | None:
+        parsed = FrameAggregateFeatureGroup._parse_frame_feature(feature_name)
+        if parsed is not None:
+            return str(parsed["frame_type"])
+        frame_type = options.get("frame_type")
+        return None if frame_type is None else str(frame_type)
 
 
 class TestUnifiedRestrictionSurface:
@@ -39,10 +61,10 @@ class TestUnifiedRestrictionSurface:
     ``supported_op_subtypes`` -> ``supports_compute_framework`` wiring.
     """
 
-    def test_frame_aggregate_restriction(self) -> None:
-        """A frame-aggregate subclass advertising only sum rejects median rolling and accepts sum rolling."""
+    def test_frame_like_restriction(self) -> None:
+        """A frame-like hook advertising only sum rejects median rolling and accepts sum rolling."""
 
-        class _Restricted(FrameAggregateFeatureGroup):
+        class _Restricted(_FrameAxisHook):
             @classmethod
             def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
                 return frozenset({"sum"})
@@ -57,7 +79,7 @@ class TestUnrestrictedDefault:
     @pytest.mark.parametrize(
         "base, feature_name",
         [
-            (FrameAggregateFeatureGroup, "value__median_rolling_3"),
+            (_FrameAxisHook, "value__median_rolling_3"),
         ],
     )
     def test_default_accepts_everything(self, base: type[SubtypeCapabilityHook], feature_name: str) -> None:
@@ -65,13 +87,13 @@ class TestUnrestrictedDefault:
         assert base.supports_compute_framework(feature_name, Options(), SqliteFramework) is True
 
 
-class TestFrameAggregateSecondaryAxis:
-    """Frame aggregate keys its restriction on the optional secondary axis (frame_type)."""
+class TestFrameLikeSecondaryAxis:
+    """A hook with a secondary axis (frame_type) keys its restriction on it."""
 
     def test_restriction_keyed_by_frame_type(self) -> None:
         """median is allowed on the unrestricted rolling axis but rejected on the restricted cumulative axis."""
 
-        class _Restricted(FrameAggregateFeatureGroup):
+        class _Restricted(_FrameAxisHook):
             @classmethod
             def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
                 if secondary in ("cumulative", "expanding"):
@@ -86,9 +108,9 @@ class TestUnrestrictedSkipsSubtypeResolution:
     """An unrestricted family must consult ``supported_op_subtypes`` first and never resolve its subtype."""
 
     def test_frame_aggregate_unrestricted_skips_resolution(self) -> None:
-        """An unrestricted frame-aggregate subclass accepts median without resolving the agg type."""
+        """An unrestricted frame-like hook accepts median without resolving the agg type."""
 
-        class _Unrestricted(FrameAggregateFeatureGroup):
+        class _Unrestricted(_FrameAxisHook):
             @classmethod
             def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
                 raise AssertionError("subtype must not be resolved when the backend is unrestricted")
@@ -103,7 +125,7 @@ class TestLegacyMethodNamesRejected:
         """Overriding the pre-#299 ``supported_agg_types`` raises TypeError naming ``supported_op_subtypes``."""
         with pytest.raises(TypeError, match="supported_op_subtypes"):
 
-            class _Legacy(FrameAggregateFeatureGroup):
+            class _Legacy(_FrameAxisHook):
                 @classmethod
                 def supported_agg_types(cls) -> frozenset[str]:
                     return frozenset({"sum"})
@@ -112,7 +134,7 @@ class TestLegacyMethodNamesRejected:
         """Overriding the pre-#299 ``supported_rank_types`` raises TypeError naming ``supported_op_subtypes``."""
         with pytest.raises(TypeError, match="supported_op_subtypes"):
 
-            class _Legacy(FrameAggregateFeatureGroup):
+            class _Legacy(_FrameAxisHook):
                 @classmethod
                 def supported_rank_types(cls) -> frozenset[str]:
                     return frozenset({"row_number"})
@@ -121,7 +143,7 @@ class TestLegacyMethodNamesRejected:
         """Overriding the stale ``supported_subtypes`` raises TypeError naming ``supported_op_subtypes``."""
         with pytest.raises(TypeError, match="supported_op_subtypes"):
 
-            class _Legacy(FrameAggregateFeatureGroup):
+            class _Legacy(_FrameAxisHook):
                 @classmethod  # type: ignore[misc]
                 def supported_subtypes(cls) -> frozenset[str]:  # type: ignore[override]
                     return frozenset({"sum"})
@@ -153,10 +175,10 @@ class TestRestrictionRequiresResolver:
         """Binding supported_op_subtypes to a plain (non-callable) value raises TypeError at class definition."""
         with pytest.raises(TypeError, match="supported_op_subtypes"):
 
-            class _Broken(FrameAggregateFeatureGroup):
+            class _Broken(_FrameAxisHook):
                 supported_op_subtypes = frozenset({"sum"})  # type: ignore[assignment]
 
-        class _Valid(FrameAggregateFeatureGroup):
+        class _Valid(_FrameAxisHook):
             @classmethod
             def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
                 return frozenset({"sum"})
@@ -165,14 +187,30 @@ class TestRestrictionRequiresResolver:
 
 
 class TestUnresolvedAxisStaysConservative:
-    """An unresolved secondary axis must skip the subtype check so restricted backends stay conservative."""
+    """An unresolved secondary axis must skip the subtype check so restricted hooks stay conservative."""
 
-    def test_sqlite_frame_aggregate_unresolved_axis_accepts_median(self) -> None:
+    def test_unresolved_axis_accepts_median(self) -> None:
         """frame_type is unresolved, so the hook must not consult supported_op_subtypes(None), which would
-        return SQLite's restricted set and wrongly reject median."""
+        return the restricted set and wrongly reject median."""
+
+        class _Restricted(_FrameAxisHook):
+            @classmethod
+            def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
+                return frozenset({"sum"})
+
         assert (
-            SqliteFrameAggregate.supports_compute_framework(
+            _Restricted.supports_compute_framework(
                 "totally_unrelated", Options(context={"aggregation_type": "median"}), SqliteFramework
             )
             is True
+        )
+
+    def test_frame_group_has_no_axis_so_the_resolved_agg_type_decides(self) -> None:
+        """The frame group declares capability per agg type only (SQLite lacks median), with no axis to leave open."""
+        load_group_implementations(FrameAggregateFeatureGroup)
+        assert (
+            FrameAggregateFeatureGroup.supports_compute_framework(
+                "totally_unrelated", Options(context={"aggregation_type": "median"}), SqliteFramework
+            )
+            is False
         )

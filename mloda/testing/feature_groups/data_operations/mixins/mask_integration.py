@@ -110,10 +110,11 @@ class MaskIntegrationTestMixin:
         feature = Feature(name, options=Options(context=ctx))
         results = mloda.run_all(
             [feature],
-            compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
+            compute_frameworks=self.pipeline_compute_frameworks(),  # type: ignore[attr-defined]
             plugin_collector=(
                 self._plugin_collector(creator) if creator is not None else self._plugin_collector()  # type: ignore[attr-defined]
             ),
+            output_framework=self.compute_framework_class(),  # type: ignore[attr-defined]
         )
         assert len(results) >= 1
 

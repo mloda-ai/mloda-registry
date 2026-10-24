@@ -72,16 +72,16 @@ class TestResolveFeatureIntegration:
         assert "SqliteFramework" in result.unsupported_compute_frameworks
 
     def test_capability_split_rejects_sqlite_for_median_rolling_frame(self) -> None:
-        """Each backend's own supports_compute_framework must reject/accept a median rolling frame.
+        """The frame group's supports_compute_framework must reject/accept a median rolling frame per framework.
 
         resolve_feature cannot be the probe here: frame aggregate's
         ``match_feature_group_criteria`` requires partition_by/order_by, which are absent
         under the empty Options resolve_feature evaluates matching with (the same reason the
         median-scalar test above uses the scalar family instead of the group-by family). The
         removed ``split_frameworks_by_capability`` used to batch this same per-class check for a
-        caller-supplied list of candidates; this test calls each class's own
-        ``supports_compute_framework`` directly against its own (single) compute framework
-        instead, which is the exact per-feature hook that helper batched.
+        caller-supplied list of candidates; this test calls the group's
+        ``supports_compute_framework`` directly per compute framework, which is the exact
+        per-feature hook that helper batched.
         """
         pytest.importorskip("pandas")
         pytest.importorskip("duckdb")
@@ -90,18 +90,13 @@ class TestResolveFeatureIntegration:
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
-            DuckdbFrameAggregate,
-        )
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
-            PandasFrameAggregate,
-        )
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
-            SqliteFrameAggregate,
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+            FrameAggregateFeatureGroup,
         )
 
         feature_name = "value__median_rolling_3"
 
-        assert SqliteFrameAggregate.supports_compute_framework(feature_name, Options(), SqliteFramework) is False
-        assert PandasFrameAggregate.supports_compute_framework(feature_name, Options(), PandasDataFrame) is True
-        assert DuckdbFrameAggregate.supports_compute_framework(feature_name, Options(), DuckDBFramework) is True
+        group = FrameAggregateFeatureGroup
+        assert group.supports_compute_framework(feature_name, Options(), SqliteFramework) is False
+        assert group.supports_compute_framework(feature_name, Options(), PandasDataFrame) is True
+        assert group.supports_compute_framework(feature_name, Options(), DuckDBFramework) is True

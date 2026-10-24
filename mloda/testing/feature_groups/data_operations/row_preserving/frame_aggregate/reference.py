@@ -12,8 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda.provider import FeatureSet
 
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
@@ -22,95 +21,92 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
 
 
-class ReferenceFrameAggregate(FrameAggregateFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+def _compute_frame(
+    table: pa.Table,
+    feature_name: str,
+    source_col: str,
+    partition_by: list[str],
+    order_by: str,
+    agg_type: str,
+    frame_type: str,
+    frame_size: int | None = None,
+    frame_unit: str | None = None,
+    mask_spec: list[tuple[str, str, Any]] | None = None,
+) -> pa.Table:
+    num_rows = table.num_rows
 
-    @classmethod
-    def _compute_frame(
-        cls,
-        table: pa.Table,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        order_by: str,
-        agg_type: str,
-        frame_type: str,
-        frame_size: int | None = None,
-        frame_unit: str | None = None,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> pa.Table:
-        num_rows = table.num_rows
+    # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
+    partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
+    order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
+    masked = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table
+    source_vals = masked.column(source_col).to_pylist()
 
-        # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
-        partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
-        order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
-        masked = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table
-        source_vals = masked.column(source_col).to_pylist()
+    # Build group keys from extracted Python lists (no PyArrow calls in loop)
+    groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
+    for i in range(num_rows):
+        key = tuple(partition_lists[col][i] for col in partition_by)
+        if key not in groups:
+            groups[key] = []
+        groups[key].append((i, order_vals[i], source_vals[i]))
 
-        # Build group keys from extracted Python lists (no PyArrow calls in loop)
-        groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
-        for i in range(num_rows):
-            key = tuple(partition_lists[col][i] for col in partition_by)
-            if key not in groups:
-                groups[key] = []
-            groups[key].append((i, order_vals[i], source_vals[i]))
+    for key in groups:
+        groups[key].sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
 
-        for key in groups:
-            groups[key].sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
+    result_values: list[Any] = [None] * num_rows
 
-        result_values: list[Any] = [None] * num_rows
+    for key, rows in groups.items():
+        for pos, (orig_idx, order_val, val) in enumerate(rows):
+            if frame_type == "rolling":
+                wsize = int(frame_size) if frame_size is not None else 1
+                window_start = max(0, pos - wsize + 1)
+                window = [r[2] for r in rows[window_start : pos + 1]]
+            elif frame_type in ("cumulative", "expanding"):
+                window = [r[2] for r in rows[: pos + 1]]
+            elif frame_type == "time":
+                window = _time_window(rows, pos, order_val, frame_size or 1, str(frame_unit or "day"))
+            else:
+                window = [r[2] for r in rows[: pos + 1]]
 
-        for key, rows in groups.items():
-            for pos, (orig_idx, order_val, val) in enumerate(rows):
-                if frame_type == "rolling":
-                    wsize = int(frame_size) if frame_size is not None else 1
-                    window_start = max(0, pos - wsize + 1)
-                    window = [r[2] for r in rows[window_start : pos + 1]]
-                elif frame_type in ("cumulative", "expanding"):
-                    window = [r[2] for r in rows[: pos + 1]]
-                elif frame_type == "time":
-                    window = cls._time_window(rows, pos, order_val, frame_size or 1, str(frame_unit or "day"))
-                else:
-                    window = [r[2] for r in rows[: pos + 1]]
+            result_values[orig_idx] = aggregate(window, agg_type)
 
-                result_values[orig_idx] = aggregate(window, agg_type)
+    new_col = pa.array(result_values)
+    return table.append_column(feature_name, new_col)
 
-        new_col = pa.array(result_values)
-        return table.append_column(feature_name, new_col)
 
-    @classmethod
-    def _time_window(
-        cls,
-        rows: list[tuple[int, Any, Any]],
-        pos: int,
-        current_order: Any,
-        size: int,
-        unit: str,
-    ) -> list[Any]:
-        """Collect values within a time-based window ending at the current row.
+def _time_window(
+    rows: list[tuple[int, Any, Any]],
+    pos: int,
+    current_order: Any,
+    size: int,
+    unit: str,
+) -> list[Any]:
+    """Collect values within a time-based window ending at the current row.
 
-        Uses timedelta for second, minute, hour, day, and week units, and
-        relativedelta for month and year units to ensure calendar-accurate windows.
-        """
-        from datetime import timedelta
+    Uses timedelta for second, minute, hour, day, and week units, and
+    relativedelta for month and year units to ensure calendar-accurate windows.
+    """
+    from datetime import timedelta
 
-        from dateutil.relativedelta import relativedelta
+    from dateutil.relativedelta import relativedelta
 
-        unit_map = {
-            "second": timedelta(seconds=size),
-            "minute": timedelta(minutes=size),
-            "hour": timedelta(hours=size),
-            "day": timedelta(days=size),
-            "week": timedelta(weeks=size),
-            "month": relativedelta(months=size),
-            "year": relativedelta(years=size),
-        }
-        delta = unit_map.get(unit, timedelta(days=size))
+    unit_map = {
+        "second": timedelta(seconds=size),
+        "minute": timedelta(minutes=size),
+        "hour": timedelta(hours=size),
+        "day": timedelta(days=size),
+        "week": timedelta(weeks=size),
+        "month": relativedelta(months=size),
+        "year": relativedelta(years=size),
+    }
+    delta = unit_map.get(unit, timedelta(days=size))
 
-        if current_order is None:
-            return [rows[pos][2]]
+    if current_order is None:
+        return [rows[pos][2]]
 
-        window_start = current_order - delta
-        return [r[2] for r in rows[: pos + 1] if r[1] is not None and r[1] >= window_start]
+    window_start = current_order - delta
+    return [r[2] for r in rows[: pos + 1] if r[1] is not None and r[1] >= window_start]
+
+
+def reference_frame_aggregate(table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the shared frame aggregate loop with the pure-Python reference compute."""
+    return FrameAggregateFeatureGroup.aggregate(table, features, compute_frame=_compute_frame)

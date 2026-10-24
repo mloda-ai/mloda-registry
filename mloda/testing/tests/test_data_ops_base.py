@@ -444,3 +444,22 @@ def test_pipeline_compute_frameworks_is_overridable() -> None:
             return [_A, _B]
 
     assert _IntegrationStub.pipeline_compute_frameworks() == [_A, _B]
+
+
+class TestEnabledWithImplementations:
+    """The integration helper loads a group's Implementations through its manifest, so tests need no ad hoc imports."""
+
+    def test_operation_group_loads_its_manifest(self) -> None:
+        import sys
+
+        from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+        from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
+
+        collector = enabled_with_implementations({PyArrowDataOpsTestDataCreator, AggregationFeatureGroup})
+        assert "mloda.community.feature_groups.data_operations.aggregation.manifest" in sys.modules
+        assert collector.applicable_feature_group_class(AggregationFeatureGroup)
+
+    def test_non_operation_group_is_left_alone(self) -> None:
+        from mloda.testing.feature_groups.data_operations.integration import load_group_implementations
+
+        load_group_implementations(PyArrowDataOpsTestDataCreator)

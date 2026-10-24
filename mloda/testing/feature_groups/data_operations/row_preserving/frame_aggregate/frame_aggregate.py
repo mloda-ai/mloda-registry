@@ -25,6 +25,8 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
+    calculate_with,
+    feature_group_of,
     is_null,
     make_feature_set,
 )
@@ -167,7 +169,7 @@ NAN_POLICY_FRAME_KINDS: dict[str, tuple[str, dict[str, list[float]]]] = {
     "expanding": ("val__expanding_{agg_type}", NAN_POLICY_CUMULATIVE_EXPANDING),
 }
 
-# Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas and
+# Known per-backend divergences, declared by the Implementation's ``divergent``: pandas and
 # SQLite can't tell NaN from null, so both skip it in sum/avg/count; pandas also
 # skips it in std/var (SQLite has no frame std/var support).
 NAN_DIVERGENT_ROLLING_3: dict[str, list[float]] = {
@@ -440,12 +442,12 @@ class FrameAggregateTestBase(
         self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
         from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
-            ReferenceFrameAggregate,
+            reference_frame_aggregate,
         )
 
-        return ReferenceFrameAggregate
+        return reference_frame_aggregate(table, features)
 
     ALL_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
     ALL_TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
@@ -481,7 +483,7 @@ class FrameAggregateTestBase(
     def test_rolling_sum_window_3(self) -> None:
         """Rolling sum with window size 3, partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -492,7 +494,7 @@ class FrameAggregateTestBase(
     def test_rolling_avg_window_2(self) -> None:
         """Rolling avg with window size 2, partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__avg_rolling_2", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -505,7 +507,7 @@ class FrameAggregateTestBase(
     def test_cumulative_sum(self) -> None:
         """Cumulative sum, partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -518,7 +520,7 @@ class FrameAggregateTestBase(
     def test_expanding_avg(self) -> None:
         """Expanding avg, partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__expanding_avg", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -529,9 +531,9 @@ class FrameAggregateTestBase(
     def test_cumsum_and_expanding_sum_are_the_same_column(self) -> None:
         """cumulative and expanding are aliases: both names compute the same column."""
         impl = self.implementation_class()
-        cumsum = impl.calculate_feature(self.test_data, make_feature_set("value_int__cumsum", ["region"], "value_int"))
-        expanding = impl.calculate_feature(
-            self.test_data, make_feature_set("value_int__expanding_sum", ["region"], "value_int")
+        cumsum = calculate_with(impl, self.test_data, make_feature_set("value_int__cumsum", ["region"], "value_int"))
+        expanding = calculate_with(
+            impl, self.test_data, make_feature_set("value_int__expanding_sum", ["region"], "value_int")
         )
 
         cumsum_col = self.extract_column(cumsum, "value_int__cumsum")
@@ -546,7 +548,10 @@ class FrameAggregateTestBase(
             pytest.skip("This framework supports time frames")
 
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        assert not self.implementation_class().match_feature_group_criteria("value_int__avg_7_day_window", options)
+        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        assert not feature_group_of(self.implementation_class()).supports_compute_framework(
+            "value_int__avg_7_day_window", options, framework
+        )
 
     def test_time_frame_config_rejected_when_unsupported(self) -> None:
         """Config-based time frame features must be rejected at match time when unsupported."""
@@ -563,7 +568,10 @@ class FrameAggregateTestBase(
                 "order_by": "timestamp",
             }
         )
-        assert not self.implementation_class().match_feature_group_criteria("my_time_sum", options)
+        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        assert not feature_group_of(self.implementation_class()).supports_compute_framework(
+            "my_time_sum", options, framework
+        )
 
     # -- Calendar-accurate time window tests ----------------------------------
 
@@ -603,7 +611,7 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, "monthly_sum")
 
         # Row 0 (Jan 1): window [Jan 1] => 10
@@ -647,7 +655,7 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, "yearly_sum")
 
         # Row 0 (2024-01-01): window [10] => 10
@@ -660,7 +668,7 @@ class FrameAggregateTestBase(
     def test_mask_cumsum_equal(self) -> None:
         """Cumulative sum of value_int where category='X', partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__cumsum", ["region"], "value_int", mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -679,7 +687,7 @@ class FrameAggregateTestBase(
     def test_mask_rolling_sum_equal(self) -> None:
         """Rolling sum (window 3) where category='X', partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__sum_rolling_3", ["region"], "value_int", mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
 
@@ -745,7 +753,7 @@ class FrameAggregateTestBase(
 
     def test_match_accepts_empty_partition_by(self) -> None:
         options = Options(context={"partition_by": [], "order_by": "value_int"})
-        assert self.implementation_class().match_feature_group_criteria("value_int__cumsum", options)
+        assert feature_group_of(self.implementation_class()).match_feature_group_criteria("value_int__cumsum", options)
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     def test_cross_framework_time_window_day(self, partition_by: list[str]) -> None:
@@ -776,8 +784,8 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         assert self.get_row_count(result) == 5
         result_col = self.extract_column(result, feature_name)
@@ -807,8 +815,8 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -839,8 +847,8 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -871,8 +879,8 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -906,8 +914,8 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -943,8 +951,8 @@ class FrameAggregateTestBase(
         fs = FeatureSet()
         fs.add(feature)
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -968,8 +976,8 @@ class FrameAggregateTestBase(
         feature_name = "ts__count_3_day_window"
         fs = make_feature_set(feature_name, partition_by=partition_by, order_by="ts", mask=("category", "equal", "X"))
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         assert self.extract_column(result, feature_name) == _extract_column(ref, feature_name)
         assert self.extract_column(result, "ts") == _extract_column(ref, "ts")
@@ -1038,8 +1046,8 @@ class FrameAggregateTestBase(
             mask=mask_spec,
         )
 
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -1051,7 +1059,7 @@ class FrameAggregateTestBase(
     def test_rolling_window_size_1(self) -> None:
         """Rolling with window_size=1 should return the value itself."""
         fs = make_feature_set("value_int__sum_rolling_1", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
 
@@ -1072,7 +1080,7 @@ class FrameAggregateTestBase(
         )
         data = self.create_test_data(all_null_table)
         fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         assert self.get_row_count(result) == 3
         result_col = self.extract_column(result, "value_int__cumsum")
@@ -1082,7 +1090,7 @@ class FrameAggregateTestBase(
     def test_window_larger_than_partition(self) -> None:
         """Rolling window larger than partition should include all rows in the partition."""
         fs = make_feature_set("value_int__sum_rolling_100", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
 
@@ -1102,7 +1110,7 @@ class FrameAggregateTestBase(
         )
         data = self.create_test_data(table)
         fs = make_feature_set("value__cumsum", ["region"], "ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "value__cumsum")
 
@@ -1132,7 +1140,7 @@ class FrameAggregateTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_rolling_sum")
         assert result_col == EXPECTED_ROLLING_SUM_3
@@ -1149,14 +1157,14 @@ class FrameAggregateTestBase(
                 "order_by": "value_int",
             }
         )
-        assert not self.implementation_class().match_feature_group_criteria("bad_frame", options)
+        assert not feature_group_of(self.implementation_class()).match_feature_group_criteria("bad_frame", options)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------
 
     def test_null_partition_key(self) -> None:
         """Null in partition_by forms its own group. Row 11 has region=None."""
         fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__cumsum")
         # Row 11: region=None, value_int=-10. Only member of its group.
@@ -1166,7 +1174,7 @@ class FrameAggregateTestBase(
     def test_multi_key_partition_rolling(self) -> None:
         """Rolling sum partitioned by [region, category] produces correct sub-groups."""
         fs = make_feature_set("value_int__sum_rolling_3", ["region", "category"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__sum_rolling_3")
         # Group A/X: values [10, 0] sorted by value_int -> [0, 10]
@@ -1186,7 +1194,7 @@ class FrameAggregateTestBase(
         )
         data = self.create_test_data(table)
         fs = make_feature_set("value__cumsum", ["region"], "ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "value__cumsum")
         # Sorted by ts: 1->10, 2->20, None->100
@@ -1200,7 +1208,7 @@ class FrameAggregateTestBase(
     # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.
     def _skip_if_frame_feature_unsupported(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
         options = Options(context={"partition_by": partition_by, "order_by": order_by})
-        backend = self.implementation_class()
+        backend = feature_group_of(self.implementation_class())
         if not backend.match_feature_group_criteria(feature_name, options):
             pytest.skip(f"{feature_name} not supported by this framework")
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
@@ -1220,7 +1228,7 @@ class FrameAggregateTestBase(
         (rows 8 and 9 both have value_int=15).
         """
         fs = make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(

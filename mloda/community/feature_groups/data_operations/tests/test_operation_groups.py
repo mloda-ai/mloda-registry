@@ -17,6 +17,9 @@ from mloda.provider import FeatureGroup, Implementation, OperationFeatureGroup
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+    FrameAggregateFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -53,6 +56,7 @@ class _Family:
     feature_name: str
     partition_by: list[str]
     implementations: tuple[_Impl, ...]
+    order_by: str | None = None
 
 
 _AGGREGATION = _Family(
@@ -106,8 +110,25 @@ _SCALAR = _Family(
     ),
 )
 
-# The frame conversion appends its family here.
-FAMILIES: list[_Family] = [_AGGREGATION, _WINDOW, _SCALAR]
+# Frame has no PyArrow Implementation: PyArrow tables are not a frame backend.
+_FRAME = _Family(
+    id="frame",
+    group=FrameAggregateFeatureGroup,
+    package="mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate",
+    compute_name="_compute_frame",
+    feature_name="value_int__sum_rolling_3",
+    partition_by=["region"],
+    order_by="value_int",
+    implementations=(
+        _Impl("pandas_frame_aggregate", "PandasFrameAggregate", _PANDAS, "pandas"),
+        _Impl("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate", _POLARS, "polars"),
+        _Impl("duckdb_frame_aggregate", "DuckdbFrameAggregate", _DUCKDB, "duckdb"),
+        _Impl("sqlite_frame_aggregate", "SqliteFrameAggregate", _SQLITE),
+        _Impl("python_dict_frame_aggregate", "PythonDictFrameAggregate", _PYTHON_DICT),
+    ),
+)
+
+FAMILIES: list[_Family] = [_AGGREGATION, _WINDOW, _SCALAR, _FRAME]
 
 _family = pytest.mark.parametrize("family", FAMILIES, ids=lambda family: family.id)
 _family_impl = pytest.mark.parametrize(
@@ -143,7 +164,7 @@ class TestOperationGroupShape:
         """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
-        fs = make_feature_set(family.feature_name, family.partition_by)
+        fs = make_feature_set(family.feature_name, family.partition_by, family.order_by)
         with pytest.raises(ValueError, match="no implementation"):
             family.group.calculate_feature(PyArrowDataOpsTestDataCreator.create(), fs)
 
@@ -218,7 +239,13 @@ class TestAggregationBaseHasNoCapabilityHook:
         assert not hasattr(AggregationFeatureGroupBase, "_capability_subtype")
 
     @pytest.mark.parametrize(
-        "group", [AggregationFeatureGroup, WindowAggregationFeatureGroup, ScalarAggregateFeatureGroup]
+        "group",
+        [
+            AggregationFeatureGroup,
+            WindowAggregationFeatureGroup,
+            ScalarAggregateFeatureGroup,
+            FrameAggregateFeatureGroup,
+        ],
     )
     def test_groups_carry_no_hook(self, group: type[Any]) -> None:
         assert not issubclass(group, SubtypeCapabilityHook)
