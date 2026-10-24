@@ -337,7 +337,7 @@ regression_test:
 
 - **Operations**: `row_preserving/frame_aggregate` (aggregation-type axis of the capability hook).
 - **Mitigation kind**: Excluded agg type.
-- **How**: SQLite has no native `STD`/`VAR`/`MEDIAN` window functions, so `SqliteFrameAggregate.supported` is `_SQLITE_AGG_FUNCS` (`sum`/`avg`/`count`/`min`/`max`), rejecting `std`/`var`/`median` for every frame type. Polars has no cumulative `cum_std`/`cum_var`/`cum_median`, so `PolarsLazyFrameAggregate.accepts` rejects those agg types for `cumulative`/`expanding` frames and accepts every agg type for `rolling`/`time`. The group checks `supported` and `accepts` when it checks the framework, so unsupported combinations fail resolution rather than failing later inside `_compute_frame`. Pandas and DuckDB declare no restriction and support all eight agg types.
+- **How**: SQLite has no native `STD`/`VAR`/`MEDIAN` window functions, so `SqliteFrameAggregate.supported` is `_SQLITE_AGG_FUNCS` (`sum`/`avg`/`count`/`min`/`max`), rejecting `std`/`var`/`median` for every frame type. Polars has no cumulative `cum_std`/`cum_var`/`cum_median`, so `PolarsLazyFrameAggregate.accepts` rejects those agg types for `cumulative`/`expanding` frames and accepts every agg type for `rolling`/`time`. The group checks `supported` and `accepts` when it checks the framework, so unsupported combinations fail resolution rather than failing later inside `_compute_frame`. Pandas and DuckDB declare no restriction and support all eight agg types. Core's `subtype_support_matrix()` reads only `supported`, so it lists every agg type for Polars; `DataOperationsCatalog` probes the real check and is exact.
 - **Related**: issue #296.
 
 ### PythonDict NaN partition keys merge into one group; min/max/median/percentile skip NaN
