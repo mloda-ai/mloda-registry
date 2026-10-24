@@ -90,6 +90,8 @@ When filing a GitHub issue (via `gh issue create` or otherwise), follow the stru
 
 Issues that meet this bar are eligible for the `good first issue` label without further sharpening.
 
+An issue that waits on an unreleased mloda change gets the `blocked` label and a `[x.y.z] ` title prefix naming the mloda release it needs (e.g. `[0.18.0] Replace NameOnlyMatchMixin ...`). Reuse the version the open `blocked` issues already carry.
+
 ## Virtual Environment Setup
 
 Set up the environment:
