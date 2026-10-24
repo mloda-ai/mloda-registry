@@ -6,6 +6,7 @@ does not decide admissibility or concepts -- it produces one row per LEG, signed
 point of view of that leg's account, each carrying its own citation.
 """
 
+import os
 import re
 import shutil
 from datetime import date
@@ -21,7 +22,7 @@ from mloda.user import Feature, Options
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
 from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL, GdpduReader
 
-from .isolated import claimant, source_match
+from .isolated import claim, claimant, source_match
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
@@ -414,6 +415,45 @@ def test_a_comma_delimited_resave_is_refused(tmp_path: Path) -> None:
     _batch(tmp_path, [_row("1,00", "S", "4400", "10000", "1503")], name="EXTF_good.csv")
     with pytest.raises(DatevRefusal, match="delimiter"):
         _load(str(tmp_path))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks need POSIX")
+def test_a_link_leaving_the_folder_is_refused_unclaimed_and_unfingerprinted(tmp_path: Path) -> None:
+    outside = _batch(
+        tmp_path / "outside",
+        [_row("1,00", "S", "4400", "10000", "1502")],
+        name="secret.csv",
+        von="20250201",
+        bis="20250228",
+    )
+    books = tmp_path / "books"
+    _batch(books, [_row("1,00", "S", "4400", "10000", "1501")], name="EXTF_a.csv", von="20250101", bis="20250131")
+    # The target of the books link is no batch: peeking at its header would skip it and the load would succeed.
+    notes = tmp_path / "outside" / "notes.csv"
+    notes.write_bytes(b"a;b\r\n1;2\r\n")
+    (books / "EXTF_link.csv").symlink_to(notes)
+    with pytest.raises(DatevRefusal, match="links outside") as err:
+        _load(books)
+    assert "EXTF_link.csv" in str(err.value)
+    assert "copy it into the folder" in str(err.value)
+    assert str(notes) not in str(err.value)
+    assert str(outside) not in str(err.value)
+    assert DatevExtfReader.data_access_identity(source_match(books)) == "datev:books"
+
+    lonely = tmp_path / "lonely"
+    lonely.mkdir()
+    (lonely / "EXTF_link.csv").symlink_to(outside)
+    refused = claim([lonely], JOURNAL, {GdpduReader, DatevExtfReader})
+    assert refused.error
+    assert "EXTF_link.csv" in str(refused.error)
+    assert "links outside its folder" in str(refused.error)
+    assert str(outside) not in str(refused.error)
+
+    # A link that stays inside the folder still reads (its target is not a batch of its own).
+    inner = tmp_path / "inner"
+    _batch(inner / "sub", [_row("1,00", "S", "4400", "10000", "1503")], name="real.csv")
+    (inner / "EXTF_inside.csv").symlink_to(inner / "sub" / "real.csv")
+    assert _load(inner).num_rows > 0
 
 
 def test_a_moved_core_column_is_refused(tmp_path: Path) -> None:

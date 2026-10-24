@@ -33,9 +33,9 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import FeatureSet, SourceMatch
+from mloda.provider import INPUT_DATA_STAGE, FeatureSet, SourceMatch, record_match_rejection
 
-from .reader import _ORIGIN_COLUMN, _ReaderJournal
+from .reader import _ORIGIN_COLUMN, _ReaderJournal, _within
 
 
 class DatevRefusal(ValueError):
@@ -158,11 +158,15 @@ def _is_booking_batch(fields: list[str]) -> bool:
 def _batch_files(folder: str) -> list[str]:
     """Every DATEV booking batch in the folder. Stammdaten (16), Kontenbeschriftungen (20)
     and any other category are skipped by their header line, never parsed: category 16
-    holds names, addresses and IBANs, and nothing personal belongs in a journal."""
+    holds names, addresses and IBANs, and nothing personal belongs in a journal.
+    An entry linking outside the folder is listed without its header being read."""
     out = []
     for name in sorted(os.listdir(folder)):
         path = os.path.join(folder, name)
         if not (name.lower().endswith(".csv") and os.path.isfile(path)):
+            continue
+        if not _within(folder, path):
+            out.append(path)
             continue
         fields = _first_fields(path)
         # A DATEV header whose category cannot be read under ';' (a file re-saved with commas)
@@ -430,7 +434,16 @@ class DatevExtfReader(_ReaderJournal):
 
     @classmethod
     def dossier(cls, path: str) -> str | None:
-        return path if os.path.isdir(path) and _batch_files(path) else None
+        if not os.path.isdir(path):
+            return None
+        files = _batch_files(path)
+        if not files:
+            return None
+        if not any(_within(path, p) for p in files):
+            name = os.path.basename(files[0])
+            record_match_rejection(cls.get_class_name(), f"{name} links outside its folder", stage=INPUT_DATA_STAGE)
+            return None
+        return path
 
     @classmethod
     def columns(cls, match: SourceMatch) -> list[str]:
@@ -449,7 +462,7 @@ class DatevExtfReader(_ReaderJournal):
         name = os.path.basename(os.path.normpath(folder))
         try:
             files = _batch_files(folder)
-            if not files:
+            if not files or not all(_within(folder, p) for p in files):
                 return f"datev:{name}"
             digest = hashlib.sha256()
             for path in files:
@@ -465,6 +478,11 @@ class DatevExtfReader(_ReaderJournal):
         files = _batch_files(folder)
         if not files:
             raise DatevRefusal(f"{folder}: no Buchungsstapel (EXTF/DTVF category 21) in this folder")
+        for p in files:
+            if not _within(folder, p):
+                raise DatevRefusal(
+                    f"{folder}: {os.path.basename(p)} links outside the folder and is not read; copy it into the folder"
+                )
         batches = sorted((read_batch(p) + (os.path.basename(p),) for p in files), key=lambda b: (b[0].datum_von, b[2]))
 
         # One dossier is one client's books. Two clients summed into one total is not a
