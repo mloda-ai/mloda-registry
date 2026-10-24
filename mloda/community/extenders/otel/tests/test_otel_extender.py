@@ -2727,7 +2727,9 @@ class TestOtelExtenderRunScopeFullRuns:
             if span is not root:
                 assert (span.attributes or {}).get("mloda.run.id") == attributes["mloda.run.id"]
         assert root.context is not None
-        assert root.context.trace_id != uuid.UUID(attributes["mloda.run.id"]).int
+        run_id = attributes["mloda.run.id"]
+        assert isinstance(run_id, str)
+        assert root.context.trace_id != uuid.UUID(run_id).int
 
     @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
     def test_run_all_with_a_link_puts_the_join_span_under_the_run_root(

@@ -232,11 +232,13 @@ def _keyed(steps: list[_Step], legacy: bool, bases: set[Any], groups: set[Any]) 
     for step in steps:
         base = step.base(legacy)
         if base not in bases:
-            keyed[(*base, "", 0)] = step
+            key = (*base, "", 0)
+            keyed[key] = step
             continue
         group = (base, step.framework)
         seen[group] += 1
-        keyed[(*base, step.framework, seen[group] if group in groups else 0)] = step
+        key = (*base, step.framework, seen[group] if group in groups else 0)
+        keyed[key] = step
     return keyed
 
 

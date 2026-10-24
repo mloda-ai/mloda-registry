@@ -309,7 +309,7 @@ class OpenLineageExtender(Extender):
                 self._finalizer = weakref.finalize(
                     self, _close_released_client, client, type(self).__name__, self.close_timeout
                 )
-                self._finalizer.atexit = False  # type: ignore[misc]
+                self._finalizer.atexit = False
                 with _live_extenders_lock:
                     _live_extenders[id(self)] = self
         return self._client

@@ -108,14 +108,12 @@ def _app_span_ids(
         app_context = app_span.get_span_context()
         run_two_features(*extenders)
 
-    step_ids = {
-        span.attributes["mloda.step.run_id"]: (
-            format(span.context.trace_id, "032x"),
-            format(span.context.span_id, "016x"),
-        )
-        for span in exporter.get_finished_spans()
-        if span.attributes is not None and span.context is not None and "mloda.step.run_id" in span.attributes
-    }
+    step_ids: dict[str, tuple[str, str]] = {}
+    for span in exporter.get_finished_spans():
+        if span.attributes is not None and span.context is not None and "mloda.step.run_id" in span.attributes:
+            step_run_id = span.attributes["mloda.step.run_id"]
+            assert isinstance(step_run_id, str)
+            step_ids[step_run_id] = (format(span.context.trace_id, "032x"), format(span.context.span_id, "016x"))
     app_ids = (format(app_context.trace_id, "032x"), format(app_context.span_id, "016x"))
     return _step_complete_events(transport.events), step_ids, app_ids
 

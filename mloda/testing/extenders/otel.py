@@ -693,6 +693,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
             assert calculate, [s.name for s in spans]
             for span in calculate:
                 group = (span.attributes or {}).get("mloda.feature_group.name")
+                assert isinstance(group, str), span.attributes
                 context = make_hook_context(
                     hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, feature_group_class=group
                 )
