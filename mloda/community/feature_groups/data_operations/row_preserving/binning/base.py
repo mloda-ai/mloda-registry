@@ -44,7 +44,8 @@ class BinningFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, Featur
     ------------------
 
     Null input gives null output; the PyArrow implementation is the reference. Row count and order are
-    preserved. ``bin`` and ``qbin`` declare INT64.
+    preserved. ``bin`` and ``qbin`` declare INT64. Each implementation passes ``compute_binning(table,
+    feature_name, source_col, op, n_bins)`` to the group; it returns the input with the new column appended.
     """
 
     PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"

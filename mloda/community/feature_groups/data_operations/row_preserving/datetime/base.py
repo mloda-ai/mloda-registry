@@ -87,7 +87,9 @@ class DateTimeFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, Featu
     ## Reference Contract
 
     Null input gives null output; the PyArrow implementation is the reference. Row count and order are
-    preserved. ``dayofweek`` uses 0=Monday, 6=Sunday. Every op declares INT64.
+    preserved. ``dayofweek`` uses 0=Monday, 6=Sunday. Every op declares INT64. Each implementation passes
+    ``compute_datetime(data, feature_name, source_col, op)`` to the group; it returns the input with the new
+    column appended.
     """
 
     PREFIX_PATTERN = r".*__(year|month|day|hour|minute|second|dayofweek|is_weekend|quarter)$"

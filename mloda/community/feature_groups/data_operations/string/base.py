@@ -69,7 +69,8 @@ class StringFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, Feature
     ------------------
 
     Null input gives null output; the PyArrow implementation is the reference. Row count and order are
-    preserved. ``length`` declares INT64. SQLite serves only trim and length (``SqliteStringOps.supported``).
+    preserved. ``length`` declares INT64. Each implementation passes ``compute_string(table, feature_name,
+    source_col, op)`` to ``transform_string``; it returns the input with the new column appended. SQLite serves only trim and length (``SqliteStringOps.supported``).
     """
 
     PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
@@ -99,8 +100,8 @@ class StringFeatureGroup(OperationFeatureGroup, FeatureChainParserMixin, Feature
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
         """Validate that the parsed operation is a known string operation.
 
-        Subclasses (e.g. SqliteStringOps) can override to further restrict
-        the set of supported operations.
+        Per-framework restriction is declared on the Implementation through
+        ``Implementation.supported`` (e.g. SqliteStringOps), not here.
         """
         return operation_config in STRING_OPS
 

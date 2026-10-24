@@ -246,6 +246,8 @@ class DataOpsIntegrationTestBase(ABC):
 
     def test_family_base_is_not_selected_without_an_implementation(self) -> None:
         """With only the family base(s) and the source enabled, resolution fails as abstract-only."""
+        if issubclass(self.feature_group_class(), OperationFeatureGroup):
+            pytest.skip("an OperationFeatureGroup is concrete; the rejection test covers a missing framework")
         bases = [
             base
             for base in self.feature_group_class().__mro__[1:]
@@ -306,15 +308,21 @@ class DataOpsIntegrationTestBase(ABC):
         pytest.importorskip("pandas")
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+        if self.compute_framework_class() is PandasDataFrame:
+            pytest.skip("needs a second framework distinct from Pandas")
+
         name = self.primary_feature_name()
+        frameworks = [self.compute_framework_class(), PandasDataFrame]
         plugin_collector = PluginCollector.enabled_feature_groups(
             {self.data_creator_class(), self.feature_group_class()}
         )
-        results = mloda.run_all(
-            [self._make_feature(name, self.primary_feature_options())],
-            compute_frameworks=list(dict.fromkeys([self.compute_framework_class(), PandasDataFrame])),
-            plugin_collector=plugin_collector,
-        )
+        feature = self._make_feature(name, self.primary_feature_options())
+        plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=plugin_collector)
+        steps = [
+            step for step in plan if step.step_kind == "compute" and step.feature_group is self.feature_group_class()
+        ]
+        assert len(steps) == 1
+        results = mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=plugin_collector)
         frames = [frame for frame in results if name in result_column_names(frame)]
         assert len(frames) == 1
         self._assert_values_equal(extract_column(frames[0], name), self.primary_expected_values())

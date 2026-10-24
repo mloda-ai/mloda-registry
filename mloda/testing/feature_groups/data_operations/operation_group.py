@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar, NamedTuple
 
 import pytest
-from mloda.provider import FeatureGroup, FeatureSet, Implementation, OperationFeatureGroup
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, Implementation, OperationFeatureGroup
 from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
@@ -122,9 +122,9 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         assert not inspect.isabstract(group)
 
     def test_group_matches_before_the_bare_feature_group(self) -> None:
-        """The group's own matcher must run ahead of FeatureGroup's in the MRO."""
-        owner = next(c for c in self.group_class().__mro__ if "match_feature_group_criteria" in vars(c))
-        assert owner is not FeatureGroup
+        """The subtype matcher mixin must precede FeatureGroup in the MRO, whoever defines the matcher."""
+        mro = self.group_class().__mro__
+        assert mro.index(FeatureChainParserMixin) < mro.index(FeatureGroup)
 
     def test_group_declares_the_subtype_key(self) -> None:
         declaration = self.group_class().SUBTYPES
@@ -179,6 +179,8 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     def test_divergent_aliases_diverge_together(self, impl_id: str) -> None:
         """An alias shares its target's behaviour, so a backend that diverges on one diverges on the other."""
+        if not self.alias_pairs():
+            pytest.skip("no alias pairs declared")
         spec = self._spec(impl_id)
         divergent = self._implementation(spec).divergent
         for first, second in self.alias_pairs():

@@ -60,12 +60,12 @@ class TestSqliteStringOps(CapabilityHookTestMixin, ReservedColumnsTestMixin, Sql
 
 
 class TestSqliteUnsupportedOps:
-    """SQLite refuses upper/lower/reverse at match time; the resolver falls
-    back to another framework rather than silently producing ASCII-only output."""
+    """The group is not offered on SQLite for upper/lower/reverse (it still matches; only SQLite is dropped),
+    so the resolver falls back to another framework rather than silently producing ASCII-only output."""
 
     @pytest.mark.parametrize("operation", ["upper", "lower", "reverse"])
     def test_unsupported_op_does_not_match(self, operation: str) -> None:
-        """The group does not support SqliteFramework for the operation."""
+        """The group is not offered on SqliteFramework for the operation."""
         assert not StringFeatureGroup.supports_compute_framework(f"name__{operation}", Options(), SqliteFramework)
 
     def test_supported_ops_still_match(self) -> None:
