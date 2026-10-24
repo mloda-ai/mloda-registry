@@ -98,7 +98,7 @@ class NutsLookup(NutsMapping, LookupFeatureGroup):
     pass
 ```
 
-One subclass serves every framework: the shipped Implementations (`PyArrowLookup`, `PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) compute it. A subclass of a framework class such as `PyArrowLookup` no longer works, since those are Implementations now; subclass `LookupFeatureGroup` instead.
+One subclass serves every framework: the shipped Implementations (`PyArrowLookup`, `PandasLookup`, `PolarsLazyLookup`, `DuckdbLookup`, `SqliteLookup`, `PythonDictLookup`) compute it. Subclass `LookupFeatureGroup`, not a framework class such as `PyArrowLookup`: those are Implementations, not FeatureGroups.
 
 A hook rejects a `lookup_mapping` set on its own feature (`ValueError` at planning time). A `lookup_mapping` forwarded from a consumer's group options is ignored, so a generic `__lookup` can sit on top of a hook feature.
 
