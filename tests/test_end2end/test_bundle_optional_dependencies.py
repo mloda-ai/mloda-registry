@@ -36,17 +36,12 @@ _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 # The lineage sibling pin: compatible release on the {version} placeholder, equal to the leaf's dev entry.
 _LINEAGE_EMITTER_FLOOR = "mloda-community-openlineage~={version}"
 
-# One row per mloda-community extra-only dependency: (extra name, distribution name, leaf
-# package name, import root, exposed extender names). Extend this when the bundle gains another
-# extra-only plugin dependency.
+# One row per mloda-community extra-only dependency:
+# (extra name, distribution name, leaf package name, import root, names the package exposes lazily).
+# Extend this when the bundle gains another extra-only plugin dependency.
 _ROWS: list[tuple[str, str, str, str, list[str]]] = [
     ("openlineage", "openlineage-python", "mloda-community-openlineage", "openlineage", ["OpenLineageExtender"]),
     ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender", "OtelMetricsExtender"]),
-]
-
-# german-ledger has no entry points, so it joins only the pin tests, via _PIN_ROWS.
-_PIN_ROWS: list[tuple[str, str, str, str, list[str]]] = [
-    *_ROWS,
     ("german-ledger", "pyarrow", "mloda-community-german-ledger", "pyarrow", []),
 ]
 
@@ -77,7 +72,7 @@ def _external_dependency_names(deps: list[str], packages: dict[str, dict[str, An
     return names
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _PIN_ROWS)
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
@@ -91,7 +86,7 @@ def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
     )
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _PIN_ROWS)
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_mloda_community_declares_extra_matching_pin_source(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
@@ -227,7 +222,7 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
         )
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _PIN_ROWS)
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_generated_pyproject_lists_distribution_only_under_optional_extra(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
@@ -309,6 +304,9 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
     groups = [g for g in groups if g != gen.OPTIONAL_DEPENDENCIES_GROUP]
 
     with pytest.MonkeyPatch.context() as mp:
+        # Warm the group's manifests first so only the evicted leaf is cold-loaded with the root blocked.
+        for group in groups:
+            PluginLoader().load_entry_points(group=group)
         block_root(mp, root)
         evict_package(mp, dotted)
         for group in groups:
@@ -339,13 +337,15 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
             f"while {distribution_name} was blocked"
         )
 
-        leaf_module = importlib.import_module(dotted)
-        for attr in exposed:
-            assert attr not in vars(leaf_module), (
-                f"{dotted} still exposes {attr!r} after blocking {distribution_name}; {leaf_name} is "
-                f"covered only through the mloda-community.{extra_name} extra, so the package's __init__ "
-                "must not import it eagerly"
-            )
+        # The package imports without the dependency only because the marker is imported through it.
+        if gen.OPTIONAL_DEPENDENCIES_GROUP in leaf_cfg["entry_point_groups"]:
+            leaf_module = importlib.import_module(dotted)
+            for attr in exposed:
+                assert attr not in vars(leaf_module), (
+                    f"{dotted} still exposes {attr!r} after blocking {distribution_name}; {leaf_name} is "
+                    f"covered only through the mloda-community.{extra_name} extra, so the package's __init__ "
+                    "must not import it eagerly"
+                )
 
 
 def _extra_only_owned_leaves_with_entry_points(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
@@ -501,7 +501,11 @@ _TRANSITIVE_DEPENDENCY_OF_ROOT: dict[str, str] = {
 }
 
 
-@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+# Rows whose root has no hard dependency to block (pyarrow) have no transitive case.
+@pytest.mark.parametrize(
+    "extra_name, distribution_name, leaf_name, root, exposed",
+    [row for row in _ROWS if row[3] in _TRANSITIVE_DEPENDENCY_OF_ROOT],
+)
 def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency_is_missing(
     extra_name: str,
     distribution_name: str,

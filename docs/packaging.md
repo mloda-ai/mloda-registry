@@ -190,8 +190,9 @@ how the bundle owns `mloda-community-otel`, `mloda-community-openlineage` and th
 `mloda-community-german-ledger`: each extra pins the leaf exactly, and the leaf's own `dependencies`
 carry the third-party pin, so a bare `mloda-community` install ships none of them; each installs, and
 is probed, only through its own distribution or the matching extra. Every extra member that
-declares entry points must have a manifest that imports cleanly without that dependency, so
-entry-point loading of the rest of the bundle stays intact. The config steps are in
+declares entry points must be skipped by PluginLoader when that dependency is missing (a
+`mloda.optional_dependencies` marker, or a core default optional root such as german-ledger's
+`pyarrow`), so entry-point loading of the rest of the bundle stays intact. The config steps are in
 [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin).
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,

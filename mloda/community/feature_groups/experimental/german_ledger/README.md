@@ -48,11 +48,12 @@ for table in results:
 
 Three rules keep it predictable:
 
-1. **Import it.** Importing the package registers its feature groups; it declares no entry point
-   until [mloda#1745](https://github.com/mloda-ai/mloda/issues/1745). The `__sources` totals
-   also resolve after `PluginLoader.all()`; a direct request for an intermediate name such as
-   `revenue` then needs `feature_group=`, see
-   [Packages Without an Entry Point](../../../../../docs/guides/01-use-existing-plugin.md#packages-without-an-entry-point).
+1. **Install it.** `PluginLoader.all()` discovers the package through its entry point, and
+   importing it also registers its groups. `SkrAccountFeatureGroup` then answers `revenue` and
+   `receivables` by name alone, and `SourcesFeatureGroup` answers any `<name>__sources`. Scope a
+   request with `feature_group=` only when another group also answers the name (e.g. a file
+   column called `revenue`), see
+   [Names Claimed by an Installed Package](../../../../../docs/guides/01-use-existing-plugin.md#names-claimed-by-an-installed-package).
    A collection holding both formats (GDPdU and DATEV), or several dossiers of one format, must
    point at one source with a reader option key, e.g. `options={"GdpduReader": <folder>}`;
    unpointed, it is refused and the message names that fix.

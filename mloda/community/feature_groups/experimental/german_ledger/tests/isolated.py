@@ -12,8 +12,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from mloda.core.abstract_plugins.plugin_registry.plugin_registry import PluginSource
 from mloda.provider import FeatureGroup, FeatureSet, SourceMatch
-from mloda.steward import resolve_feature, verified_context
+from mloda.steward import PluginRegistry, resolve_feature, verified_context
 from mloda.user import DataAccessCollection, Feature, Options, PluginCollector, PluginLoader, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -43,6 +44,7 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import ( 
 )
 
 FIX = Path(__file__).parent / "fixtures"
+GERMAN_LEDGER_PACKAGE = "mloda.community.feature_groups.experimental.german_ledger."
 
 
 def run_isolated(name: str) -> dict[str, Any]:
@@ -140,16 +142,23 @@ def collision() -> dict[str, Any]:
 
 
 def plugin_loader_all() -> dict[str, Any]:
-    """After `PluginLoader.all()` (mloda#1745): the total, a scoped and an unscoped direct `revenue`."""
+    """After `PluginLoader.all()`: the entry point's registrations, the total, a scoped and an unscoped `revenue`."""
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
 
     PluginLoader.all()
     dossier = FIX / "dossier_a"
+    # Importing _host registers nothing, so an ENTRY_POINT entry can only come from the declared manifest.
+    registered = sorted(
+        entry.cls.__qualname__
+        for entry in PluginRegistry.default().snapshot().values()
+        if entry.source is PluginSource.ENTRY_POINT and entry.cls.__module__.startswith(GERMAN_LEDGER_PACKAGE)
+    )
 
     def direct(feature: Feature | str) -> list[str]:
         return sorted(_run(dossier, [feature]))
 
     return {
+        "registered": registered,
         "revenue": outcome(lambda: _revenue(dossier)),
         "part": outcome(lambda: str(_run(dossier, ["revenue__sources~value"])["revenue__sources~value"][0])),
         "scoped": outcome(lambda: direct(Feature("revenue", feature_group=SkrAccountFeatureGroup))),
