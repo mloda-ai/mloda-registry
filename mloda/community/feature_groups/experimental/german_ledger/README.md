@@ -53,8 +53,9 @@ Three rules keep it predictable:
    also resolve after `PluginLoader.all()`; a direct request for an intermediate name such as
    `revenue` then needs `feature_group=`, see
    [Packages Without an Entry Point](../../../../../docs/guides/01-use-existing-plugin.md#packages-without-an-entry-point).
-   A collection holding both formats (GDPdU and DATEV) must pin
-   one reader by its option key (`GdpduReader` or `DatevExtfReader`); unpinned, it is refused.
+   A collection holding both formats (GDPdU and DATEV), or several dossiers of one format, must
+   point at one source with a reader option key, e.g. `options={"GdpduReader": <folder>}`;
+   unpointed, it is refused and the message names that fix.
 2. **Exactly one policy per process.** Your subclass of `AdmissibilityPolicyGroup` is the
    policy. With none, `revenue__sources` does not resolve. With two, resolution refuses.
    Either way there is no number. Need several checks? List them as rules in that one
@@ -65,7 +66,7 @@ Three rules keep it predictable:
 ## The chain
 
 ```
-gdpdu_journal            JournalFeatureGroup / DatevJournalFeatureGroup   rows (or legs)
+gdpdu_journal            GdpduReader / DatevExtfReader                    rows (or legs)
 gdpdu_journal__admitted  your AdmissibilityPolicyGroup subclass           rows, cleared + stamped
 revenue, receivables     SkrAccountFeatureGroup                           concept at line grain
 revenue__sources         SourcesFeatureGroup                              total + citations
@@ -147,10 +148,9 @@ Pinning one reader by option key also resolves a single folder that holds both f
 - **Classification:** both readers declare `mloda.data.classification = confidential`, so an
   audit `ClassificationPolicy` needs clearance `confidential` or above; a gate below it is
   refused. `exempt_readers` skips only the plan-time probe, not the run-start check. Raising the
-  clearance is the intended lever. A reader subclass with a lower `CLASSIFICATION` also works,
-  but core then prefers it over the stock reader for every read in the process, so every
-  dossier there carries the lower level. Imported readers are candidates for every file read
-  (mloda#1745), so unrelated reads under a lower gate record a deny but continue.
+  clearance is the intended lever. A reader subclass with a lower `CLASSIFICATION` also works:
+  enable it in the `PluginCollector` in place of the stock reader, and every dossier it reads
+  carries the lower level.
 - **Resolution evidence:** `mloda.diagnose` says, per feature, the group chosen, the groups
   that also matched and those that declined, with stage and reason.
 

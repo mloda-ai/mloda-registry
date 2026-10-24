@@ -1,4 +1,4 @@
-"""GdpduReader: a descriptor-driven ReadFile subclass for GDPdU/GoBD dossiers."""
+"""GdpduReader: a descriptor-driven SourceFeatureGroup for GDPdU/GoBD dossiers."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import xml.etree.ElementTree as ET  # nosec B405
+from abc import abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -16,9 +17,17 @@ from typing import Any
 from xml.parsers import expat
 
 import pyarrow as pa
-from mloda.provider import INPUT_DATA_STAGE, FeatureSet, record_match_rejection
+from mloda.provider import (
+    INPUT_DATA_STAGE,
+    ClaimRoute,
+    FeatureSet,
+    NamePolicy,
+    SourceFeatureGroup,
+    SourceMatch,
+    record_match_rejection,
+)
 from mloda.user import DataAccessCollection, Options
-from mloda_plugins.feature_group.input_data.read_file import ReadFile
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 INDEX_NAME = "index.xml"
 
@@ -476,37 +485,6 @@ def _fingerprint(descriptor_bytes: bytes, raw: bytes) -> str:
     return hashlib.sha256(descriptor_bytes + b"\x00" + raw).hexdigest()[:12]
 
 
-def _family(reader: type[ReadFile]) -> list[type[ReadFile]]:
-    """`reader` and every subclass of it, as core enumerates readers when it resolves a pin."""
-    found = [reader]
-    for sub in reader.__subclasses__():
-        found.extend(_family(sub))
-    return found
-
-
-def _pinned(reader: type[ReadFile], options: Options) -> bool:
-    """True when `reader` or a subclass of it is pinned by its data access name in `options`."""
-    return any(r.data_access_name() in options for r in _family(reader))
-
-
-def decline_unconfirmed(
-    cls: type[ReadFile], feature_names: list[str], options: Options, sibling: type[ReadFile]
-) -> bool:
-    """True, with a recorded rejection, when `cls` must not answer: it only confirms JOURNAL,
-    and stands down when the sibling reader (or a subclass) is pinned and `cls` (or a subclass)
-    is not, so pinning both leaves core to report the ambiguity."""
-    name = cls.get_class_name()
-    if _pinned(sibling, options) and not _pinned(cls, options):
-        reason = f"{name} declines: {sibling.get_class_name()} is pinned by option key"
-    else:
-        offending = [n for n in feature_names if n != JOURNAL]
-        if not offending:
-            return False
-        reason = f"{name} confirms only {JOURNAL!r}, not the requested feature name {offending[0]!r}"
-    record_match_rejection(name, reason, stage=INPUT_DATA_STAGE)
-    return True
-
-
 CLASSIFICATION_KEY = "mloda.data.classification"
 
 
@@ -520,39 +498,128 @@ class ClassifiedReader:
         return {CLASSIFICATION_KEY: cls.CLASSIFICATION}
 
 
-class GdpduReader(ClassifiedReader, ReadFile):
-    """Claims a dossier *directory* by its index.xml, not a file by suffix."""
+def _prefixed(table: pa.Table, feature: str) -> pa.Table:
+    """Declared columns as subcolumns of `feature`; the stamp keeps its reserved name."""
+    return pa.table({c if c == ADMISSIBILITY_COLUMN else f"{feature}~{c}": table.column(c) for c in table.column_names})
+
+
+def unprefixed(table: pa.Table, feature: str) -> pa.Table:
+    """The inverse of `_prefixed`: the dossier's own column names back, stamp included."""
+    head = f"{feature}~"
+    return pa.table(
+        {
+            c[len(head) :] if c.startswith(head) else c: table.column(c)
+            for c in table.column_names
+            if c.startswith(head) or c == ADMISSIBILITY_COLUMN
+        }
+    )
+
+
+class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
+    """Abstract base of the dossier readers: finds dossiers in folders and files, serves JOURNAL."""
+
+    CLAIM_ROUTES = (ClaimRoute("dossier", NamePolicy.DECLARED, True),)
+
+    @classmethod
+    def declared_names(cls) -> frozenset[str]:
+        return frozenset({JOURNAL})
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: Any,
+        options: Options,
+        data_access_collection: DataAccessCollection | None = None,
+    ) -> bool:
+        """Names other than JOURNAL decline before any source is probed."""
+        if cls.get_column_base_feature(str(feature_name)) != JOURNAL:
+            return False
+        return super().match_feature_group_criteria(feature_name, options, data_access_collection)
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PyArrowTable}
+
+    @classmethod
+    @abstractmethod
+    def dossier(cls, path: str) -> str | None:
+        """The dossier directory `path` names, None when it is not one of this format."""
+
+    @classmethod
+    def find_sources(
+        cls,
+        route: ClaimRoute,
+        feature_name: str,
+        options: Options,
+        data_access_collection: DataAccessCollection | None,
+    ) -> list[SourceMatch]:
+        pointer = next((k for k in cls.pointer_keys() if k in options), None)
+        candidates: list[Any]
+        if pointer is not None:
+            candidates = [options.get(pointer)]
+            if not isinstance(candidates[0], (str, Path)):
+                record_match_rejection(cls.get_class_name(), "the pointer value must be a path", stage=INPUT_DATA_STAGE)
+                return []
+        elif data_access_collection is not None:
+            candidates = [*data_access_collection.folders.values(), *data_access_collection.files.values()]
+        else:
+            candidates = []
+        found: dict[str, SourceMatch] = {}
+        for candidate in candidates:
+            folder = cls.dossier(str(candidate))
+            if folder is not None:
+                found.setdefault(os.path.abspath(folder), SourceMatch(source=os.path.abspath(folder), access=folder))
+        return list(found.values())
+
+    @classmethod
+    def ambiguity_fix(
+        cls, feature_name: str, matches: list[SourceMatch], data_access_collection: DataAccessCollection | None
+    ) -> str:
+        return f'point at one with options={{"{cls.get_class_name()}": <folder>}}.'
+
+    @classmethod
+    @abstractmethod
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
+        """The dossier's rows under its own column names."""
+
+    @classmethod
+    def load_neutral(cls, match: SourceMatch, features: Any) -> Any:
+        return _prefixed(cls.load_data(match.access, features), JOURNAL)
+
+
+class GdpduReader(_ReaderJournal):
+    """Claims a dossier *directory* by its index.xml."""
 
     #: public alias; parse_descriptor reserves this name against a descriptor collision
     ORIGIN_COLUMN = _ORIGIN_COLUMN
 
     @classmethod
-    def suffix(cls) -> tuple[str, ...]:
-        # Vestigial for THIS reader: matching is directory-based (see
-        # match_subclass_data_access below), so nothing here is selected by suffix. The value
-        # is kept because the stock ReadFile base still calls it on paths this class does not
-        # take, and ".xml" is the descriptor a dossier is claimed by.
-        return (".xml",)
+    def dossier(cls, path: str) -> str | None:
+        if os.path.isdir(path) and os.path.isfile(os.path.join(path, INDEX_NAME)):
+            return path
+        if os.path.basename(path) == INDEX_NAME and os.path.isfile(path):
+            return os.path.dirname(path)
+        return None
 
     @classmethod
-    def get_column_names(cls, file_name: str) -> list[str]:
+    def columns(cls, match: SourceMatch) -> list[str] | None:
         """The columns the DESCRIPTOR declares, plus the origin column this reader adds.
 
-        ReadFile treats a class that does not override this as unable to confirm a chain- or
-        column-separated feature name, and declines such a name while matching. This reader CAN
-        confirm one -- index.xml names every column before a byte of data is read -- so it
-        answers rather than bypassing the guard by omission. (Matching itself still confirms only
-        `gdpdu_journal`; this method answers for the columns a loaded dossier carries.)
-        `__admissibility` is deliberately absent: a policy adds it, not the reader, and claiming a
-        column this class does not produce would be the same silent overstatement the rest of this
-        package exists to prevent.
+        `__admissibility` is deliberately absent: a policy adds it, not the reader.
         """
-        index_path = os.path.join(file_name, INDEX_NAME) if os.path.isdir(file_name) else file_name
-        spec = parse_descriptor_bytes(Path(index_path).read_bytes(), index_path)
+        index_path = os.path.join(match.access, INDEX_NAME)
+        try:
+            spec = parse_descriptor_bytes(Path(index_path).read_bytes(), index_path)
+        except (OSError, ValueError, ET.ParseError):
+            return None
         return [*spec.columns, cls.ORIGIN_COLUMN]
 
     @classmethod
-    def data_access_identity(cls, data_access: Any) -> str:
+    def unknown_columns_reason(cls, match: SourceMatch) -> str | None:
+        return f"{INDEX_NAME} of {os.path.basename(os.path.normpath(match.access))} cannot be read"
+
+    @classmethod
+    def data_access_identity(cls, match: SourceMatch) -> str:
         """`gdpdu:<dossier>@<fingerprint>` -- what core hands every extender.
 
         The default for an existing local path is the path as given, which publishes the
@@ -564,7 +631,7 @@ class GdpduReader(ClassifiedReader, ReadFile):
         A dossier that cannot be fingerprinted still gets a name, without the fingerprint:
         claiming less is honest, and the load that follows reports the actual error.
         """
-        dossier_dir = str(data_access)
+        dossier_dir = str(match.access)
         name = os.path.basename(os.path.normpath(dossier_dir))
         try:
             descriptor_bytes = Path(os.path.join(dossier_dir, INDEX_NAME)).read_bytes()
@@ -573,31 +640,6 @@ class GdpduReader(ClassifiedReader, ReadFile):
         except (OSError, ValueError, ET.ParseError):
             return f"gdpdu:{name}"
         return f"gdpdu:{name}@{_fingerprint(descriptor_bytes, raw)}"
-
-    @classmethod
-    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        """Stock ReadFile takes the first suffix match in listdir and then demands the requested
-        feature name be a source column. A dossier has neither property, so claim the directory.
-
-        Only JOURNAL is confirmed; any other feature name is declined, and so is a request that
-        pins the DATEV reader without pinning this one."""
-        candidates: list[str] = []
-        if isinstance(data_access, DataAccessCollection):
-            candidates = list(data_access.folders.values()) + list(data_access.files.values())
-        elif isinstance(data_access, (str, Path)):
-            candidates = [str(data_access)]
-
-        for candidate in candidates:
-            if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, INDEX_NAME)):
-                found = candidate
-            elif os.path.basename(candidate) == INDEX_NAME and os.path.isfile(candidate):
-                found = os.path.dirname(candidate)
-            else:
-                continue
-            from .datev import DatevExtfReader  # lazy: datev imports this module
-
-            return None if decline_unconfirmed(cls, feature_names, options, DatevExtfReader) else found
-        return None
 
     @classmethod
     def load_data(cls, data_access: Any, features: FeatureSet) -> Any:

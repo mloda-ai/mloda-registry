@@ -12,7 +12,7 @@ from typing import Any
 from xml.etree.ElementTree import ParseError  # nosec B405
 
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureSet, SourceMatch
 from mloda.user import Options
 
 from mloda.community.feature_groups.experimental.german_ledger.reader import (
@@ -87,25 +87,27 @@ def test_a_descriptor_naming_the_gdpdu_dtd_still_parses() -> None:
 def test_the_identity_of_a_refused_descriptor_is_still_a_name(tmp_path: Path, raw: bytes) -> None:
     """data_access_identity never raises: a refused descriptor still gets a name."""
     (tmp_path / "index.xml").write_bytes(raw)
-    assert GdpduReader.data_access_identity(str(tmp_path)) == f"gdpdu:{tmp_path.name}"
+    assert (
+        GdpduReader.data_access_identity(SourceMatch(source=str(tmp_path), access=str(tmp_path)))
+        == f"gdpdu:{tmp_path.name}"
+    )
 
 
 # --- reader overlap through the resolution chain ------------------------------------------------
 
 
 def _resolve(folders: list[Path], name: str, options: dict[str, str] | None = None, journals: bool = False) -> Any:
-    """Run `name` against `folders` with only ReadFileFeature (or, with `journals`, the two journals) enabled."""
+    """Run `name` against `folders` with only CsvFG (or, with `journals`, the two journals) enabled."""
     from mloda.user import DataAccessCollection, Feature, PluginCollector, mloda
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-    from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
-    from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader  # noqa: F401  (registers the reader)
+    from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
 
     from mloda.community.feature_groups.experimental.german_ledger.policy import (
         DatevJournalFeatureGroup,
         JournalFeatureGroup,
     )
 
-    groups: set[Any] = {DatevJournalFeatureGroup, JournalFeatureGroup} if journals else {ReadFileFeature}
+    groups: set[Any] = {DatevJournalFeatureGroup, JournalFeatureGroup} if journals else {CsvFG}
     feature = Feature(name, Options(options or {}))
     return mloda.run_all(
         features=[feature],
@@ -122,7 +124,26 @@ def test_a_gdpdu_folder_does_not_claim_a_csv_column_name(tmp_path: Path) -> None
     (folder / "plain.csv").write_text("Kontonummer,Bezeichnung\n4000,Erloese\n", encoding="utf-8")
     results = _resolve([folder], "Bezeichnung")
     assert [t.column("Bezeichnung").to_pylist() for t in results] == [["Erloese"]]
-    assert not GdpduReader.match_subclass_data_access(str(folder), ["Bezeichnung"], Options())
+    assert _claimant([folder], "Bezeichnung") is None
+
+
+def _claim(
+    folders: list[Path], name: str, options: dict[str, str] | None = None, groups: set[Any] | None = None
+) -> Any:
+    """Resolve `name` over `folders` with only `groups` enabled (default: the GDPdU reader)."""
+    from mloda.steward import resolve_feature
+    from mloda.user import DataAccessCollection, Feature, PluginCollector
+
+    return resolve_feature(
+        Feature(name, Options(options or {})),
+        plugin_collector=PluginCollector.enabled_feature_groups(groups or {GdpduReader}),
+        data_access_collection=DataAccessCollection(folders={str(f) for f in folders}),
+    )
+
+
+def _claimant(folders: list[Path], name: str) -> Any:
+    result = _claim(folders, name)
+    return None if result.error else result.feature_group
 
 
 def _twin_pair() -> list[Path]:
@@ -205,11 +226,22 @@ def test_a_host_subclass_of_the_gdpdu_reader_pinned_by_name_stands_the_datev_rea
 
     try:
         folder = str(_twin_pair()[1])
-        options = Options({"_HostGdpdu": folder})
-        assert DatevExtfReader.match_subclass_data_access(folder, ["gdpdu_journal"], options) is None
+        result = _claim([_twin_pair()[1]], "gdpdu_journal", {"_HostGdpdu": folder}, {DatevExtfReader})
+        assert result.feature_group is not DatevExtfReader, result.feature_group
     finally:
         del _HostGdpdu
         gc.collect()
+
+
+def test_two_dossiers_of_one_format_in_one_collection_are_refused_naming_the_pointer(tmp_path: Path) -> None:
+    folders = [tmp_path / "a", tmp_path / "b"]
+    for folder in folders:
+        shutil.copytree(DOSSIER_A, folder)
+    with pytest.raises(Exception) as info:
+        _resolve(folders, "gdpdu_journal", journals=True)
+    message = str(info.value)
+    assert "several sources" in message, message
+    assert 'options={"GdpduReader":' in message, message
 
 
 # --- structured citations -----------------------------------------------------------------------

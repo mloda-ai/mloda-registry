@@ -13,7 +13,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureSet, SourceMatch
 from mloda.user import DataAccessCollection, Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -77,15 +77,25 @@ def test_collision_gate() -> None:
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue", Options()) is True
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue__sources", Options()) is False
     # The stock reader declines this on its own; the collision scenario below is what pins the gate.
-    dossier = DataAccessCollection(folders={str(FIX / "dossier_a")})
-    assert JournalFeatureGroup.match_feature_group_criteria("gdpdu_journal", Options(), dossier) is True
-    assert JournalFeatureGroup.match_feature_group_criteria("revenue__sources", Options(), dossier) is False
+    from mloda.steward import resolve_feature
+    from mloda.user import PluginCollector
+
+    def claimed(name: str) -> Any:
+        result = resolve_feature(
+            Feature(name),
+            plugin_collector=PluginCollector.enabled_feature_groups({JournalFeatureGroup}),
+            data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
+        )
+        return result.feature_group
+
+    assert claimed("gdpdu_journal") is JournalFeatureGroup
+    assert claimed("revenue__sources") is None
 
     facts = run_isolated("collision")
     assert facts["gated"] == "45385.06", facts
     ungated = facts["ungated"]
     assert ungated.startswith("FeatureResolutionError: Multiple feature groups found"), facts
-    for name in ("UngatedJournal", "SourcesFeatureGroup", "PermissiveReader"):
+    for name in ("SourcesFeatureGroup", "PermissiveReader"):
         assert name in ungated, facts
 
 
@@ -1521,25 +1531,15 @@ def test_implied_accuracy_does_not_round_a_wide_amount_at_parse_time() -> None:
         assert got == Decimal("123456789012345678901234567890123456.78"), got
 
 
-def test_reader_answers_get_column_names_from_the_descriptor() -> None:
-    """`get_column_names` is load-bearing for matching.
+def _match(folder: Path | str) -> SourceMatch:
+    return SourceMatch(source=str(folder), access=str(folder))
 
-    `ReadFile._declines_unvalidated_separator_name` declines a chain- or column-separated
-    feature name when a reader does NOT override this method, on the grounds that such a
-    reader cannot confirm the name. This reader can: index.xml declares every column before
-    a byte of data is read. Overriding it is the honest way to be exempt from that guard --
-    bypassing it by omission, which is what a `match_subclass_data_access` override does,
-    is the failure mode ReadFile's docstring warns about.
-    """
-    from mloda_plugins.feature_group.input_data.read_file import ReadFile
 
-    assert GdpduReader._is_overridden(ReadFile, "get_column_names"), (
-        "ReadFile's separator guard treats a non-overriding reader as unable to confirm names"
-    )
-
+def test_reader_answers_columns_from_the_descriptor() -> None:
+    """`columns` is load-bearing for matching: index.xml declares every column before a byte of data is read."""
     # Each dossier answers with ITS OWN declared names -- the second exporter's shape is not
     # the first one's, which is the whole point of reading the descriptor rather than sniffing.
-    assert GdpduReader.get_column_names(str(FIX / "dossier_a")) == [
+    assert GdpduReader.columns(_match(FIX / "dossier_a")) == [
         "Satznr",
         "Konto",
         "Betrag",
@@ -1548,7 +1548,7 @@ def test_reader_answers_get_column_names_from_the_descriptor() -> None:
         "Belegtext",
         "__origin",
     ]
-    assert GdpduReader.get_column_names(str(FIX / "dossier_c")) == [
+    assert GdpduReader.columns(_match(FIX / "dossier_c")) == [
         "Satz",
         "Sachkonto",
         "Umsatz",
@@ -1559,14 +1559,15 @@ def test_reader_answers_get_column_names_from_the_descriptor() -> None:
     ]
 
 
-def test_get_column_names_does_not_claim_the_admissibility_column() -> None:
+def test_columns_does_not_claim_the_admissibility_column() -> None:
     """A policy adds `__admissibility`, not the reader.
 
     Listing it here would claim a column this class does not produce -- the same silent
     overstatement the rest of this package exists to prevent, one layer down.
     """
 
-    columns = GdpduReader.get_column_names(str(FIX / "dossier_a"))
+    columns = GdpduReader.columns(_match(FIX / "dossier_a"))
+    assert columns is not None
     assert ADMISSIBILITY_COLUMN not in columns
     assert GdpduReader.ORIGIN_COLUMN in columns
 
@@ -1579,7 +1580,7 @@ def test_the_dossier_identity_names_its_fingerprint_not_a_local_path() -> None:
     The override names the dossier and the same descriptor-plus-data fingerprint the row
     citations carry, so an extender's record joins with the citations it vouches for.
     """
-    ident = GdpduReader.data_access_identity(str(FIX / "dossier_a"))
+    ident = GdpduReader.data_access_identity(_match(FIX / "dossier_a"))
     origin = GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet()).column("__origin")[0].as_py()
     fingerprint = origin.split("@", 1)[1].split(":", 1)[0]
     assert ident == f"gdpdu:dossier_a@{fingerprint}", (ident, origin)
@@ -1591,12 +1592,12 @@ def test_the_dossier_identity_names_its_fingerprint_not_a_local_path() -> None:
         shutil.copytree(FIX / "dossier_a", d)
         gl = d / "GL.txt"
         gl.write_text(gl.read_text().replace("Umsatz Oktober", "Umsatz Oktobers"))
-        assert GdpduReader.data_access_identity(str(d)) != ident
+        assert GdpduReader.data_access_identity(_match(d)) != ident
 
         # a dossier that cannot be fingerprinted is named, not crashed on: core calls this
         # before the load, and the load is where the actual error belongs
         (d / "index.xml").write_text("<oops")
-        assert GdpduReader.data_access_identity(str(d)) == "gdpdu:dossier_a"
+        assert GdpduReader.data_access_identity(_match(d)) == "gdpdu:dossier_a"
 
 
 def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
@@ -1622,7 +1623,7 @@ def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
         function_extender={Recorder()},
         plugin_collector=PLUGINS,
     )
-    assert seen == [GdpduReader.data_access_identity(str(FIX / "dossier_a"))], seen
+    assert seen == [GdpduReader.data_access_identity(_match(FIX / "dossier_a"))], seen
 
 
 def test_a_declared_skip_num_bytes_is_refused_rather_than_disregarded() -> None:

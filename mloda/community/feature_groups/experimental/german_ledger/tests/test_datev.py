@@ -15,7 +15,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureSet, SourceMatch
 from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
@@ -430,20 +430,36 @@ def test_a_folder_with_no_booking_batch_is_refused(tmp_path: Path) -> None:
 # --- claiming a folder, identity ---------------------------------------------------------
 
 
+def _match(folder: Path | str) -> SourceMatch:
+    return SourceMatch(source=str(folder), access=str(folder))
+
+
+def _claimant(folder: Path | str, name: str = JOURNAL) -> Any:
+    """The reader that resolution gives `name` over `folder`, or None, with both readers enabled."""
+    from mloda.steward import resolve_feature
+    from mloda.user import DataAccessCollection, PluginCollector
+
+    result = resolve_feature(
+        Feature(name),
+        plugin_collector=PluginCollector.enabled_feature_groups({GdpduReader, DatevExtfReader}),
+        data_access_collection=DataAccessCollection(folders={str(folder)}),
+    )
+    return result.feature_group if not result.error else None
+
+
 def test_the_reader_claims_a_batch_folder_and_nothing_else(tmp_path: Path) -> None:
-    assert DatevExtfReader.match_subclass_data_access(str(LEDERMANN), [JOURNAL], Options()) == str(LEDERMANN)
+    assert _claimant(LEDERMANN) is DatevExtfReader
     gdpdu = HERE / "fixtures" / "dossier_a"
-    assert DatevExtfReader.match_subclass_data_access(str(gdpdu), [JOURNAL], Options()) is None
-    assert DatevExtfReader.match_subclass_data_access(str(LEDERMANN), ["x"], Options()) is None
-    assert GdpduReader.match_subclass_data_access(str(LEDERMANN), ["x"], Options()) is None
+    assert _claimant(gdpdu) is GdpduReader
+    assert _claimant(LEDERMANN, "x") is None
     only_stamm = tmp_path / "stamm"
     only_stamm.mkdir()
     shutil.copy(LEDERMANN / "EXTF_Stammdaten.csv", only_stamm)
-    assert DatevExtfReader.match_subclass_data_access(str(only_stamm), [JOURNAL], Options()) is None
+    assert _claimant(only_stamm) is None
 
 
 def test_identity_names_the_folder_and_fingerprint_and_no_personal_data(tmp_path: Path) -> None:
-    ident = DatevExtfReader.data_access_identity(str(LEDERMANN))
+    ident = DatevExtfReader.data_access_identity(_match(LEDERMANN))
     assert re.fullmatch(r"datev:datev_ledermann@[0-9a-f]{12}", ident), ident
     for leak in ("1001", "456", "XY", "Chief", str(HERE)):
         assert leak not in ident
@@ -454,17 +470,17 @@ def test_identity_names_the_folder_and_fingerprint_and_no_personal_data(tmp_path
     broken = tmp_path / "broken"
     broken.mkdir()
     (broken / "EXTF_x.csv").write_bytes(b"\xff\xfe")
-    assert DatevExtfReader.data_access_identity(str(broken)).startswith("datev:broken")
-    assert DatevExtfReader.data_access_identity(str(tmp_path / "absent")) == "datev:absent"
+    assert DatevExtfReader.data_access_identity(_match(broken)).startswith("datev:broken")
+    assert DatevExtfReader.data_access_identity(_match(tmp_path / "absent")) == "datev:absent"
 
 
 def test_the_identity_moves_when_a_batch_is_edited(tmp_path: Path) -> None:
     d = tmp_path / "books"
     shutil.copytree(LEDERMANN, d)
-    before = DatevExtfReader.data_access_identity(str(d))
+    before = DatevExtfReader.data_access_identity(_match(d))
     p = d / "EXTF_Buchungsstapel.csv"
     p.write_bytes(p.read_bytes().replace(b"5950,00", b"5950,01"))
-    assert DatevExtfReader.data_access_identity(str(d)) != before
+    assert DatevExtfReader.data_access_identity(_match(d)) != before
 
 
 # --- third-party export shapes, on invented bookings -------------------------------------
@@ -563,17 +579,14 @@ def _run(folder: Path, features: list[str | Feature]) -> Any:
 
 
 def test_a_datev_folder_resolves_to_the_datev_journal() -> None:
-    from mloda.user import DataAccessCollection, Options
-
     from mloda.community.feature_groups.experimental.german_ledger.policy import (
         DatevJournalFeatureGroup,
         JournalFeatureGroup,
     )
 
-    dac = DataAccessCollection(folders={str(LEDERMANN)})
-    assert DatevJournalFeatureGroup.match_feature_group_criteria("gdpdu_journal", Options(), dac)
-    assert not JournalFeatureGroup.match_feature_group_criteria("gdpdu_journal", Options(), dac)
-    assert not DatevJournalFeatureGroup.match_feature_group_criteria("revenue__sources", Options(), dac)
+    assert _claimant(LEDERMANN) is DatevJournalFeatureGroup
+    assert _claimant(LEDERMANN) is not JournalFeatureGroup
+    assert _claimant(LEDERMANN, "revenue__sources") is None
 
 
 def test_the_late_entry_cutoff_refuses_a_datev_batch_it_cannot_evaluate() -> None:

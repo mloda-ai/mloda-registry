@@ -22,7 +22,6 @@ from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityPolicyGroup,
     Festschreibung,
     ForFormat,
-    JournalFeatureGroup,
     LateEntryCutoff,
     PeriodBound,
     unprefixed,
@@ -93,18 +92,14 @@ def _revenue(folder: Path, plugin_collector: Any = None) -> str:
 def collision() -> dict[str, Any]:
     """A reader that claims every name: the journal's name gate yields a total, without it resolution collides."""
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
+    from mloda.community.feature_groups.experimental.german_ledger.tests._host import PLUGINS
 
-    # A GdpduReader subclass replaces the stock reader process-wide.
     class PermissiveReader(GdpduReader):
+        """Declares every name and does not gate on its own."""
+
         @classmethod
-        def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Any) -> Any:
-            return super().match_subclass_data_access(data_access, [JOURNAL], options)
-
-    gated = outcome(lambda: _revenue(FIX / "dossier_a"))
-
-    # Shadows JournalFeatureGroup (mloda keeps a matching subclass over its parent).
-    class UngatedJournal(JournalFeatureGroup):
-        """Identical, except it does not gate on its own name first."""
+        def declared_name_prefixes(cls) -> tuple[str, ...]:
+            return ("",)
 
         @classmethod
         def match_feature_group_criteria(
@@ -113,7 +108,12 @@ def collision() -> dict[str, Any]:
             unbound: Any = FeatureGroup.match_feature_group_criteria
             return bool(unbound.__func__(cls, feature_name, options, data_access_collection))
 
-    ungated = outcome(lambda: _revenue(FIX / "dossier_a"))
+    # The stock reader is enabled by name only, so the permissive one joins the same collector.
+    enabled = PLUGINS.enabled_feature_group_classes
+    gated = outcome(lambda: _revenue(FIX / "dossier_a", PLUGINS))
+    ungated = outcome(
+        lambda: _revenue(FIX / "dossier_a", PluginCollector.enabled_feature_groups({*enabled, PermissiveReader}))
+    )
     return {"gated": gated, "ungated": ungated}
 
 
@@ -178,10 +178,20 @@ def profile_shadow() -> dict[str, Any]:
 
 def reader_classification() -> dict[str, Any]:
     """A reader subclass with a lower CLASSIFICATION replaces the stock reader process-wide."""
-    from mloda.community.feature_groups.experimental.german_ledger.tests._host import PLUGINS, ListSink, audit_gate
+    from mloda.community.feature_groups.experimental.german_ledger.policy import DatevJournalFeatureGroup
+    from mloda.community.feature_groups.experimental.german_ledger.tests._host import (
+        ListSink,
+        TestClosing2025,
+        audit_gate,
+    )
 
     class InternalGdpduReader(GdpduReader):
         CLASSIFICATION = "internal"
+
+    # The lower-classification subclass is enabled in place of the stock reader.
+    plugins = PluginCollector.enabled_feature_groups(
+        {InternalGdpduReader, DatevJournalFeatureGroup, TestClosing2025, SkrAccountFeatureGroup, SourcesFeatureGroup}
+    )
 
     sink = ListSink()
     gate = audit_gate(sink, "internal")
@@ -190,7 +200,7 @@ def reader_classification() -> dict[str, Any]:
             ["revenue__sources"],
             compute_frameworks=[PyArrowTable],
             data_access_collection=DataAccessCollection(folders={str(FIX / "twin_2025" / "gdpdu")}),
-            plugin_collector=PLUGINS,
+            plugin_collector=plugins,
             function_extender={gate},
         )
     denies = [

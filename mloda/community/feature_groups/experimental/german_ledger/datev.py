@@ -33,11 +33,9 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import FeatureSet
-from mloda.user import DataAccessCollection, Options
-from mloda_plugins.feature_group.input_data.read_file import ReadFile
+from mloda.provider import FeatureSet, SourceMatch
 
-from .reader import _ORIGIN_COLUMN, ClassifiedReader, GdpduReader, decline_unconfirmed
+from .reader import _ORIGIN_COLUMN, _ReaderJournal
 
 
 class DatevRefusal(ValueError):
@@ -425,42 +423,29 @@ def read_batch(path: str) -> tuple[DatevHeader, dict[str, list[Any]]]:
     return h, legs
 
 
-class DatevExtfReader(ClassifiedReader, ReadFile):
+class DatevExtfReader(_ReaderJournal):
     """Claims a folder of DATEV-Format booking batches (EXTF/DTVF, category 21)."""
 
     ORIGIN_COLUMN = _ORIGIN_COLUMN
 
     @classmethod
-    def suffix(cls) -> tuple[str, ...]:
-        # Vestigial, as in GdpduReader: matching is by folder and header line, not suffix.
-        return (".csv",)
+    def dossier(cls, path: str) -> str | None:
+        return path if os.path.isdir(path) and _batch_files(path) else None
 
     @classmethod
-    def get_column_names(cls, file_name: str) -> list[str]:
+    def columns(cls, match: SourceMatch) -> list[str]:
         """Fixed by the field table, not by the batch: every leg has the same columns."""
         return [*COLUMNS, cls.ORIGIN_COLUMN]
 
     @classmethod
-    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        candidates: list[str] = []
-        if isinstance(data_access, DataAccessCollection):
-            candidates = list(data_access.folders.values()) + list(data_access.files.values())
-        elif isinstance(data_access, (str, Path)):
-            candidates = [str(data_access)]
-        for candidate in candidates:
-            if os.path.isdir(candidate) and _batch_files(candidate):
-                return None if decline_unconfirmed(cls, feature_names, options, GdpduReader) else candidate
-        return None
-
-    @classmethod
-    def data_access_identity(cls, data_access: Any) -> str:
+    def data_access_identity(cls, match: SourceMatch) -> str:
         """`datev:<folder>@<fingerprint>` over exactly the batches load_data reads.
 
         No Berater, Mandant or header text: those identify a tax advisor and a client, and an
         identity is handed to every extender. Never raises -- a folder that cannot be
         fingerprinted is still named, and the load that follows reports the actual error.
         """
-        folder = str(data_access)
+        folder = str(match.access)
         name = os.path.basename(os.path.normpath(folder))
         try:
             files = _batch_files(folder)

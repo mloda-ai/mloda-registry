@@ -286,7 +286,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
     ) -> bool:
         """Gate on the semantic catalog BEFORE the inherited rules.
 
-        The root is JournalFeatureGroup, which gates on its own name; this group stays so the
+        The root is GdpduReader, which gates on its own name; this group stays so the
         catalogue, not the inherited rules, decides what it answers.
         """
         if cls.get_column_base_feature(str(feature_name)) not in cls.feature_names_supported():

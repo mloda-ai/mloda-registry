@@ -3,8 +3,8 @@
 Core discards an extender's return value, so a policy cannot stamp rows from `INPUT_DATA_LOAD`.
 The verdict is a feature in its own right instead:
 
-    gdpdu_journal            JournalFeatureGroup     the dossier's rows, every declared column
-                             DatevJournalFeatureGroup  or a DATEV folder's legs
+    gdpdu_journal            GdpduReader             the dossier's rows, every declared column
+                             DatevExtfReader         or a DATEV folder's legs
     gdpdu_journal__admitted  <host policy subclass>  the same rows, cleared and stamped
     revenue, receivables     SkrAccountFeatureGroup  concepts at line grain, stamp carried
     revenue__sources         SourcesFeatureGroup     totals only affirmatively stamped rows
@@ -25,7 +25,7 @@ from datetime import date
 from typing import Any, ClassVar
 
 import pyarrow as pa
-from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
+from mloda.provider import FeatureGroup, FeatureSet
 from mloda.user import DataAccessCollection, Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -34,10 +34,15 @@ from .reader import (
     ADMISSIBILITY_COLUMN,
     JOURNAL,
     GdpduReader,
+    _prefixed,
+    _ReaderJournal,
     admissibility_verdict,
     describe_verdicts,
     origin_format,
     outside_scope_verdict,
+)
+from .reader import (
+    unprefixed as unprefixed,
 )
 
 ADMITTED = f"{JOURNAL}__admitted"
@@ -59,86 +64,8 @@ class LateEntryRefused(AdmissibilityRefused):
     """A ledger line the late-entry cutoff cannot clear -- including one with no booking date."""
 
 
-def _prefixed(table: pa.Table, feature: str) -> pa.Table:
-    """Declared columns as subcolumns of `feature`; the stamp keeps its reserved name."""
-    return pa.table({c if c == ADMISSIBILITY_COLUMN else f"{feature}~{c}": table.column(c) for c in table.column_names})
-
-
-def unprefixed(table: pa.Table, feature: str) -> pa.Table:
-    """The inverse of `_prefixed`: the dossier's own column names back, stamp included."""
-    head = f"{feature}~"
-    return pa.table(
-        {
-            c[len(head) :] if c.startswith(head) else c: table.column(c)
-            for c in table.column_names
-            if c.startswith(head) or c == ADMISSIBILITY_COLUMN
-        }
-    )
-
-
-class _ReaderJournal(FeatureGroup):
-    """Root: reads a dossier via READER and serves its rows as `gdpdu_journal~<column>`.
-
-    Carries no meaning and no verdict. It exists so that the policy can sit between the
-    reader and every concept, not inside the reader's load, where it could not change the rows.
-
-    One sibling per reader, never a subclass of another: mloda keeps a matching subclass over
-    its parent, so a DATEV journal subclassing the GDPdU one would silently win on a folder
-    that holds both formats. As siblings, both match and resolution refuses. This base has
-    no READER and matches nothing.
-    """
-
-    READER: type[BaseInputData] | None = None
-
-    @classmethod
-    def match_feature_group_criteria(
-        cls,
-        feature_name: Any,
-        options: Options,
-        data_access_collection: DataAccessCollection | None = None,
-    ) -> bool:
-        """Gate on the name BEFORE the inherited root/input-data rules.
-
-        The stock readers already decline every name but JOURNAL (decline_unconfirmed); this gate
-        keeps a READER that does not from making this group match any name, e.g. revenue__sources,
-        which resolution refuses as "Multiple feature groups found" (tests/isolated.py:collision).
-        """
-        if cls.READER is None or str(feature_name) != JOURNAL:
-            return False
-        return super().match_feature_group_criteria(feature_name, options, data_access_collection)
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        # Returned directly: core raises when several readers accept, so the stock CsvReader
-        # must not be left in the pool to also accept a dossier folder holding a .csv.
-        return cls.READER() if cls.READER is not None else None
-
-    @classmethod
-    def compute_framework_rule(cls) -> Any:
-        return {PyArrowTable}
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        reader = cls.input_data()
-        assert reader is not None  # match_feature_group_criteria never admits a READER-less class
-        return _prefixed(reader.load(features), JOURNAL)
-
-
-class JournalFeatureGroup(_ReaderJournal):
-    """The journal of a GDPdU dossier (index.xml + data file)."""
-
-    READER = GdpduReader
-
-
-class DatevJournalFeatureGroup(_ReaderJournal):
-    """The journal of a folder of DATEV EXTF booking batches: one row per leg.
-
-    DATEV carries no Erfassungsdatum, so the late-entry cutoff refuses every DATEV journal.
-    That is the intended fail-closed outcome; a DATEV host runs the Festschreibung and
-    PeriodBound rules instead.
-    """
-
-    READER = DatevExtfReader
+JournalFeatureGroup = GdpduReader
+DatevJournalFeatureGroup = DatevExtfReader
 
 
 # --- rules -----------------------------------------------------------------------------------
@@ -528,7 +455,7 @@ class AdmissibilityPolicyGroup(FeatureGroup):
         return cls.configured() and str(feature_name) == ADMITTED
 
     def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
-        # Scoped: the stock read roots also claim this name after PluginLoader.all() (mloda#1745).
+        # Scoped to the dossier readers, so no other group's claim on this name is considered.
         return {Feature(JOURNAL, feature_group=_ReaderJournal)}
 
     @classmethod
