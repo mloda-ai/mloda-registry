@@ -60,7 +60,7 @@ Feature(
 )
 ```
 
-`order_by` is required for every rank type; the matcher rejects the feature if it is missing. That includes `ntile_N` as well as the standard numeric and boolean variants. Framework test classes may restrict `supported_rank_types` (and an Implementation may set `supported`) when their engine does not implement one variant; see [Supported ops](04-supported-ops.md).
+`order_by` is required for every rank type; the matcher rejects the feature if it is missing. That includes `ntile_N` as well as the standard numeric and boolean variants. Framework test classes may restrict `supported_rank_types` (and an Implementation may set `supported`) when their engine does not implement one variant; see [Supported ops](04-supported-ops.md). `supported` on a rank or offset Implementation restricts by family name (core collapses `ntile_4` to `ntile`), so a parametric family is restricted as a whole.
 
 ---
 

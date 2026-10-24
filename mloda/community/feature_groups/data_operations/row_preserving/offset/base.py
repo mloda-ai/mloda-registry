@@ -39,14 +39,15 @@ _OFFSET_TYPES = {
 }
 
 #: Parametric offset families; each accepts a positive integer suffix (e.g. ``lag_3``).
-_PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = ("lag", "lead", "diff", "pct_change")
-
 _PARAMETRIC_OFFSET_DESCRIPTIONS = {
     "lag": "Value N rows before the current row",
     "lead": "Value N rows after the current row",
     "diff": "Difference from the value N rows before",
     "pct_change": "Percentage change from the value N rows before",
 }
+
+#: Parametric offset family names, derived from the descriptions.
+_PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = tuple(_PARAMETRIC_OFFSET_DESCRIPTIONS)
 
 
 def _is_supported_offset_type(value: object) -> bool:
@@ -128,11 +129,6 @@ class OffsetFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureCha
     - ``order_by``: Column to order by within each partition
     """
 
-    SUBTYPES = SubtypeDeclaration(
-        key="offset_type",
-        parametric_families={family: _PARAMETRIC_OFFSET_DESCRIPTIONS[family] for family in _PARAMETRIC_OFFSET_FAMILIES},
-    )
-
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     MIN_IN_FEATURES = 1
@@ -141,6 +137,8 @@ class OffsetFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureCha
     OFFSET_TYPE = "offset_type"
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
+
+    SUBTYPES = SubtypeDeclaration(key=OFFSET_TYPE, parametric_families=_PARAMETRIC_OFFSET_DESCRIPTIONS)
 
     # Named after OFFSET_TYPE so bind_name_captures binds it, including the parametric families
     # (lag_N / lead_N / diff_N / pct_change_N) the old allowed_values-based fallback missed.

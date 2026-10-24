@@ -181,7 +181,7 @@ regression_test:
 
 - **Operations**: `row_preserving/frame_aggregate`, `.../offset`, `.../percentile`, `.../rank`.
 - **Reference behavior**: PyArrow is the reference *for correctness semantics*, but it does not provide native rolling/expanding, LAG/LEAD, percentile, or rank. The reference functions for these ops (`reference_rank`, `reference_offset`, `reference_percentile`) live in pure Python over PyArrow arrays, and rank, offset and percentile have no PyArrow Implementation (requesting them on PyArrowTable alone is a resolution error).
-- **Mitigation kind**: Excluded op (from the test suite, not from routing).
+- **Mitigation kind**: Excluded op (from the test suite and from routing, since no PyArrow Implementation exists).
 - **How**: The `supported_ops()` / `supported_agg_types()` on each operation's PyArrow test class returns an empty or reduced set so the suite does not try to compare against an implementation that does not exist. Aggregation declares its PyArrow capability on the implementation (`PyArrowAggregation.supported`), so `median` and `mode` are not offered there. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
 - **Regression signal**: Restoring the op on PyArrow requires both providing a native implementation and re-expanding the supported set; no silent skip is possible.
 - **Related**: This is the "Category 1" case described in issue #146; listed here for completeness.

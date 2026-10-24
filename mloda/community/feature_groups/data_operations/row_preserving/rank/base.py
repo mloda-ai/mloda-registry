@@ -40,13 +40,14 @@ _RANK_TYPES = {
 }
 
 #: Parametric rank families; each accepts a positive integer suffix (e.g. ``ntile_4``).
-_PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = ("ntile", "top", "bottom")
-
 _PARAMETRIC_RANK_DESCRIPTIONS = {
     "ntile": "Divide rows into N roughly equal buckets",
     "top": "True for the N highest values",
     "bottom": "True for the N lowest values",
 }
+
+#: Parametric rank family names, derived from the descriptions.
+_PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = tuple(_PARAMETRIC_RANK_DESCRIPTIONS)
 
 
 def _is_supported_rank_type(value: object) -> bool:
@@ -139,13 +140,9 @@ class RankFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChain
     - ``partition_by``: List of columns to partition by
     - ``order_by``: Column to order by within each partition
 
-    Reference contract: nulls in the order column rank last; ties follow the reference.
+    Reference contract: null-like order values rank last (NaN ahead of None, separate tiers); equal values tie
+    for rank/dense_rank/percent_rank; row_number/ntile/top/bottom break ties by input order (stable sort).
     """
-
-    SUBTYPES = SubtypeDeclaration(
-        key="rank_type",
-        parametric_families={family: _PARAMETRIC_RANK_DESCRIPTIONS[family] for family in _PARAMETRIC_RANK_FAMILIES},
-    )
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
@@ -155,6 +152,8 @@ class RankFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChain
     RANK_TYPE = "rank_type"
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
+
+    SUBTYPES = SubtypeDeclaration(key=RANK_TYPE, parametric_families=_PARAMETRIC_RANK_DESCRIPTIONS)
 
     # Named after RANK_TYPE so bind_name_captures binds it, including the parametric families
     # (ntile_N / top_N / bottom_N) the old allowed_values-based fallback missed.

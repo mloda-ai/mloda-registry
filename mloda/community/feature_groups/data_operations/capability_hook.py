@@ -1,8 +1,7 @@
 """Shared match-time capability hook for the data-operation families (issue #299).
 
-The frame_aggregate family previously hand-rolled
-``supports_compute_framework`` plus a differently shaped supported-types method.
-This mixin owns the single implementation, and a family declares supported
+Used by frame_aggregate and by the families on ``AggregationFeatureGroupBase``
+(aggregation, window_aggregation, scalar_aggregate). A family declares supported
 subtypes once via ``supported_op_subtypes(secondary)``, optionally keyed by a
 secondary axis value (e.g. frame_type). The catalog stays single-axis; this hook
 is the authority for higher-dimensional (frame_type x agg_type) capability.
@@ -64,7 +63,7 @@ class SubtypeCapabilityHook:
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
-        """Resolve the primary discriminator (agg/rank type); None if unresolvable."""
+        """Resolve the primary discriminator (the agg type); None if unresolvable."""
         raise NotImplementedError(
             f"{cls.__name__} declares supported_op_subtypes() but does not implement _capability_subtype()"
         )
@@ -73,11 +72,6 @@ class SubtypeCapabilityHook:
     def _capability_secondary(cls, feature_name: str, options: Options) -> str | None:
         """Resolve the secondary-axis value; None when the family has no axis."""
         return None
-
-    @classmethod
-    def _capability_restrictable(cls, subtype: str) -> bool:
-        """Whether the resolved subtype participates in the supported-set check."""
-        return True
 
     @classmethod
     def _capability_guard(cls, feature_name: str, options: Options) -> bool:
@@ -102,6 +96,6 @@ class SubtypeCapabilityHook:
         if supported is None:
             return True
         subtype = cls._capability_subtype(name, options)
-        if subtype is None or not cls._capability_restrictable(subtype):
+        if subtype is None:
             return True
         return subtype in supported
