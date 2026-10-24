@@ -48,7 +48,8 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     built-in aggregations do not carry row-level origins. Outputs are subcolumns of the
     *requested* name (``revenue__sources~value`` / ``~origins``), which is what column
     selection keeps. The input resolves through SkrAccountFeatureGroup unless the options point at a reader.
-    A single part such as ``revenue__sources~value`` returns only the total; the whole total and its refusals still run.
+    A single part such as ``revenue__sources~value`` can be requested; the whole total and its
+    refusals still run.
     """
 
     OUTPUT_PARTS = PARTS

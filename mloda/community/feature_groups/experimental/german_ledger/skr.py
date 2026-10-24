@@ -250,7 +250,6 @@ def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> st
     )
 
 
-# The parts each concept and each total return.
 PARTS = ("value", "origins", "basis")
 
 
