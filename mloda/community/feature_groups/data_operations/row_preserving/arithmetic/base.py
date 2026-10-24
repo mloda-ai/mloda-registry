@@ -15,7 +15,7 @@ from mloda.community.feature_groups.data_operations.base import op_token_value
 
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
 
-#: Shared SQL operator map; both SQL backends (DuckDB and SQLite) alias this same object.
+#: Shared SQL operator map, imported by the DuckDB and SQLite Implementations.
 SQL_ARITHMETIC_OPS: dict[str, str] = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
 

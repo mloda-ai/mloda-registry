@@ -1,4 +1,4 @@
-"""Shared DuckDB classmethods for the point- and scalar-arithmetic families.
+"""DuckDB numeric-source hook for the point- and scalar-arithmetic families.
 
 ``DuckdbArithmeticMixin`` is a plain class supplying the framework's
 ``_non_numeric_descriptor``, which the point and scalar Implementations pass to

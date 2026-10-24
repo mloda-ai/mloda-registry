@@ -1,4 +1,4 @@
-"""Shared SQLite classmethods for the point- and scalar-arithmetic families.
+"""SQLite numeric-source hook for the point- and scalar-arithmetic families.
 
 ``SqliteArithmeticMixin`` is a plain class supplying the framework's
 ``_non_numeric_descriptor``, which the point and scalar Implementations pass to

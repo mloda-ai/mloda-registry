@@ -1,4 +1,4 @@
-"""Shared polars classmethods for the point- and scalar-arithmetic families.
+"""polars numeric-source hook for the point- and scalar-arithmetic families.
 
 ``PolarsArithmeticMixin`` is a plain class supplying the framework's
 ``_non_numeric_descriptor``, which the point and scalar Implementations pass to

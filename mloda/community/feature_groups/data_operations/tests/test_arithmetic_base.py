@@ -1,4 +1,4 @@
-"""Structural guards for the arithmetic families: one shared plain mixin and the operation-group shape."""
+"""Structural guards for the arithmetic families: one shared non-FeatureGroup mixin and the operation-group shape."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from mloda.testing.feature_groups.data_operations.operation_group import ImplSpe
 
 
 class TestArithmeticOpMixin:
-    """Both arithmetic families mix in the shared plain ``ArithmeticOpMixin``."""
+    """Both arithmetic families mix in the shared ``ArithmeticOpMixin``."""
 
     def test_point_arithmetic_subclasses_mixin(self) -> None:
         """``PointArithmeticFeatureGroup`` inherits from the shared mixin."""

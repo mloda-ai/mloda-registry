@@ -71,7 +71,7 @@ class TestMixinHookBindings:
     is the numeric-source module's function) and passes that hook to the family
     group's ``apply_arithmetic``. The Implementation itself defines none of
     ``_non_numeric_descriptor``, ``_assert_source_column_is_numeric`` or
-    ``compute_framework_rule``, the mixin defines no ``compute_framework_rule``, and
+    ``compute_framework_rule``, the mixin carries only ``_non_numeric_descriptor``, and
     neither group defines or inherits the numeric-source hooks.
     """
 
@@ -94,9 +94,10 @@ class TestMixinHookBindings:
             for hook in ("_non_numeric_descriptor", "_assert_source_column_is_numeric"):
                 assert not hasattr(group, hook), f"{group.__name__} must neither define nor inherit {hook}"
 
-    def _assert_mixin_defines_no_compute_framework_rule(self, mixin_cls: Any) -> None:
-        assert "compute_framework_rule" not in vars(mixin_cls), (
-            f"{mixin_cls.__name__} must not define compute_framework_rule"
+    def _assert_mixin_carries_only_the_hook(self, mixin_cls: Any) -> None:
+        own = {n for n in vars(mixin_cls) if not n.startswith("__")}
+        assert own == {"_non_numeric_descriptor"}, (
+            f"{mixin_cls.__name__} must carry only _non_numeric_descriptor, found {sorted(own)}"
         )
 
     def _assert_both_families(self, mixin_cls: Any, backend: str, class_prefix: str) -> None:
@@ -107,7 +108,7 @@ class TestMixinHookBindings:
             mixin_cls, f"{_SCALAR}.{backend}_scalar_arithmetic", f"{class_prefix}ScalarArithmetic"
         )
         self._assert_groups_have_no_numeric_source_hook()
-        self._assert_mixin_defines_no_compute_framework_rule(mixin_cls)
+        self._assert_mixin_carries_only_the_hook(mixin_cls)
 
     def test_pandas_modules_bind_mixin_hook(self) -> None:
         """Both pandas backend modules import the pandas mixin."""

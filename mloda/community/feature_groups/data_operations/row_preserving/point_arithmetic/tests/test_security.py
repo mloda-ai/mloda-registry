@@ -8,6 +8,7 @@ Generic match-validation tests live in ``test_base.py`` via
 
 from __future__ import annotations
 
+import importlib
 import math
 from typing import Any
 
@@ -103,17 +104,17 @@ class TestAllowlistCompleteness:
 
     def test_duckdb_covers_all_ops(self) -> None:
         pytest.importorskip("duckdb")
-        from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
-            SQL_ARITHMETIC_OPS,
-        )
+        SQL_ARITHMETIC_OPS = importlib.import_module(
+            "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.duckdb_point_arithmetic"
+        ).SQL_ARITHMETIC_OPS
 
         for op in ARITHMETIC_OPERATIONS:
             assert op in SQL_ARITHMETIC_OPS, f"DuckDB backend missing arithmetic op: {op}"
 
     def test_sqlite_covers_all_ops(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
-            SQL_ARITHMETIC_OPS,
-        )
+        SQL_ARITHMETIC_OPS = importlib.import_module(
+            "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.sqlite_point_arithmetic"
+        ).SQL_ARITHMETIC_OPS
 
         for op in ARITHMETIC_OPERATIONS:
             assert op in SQL_ARITHMETIC_OPS, f"SQLite backend missing arithmetic op: {op}"
