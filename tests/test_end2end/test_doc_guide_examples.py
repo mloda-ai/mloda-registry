@@ -208,9 +208,11 @@ def test_missing_partition_by_regression_is_rejected() -> None:
     assert "AggregationFeatureGroup" in problems[0]
 
 
-def _python_fences(heading: str, guide: Path = BACKEND_FAMILIES_GUIDE) -> list[str]:
+def _python_fences(
+    heading: str, guide: Path = BACKEND_FAMILIES_GUIDE, tags: tuple[str, ...] = ("python",)
+) -> list[str]:
     section = _section(guide.read_text(encoding="utf-8"), heading, ("\n## ",))
-    return [m.group(2) for m in _FENCE_RE.finditer(section) if m.group(1) == "python"]
+    return [m.group(2) for m in _FENCE_RE.finditer(section) if m.group(1) in tags]
 
 
 @lru_cache(maxsize=None)
@@ -474,7 +476,8 @@ def _parametrized_calls(fn: Any) -> list[dict[str, Any]]:
 
 
 def test_conformance_section_test_passes_against_the_operation_group_example() -> None:
-    fences = _python_fences(CONFORMANCE_HEADING, TESTING_GUIDE)
+    # The block is a py fence: it needs guide 09's classes, so the per-doc runner cannot run it alone.
+    fences = _python_fences(CONFORMANCE_HEADING, TESTING_GUIDE, tags=("python", "py"))
     assert fences, "the Conformance section of the testing guide no longer has a python block"
     tests = _exec_section_tests(
         fences[0],
@@ -508,9 +511,6 @@ DISCOVERED_DOCS = _discover_docs()
 
 # Each doc runs in its own interpreter and must also pass on every supported Python.
 SKIPPED_DOCS: dict[str, str] = {
-    "docs/guides/feature-group-patterns/28-backend-families.md": (
-        "rewrite for source feature groups pending; its examples and Test section are run by the tests in this module"
-    ),
     "docs/guides/feature-group-patterns/29-binary-backed-features.md": (
         "needs a master.key; run by tests/test_end2end/test_binary_backed_features_guide.py"
     ),

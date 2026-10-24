@@ -40,7 +40,7 @@ Customize discovery through `CLAIM_ROUTES` and `find_sources`. Put source I/O in
 
 `gated_probe` returns a `SourceProbeOutcome` (from `mloda.provider`), which is always truthy: `refused` is the refusal reason or `None`, `result` the probe's value. Decline when `refused` is set:
 
-```python
+```py
 outcome = cls.gated_probe(feature_name, options, data_access_collection, lambda: cls.catalog_has(feature_name))
 return outcome.refused is None and bool(outcome.result)
 ```

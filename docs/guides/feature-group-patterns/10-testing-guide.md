@@ -202,7 +202,7 @@ Use when upstream features are slow (API calls, ML inference) or you need contro
 
 Test that each result differs from the reference exactly where `divergent` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#reference-contract-and-divergence) (in the same namespace, not imported again).
 
-```python
+```py
 import math
 from typing import Any
 

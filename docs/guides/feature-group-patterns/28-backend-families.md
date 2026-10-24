@@ -33,6 +33,9 @@ Is the variant fixed by the data source the user connects (rdflib_sparql credent
 One class, many names. The method is captured from the name or read from options, and `PROPERTY_MAPPING` validates it:
 
 ```python
+from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, property_spec
+
+
 class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r".*__(?P<imputation_method>[\w]+)_imputed$"
     PROPERTY_MAPPING = {
@@ -51,7 +54,7 @@ All siblings share one feature name. A discriminator option picks the sibling; e
 from typing import Any, ClassVar
 
 from mloda.provider import DataCreator, FeatureGroup, FeatureSet, property_spec
-from mloda.user import DataAccessCollection, FeatureName, Options
+from mloda.user import DataAccessCollection, Feature, FeatureName, Options
 
 
 class BaseRetriever(FeatureGroup):
@@ -105,7 +108,7 @@ Rules:
 - **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): here `retrieve_backend="fiass"` ends in a bare `No feature groups found`. Required presence, defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
 - **Record why a sibling declined.** End the matcher like this so the error lists each sibling's reason (a matching sibling hides them). `NAME_STAGE` and `record_match_rejection` come from `mloda.provider` (`mloda>=0.14.0`):
 
-```python
+```py
 backend = options.get(cls.BACKEND)
 if backend in cls.BACKENDS:
     return True
@@ -132,7 +135,7 @@ The siblings are source FeatureGroups (`SourceFeatureGroup` subclasses) that cla
 from typing import Any, ClassVar
 
 from mloda.provider import ClaimRoute, ComputeFramework, FeatureSet, NamePolicy, SourceFeatureGroup, SourceMatch
-from mloda.user import DataAccessCollection, Options
+from mloda.user import DataAccessCollection, Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -170,7 +173,8 @@ class RdfLibSparqlFeatureGroup(KgSourceFG):
     CONNECTOR_ID = "rdflib_sparql"
 
     @classmethod
-    def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any: ...  # match.access is the slot
+    def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any:
+        return [{"knows": "alice"}]  # a real leaf queries the graph in match.access
 ```
 
 ```python
