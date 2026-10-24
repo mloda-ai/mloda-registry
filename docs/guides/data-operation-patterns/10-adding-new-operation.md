@@ -1,6 +1,6 @@
 # Adding a New Data Operation
 
-End-to-end recipe for introducing a new data operation: base class, framework implementations, test base, test mixins, and how to wire everything so the cross-framework comparison works.
+End-to-end recipe for introducing a new data operation: one `OperationFeatureGroup`, one `Implementation` per framework, test base, test mixins, and how to wire everything so the cross-framework comparison works.
 
 **What**: The concrete steps to add a new operation category (or a new op inside an existing category) and have it tested across every supported framework.
 **When**: You want a declarative transform that behaves identically on PyArrow, Pandas, Polars, DuckDB, and SQLite.
@@ -30,16 +30,28 @@ The category decides your naming pattern. See [overview](01-overview.md) for the
 
 ---
 
-## Step 2: Write the base class
+## Step 2: Write the operation group
 
 File: `mloda/community/feature_groups/data_operations/{category}/{your_op}/base.py`.
 
 ```py
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
-from mloda.community.feature_groups.data_operations.base import assert_source_columns_present
 
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParserMixin,
+    FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    property_spec,
+)
+
+from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
+    assert_source_columns_present,
+    is_op_token,
+)
 
 YOUR_OPS = {
     "op_a": "What op_a does",
@@ -47,57 +59,87 @@ YOUR_OPS = {
 }
 
 
-class YourOpFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class YourOpFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     PREFIX_PATTERN = r".+__(op_a|op_b)$"
 
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+
+    YOUR_OP = "your_op"
+
+    SUBTYPES = SubtypeDeclaration(key=YOUR_OP)
+
+    PROPERTY_MAPPING = {
+        YOUR_OP: property_spec(
+            "Operation applied to the source column",
+            strict=True,
+            allowed_values=YOUR_OPS,
+            match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
+        ),
+        DefaultOptionKeys.in_features: property_spec("Source column"),
+    }
+
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def apply_your_op(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_your_op: Callable[[Any, str, str, str], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_your_op``."""
         table = data
         for feature in features.features:
             source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             op = cls._extract_op(feature)
-            table = cls._compute(table, feature.name, source_col, op)
+            table = compute_your_op(table, feature.name, source_col, op)
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute(cls, data: Any, feature_name: str, source_col: str, op: str) -> Any: ...
 ```
 
-The base class owns:
+The group owns:
 
-- The feature-name regex.
-- The loop over `features.features`.
+- The base order: mixins first, `OperationFeatureGroup` last, so the mixin's matcher runs before the bare `FeatureGroup` one.
+- The feature-name regex, `PROPERTY_MAPPING`, and `SUBTYPES` (the key `supported` and `divergent` are keyed by).
+- The shared loop as a classmethod that takes the framework step as a keyword-only callable. It defines no step itself and no `compute_framework_rule`: the frameworks are the ones its Implementations serve.
 - Extraction of source column, operation, and any options from `Options(context=...)`.
 - The shared `assert_source_columns_present` presence guard, called once per feature before any per-backend dtype guard.
-- The shared `assert_key_columns_present` guard for `partition_by`, `order_by` (or `time_column`) and mask columns, called once per feature before the compute hook.
-- Delegation to a per-framework, abstract `_compute` hook.
+- The shared `assert_key_columns_present` guard for `partition_by`, `order_by` (or `time_column`) and mask columns, called once per feature before the framework step.
 
-Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base. Single-input ops use `_extract_single_source_feature`, multi-input ops `_extract_validated_source_features` (see `row_preserving/point_arithmetic/base.py`), so the MIN/MAX in_features and empty-operand checks live in the core helper, not a per-op override. Likewise, inherit `input_features`, `_extract_source_features` (a single-input op needs no override of it), and the match-time MIN/MAX check from the mixin instead of overriding them.
+Existing groups to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing group. Single-input ops use `_extract_single_source_feature`, multi-input ops `_extract_validated_source_features` (see `row_preserving/point_arithmetic/base.py`), so the MIN/MAX in_features and empty-operand checks live in the core helper, not a per-op override. Likewise, inherit `input_features`, `_extract_source_features` (a single-input op needs no override of it), and the match-time MIN/MAX check from the mixin instead of overriding them.
 
 ---
 
-## Step 3: Write the PyArrow implementation first
+## Step 3: Write the PyArrow Implementation first
 
 PyArrow is the reference. Write it first; it defines correctness for everything else.
 
 File: `{category}/{your_op}/pyarrow_{your_op}.py`.
 
 ```py
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from .base import YourOpFeatureGroup
+
+from mloda.community.feature_groups.data_operations.{category}.{your_op}.base import YourOpFeatureGroup
 
 
-class PyArrowYourOp(YourOpFeatureGroup):
+class PyArrowYourOp(Implementation[YourOpFeatureGroup]):
+    feature_group = YourOpFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type]:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[YourOpFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.apply_your_op(data, features, compute_your_op=cls._compute_your_op)
 
     @classmethod
-    def _compute(cls, data: pa.Table, feature_name: str, source_col: str, op: str) -> pa.Table:
+    def _compute_your_op(cls, data: pa.Table, feature_name: str, source_col: str, op: str) -> pa.Table:
         col = data.column(source_col)
         # ...op-specific columnar work...
         return data.append_column(feature_name, result_array)
@@ -105,11 +147,11 @@ class PyArrowYourOp(YourOpFeatureGroup):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
-The per-framework-subclass shape above is the one the families other than aggregation, window aggregation, scalar aggregate, frame aggregate, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset, percentile, string, datetime and binning use. Those use one `OperationFeatureGroup` plus an `Implementation` per framework (`supported` for capability, `divergent` for declared differences; lookup has neither); the reference of aggregation, window and frame aggregate, rank, offset and percentile is a function (`reference_aggregation`, `reference_window_aggregation`, `reference_rank`, ...), the others' is their PyArrow Implementation (EMA pins literals). See [Framework-Specific](../feature-group-patterns/09-framework-specific.md), `aggregation/pandas_aggregation.py` and `point_arithmetic/sqlite_point_arithmetic.py`. Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name.
+Every family has this shape. The reference of aggregation, window and frame aggregate, rank, offset and percentile is a function (`reference_aggregation`, `reference_window_aggregation`, `reference_rank`, ...), the others' is their PyArrow Implementation (EMA pins literals). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergent`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 
-## Step 4: Write the operation's test base
+## Step 4: Write the operation's test bases
 
 File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`.
 
@@ -117,14 +159,15 @@ File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_o
 from typing import Any
 import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.community.feature_groups.data_operations.{category}.{your_op}.pyarrow_{your_op} import (
-    PyArrowYourOp,
-)
 
 
 class YourOpTestBase(DataOpsTestBase):
     @classmethod
     def reference_implementation_class(cls) -> Any:
+        from mloda.community.feature_groups.data_operations.{category}.{your_op}.pyarrow_{your_op} import (
+            PyArrowYourOp,
+        )
+
         return PyArrowYourOp
 
     @classmethod
@@ -143,27 +186,91 @@ class YourOpTestBase(DataOpsTestBase):
         self._compare_with_reference(f"value_int__{op}", partition_by=partition_by)
 ```
 
-The test method calls `_compare_with_reference`, which runs both the implementation under test and PyArrow and asserts they match. Every framework's concrete test class inherits it.
+The test method calls `_compare_with_reference`, which runs both the Implementation under test and the PyArrow reference and asserts they match. Every framework's concrete test class inherits it.
 
 One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 
+The group's shape gets its own test in `{category}/{your_op}/tests/test_base.py`: subclass `OperationGroupTestBase` (`mloda/testing/feature_groups/data_operations/operation_group.py`) and fill its hooks. It checks the base order, `SUBTYPES`, that the loop is on the group and the step only on the Implementations, each Implementation's framework pair, `supported` and `divergent`, and the manifest:
+
+```py
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestYourOpOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return YourOpFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.{category}.{your_op}"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec("pyarrow", "pyarrow_{your_op}", "PyArrowYourOp", f"{_ENGINE}.pyarrow.table", "PyArrowTable"),
+            ImplSpec(
+                "sqlite",
+                "sqlite_{your_op}",
+                "SqliteYourOp",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+                supported=frozenset({"op_a"}),
+                divergent=frozenset({"op_a"}),
+            ),
+            # ...one ImplSpec per framework; dependency="pandas" etc. for optional backends
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "your_op"
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "apply_your_op"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_your_op"
+
+    # Plus probe_feature_set, name_probes, option_probes (see binning/tests/test_base.py)
+```
+
 ---
 
-## Step 5: Add the other framework implementations
+## Step 5: Add the other framework Implementations
 
-One file per framework, all subclassing `YourOpFeatureGroup`:
+One file per framework, each an `Implementation[YourOpFeatureGroup]`, plus the manifest:
 
 ```text
 {category}/{your_op}/
   base.py
+  manifest.py
   pyarrow_{your_op}.py
   pandas_{your_op}.py
   polars_lazy_{your_op}.py
   duckdb_{your_op}.py
   sqlite_{your_op}.py
+  python_dict_{your_op}.py
 ```
 
-Each class implements `_compute` using its native primitives. For row-preserving ops, respect the row-order invariant. If the native operation reorders (DuckDB `NTILE`), use the `ROW_NUMBER()` tag-and-restore pattern from [the row-preserving contract](02-row-preserving-contract.md).
+Each sets `feature_group` and `compute_framework`, makes `calculate` the one-liner through `group.apply_your_op`, and implements `_compute_your_op` with its native primitives. For row-preserving ops, respect the row-order invariant. If the native operation reorders (DuckDB `NTILE`), use the `ROW_NUMBER()` tag-and-restore pattern from [the row-preserving contract](02-row-preserving-contract.md).
+
+A framework that cannot run an op, or differs from the reference on one, says so on the Implementation:
+
+```py
+class SqliteYourOp(Implementation[YourOpFeatureGroup]):
+    feature_group = YourOpFeatureGroup
+    compute_framework = SqliteFramework
+    supported = frozenset({"op_a"})  # op_b: this framework is not offered
+    divergent = {"op_a": "returns NULL on divide by zero"}
+```
+
+Reject an op the framework cannot run natively through `supported`; do not compute it in Python inside the Implementation. Examples: `aggregation/sqlite_aggregation.py` (both), `point_arithmetic/sqlite_point_arithmetic.py` (`divergent` only).
+
+`manifest.py` lists the group and every Implementation through `load_plugin_classes`, so a backend whose optional framework is missing is skipped. Copy `row_preserving/binning/manifest.py`.
 
 ---
 
@@ -193,7 +300,7 @@ class TestPandasYourOp(PandasTestMixin, YourOpTestBase):
         return PandasYourOp
 ```
 
-No test method bodies. Everything is inherited. If the framework cannot do one op, override `supported_ops` to return the subset; `_skip_if_unsupported` handles the skip.
+No test method bodies. Everything is inherited. `implementation_class` returns the Implementation; the helpers run it through its group. If the Implementation declares `supported`, override `supported_ops` to return the same subset; `_skip_if_unsupported` handles the skip. To also pin the match-time capability per framework, mix in `CapabilityHookTestMixin` (see `aggregation/tests/test_sqlite.py`).
 
 `PandasTestMixin` stores an int column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints.
 
@@ -242,13 +349,15 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 
 ## Checklist
 
-- [ ] Base class with `PREFIX_PATTERN`, `calculate_feature`, and an abstract `_compute` hook.
-- [ ] `calculate_feature` calls `assert_source_columns_present(data, [...])` once per feature, before any per-backend dtype guard, and `assert_key_columns_present(data, ...)` for its partition, order and mask columns.
-- [ ] PyArrow implementation first; it is the reference.
+- [ ] One `OperationFeatureGroup` (mixins first, `OperationFeatureGroup` last) with `PREFIX_PATTERN`, `SUBTYPES`, and a shared loop that takes the framework step as a keyword-only callable.
+- [ ] The loop calls `assert_source_columns_present(data, [...])` once per feature, before any per-backend dtype guard, and `assert_key_columns_present(data, ...)` for its partition, order and mask columns.
+- [ ] PyArrow Implementation first; it is the reference.
+- [ ] One `Implementation` per target framework (`feature_group`, `compute_framework`, one-line `calculate`), each respecting row-preserving if applicable; `supported` and `divergent` only where the framework genuinely cannot run or differs.
+- [ ] `manifest.py` lists the group and every Implementation.
 - [ ] Test base in `mloda/testing/.../{your_op}.py` with inherited test methods.
-- [ ] One framework implementation per target framework, each respecting row-preserving if applicable.
+- [ ] `tests/test_base.py` subclasses `OperationGroupTestBase` with one `ImplSpec` per Implementation.
 - [ ] One `tests/test_{framework}.py` per framework, importing the framework mixin.
-- [ ] `supported_ops()` overrides only where the framework genuinely cannot do the op.
+- [ ] `supported_ops()` overrides match the Implementation's `supported`.
 - [ ] Mask tests wired if the op consumes values that benefit from conditional inclusion.
 - [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden when the op changes the row count).
 - [ ] `InputValidationTestMixin` wired with `input_validation_cases()` covering every kind.
@@ -261,3 +370,4 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 - [Row-preserving contract](02-row-preserving-contract.md) - The invariant row-preserving ops must honor.
 - [Reference implementation pattern](03-reference-implementation.md) - Why PyArrow goes first.
 - [Supported ops per framework](04-supported-ops.md) - Mechanics of the `supported_ops` override.
+- [Framework-Specific](../feature-group-patterns/09-framework-specific.md) - `OperationFeatureGroup`, `Implementation`, `supported` and `divergent`.
