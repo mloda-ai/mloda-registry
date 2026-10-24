@@ -662,6 +662,8 @@ def test_family_base_is_abstract_or_operation_group(cls: Any) -> None:
 
 _OPERATION_GROUP_FAMILIES = (
     "aggregation",
+    "binning",
+    "datetime",
     "ema",
     "ffill",
     "lookup",
@@ -672,6 +674,7 @@ _OPERATION_GROUP_FAMILIES = (
     "resample",
     "scalar_arithmetic",
     "sessionization",
+    "string",
     "time_bucketization",
 )
 
