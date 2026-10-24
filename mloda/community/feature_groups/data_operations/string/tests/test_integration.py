@@ -328,9 +328,10 @@ class TestStringBaseNotSelectedOnUnsupportedFramework:
         plugin_collector = PluginCollector.enabled_feature_groups(
             {_PolarsNameCreator, StringFeatureGroup, PyArrowStringOps}
         )
-        with pytest.raises(FeatureResolutionError):
+        with pytest.raises(FeatureResolutionError) as excinfo:
             mloda.run_all(
                 [Feature("name__upper", options=Options())],
                 compute_frameworks=[PolarsDataFrame],
                 plugin_collector=plugin_collector,
             )
+        assert excinfo.value.result.failure_kind == "abstract_only"
