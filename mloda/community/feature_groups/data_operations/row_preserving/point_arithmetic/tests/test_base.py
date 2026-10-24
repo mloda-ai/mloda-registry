@@ -77,7 +77,7 @@ class TestPatternMatching:
 
         A name that matches but cannot compute is worse than a plain non-match:
         resolution commits the feature to this family, so the user gets a
-        compute-time ValueError from ``calculate_feature`` rather than
+        compute-time ValueError from the group's shared loop rather than
         a "no feature group found" error naming the real problem. Sibling
         families in this package reject unusable inputs at match time.
         """

@@ -291,7 +291,7 @@ class PandasOnlyGroup(FeatureGroup):
         return {PandasDataFrame}
 ```
 
-`None` (the default) allows any framework. Other data-operation families are not yet converted and still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
+`None` (the default) allows any framework. Data-operation families other than aggregation and point/scalar arithmetic are not yet converted and still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
 
 ## Column-Wise Data Hooks
 
@@ -372,6 +372,8 @@ A hook that is not a `@classmethod` or `@staticmethod` counts as missing: `cls._
 | [aggregation/polars_lazy_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py) | `PolarsLazyAggregation` |
 | [aggregation/duckdb_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/duckdb_aggregation.py) | `DuckdbAggregation` |
 | [aggregation/python_dict_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/python_dict_aggregation.py) | `PythonDictAggregation` |
+| [point_arithmetic/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/base.py) | `PointArithmeticFeatureGroup`, shared loop with two keyword-only callables |
+| [point_arithmetic/sqlite_point_arithmetic.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py) | `SqlitePointArithmetic`, with `divergent` |
 | [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
 | [core aggregated_feature_group/pandas.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pandas.py) | Core's Pandas Implementation |
 | [core aggregated_feature_group/pyarrow.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pyarrow.py) | Core's PyArrow Implementation |

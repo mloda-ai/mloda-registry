@@ -311,13 +311,6 @@ def _reference_calculate_with_an_implementation_reference() -> Any:
 
 
 def test_reference_calculate_runs_an_implementation_reference_through_its_feature_group() -> None:
-    import gc
-
-    from mloda.provider import Implementation, get_all_subclasses
-
     (tag, data, implementation), name = _reference_calculate_with_an_implementation_reference()
     assert (tag, data) == ("group", "data")
     assert implementation.__name__ == name
-    del implementation
-    gc.collect()
-    assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == name]

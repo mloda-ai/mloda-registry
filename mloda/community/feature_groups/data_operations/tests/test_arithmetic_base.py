@@ -169,10 +169,10 @@ class TestSupportedAndDivergent:
     def test_supported_is_unrestricted(self, family: str, backend: str) -> None:
         assert _implementation(family, backend).supported is None
 
-    def test_sqlite_point_divide_is_the_only_divergence(self) -> None:
-        for family, backend in ((f, b) for f in _FAMILIES for b in _FRAMEWORKS):
-            divergent = set(_implementation(family, backend).divergent)
-            assert divergent == ({"divide"} if (family, backend) == ("point", "sqlite") else set())
+    @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
+    def test_sqlite_point_divide_is_the_only_divergence(self, family: str, backend: str) -> None:
+        expected = {"divide"} if (family, backend) == ("point", "sqlite") else set()
+        assert set(_implementation(family, backend).divergent) == expected
 
     @pytest.mark.parametrize(("family", "backend"), _IMPLEMENTATIONS)
     def test_divergent_is_inside_the_universe_with_a_reason(self, family: str, backend: str) -> None:

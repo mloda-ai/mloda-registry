@@ -163,7 +163,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
             calculate_with(self.implementation_class(), self.test_data, fs)
 
     def test_missing_constant_raises(self) -> None:
-        """If Options has no constant key, calculate_feature must raise ValueError."""
+        """If Options has no constant key, calculate_with must raise ValueError."""
         feature = Feature("value_int__add_constant", options=Options())
         fs = FeatureSet()
         fs.add(feature)

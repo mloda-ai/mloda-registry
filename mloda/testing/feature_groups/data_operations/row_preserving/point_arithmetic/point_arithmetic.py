@@ -321,7 +321,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
     # -- In-feature count enforcement at compute time -----------------------
 
     def test_too_few_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with fewer than 2 in_features."""
+        """calculate_with must reject features with fewer than 2 in_features."""
         feature = Feature(
             "bad_too_few",
             options=Options(

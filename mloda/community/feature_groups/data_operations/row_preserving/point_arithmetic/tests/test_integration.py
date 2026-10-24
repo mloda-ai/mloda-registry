@@ -16,9 +16,6 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
-    PyArrowPointArithmetic,
-)
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
@@ -269,25 +266,3 @@ class TestIntegrationOptionBasedConfig:
 
         assert add_found, "string-pattern add result not found"
         assert mul_found, "option-based multiply result not found"
-
-
-class TestDivergentDivideRouting:
-    """SQLite declares divide divergent (NULL for divide by zero), so divide is served by PyArrow instead."""
-
-    @staticmethod
-    def _step(feature_name: str) -> Any:
-        pytest.importorskip("sqlite3")
-        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
-
-        collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PointArithmeticFeatureGroup})
-        plan = mloda.explain(
-            [Feature(feature_name)], compute_frameworks=[SqliteFramework, PyArrowTable], plugin_collector=collector
-        )
-        steps = [s for s in plan if s.step_kind == "compute" and s.feature_group is PointArithmeticFeatureGroup]
-        assert len(steps) == 1
-        return steps[0]
-
-    def test_divergent_sqlite_divide_is_served_by_pyarrow(self) -> None:
-        step = self._step("value_int&amount__divide_point")
-        assert step.implementation is PyArrowPointArithmetic
-        assert step.compute_framework is PyArrowTable

@@ -56,7 +56,7 @@ def _is_ordered_in_features(value: object) -> bool:
     Operand order is significant for subtract and divide, so unordered
     collections (set/frozenset), mappings, and other iterables are
     rejected at match time rather than slipping through to fail (or
-    behave unexpectedly) later in calculate_feature.
+    behave unexpectedly) later in apply_arithmetic.
     """
     return isinstance(value, (list, tuple))
 
