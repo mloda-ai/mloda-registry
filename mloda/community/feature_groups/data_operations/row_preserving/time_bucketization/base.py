@@ -118,19 +118,8 @@ def _parse_bucket_op(token: str) -> tuple[str, int, str]:
 
 
 def _resolve_bucket_op_subtype(feature_name: str, options: Options) -> str | None:
-    """Return the bare op (floor / ceil / round) from the name token or the ``bucket_op`` option."""
-    token, _source = FeatureChainParser.parse_feature_name(
-        feature_name, TimeBucketizationFeatureGroup._get_prefix_patterns()
-    )
-    if token is None:
-        raw = options.get(TimeBucketizationFeatureGroup.BUCKET_OP)
-        if raw is None:
-            return None
-        token = op_token_value(raw)
-    try:
-        return _parse_bucket_op(token)[0]
-    except ValueError:
-        return None
+    """Return the bare op (floor / ceil / round); core's safe_field turns a raise into None."""
+    return _parse_bucket_op(TimeBucketizationFeatureGroup._extract_bucket_op(Feature(feature_name, options=options)))[0]
 
 
 class TimeBucketizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):

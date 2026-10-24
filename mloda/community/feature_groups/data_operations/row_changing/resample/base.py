@@ -126,17 +126,8 @@ def _is_valid_resample_op(value: object) -> bool:
 
 
 def _resolve_resample_agg_subtype(feature_name: str, options: Options) -> str | None:
-    """Return the agg from the name token or the ``resample_op`` option."""
-    token, _source = FeatureChainParser.parse_feature_name(feature_name, ResampleFeatureGroup._get_prefix_patterns())
-    if token is None:
-        raw = options.get(ResampleFeatureGroup.RESAMPLE_OP)
-        if raw is None:
-            return None
-        token = op_token_value(raw)
-    try:
-        return _parse_resample_op(token)[2]
-    except ValueError:
-        return None
+    """Return the agg; core's safe_field turns a raise into None."""
+    return _parse_resample_op(ResampleFeatureGroup._extract_resample_op(Feature(feature_name, options=options)))[2]
 
 
 class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):

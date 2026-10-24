@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import time
 from dataclasses import replace
 from typing import Any
@@ -104,7 +105,10 @@ class TestSupportedAndDivergent:
     @staticmethod
     def _implementation(module: str, name: str) -> Any:
         package = "mloda.community.feature_groups.data_operations.row_changing.resample"
-        return getattr(pytest.importorskip(f"{package}.{module}"), name)
+        path = f"{package}.{module}"
+        if module.startswith(("pandas", "polars", "duckdb")):
+            return getattr(pytest.importorskip(path), name)
+        return getattr(importlib.import_module(path), name)
 
     def test_pandas_divergent_agg_types(self) -> None:
         divergent = self._implementation("pandas_resample", "PandasResample").divergent

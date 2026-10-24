@@ -32,6 +32,8 @@ from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+# Loads the Implementations that serve the group.
+from mloda.community.feature_groups.data_operations.row_preserving.ema import manifest as _manifest  # noqa: F401
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.testing.data_creator.base import column_selective
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
@@ -199,7 +201,10 @@ class TestEmaRejectionRouting:
             options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}),
         )
 
-        with pytest.raises(FeatureResolutionError, match=r"EmaFeatureGroup \(compute framework\)"):
+        with pytest.raises(
+            FeatureResolutionError,
+            match=r"EmaFeatureGroup \(compute framework\): none of its compute frameworks are enabled for this run",
+        ):
             mloda.run_all(
                 [feature],
                 compute_frameworks=[PyArrowTable],

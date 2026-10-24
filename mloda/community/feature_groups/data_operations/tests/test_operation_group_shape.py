@@ -78,8 +78,10 @@ class Family:
         return getattr(importlib.import_module(f"{self.package}.base"), self.group)
 
     def implementation(self, impl: Impl) -> Any:
-        """The Implementation class; skips when its optional backend is not installed."""
-        return getattr(pytest.importorskip(f"{self.package}.{impl.module}"), impl.name)
+        """The Implementation class; skips only when its optional backend is not installed."""
+        path = f"{self.package}.{impl.module}"
+        module = pytest.importorskip(path) if impl.dependency else importlib.import_module(path)
+        return getattr(module, impl.name)
 
     def installed(self) -> list[Impl]:
         return [i for i in self.implementations if i.dependency is None or importlib.util.find_spec(i.dependency)]
@@ -88,6 +90,7 @@ class Family:
         return Feature(self.feature_name, options=Options(context=dict(self.context)))
 
     def collector(self) -> PluginCollector:
+        importlib.import_module(f"{self.package}.manifest")  # loads the Implementations that serve the group
         return PluginCollector.enabled_feature_groups({self.source, self.group_class()})
 
 

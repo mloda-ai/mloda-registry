@@ -304,7 +304,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """The agg types the implementation declares as NaN-divergent via ``divergent``."""
-        return frozenset(getattr(cls.implementation_class(), "divergent", {}))
+        return frozenset(cls.implementation_class().divergent)
 
     # -- Setup: use the dedicated 12-row resample fixture -------------------
 

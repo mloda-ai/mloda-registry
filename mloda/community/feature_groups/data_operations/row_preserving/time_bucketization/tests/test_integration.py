@@ -19,6 +19,10 @@ import pyarrow as pa
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+# Loads the Implementations that serve the group.
+from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization import (
+    manifest as _manifest,  # noqa: F401
+)
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TimeBucketizationFeatureGroup,
 )

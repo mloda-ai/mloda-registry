@@ -27,6 +27,10 @@ from mloda.provider import BaseInputData, ComputeFramework, DataCreator, Feature
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+# Loads the Implementations that serve the group.
+from mloda.community.feature_groups.data_operations.row_preserving.sessionization import (
+    manifest as _manifest,  # noqa: F401
+)
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SessionizationFeatureGroup,
 )

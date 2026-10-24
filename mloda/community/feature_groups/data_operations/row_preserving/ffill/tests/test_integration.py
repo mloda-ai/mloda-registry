@@ -23,6 +23,8 @@ import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+# Loads the Implementations that serve the group.
+from mloda.community.feature_groups.data_operations.row_preserving.ffill import manifest as _manifest  # noqa: F401
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
