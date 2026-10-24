@@ -266,6 +266,22 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
             calculate_with(self.implementation_class(), self.test_data, fs)
         assert "is_active" in str(exc_info.value)
 
+    def test_boolean_source_column_computed_when_undetected(self) -> None:
+        """A backend that cannot detect a boolean source computes it as 0/1."""
+        if "boolean" in self.detects_non_numeric_source():
+            pytest.skip("Backend rejects boolean source columns")
+        flags = self._arrow_table.column("is_active").to_pylist()
+        expected = [None if f is None else int(f) + 5 for f in flags]
+        fs = make_feature_set("is_active__add_constant", constant=5)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        result_col = self.extract_column(result, "is_active__add_constant")
+        assert len(result_col) == len(expected)
+        for actual, exp in zip(result_col, expected):
+            if exp is None:
+                assert actual is None
+            else:
+                assert actual == pytest.approx(exp, rel=1e-6)
+
     # -- Cross-framework comparison -----------------------------------------
 
     def _compare_arithmetic_with_reference(

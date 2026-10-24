@@ -185,13 +185,21 @@ def _assert_leaf_is_live(cls: type, method_name: str, ref: str) -> None:
     params = list(inspect.signature(getattr(cls, method_name)).parameters)
     if params != ["self"]:
         return
+    instance = cls()
+    setup = getattr(instance, "setup_method", None)
+    teardown = getattr(instance, "teardown_method", None)
     try:
-        getattr(cls(), method_name)()
+        if setup is not None:
+            setup()
+        getattr(instance, method_name)()
     except pytest.skip.Exception as exc:
         raise AssertionError(
             f"{ref}: cited regression test {method_name!r} skips for {cls.__name__} and so does not "
             "guard the divergence (inherited shared test with no per-class config)"
         ) from exc
+    finally:
+        if teardown is not None:
+            teardown()
 
 
 def _resolve_test_ref(ref: str) -> None:

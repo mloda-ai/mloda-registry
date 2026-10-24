@@ -382,6 +382,23 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
             calculate_with(self.implementation_class(), self.test_data, fs)
         assert "is_active" in str(exc_info.value)
 
+    def test_boolean_source_column_computed_when_undetected(self) -> None:
+        """A backend that cannot detect a boolean source computes it as 0/1 in either position."""
+        if "boolean" in self.detects_non_numeric_source():
+            pytest.skip("Backend rejects boolean source columns")
+        values = self._arrow_table.column("value_int").to_pylist()
+        flags = self._arrow_table.column("is_active").to_pylist()
+        expected = [None if v is None or f is None else v + int(f) for v, f in zip(values, flags)]
+        for name in ("is_active&value_int__add_point", "value_int&is_active__add_point"):
+            result = calculate_with(self.implementation_class(), self.test_data, make_feature_set(name))
+            result_col = self.extract_column(result, name)
+            assert len(result_col) == len(expected)
+            for actual, exp in zip(result_col, expected):
+                if exp is None:
+                    assert actual is None
+                else:
+                    assert actual == pytest.approx(exp, rel=1e-6)
+
     # -- Cross-framework comparison -----------------------------------------
 
     def _compare_arithmetic_with_reference(self, feature_name: str, skip_rows: set[int] | None = None) -> None:
