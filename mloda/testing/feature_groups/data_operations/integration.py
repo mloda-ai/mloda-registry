@@ -39,6 +39,8 @@ from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector
 from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
+    extract_column,
+    result_column_names,
 )
 
 
