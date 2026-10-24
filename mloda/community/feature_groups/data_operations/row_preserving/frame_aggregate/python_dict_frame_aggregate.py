@@ -100,14 +100,6 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
                 agg_type, _SUPPORTED_AGG_TYPES, framework="PythonDict", operation="frame aggregate"
             )
 
-        if frame_type == "time" and mask_spec is not None and source_col == order_by:
-            # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
-            # see known-divergences.md.
-            raise ValueError(
-                "PythonDict frame aggregate (time frame): mask + source_col == order_by "
-                f"({source_col!r}) is unsupported. See known-divergences.md."
-            )
-
         partition_by = list(partition_by)
         num_rows = row_count(data)
 

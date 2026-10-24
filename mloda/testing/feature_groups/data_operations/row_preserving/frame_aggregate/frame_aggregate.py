@@ -709,11 +709,16 @@ class FrameAggregateTestBase(
         self._compare_with_reference("value_int__cumsum", partition_by=partition_by, order_by="value_int")
 
     @pytest.mark.parametrize("feature_name", ["value_int__sum_rolling_3", "value_int__cumsum"])
+    @pytest.mark.parametrize("order_by", ["value_int", "timestamp"])
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
-    def test_cross_framework_mask_source_equals_order_by(self, partition_by: list[str], feature_name: str) -> None:
-        """Masked frame with source column == order_by must match reference, whole-table included."""
+    def test_cross_framework_mask_order_by(self, partition_by: list[str], order_by: str, feature_name: str) -> None:
+        """Masked frame must match reference and leave the source column untouched, whole-table included."""
         self._compare_with_reference(
-            feature_name, partition_by=partition_by, order_by="value_int", mask=("category", "equal", "X")
+            feature_name,
+            partition_by=partition_by,
+            order_by=order_by,
+            passthrough_cols=("value_int",),
+            mask=("category", "equal", "X"),
         )
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
@@ -945,34 +950,29 @@ class FrameAggregateTestBase(
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
 
-    def test_time_window_source_equals_order_with_mask_rejected(self) -> None:
-        """source_col == order_by + mask + time frame is rejected at runtime.
-
-        Rejected on every backend as an excluded shape. See known-divergences.md.
-        """
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_time_window_source_equals_order_with_mask(self, partition_by: list[str]) -> None:
+        """A masked time window with source column == order_by must match the reference."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
+        # Masking changes counts in both modes: global day 3 is 2 unmasked vs 1 masked,
+        # region A day 10 is 1 unmasked vs 0 masked, region B day 3 is 1 unmasked vs 0 masked.
         table = pa.table(
             {
-                "region": ["A"] * 5,
+                "region": ["A", "B", "A", "B", "A"],
                 "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
                 "category": ["X", "Y", "X", "X", "Y"],
             }
         )
         data = self.create_test_data(table)
-        # source == order == "ts"; mask on a third column.
         feature_name = "ts__count_3_day_window"
-        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set as _mfs
+        fs = make_feature_set(feature_name, partition_by=partition_by, order_by="ts", mask=("category", "equal", "X"))
 
-        fs = _mfs(
-            feature_name,
-            partition_by=["region"],
-            order_by="ts",
-            mask=("category", "equal", "X"),
-        )
-        with pytest.raises(ValueError, match="source_col == order_by"):
-            self.implementation_class().calculate_feature(data, fs)
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        assert self.extract_column(result, feature_name) == _extract_column(ref, feature_name)
 
     @pytest.mark.parametrize(
         "table, mask_spec",
@@ -1044,6 +1044,7 @@ class FrameAggregateTestBase(
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
+        assert self.extract_column(result, "value") == _extract_column(ref, "value")
 
     # -- Edge case tests -----------------------------------------------------
 

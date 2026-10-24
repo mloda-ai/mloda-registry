@@ -75,13 +75,6 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         quoted_order = quote_ident(order_by)
 
         if frame_type == "time":
-            # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
-            # see known-divergences.md.
-            if mask_spec is not None and source_col == order_by:
-                raise ValueError(
-                    "DuckDB frame aggregate (time frame): mask + source_col == order_by "
-                    f"({source_col!r}) is unsupported. See known-divergences.md."
-                )
             # Correlated subquery aliases the source table as "s"; build the wrapped
             # inner source SQL here, where source_col (needed for the type lookup) is
             # in scope, so the callee only ever sees the final SQL string.

@@ -91,25 +91,12 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # PyArrow parity: the reference applies masks before aggregation but
         # sorts on unmasked values. Apply mask AFTER sorting so that sort
         # order uses original (unmasked) values to match this behavior.
-        # Safe to mutate: data was already copied above (data = data.copy()).
-        #
-        # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
-        # see known-divergences.md.
+        # Masked values go to a temp column so source_col (possibly also order_by) stays unmasked.
         agg_col = source_col
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
-            if source_col == order_by:
-                if frame_type == "time":
-                    raise ValueError(
-                        "Pandas frame aggregate (time frame): mask + source_col == order_by "
-                        f"({source_col!r}) is unsupported. See known-divergences.md."
-                    )
-                # Non-time frames: aggregate the masked values in a temp column;
-                # order_by is preserved because the sort already happened above.
-                agg_col = unique_helper_name("__mloda_masked_source__", taken)
-                data[agg_col] = data[source_col].where(mask)
-            else:
-                data[source_col] = data[source_col].where(mask)
+            agg_col = unique_helper_name("__mloda_masked_source__", taken)
+            data[agg_col] = data[source_col].where(mask)
 
         # partition_by=[]: apply expanding/rolling directly on the column instead of grouping.
         window_source = data[agg_col] if not partition_by else null_safe_groupby(data, partition_by, agg_col)
@@ -148,7 +135,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             coerce_count_dtype(data, feature_name, agg_type)
             data = data.sort_values(by=rn_col)
             drop_cols = [rn_col]
-            if mask_spec is not None and source_col == order_by:
+            if agg_col != source_col:
                 drop_cols.append(agg_col)
             data = data.drop(columns=drop_cols)
             return data
@@ -170,7 +157,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # Restore original row order and drop helper columns
         data = data.sort_values(by=rn_col)
         drop_cols = [rn_col]
-        if mask_spec is not None and source_col == order_by:
+        if agg_col != source_col:
             drop_cols.append(agg_col)
         data = data.drop(columns=drop_cols)
 

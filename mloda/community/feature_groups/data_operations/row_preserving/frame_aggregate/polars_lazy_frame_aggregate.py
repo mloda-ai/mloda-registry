@@ -163,13 +163,6 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     "contains null values, which polars rolling_*_by() does not support. "
                     "See known-divergences.md."
                 )
-            # Mask + source_col == order_by in a time frame is an excluded shape on every backend;
-            # see known-divergences.md.
-            if mask_spec is not None and source_col == order_by:
-                raise ValueError(
-                    "Polars frame aggregate (time frame): mask + source_col == order_by "
-                    f"({source_col!r}) is unsupported. See known-divergences.md."
-                )
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
             # Polars duration strings: 's', 'm', 'h', 'd', 'w', 'mo', 'y'.

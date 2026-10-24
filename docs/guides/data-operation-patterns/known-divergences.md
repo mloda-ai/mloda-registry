@@ -302,27 +302,6 @@ regression_test:
 - **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the PyArrow reference. Pandas `.rolling(window="...", on=ts)` only accepts fixed-frequency offsets and has no native calendar-anchored option. Rather than fall back to a Python loop (which would defeat the point of running inside the engine), both `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` and `PandasFrameAggregate.SUPPORTED_TIME_UNITS` exclude `month`/`year`, so features like `value__sum_1_month_window` are rejected at `match_feature_group_criteria` time. Both support `second`/`minute`/`hour`/`day`/`week`. Polars and DuckDB express month/year natively and remain ✓ for those units.
 - **Related**: parent #183, implementing #202.
 
-### All backends reject mask + `source_col == order_by` in time frames
-
-<!-- machine-checked
-operation: frame_aggregate
-framework: pandas, polars_lazy, duckdb, sqlite, python_dict
-condition: a mask with source_col == order_by in a time frame is rejected on every backend (conservative, no parity test)
-mitigation_location:
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/duckdb_frame_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/python_dict_frame_aggregate.py
-regression_test:
-- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_time_window_source_equals_order_with_mask_rejected
--->
-
-- **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type, with `source_col == order_by` and a mask present).
-- **Mitigation kind**: Excluded shape.
-- **How**: The PyArrow reference reads `order_by` unmasked and masks only the aggregated values. The native time-window primitives (pandas `rolling(on=ts)`, polars `rolling_*_by`, the DuckDB/SQLite correlated subqueries, PythonDict's separate lists) already bound windows on the unmasked `order_by`, so the rejection is conservative and has no parity test yet. Each backend raises `ValueError` for this shape. Non-time frames are supported and covered by `test_cross_framework_mask_source_equals_order_by`.
-- **Related**: parent #183, implementing #202.
-
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
 
 <!-- machine-checked
