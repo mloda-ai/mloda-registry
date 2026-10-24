@@ -6,6 +6,7 @@ The scenarios in isolated.py register classes process-wide, so each runs in a fr
 import json
 import shutil
 import tempfile
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import DataAccessCollection, Feature, Options, mloda
+from mloda.user import DataAccessCollection, Feature, FeatureResolutionError, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.experimental.german_ledger.policy import (
@@ -33,7 +34,7 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import So
 
 from ._host import PLUGINS, ListSink, audit_gate, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
-from .isolated import claim, run_isolated, source_match
+from .isolated import _run, claim, run_isolated, source_match
 
 HERE = Path(__file__).parent
 
@@ -96,6 +97,7 @@ def test_plugin_loader_all() -> None:
     """After PluginLoader.all() the revenue__sources total resolves; a bare `revenue` waits on mloda#1745."""
     facts = run_isolated("plugin_loader_all")
     assert facts["revenue"] == "45385.06", facts
+    assert facts["part"] == "45385.06", facts
     columns = ["revenue~basis", "revenue~origins", "revenue~value"]
     assert facts["scoped"] == columns, facts
     unscoped = facts["unscoped"]
@@ -143,6 +145,44 @@ def test_origins_survive_aggregation() -> None:
     basis = [t.column("revenue__sources~basis").to_pylist()[0] for t in res][0]
     assert basis is not None and json.loads(basis)["profile"] is not None
     assert json.loads(basis)["catalogue"]["name"] == "SKR04_2025"
+
+
+_PART_CHECKS: dict[str, Callable[[Any], bool]] = {
+    "revenue__sources~value": lambda cell: str(cell) == "45385.06",
+    "revenue__sources~origins": lambda cell: len(cell) == 5,
+    "revenue__sources~basis": lambda cell: json.loads(cell)["catalogue"]["name"] == "SKR04_2025",
+}
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ("revenue__sources~value",),
+        ("revenue__sources~origins",),
+        ("revenue__sources~basis",),
+        ("revenue__sources~value", "revenue__sources~origins"),
+    ],
+    ids=["value", "origins", "basis", "value+origins"],
+)
+def test_requested_parts_return_exactly_those_columns(names: tuple[str, ...]) -> None:
+    """Requesting declared parts of the total returns exactly those columns, each with its expected content."""
+    got = _run(FIX / "dossier_a", list(names), PLUGINS)
+    assert set(got) == set(names), got
+    for name in names:
+        assert _PART_CHECKS[name](got[name][0]), got
+
+
+def test_a_part_of_the_line_grain_concept_returns_only_that_part() -> None:
+    """`revenue~value` is one column whose non-null values sum to the total."""
+    got = _run(FIX / "dossier_a", ["revenue~value"], PLUGINS)
+    assert set(got) == {"revenue~value"}, got
+    assert sum((v for v in got["revenue~value"] if v is not None), Decimal("0")) == Decimal("45385.06"), got
+
+
+def test_an_undeclared_part_fails_at_resolution() -> None:
+    """A part the group does not declare is refused when the name is resolved."""
+    with pytest.raises(FeatureResolutionError, match="'bogus' is not an output part"):
+        _run(FIX / "dossier_a", ["revenue__sources~bogus"], PLUGINS)
 
 
 def _stamped_rows(*bases: str | None) -> pa.Table:
@@ -735,7 +775,8 @@ def test_citation_binds_the_descriptor_not_only_the_data() -> None:
         assert origins_of(touched_data) != before, "data edit left the citation unchanged"
 
 
-def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
+@pytest.mark.parametrize("requested", ["revenue__sources", "revenue__sources~value"])
+def test_a_dossier_running_past_the_closed_period_yields_no_number(requested: str) -> None:
     """A booking after the closed period is out of the policy's scope: neither refused nor admitted.
 
     An empty Erfassungsdatum is only the guard's business on a line booked into the closed
@@ -755,7 +796,7 @@ def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
 
         try:
             mloda.run_all(
-                features=["revenue__sources"],
+                features=[requested],
                 compute_frameworks=[PyArrowTable],
                 data_access_collection=DataAccessCollection(folders={str(d)}),
                 plugin_collector=PLUGINS,

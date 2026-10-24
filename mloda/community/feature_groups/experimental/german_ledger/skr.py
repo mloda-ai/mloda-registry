@@ -250,21 +250,27 @@ def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> st
     )
 
 
+PARTS = ("value", "origins", "basis")
+
+
 class SkrAccountFeatureGroup(FeatureGroup):
     """Maps SKR accounts onto concepts, over the ADMITTED journal only.
 
     Its one input is `gdpdu_journal__admitted`, so a concept cannot be computed from rows
     no policy has seen: with no policy configured the input does not resolve.
 
-    Each concept returns two columns at row-preserving line grain -- ``name~value`` and
-    ``name~origins`` -- so a value and its source are one logical feature that nothing
-    downstream can separate into different FeatureSets.
+    Each concept returns three columns at row-preserving line grain -- ``name~value``,
+    ``name~origins`` and ``name~basis`` -- so a value and its source are one logical feature
+    that nothing downstream can separate into different FeatureSets. A single part (e.g. ``revenue~value``)
+    can be requested; the whole concept is still computed once.
 
     PROFILES lists the exporter shapes this host knows. The one that applies is chosen from
     the columns the DOSSIER declares, not by subclassing this group per exporter -- see
     select_profile. The catalogue is unchanged either way, because a chart of accounts is a
     property of the books, not of the file layout.
     """
+
+    OUTPUT_PARTS = PARTS
 
     PROFILES: tuple[LedgerProfile, ...] = (DATEV_LIKE, SECOND_EXPORTER)
 

@@ -151,6 +151,7 @@ def plugin_loader_all() -> dict[str, Any]:
 
     return {
         "revenue": outcome(lambda: _revenue(dossier)),
+        "part": outcome(lambda: str(_run(dossier, ["revenue__sources~value"])["revenue__sources~value"][0])),
         "scoped": outcome(lambda: direct(Feature("revenue", feature_group=SkrAccountFeatureGroup))),
         "unscoped": outcome(lambda: direct("revenue")),
     }
