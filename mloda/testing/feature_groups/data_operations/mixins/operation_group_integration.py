@@ -1,10 +1,7 @@
 """Reusable operation-group integration test mixin for data-operations feature groups.
 
-Provides 2 integration test methods that verify an OperationFeatureGroup is served
-by one Implementation per compute framework through mloda's full pipeline.
-
-An integration test class mixes this in alongside DataOpsIntegrationTestBase; no
-configuration beyond the base's is needed.
+Verifies an OperationFeatureGroup is served by one Implementation per compute framework.
+Mix into an integration test class alongside DataOpsIntegrationTestBase.
 """
 
 from __future__ import annotations
@@ -18,16 +15,7 @@ from mloda.user import FeatureResolutionError, PluginCollector, mloda
 
 
 class OperationGroupIntegrationTestMixin:
-    """Mixin providing operation-group integration tests through mloda's full pipeline.
-
-    Requires the host class to provide (from DataOpsIntegrationTestBase):
-    - ``feature_group_class()``
-    - ``compute_framework_class()``
-    - ``primary_feature_name()`` / ``primary_feature_options()`` / ``primary_expected_values()``
-    - ``_make_feature(name, options_context)``
-    - ``_plugin_collector()``
-    - ``_assert_values_equal(actual, expected)``
-    """
+    """Operation-group integration tests; the host class is a DataOpsIntegrationTestBase."""
 
     @classmethod
     def _implementations_on_framework(cls) -> set[type[Any]]:
