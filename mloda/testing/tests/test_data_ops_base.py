@@ -572,3 +572,18 @@ def test_capability_hook_rejects_skips_an_unrestricted_implementation_without_pr
             _capability_host(impl).test_mixin_capability_hook_rejects()
 
     _with_probe_impl(check)
+
+
+def test_implementation_import_fails_unless_the_dependency_is_declared() -> None:
+    from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+
+    class _Stub(OperationGroupTestBase):
+        @classmethod
+        def backend_package(cls) -> str:
+            return "mloda.testing"
+
+    missing = ImplSpec("x", "no_such_module", "X", "m", "M")
+    with pytest.raises(ModuleNotFoundError):
+        _Stub._implementation(missing)
+    with pytest.raises(pytest.skip.Exception):
+        _Stub._implementation(missing._replace(dependency="no_such_dependency"))

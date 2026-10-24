@@ -29,7 +29,8 @@ from mloda.testing.feature_groups.data_operations.mixins.case_parametrization im
 class ImplSpec(NamedTuple):
     """One Implementation of the group and what it must declare.
 
-    ``supported`` None means unrestricted. ``dependency`` is the optional package that gates the manifest entry.
+    ``module`` is the module that defines the Implementation. ``supported`` None means unrestricted.
+    ``dependency`` is the optional package that gates the manifest entry.
     """
 
     id: str
@@ -111,8 +112,10 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     @classmethod
     def _implementation(cls, spec: ImplSpec) -> Any:
-        """The Implementation class; skips when its optional backend is not installed."""
-        return getattr(pytest.importorskip(f"{cls.backend_package()}.{spec.module}"), spec.name)
+        """The Implementation class; skips only when its declared optional dependency is missing."""
+        path = f"{cls.backend_package()}.{spec.module}"
+        module = pytest.importorskip(path) if spec.dependency else importlib.import_module(path)
+        return getattr(module, spec.name)
 
     # -- Group shape ------------------------------------------------------------
 
@@ -130,6 +133,8 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         declaration = self.group_class().SUBTYPES
         assert declaration is not None
         assert declaration.key == self.subtype_key()
+        if self.subtype_key() is None:
+            assert declaration.resolver is not None
 
     def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
         assert callable(getattr(self.group_class(), self.loop_method()))
@@ -150,6 +155,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         assert not issubclass(impl, FeatureGroup)
         assert impl.feature_group is self.group_class()
         assert impl.compute_framework is framework
+        assert impl.__module__ == f"{self.backend_package()}.{spec.module}"
 
     def test_implementation_keeps_its_compute_hook(self, impl_id: str) -> None:
         spec = self._spec(impl_id)

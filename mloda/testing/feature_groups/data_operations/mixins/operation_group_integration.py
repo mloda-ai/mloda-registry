@@ -117,12 +117,16 @@ class OperationGroupIntegrationTestMixin:
             self.primary_feature_options(),  # type: ignore[attr-defined]
         )
 
-        with pytest.raises(FeatureResolutionError):
+        with pytest.raises(FeatureResolutionError) as excinfo:
             mloda.run_all(
                 [feature],
                 compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
                 plugin_collector=collector,
             )
+        message = str(excinfo.value)
+        assert group.__name__ in message
+        if implementations:
+            assert "disabled or denied" in message
 
     def test_group_is_rejected_when_none_of_its_frameworks_is_enabled(self) -> None:
         """An operation group with a loaded Implementation fails on a framework it has no Implementation for."""
