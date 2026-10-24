@@ -51,7 +51,7 @@ AGGREGATION_TYPES = {
 }
 
 
-class ScalarAggregateFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
+class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup):
     SUBTYPES = SubtypeDeclaration(key=AggregationFeatureGroupBase.AGGREGATION_TYPE)
 
     KEY_COLUMN_OPTIONS = ("mask",)

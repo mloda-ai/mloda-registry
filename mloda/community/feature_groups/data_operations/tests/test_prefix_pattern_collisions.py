@@ -645,14 +645,7 @@ def test_every_family_is_covered() -> None:
     )
 
 
-_ARITHMETIC_BASE = f"{_DO}.row_preserving.arithmetic.base"
-
-
-@pytest.mark.parametrize(
-    "cls",
-    [*_real_classes().values(), getattr(importlib.import_module(_ARITHMETIC_BASE), "ArithmeticFeatureGroupBase")],
-    ids=lambda cls: cls.__name__,
-)
+@pytest.mark.parametrize("cls", _real_classes().values(), ids=lambda cls: cls.__name__)
 def test_family_base_is_abstract_or_operation_group(cls: Any) -> None:
     """A family is abstract (per-framework subclasses) or an OperationFeatureGroup (core dispatches)."""
     assert inspect.isabstract(cls) or issubclass(cls, OperationFeatureGroup), (
@@ -685,6 +678,16 @@ _OPERATION_GROUP_FAMILIES = (
 def test_operation_group_families_are_converted() -> None:
     converted = {key for key, cls in _real_classes().items() if issubclass(cls, OperationFeatureGroup)}
     assert converted == set(_OPERATION_GROUP_FAMILIES)
+
+
+@pytest.mark.parametrize("key", _OPERATION_GROUP_FAMILIES)
+def test_operation_group_lists_mixins_first_and_the_operation_group_last(key: str) -> None:
+    """No explicit FeatureGroup base: the shared family bases are plain mixins listed before the group."""
+    from mloda.provider import FeatureGroup
+
+    group = _load_class(next(spec for spec in FAMILIES if spec.key == key))
+    assert group.__bases__[-1] is OperationFeatureGroup
+    assert not [base for base in group.__bases__[:-1] if issubclass(base, FeatureGroup)]
 
 
 @pytest.mark.parametrize("key", _OPERATION_GROUP_FAMILIES)

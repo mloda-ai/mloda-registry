@@ -121,10 +121,10 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         assert issubclass(group, OperationFeatureGroup)
         assert not inspect.isabstract(group)
 
-    def test_group_matches_before_the_bare_feature_group(self) -> None:
-        """The subtype matcher mixin must precede FeatureGroup in the MRO, whoever defines the matcher."""
+    def test_group_matches_before_the_operation_group(self) -> None:
+        """The subtype matcher mixin must precede OperationFeatureGroup in the MRO, whoever defines the matcher."""
         mro = self.group_class().__mro__
-        assert mro.index(FeatureChainParserMixin) < mro.index(FeatureGroup)
+        assert mro.index(FeatureChainParserMixin) < mro.index(OperationFeatureGroup)
 
     def test_group_declares_the_subtype_key(self) -> None:
         declaration = self.group_class().SUBTYPES

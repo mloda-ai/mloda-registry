@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
+from mloda.provider import FeatureChainParser, FeatureChainParserMixin
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
@@ -51,7 +51,7 @@ AGGREGATION_TYPES: dict[str, str] = {
 }
 
 
-class AggregationFeatureGroupBase(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class AggregationFeatureGroupBase(KeyColumnInputsMixin, FeatureChainParserMixin):
     AGGREGATION_TYPE = "aggregation_type"
 
     #: Canonical aggregation-type table. Subclasses override to advertise their

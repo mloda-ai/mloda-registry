@@ -61,7 +61,7 @@ def _is_ordered_in_features(value: object) -> bool:
     return isinstance(value, (list, tuple))
 
 
-class PointArithmeticFeatureGroup(OperationFeatureGroup, ArithmeticFeatureGroupBase):
+class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureGroup):
     SUBTYPES = SubtypeDeclaration(key=ArithmeticFeatureGroupBase.ARITHMETIC_OP)
 
     # The source side must carry the '&' separator: point arithmetic needs two

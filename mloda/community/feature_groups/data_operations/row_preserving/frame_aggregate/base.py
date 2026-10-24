@@ -10,7 +10,6 @@ from typing import Any
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     OperationFeatureGroup,
     SubtypeDeclaration,
@@ -155,7 +154,7 @@ def _resolve_frame_agg_type(feature_name: str, options: Options) -> str | None:
     return None if agg_type is None else op_token_value(agg_type)
 
 
-class FrameAggregateFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window

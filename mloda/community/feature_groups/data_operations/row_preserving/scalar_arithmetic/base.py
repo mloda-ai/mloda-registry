@@ -54,7 +54,7 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
-class ScalarArithmeticFeatureGroup(OperationFeatureGroup, ArithmeticFeatureGroupBase):
+class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase, OperationFeatureGroup):
     SUBTYPES = SubtypeDeclaration(key=ArithmeticFeatureGroupBase.ARITHMETIC_OP)
 
     PREFIX_PATTERN = r".*__([\w]+)_constant$"
