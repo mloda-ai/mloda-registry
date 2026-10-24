@@ -77,10 +77,9 @@ def _community_explicit_examples() -> list[Example]:
     def _gdpdu() -> Options:
         return Options({GdpduReader.__name__: str(fixtures / "dossier_a")})
 
-    gdpdu = _gdpdu()
     datev = Options({DatevExtfReader.__name__: str(fixtures / "datev_ledermann")})
     return [
-        Example(ledger, GdpduReader, JOURNAL, gdpdu),
+        Example(ledger, GdpduReader, JOURNAL, _gdpdu()),
         Example(ledger, DatevExtfReader, JOURNAL, datev),
         Example(ledger, SkrAccountFeatureGroup, "revenue", _gdpdu()),
         Example(ledger, SkrAccountFeatureGroup, "receivables", _gdpdu()),

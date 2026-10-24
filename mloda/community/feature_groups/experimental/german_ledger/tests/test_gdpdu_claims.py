@@ -74,7 +74,7 @@ FIX = HERE / "fixtures"
 
 
 def test_collision_gate() -> None:
-    """With a reader that claims every name, the journal's name gate is what keeps it off revenue__sources."""
+    """Skr and Sources need a ledger source; the name gate keeps a claim-all reader off revenue__sources."""
     dossier = str(FIX / "dossier_a")
     with_source = DataAccessCollection(folders={dossier})
     no_ledger = DataAccessCollection(folders={str(FIX)})
