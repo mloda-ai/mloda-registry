@@ -9,10 +9,8 @@ import pytest
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.row_preserving.binning import manifest  # noqa: F401
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
-from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarrow_binning import (
-    PyArrowBinning,
-)
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
@@ -108,11 +106,6 @@ class TestBinningIntegration(DataOpsIntegrationTestBase):
                 plugin_collector=self._plugin_collector(),
             )
         assert not isinstance(exc.value, FeatureResolutionError)
-
-    def test_pyarrow_implementation_serves_the_group(self) -> None:
-        implementation: Any = PyArrowBinning
-        assert implementation.feature_group is BinningFeatureGroup
-        assert implementation.compute_framework is PyArrowTable
 
 
 class TestIntegrationMultipleFeatures:

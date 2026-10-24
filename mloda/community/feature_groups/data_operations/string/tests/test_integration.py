@@ -17,10 +17,8 @@ import pyarrow as pa
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.string import manifest  # noqa: F401
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
-from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
-    PyArrowStringOps,
-)
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
@@ -92,11 +90,6 @@ class TestStringIntegration(DataOpsIntegrationTestBase):
         """String uses pattern-based matching. A non-pattern name without config should fail."""
         options = Options()
         assert not StringFeatureGroup.match_feature_group_criteria("my_custom_result", options)
-
-    def test_pyarrow_implementation_serves_the_group(self) -> None:
-        implementation: Any = PyArrowStringOps
-        assert implementation.feature_group is StringFeatureGroup
-        assert implementation.compute_framework is PyArrowTable
 
 
 class TestIntegrationMultipleFeatures:

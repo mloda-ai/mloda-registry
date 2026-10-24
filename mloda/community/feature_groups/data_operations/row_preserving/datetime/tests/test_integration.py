@@ -16,10 +16,8 @@ import pyarrow as pa
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.row_preserving.datetime import manifest  # noqa: F401
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
-from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
-    PyArrowDateTimeExtraction,
-)
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
@@ -95,11 +93,6 @@ class TestDateTimeIntegration(DataOpsIntegrationTestBase):
         """Datetime uses pattern-based matching. A non-pattern name without config should fail."""
         options = Options()
         assert not DateTimeFeatureGroup.match_feature_group_criteria("my_custom_result", options)
-
-    def test_pyarrow_implementation_serves_the_group(self) -> None:
-        implementation: Any = PyArrowDateTimeExtraction
-        assert implementation.feature_group is DateTimeFeatureGroup
-        assert implementation.compute_framework is PyArrowTable
 
 
 class TestIntegrationMultipleFeatures:
