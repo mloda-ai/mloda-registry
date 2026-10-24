@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
@@ -13,7 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 )
 
 
-class PyArrowTimeBucketization(TimeBucketizationFeatureGroup):
+class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """PyArrow backend; also the cross-framework reference implementation.
 
     Uses ``pyarrow.compute.{floor,ceil,round}_temporal`` with
@@ -23,15 +25,26 @@ class PyArrowTimeBucketization(TimeBucketizationFeatureGroup):
     behaviour pinned for all backends.
     """
 
+    feature_group = TimeBucketizationFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls,
+        group: type[TimeBucketizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.bucketize(
+            data, features, assert_timestamp=cls._assert_source_column_is_timestamp, compute_bucket=cls._compute_bucket
+        )
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: pa.Table, source_col: str) -> None:
         arrow_type = data.column(source_col).type
         if not pa.types.is_timestamp(arrow_type):
-            cls._raise_non_timestamp_source(source_col, arrow_type)
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, arrow_type)
 
     @classmethod
     def _compute_bucket(

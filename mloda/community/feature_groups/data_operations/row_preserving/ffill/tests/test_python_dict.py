@@ -7,6 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.python_dict_ffill import (
     PythonDictFfill,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import (
     FfillTestBase,
@@ -61,7 +62,7 @@ class TestPythonDictFfillNanPartitionKeyGrouping:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         data["val"] = [10.0, None, 100.0, None]
         fs = make_feature_set("val__ffill", ["grp"], "ord")
-        result = PythonDictFfill.calculate_feature(data, fs)
+        result = calculate_with(PythonDictFfill, data, fs)
         result_col = extract_column(result, "val__ffill")
 
         # Row 1 (ord=2, val=None) is second (by ord) in the shared NaN partition PyArrow

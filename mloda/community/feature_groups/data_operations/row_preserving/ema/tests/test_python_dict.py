@@ -7,6 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.ema.python_dict_ema import (
     PythonDictEma,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import (
     EmaTestBase,
@@ -61,7 +62,7 @@ class TestPythonDictEmaNanPartitionKeyGrouping:
 
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__ema_3", ["grp"], "ord")
-        result = PythonDictEma.calculate_feature(data, fs)
+        result = calculate_with(PythonDictEma, data, fs)
         result_col = extract_column(result, "val__ema_3")
 
         assert result_col[1] == 15.0, (

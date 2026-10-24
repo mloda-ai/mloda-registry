@@ -9,8 +9,10 @@ matching the PyArrow oracle rather than pandas' default ``0.0``.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
@@ -26,12 +28,24 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
 )
 
 
-class PandasResample(ResampleFeatureGroup):
+class PandasResample(Implementation[ResampleFeatureGroup]):
     """Pandas backend for resample."""
 
+    feature_group = ResampleFeatureGroup
+    compute_framework = PandasDataFrame
+    divergent = {
+        "sum": "skips NaN; null for an all-NaN bucket",
+        "mean": "skips NaN; null for an all-NaN bucket",
+        "count": "does not count NaN",
+        "min": "skips NaN; null for an all-NaN bucket",
+        "max": "skips NaN; null for an all-NaN bucket",
+    }
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.resample(data, features, compute_resample=cls._compute_resample)
 
     @classmethod
     def _compute_resample(

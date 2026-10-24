@@ -14,7 +14,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda.community.feature_groups.data_operations.row_changing.resample.duckdb_resample import (
     DuckdbResample,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     ResampleTestBase,
@@ -47,7 +47,7 @@ class TestDuckdbResampleNonUtcSession:
         rel = DuckdbRelation.from_arrow(con, _create_resample_arrow_table())
         feature_name = "value__resample_1_day_mean"
         fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
-        result = DuckdbResample.calculate_feature(rel, fs)
+        result = calculate_with(DuckdbResample, rel, fs)
 
         bucket_col = list(result.to_arrow_table().column("ts").to_pylist())
         value_col = list(result.to_arrow_table().column(feature_name).to_pylist())
@@ -81,8 +81,8 @@ class TestDuckdbResampleNonUtcSession:
         feature_name = "value__resample_15_minute_mean"
         fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
 
-        result = DuckdbResample.calculate_feature(rel, fs)
-        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+        result = calculate_with(DuckdbResample, rel, fs)
+        oracle = calculate_with(PyArrowResample, arrow_table, fs)
 
         def _to_map(buckets: list[Any], vals: list[Any]) -> dict[str, Any]:
             # Key by the ISO string so the bucket-label timezone offset (UTC vs the

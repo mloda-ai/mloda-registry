@@ -10,7 +10,7 @@ import pytest
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
     PyArrowSessionization,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
@@ -41,7 +41,7 @@ class TestPyArrowSessionization(PyArrowTestMixin, SessionizationTestBase):
         )
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
         with pytest.raises(ValueError, match=r"(?i)timestamp"):
-            PyArrowSessionization.calculate_feature(table, fs)
+            calculate_with(PyArrowSessionization, table, fs)
 
 
 class TestPyArrowSessionizationNanPartitionKeyGrouping:
@@ -83,7 +83,7 @@ class TestPyArrowSessionizationNanPartitionKeyGrouping:
         )
 
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["grp"], order_by="ts")
-        result = PyArrowSessionization.calculate_feature(arrow_table, fs)
+        result = calculate_with(PyArrowSessionization, arrow_table, fs)
         result_col = result.column("ts__sessionize_30_minute").to_pylist()
 
         # Rows 0 and 1 share the NaN partition PyArrow reports above, and their gap

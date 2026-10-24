@@ -7,6 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.python_dict_sessionization import (
     PythonDictSessionization,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
@@ -72,8 +73,8 @@ class TestPythonDictNullPartitionKey:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
 
-        result = PythonDictSessionization.calculate_feature(data, fs)
-        oracle = PyArrowSessionization.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictSessionization, data, fs)
+        oracle = calculate_with(PyArrowSessionization, arrow_table, fs)
 
         result_col = extract_column(result, "ts__sessionize_30_minute")
         oracle_col = extract_column(oracle, "ts__sessionize_30_minute")
@@ -127,7 +128,7 @@ class TestPythonDictNanPartitionKeyGrouping:
 
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["grp"], order_by="ts")
-        result = PythonDictSessionization.calculate_feature(data, fs)
+        result = calculate_with(PythonDictSessionization, data, fs)
         result_col = extract_column(result, "ts__sessionize_30_minute")
 
         # Rows 0 and 1 share the NaN partition PyArrow reports above, and their gap
@@ -169,7 +170,7 @@ class TestPythonDictNanOrderValueSortSurvives:
         }
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["grp"], order_by="ts")
 
-        result = PythonDictSessionization.calculate_feature(data, fs)
+        result = calculate_with(PythonDictSessionization, data, fs)
         result_col = extract_column(result, "ts__sessionize_30_minute")
 
         # Rows 0 and 2 are 5 minutes apart (within the 30-minute threshold) and must

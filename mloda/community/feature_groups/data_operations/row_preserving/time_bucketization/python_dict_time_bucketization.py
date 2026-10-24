@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -163,12 +163,23 @@ _OP_FUNCS: dict[str, Any] = {
 }
 
 
-class PythonDictTimeBucketization(TimeBucketizationFeatureGroup):
+class PythonDictTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """PythonDict backend for time bucketization."""
 
+    feature_group = TimeBucketizationFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls,
+        group: type[TimeBucketizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.bucketize(
+            data, features, assert_timestamp=cls._assert_source_column_is_timestamp, compute_bucket=cls._compute_bucket
+        )
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: dict[str, list[Any]], source_col: str) -> None:
@@ -179,12 +190,14 @@ class PythonDictTimeBucketization(TimeBucketizationFeatureGroup):
             if isinstance(value, datetime):
                 continue
             if isinstance(value, date):
-                cls._raise_non_timestamp_source(
+                TimeBucketizationFeatureGroup._raise_non_timestamp_source(
                     source_col,
                     f"Python {type(value).__name__} (DATE-only value {value!r}, no time component; "
                     "convert to datetime before bucketizing)",
                 )
-            cls._raise_non_timestamp_source(source_col, f"Python {type(value).__name__} (value {value!r})")
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(
+                source_col, f"Python {type(value).__name__} (value {value!r})"
+            )
 
     @classmethod
     def _compute_bucket(

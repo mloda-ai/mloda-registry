@@ -65,8 +65,8 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -301,6 +301,11 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
         return PyArrowResample
 
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """The agg types the implementation declares as NaN-divergent via ``divergent``."""
+        return frozenset(getattr(cls.implementation_class(), "divergent", {}))
+
     # -- Setup: use the dedicated 12-row resample fixture -------------------
 
     @classmethod
@@ -420,7 +425,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """1-hour mean per region. Output row count == number of non-empty buckets (6)."""
         feature_name = "value__resample_1_hour_mean"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         # Row-CHANGING assertion: one row per non-empty (region, hour) bucket.
@@ -432,14 +437,14 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     def test_1_hour_sum_per_partition(self) -> None:
         feature_name = "value__resample_1_hour_sum"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_resample_map(result, feature_name, "ts", ["region"])
         self._assert_map_equals(result_map, EXPECTED_1_HOUR_SUM, use_approx=True)
 
     def test_1_hour_count_per_partition(self) -> None:
         feature_name = "value__resample_1_hour_count"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_resample_map(result, feature_name, "ts", ["region"])
         self._assert_map_equals(result_map, EXPECTED_1_HOUR_COUNT)
 
@@ -447,7 +452,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """n>1 / sub-hour unit: guards epoch-anchored bucket alignment (:00/:15/:30/:45)."""
         feature_name = "value__resample_15_minute_mean"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == len(EXPECTED_15_MINUTE_MEAN)
         result_map = self._build_resample_map(result, feature_name, "ts", ["region"])
@@ -457,7 +462,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """No partition (partition_by=[]): one row per hour bucket across the whole table."""
         feature_name = "value__resample_1_hour_mean"
         fs = self._resample_fs(feature_name, [])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == len(EXPECTED_1_HOUR_MEAN_WHOLE)
         result_map = self._build_resample_map(result, feature_name, "ts", [])
@@ -469,7 +474,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """Output rows == number of non-empty buckets AND differs from input rows (12)."""
         feature_name = "value__resample_1_hour_mean"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         n_buckets = len(EXPECTED_1_HOUR_MEAN)
         assert self.get_row_count(result) == n_buckets
@@ -484,7 +489,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """
         feature_name = "value__resample_1_hour_mean"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_resample_map(result, feature_name, "ts", ["region"])
         assert ("A", _h(11)) not in result_map
         assert ("B", _h(11)) not in result_map
@@ -498,7 +503,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """
         feature_name = "value__resample_1_hour_mean"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_resample_map(result, feature_name, "ts", ["region"])
         assert ("A", _h(8)) in result_map
         # The raw (unfloored) timestamps must NOT appear as bucket keys.
@@ -514,19 +519,19 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         (the null at row 2 is skipped).
         """
         mean_fs = self._resample_fs("value__resample_1_hour_mean", ["region"])
-        mean_result = self.implementation_class().calculate_feature(self.test_data, mean_fs)
+        mean_result = calculate_with(self.implementation_class(), self.test_data, mean_fs)
         mean_map = self._build_resample_map(mean_result, "value__resample_1_hour_mean", "ts", ["region"])
         assert mean_map[("A", _h(8))] == pytest.approx(7.0)
 
         sum_fs = self._resample_fs("value__resample_1_hour_sum", ["region"])
-        sum_result = self.implementation_class().calculate_feature(self.test_data, sum_fs)
+        sum_result = calculate_with(self.implementation_class(), self.test_data, sum_fs)
         sum_map = self._build_resample_map(sum_result, "value__resample_1_hour_sum", "ts", ["region"])
         assert sum_map[("A", _h(8))] == pytest.approx(14.0)
 
     def test_count_reflects_non_null(self) -> None:
         """count counts NON-NULL values: ('A', hour08) = 2 (the null is not counted)."""
         fs = self._resample_fs("value__resample_1_hour_count", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         count_map = self._build_resample_map(result, "value__resample_1_hour_count", "ts", ["region"])
         assert count_map[("A", _h(8))] == 2
 
@@ -537,30 +542,30 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         present in the output with count 0 and mean / sum None.
         """
         count_fs = self._resample_fs("value__resample_1_hour_count", ["region"])
-        count_result = self.implementation_class().calculate_feature(self.test_data, count_fs)
+        count_result = calculate_with(self.implementation_class(), self.test_data, count_fs)
         count_map = self._build_resample_map(count_result, "value__resample_1_hour_count", "ts", ["region"])
         assert ("B", _h(9)) in count_map, "all-null bucket must still emit a row"
         assert count_map[("B", _h(9))] == 0
 
         mean_fs = self._resample_fs("value__resample_1_hour_mean", ["region"])
-        mean_result = self.implementation_class().calculate_feature(self.test_data, mean_fs)
+        mean_result = calculate_with(self.implementation_class(), self.test_data, mean_fs)
         mean_map = self._build_resample_map(mean_result, "value__resample_1_hour_mean", "ts", ["region"])
         assert mean_map[("B", _h(9))] is None
 
         sum_fs = self._resample_fs("value__resample_1_hour_sum", ["region"])
-        sum_result = self.implementation_class().calculate_feature(self.test_data, sum_fs)
+        sum_result = calculate_with(self.implementation_class(), self.test_data, sum_fs)
         sum_map = self._build_resample_map(sum_result, "value__resample_1_hour_sum", "ts", ["region"])
         assert sum_map[("B", _h(9))] is None
 
     def test_min_max_skip_nulls(self) -> None:
         """min / max skip nulls; ('A', hour08) over [10.0, None, 4.0] -> min 4.0, max 10.0."""
         min_fs = self._resample_fs("value__resample_1_hour_min", ["region"])
-        min_result = self.implementation_class().calculate_feature(self.test_data, min_fs)
+        min_result = calculate_with(self.implementation_class(), self.test_data, min_fs)
         min_map = self._build_resample_map(min_result, "value__resample_1_hour_min", "ts", ["region"])
         assert min_map[("A", _h(8))] == pytest.approx(4.0)
 
         max_fs = self._resample_fs("value__resample_1_hour_max", ["region"])
-        max_result = self.implementation_class().calculate_feature(self.test_data, max_fs)
+        max_result = calculate_with(self.implementation_class(), self.test_data, max_fs)
         max_map = self._build_resample_map(max_result, "value__resample_1_hour_max", "ts", ["region"])
         assert max_map[("A", _h(8))] == pytest.approx(10.0)
 
@@ -570,7 +575,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """The aggregated column must be named exactly ``{col}__resample_{n}_{unit}_{agg}``."""
         feature_name = "value__resample_1_hour_mean"
         fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, feature_name)
         assert len(col) == len(EXPECTED_1_HOUR_MEAN)
 
@@ -590,7 +595,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_map = self._build_resample_map(result, "value__resample_1_hour_mean", "ts", ["region"])
         self._assert_map_equals(result_map, EXPECTED_1_HOUR_MEAN, use_approx=True)
 
@@ -605,8 +610,8 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     ) -> None:
         """Run the feature on this framework and the PyArrow reference; assert maps equal."""
         fs = self._resample_fs(feature_name, partition_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        ref = self.reference_calculate(self._arrow_table, fs)
 
         result_map = self._build_resample_map(result, feature_name, "ts", partition_by)
         # Reference is a PyArrow table; build its map with the standalone helper.
@@ -652,7 +657,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     def test_bad_spec_rejected(self, feature_name: str, match: str) -> None:
         fs = self._resample_fs(feature_name, ["region"])
         with pytest.raises(ValueError, match=match):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

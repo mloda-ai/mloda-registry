@@ -30,7 +30,7 @@ from mloda.community.feature_groups.data_operations.base import (
     scalar_number_value,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
-from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
+from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 
 # ---------------------------------------------------------------------------
@@ -266,11 +266,11 @@ class TestSingletonMatchesEndToEnd:
 
     def test_multi_element_order_by_rejected(self) -> None:
         options = Options(context={"order_by": ["timestamp", "region"], "partition_by": ["region"]})
-        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", options, None) is False
+        assert FfillFeatureGroup.match_feature_group_criteria("amount__ffill", options, None) is False
 
     def test_non_string_order_by_rejected(self) -> None:
         options = Options(context={"order_by": 123, "partition_by": ["region"]})
-        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", options, None) is False
+        assert FfillFeatureGroup.match_feature_group_criteria("amount__ffill", options, None) is False
 
 
 class TestAvailableColumns:

@@ -7,6 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import (
     PyArrowFfill,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import (
     FfillTestBase,
@@ -55,7 +56,7 @@ class TestPyArrowFfillNanPartitionKeyGrouping:
         )
 
         fs = make_feature_set("val__ffill", ["grp"], "ord")
-        result = PyArrowFfill.calculate_feature(arrow_table, fs)
+        result = calculate_with(PyArrowFfill, arrow_table, fs)
         result_col = extract_column(result, "val__ffill")
 
         # Row 1 (ord=2, val=None) is second (by ord) in the shared NaN partition PyArrow
@@ -100,7 +101,7 @@ class TestPyArrowFfillNullPartitionKeyGrouping:
         )
 
         fs = make_feature_set("val__ffill", ["grp"], "ord")
-        result = PyArrowFfill.calculate_feature(arrow_table, fs)
+        result = calculate_with(PyArrowFfill, arrow_table, fs)
         result_col = extract_column(result, "val__ffill")
 
         assert result_col[1] == 10.0, (

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
@@ -16,10 +18,15 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
-class DuckdbFfill(FfillFeatureGroup):
+class DuckdbFfill(Implementation[FfillFeatureGroup]):
+    feature_group = FfillFeatureGroup
+    compute_framework = DuckDBFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {DuckDBFramework}
+    def calculate(
+        cls, group: type[FfillFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.ffill(data, features, compute_ffill=cls._compute_ffill)
 
     @classmethod
     def _compute_ffill(

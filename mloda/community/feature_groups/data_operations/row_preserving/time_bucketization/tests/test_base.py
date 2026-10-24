@@ -13,9 +13,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     TimeBucketizationFeatureGroup,
     _parse_bucket_op,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (
-    PyArrowTimeBucketization,
-)
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
@@ -181,7 +178,7 @@ class TestSingleColumnEnforcement:
                 "in_features": ["timestamp_a", "timestamp_b"],
             }
         )
-        instance = PyArrowTimeBucketization()
+        instance = TimeBucketizationFeatureGroup()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -215,7 +212,7 @@ class TestSingleColumnEnforcement:
         assert source_features == ["event_time"]
 
     def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
-        instance = PyArrowTimeBucketization()
+        instance = TimeBucketizationFeatureGroup()
         result = instance.input_features(Options(), FeatureName("timestamp__floor_1_day"))
         assert result is not None
         assert len(result) == 1
@@ -228,7 +225,7 @@ class TestSingleColumnEnforcement:
                 "in_features": "event_time",
             }
         )
-        instance = PyArrowTimeBucketization()
+        instance = TimeBucketizationFeatureGroup()
         result = instance.input_features(options, FeatureName("my_result"))
         assert result is not None
         assert len(result) == 1
@@ -263,6 +260,33 @@ class TestBucketOpExtraction:
         feature_name = f"col__{op_token}"
         result = TimeBucketizationFeatureGroup.get_bucket_op(feature_name)
         assert result == op_token
+
+
+class TestSubtypeResolution:
+    """The op subtype (floor / ceil / round) resolves from the name token or the ``bucket_op`` option."""
+
+    def test_group_declares_subtypes_over_the_ops(self) -> None:
+        assert TimeBucketizationFeatureGroup.SUBTYPES is not None
+        assert TimeBucketizationFeatureGroup.subtype_universe() == set(TIME_BUCKETIZATION_OPS)
+
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            ("ts__floor_1_day", "floor"),
+            ("ts__ceil_5_minute", "ceil"),
+            ("ts__round_1_hour", "round"),
+        ],
+    )
+    def test_resolves_from_the_feature_name(self, feature_name: str, expected: str) -> None:
+        assert TimeBucketizationFeatureGroup.resolve_subtype(feature_name, Options()) == expected
+
+    @pytest.mark.parametrize(("bucket_op", "expected"), [("floor_1_day", "floor"), ("ceil_5_minute", "ceil")])
+    def test_resolves_from_the_config_option(self, bucket_op: str, expected: str) -> None:
+        options = Options(context={"bucket_op": bucket_op, "in_features": "ts"})
+        assert TimeBucketizationFeatureGroup.resolve_subtype("my_result", options) == expected
+
+    def test_unresolvable_name_is_none(self) -> None:
+        assert TimeBucketizationFeatureGroup.resolve_subtype("plain_name", Options()) is None
 
 
 class TestForwardedBucketOpMismatch:

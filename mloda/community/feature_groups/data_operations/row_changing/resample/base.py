@@ -30,25 +30,26 @@ Output columns are the ``partition_by`` columns, the bucketed ``time_column``
 (SAME NAME, bucket-start value) and the aggregate column named exactly
 ``{src}__resample_{n}_{unit}_{agg}``. Output row order is not guaranteed.
 
-PyArrow is the cross-framework reference. Subclasses implement ``_compute_resample``
-(the backend floor + group + aggregate); presence guards are shared via
+PyArrow is the cross-framework reference. Each backend is an ``Implementation`` supplying
+the floor + group + aggregate to ``resample``; presence guards are shared via
 ``assert_source_columns_present``.
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
-from mloda.user import DataType, Feature
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
@@ -124,12 +125,28 @@ def _is_valid_resample_op(value: object) -> bool:
     return True
 
 
-class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+def _resolve_resample_agg_subtype(feature_name: str, options: Options) -> str | None:
+    """Return the agg from the name token or the ``resample_op`` option."""
+    token, _source = FeatureChainParser.parse_feature_name(feature_name, ResampleFeatureGroup._get_prefix_patterns())
+    if token is None:
+        raw = options.get(ResampleFeatureGroup.RESAMPLE_OP)
+        if raw is None:
+            return None
+        token = op_token_value(raw)
+    try:
+        return _parse_resample_op(token)[2]
+    except ValueError:
+        return None
+
+
+class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for resample operations that CHANGE the row count.
 
-    Subclasses must implement ``_compute_resample`` (the backend-specific
-    floor + group-by + aggregate); presence guards are shared.
+    Each backend is an ``Implementation`` supplying the floor + group-by + aggregate to ``resample``;
+    presence guards are shared.
     """
+
+    SUBTYPES = SubtypeDeclaration(universe=RESAMPLE_AGGS.keys(), resolver=_resolve_resample_agg_subtype)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "time_column")
 
@@ -218,7 +235,13 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Featur
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def resample(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_resample: Callable[[Any, str, str, str, list[str], int, str, str], Any],
+    ) -> Any:
         """Compute one resample output per feature in ``features``."""
         table = data
 
@@ -234,20 +257,6 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Featur
             assert_key_columns_present(data, partition_by, time_column, order_label="time_column")
             assert_source_columns_present(data, [source_col])
 
-            table = cls._compute_resample(table, feature_name, source_col, time_column, partition_by, n, unit, agg)
+            table = compute_resample(table, feature_name, source_col, time_column, partition_by, n, unit, agg)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_resample(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        time_column: str,
-        partition_by: list[str],
-        n: int,
-        unit: str,
-        agg: str,
-    ) -> Any: ...

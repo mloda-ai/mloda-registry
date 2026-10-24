@@ -19,8 +19,8 @@ import pyarrow as pa
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (
-    PyArrowTimeBucketization,
+from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
+    TimeBucketizationFeatureGroup,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
@@ -62,7 +62,7 @@ class TestTimeBucketizationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowTimeBucketization
+        return TimeBucketizationFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -127,7 +127,7 @@ class TestTimeBucketizationIntegration(DataOpsIntegrationTestBase):
     def test_match_rejects_missing_config(self) -> None:
         """Pattern-based: a non-pattern name without config must fail to match."""
         options = Options()
-        assert not PyArrowTimeBucketization.match_feature_group_criteria("my_custom_result", options)
+        assert not TimeBucketizationFeatureGroup.match_feature_group_criteria("my_custom_result", options)
 
 
 class TestIntegrationMultipleFeatures:
@@ -135,7 +135,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_floor_day_and_floor_month_together(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowTimeBucketization}
+            {PyArrowDataOpsTestDataCreator, TimeBucketizationFeatureGroup}
         )
 
         f_day = Feature("timestamp__floor_1_day", options=Options())
@@ -172,7 +172,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_option_based_floor_through_pipeline(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowTimeBucketization}
+            {PyArrowDataOpsTestDataCreator, TimeBucketizationFeatureGroup}
         )
 
         feature = Feature(
@@ -205,7 +205,7 @@ class TestIntegrationOptionBasedConfig:
 
     def test_string_and_option_features_together(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowTimeBucketization}
+            {PyArrowDataOpsTestDataCreator, TimeBucketizationFeatureGroup}
         )
 
         f_pattern = Feature("timestamp__floor_1_day", options=Options())

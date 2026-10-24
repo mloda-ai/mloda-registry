@@ -10,9 +10,9 @@ import pytest
 from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
+    RESAMPLE_AGGS,
     ResampleFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import PyArrowResample
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
@@ -80,6 +80,61 @@ class TestPrefixPatternPerformance:
         assert elapsed < 2.0, f"match_feature_group_criteria took {elapsed:.3f}s on an adversarial name; expected < 2s"
 
 
+class TestSubtypes:
+    """The agg is the group's subtype: the universe is every resample agg, resolved from the name or the option."""
+
+    def test_universe_is_every_resample_agg(self) -> None:
+        assert ResampleFeatureGroup.subtype_universe() == set(RESAMPLE_AGGS)
+
+    def test_resolves_from_the_feature_name(self) -> None:
+        assert ResampleFeatureGroup.resolve_subtype("value__resample_1_hour_mean", Options()) == "mean"
+
+    def test_resolves_from_the_config_option(self) -> None:
+        options = Options(context={"resample_op": "2_day_sum", "in_features": "value", "time_column": "timestamp"})
+        assert ResampleFeatureGroup.resolve_subtype("my_result", options) == "sum"
+
+    def test_unresolvable_is_none(self) -> None:
+        assert ResampleFeatureGroup.resolve_subtype("my_result", Options()) is None
+        assert ResampleFeatureGroup.resolve_subtype("value__resample_1_hour_median", Options()) is None
+
+
+class TestSupportedAndDivergent:
+    """NaN-divergence is declared on PandasResample; every other implementation is unrestricted and reference-equal."""
+
+    @staticmethod
+    def _implementation(module: str, name: str) -> Any:
+        package = "mloda.community.feature_groups.data_operations.row_changing.resample"
+        return getattr(pytest.importorskip(f"{package}.{module}"), name)
+
+    def test_pandas_divergent_agg_types(self) -> None:
+        divergent = self._implementation("pandas_resample", "PandasResample").divergent
+        assert set(divergent) == {"sum", "mean", "count", "min", "max"}
+
+    def test_pandas_divergent_is_inside_the_universe_with_a_reason(self) -> None:
+        divergent = self._implementation("pandas_resample", "PandasResample").divergent
+        assert set(divergent) <= ResampleFeatureGroup.subtype_universe()
+        assert all(isinstance(reason, str) and reason for reason in divergent.values())
+
+    def test_pandas_divergence_applies_to_a_resample_feature(self) -> None:
+        pandas_resample = self._implementation("pandas_resample", "PandasResample")
+        assert pandas_resample.divergence(ResampleFeatureGroup, "val__resample_1_day_sum", Options()) is not None
+
+    @pytest.mark.parametrize(
+        ("module", "name"),
+        [
+            ("pyarrow_resample", "PyArrowResample"),
+            ("polars_lazy_resample", "PolarsLazyResample"),
+            ("duckdb_resample", "DuckdbResample"),
+            ("python_dict_resample", "PythonDictResample"),
+        ],
+    )
+    def test_other_implementations_are_unrestricted_and_not_divergent(self, module: str, name: str) -> None:
+        implementation = self._implementation(module, name)
+        assert implementation.supported is None
+        assert not implementation.divergent
+        assert implementation.divergence(ResampleFeatureGroup, "val__resample_1_day_sum", Options()) is None
+
+
 class TestResampleOpConfig:
     """``resample_op`` participates in config-based selection and validation."""
 
@@ -98,7 +153,7 @@ class TestOptionsPathInFeatureCount:
                 "in_features": ["value_a", "value_b"],
             }
         )
-        instance = PyArrowResample()
+        instance = ResampleFeatureGroup()
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 

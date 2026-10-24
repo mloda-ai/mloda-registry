@@ -13,6 +13,7 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pandas_time_bucketization import (
     PandasTimeBucketization,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.pandas import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
@@ -54,7 +55,7 @@ class TestPandasCalendarRoundDtype:
 
         data = self._build_pandas_data()
         fs = make_feature_set("timestamp__round_1_month")
-        result = PandasTimeBucketization.calculate_feature(data, fs)
+        result = calculate_with(PandasTimeBucketization, data, fs)
         assert pd.api.types.is_datetime64_any_dtype(result["timestamp__round_1_month"]), (
             f"Expected datetime64 dtype for round_1_month, got {result['timestamp__round_1_month'].dtype!r}"
         )
@@ -66,7 +67,7 @@ class TestPandasCalendarRoundDtype:
 
         data = self._build_pandas_data()
         fs = make_feature_set("timestamp__round_1_year")
-        result = PandasTimeBucketization.calculate_feature(data, fs)
+        result = calculate_with(PandasTimeBucketization, data, fs)
         assert pd.api.types.is_datetime64_any_dtype(result["timestamp__round_1_year"]), (
             f"Expected datetime64 dtype for round_1_year, got {result['timestamp__round_1_year'].dtype!r}"
         )

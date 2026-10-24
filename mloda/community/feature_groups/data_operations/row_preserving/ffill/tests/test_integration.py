@@ -23,9 +23,7 @@ import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import (
-    PyArrowFfill,
-)
+from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
@@ -54,7 +52,7 @@ class TestFfillIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowFfill
+        return FfillFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -105,7 +103,7 @@ class TestFfillIntegration(DataOpsIntegrationTestBase):
     def test_match_rejects_missing_config(self) -> None:
         """Name-based: a non-pattern name without config must fail to match."""
         options = Options()
-        assert not PyArrowFfill.match_feature_group_criteria("my_custom_result", options)
+        assert not FfillFeatureGroup.match_feature_group_criteria("my_custom_result", options)
 
     @pytest.mark.parametrize(
         ("name", "options_context", "match"),
@@ -138,16 +136,16 @@ class TestFfillRequiredOrderBy:
     def test_name_path_missing_order_by_does_not_match(self) -> None:
         """Name path: a pattern name without order_by is a non-match."""
         options = Options(context={"partition_by": ["region"]})
-        assert not PyArrowFfill.match_feature_group_criteria("amount__ffill", options)
+        assert not FfillFeatureGroup.match_feature_group_criteria("amount__ffill", options)
 
     def test_name_path_with_order_by_matches(self) -> None:
         """Control: the same pattern name WITH order_by still matches."""
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", options)
+        assert FfillFeatureGroup.match_feature_group_criteria("amount__ffill", options)
 
     def test_missing_order_by_rejected_at_discovery(self) -> None:
         """Engine level: missing order_by fails resolution, and the error names order_by, not compute."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, FfillFeatureGroup})
         feature = Feature(
             "value_float__ffill",
             options=Options(context={"partition_by": ["region"]}),
@@ -165,7 +163,7 @@ class TestIntegrationMultipleFeatures:
     """Run multiple ffill features in a single ``run_all`` call."""
 
     def test_two_ffill_features_together(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, FfillFeatureGroup})
 
         f_value = Feature(
             "value_float__ffill",

@@ -3,7 +3,7 @@
 Covers the arity contract of the scalar ``order_by`` key: core unwraps a
 one-element container when it reads a property value, so ``("timestamp",)`` is
 valid caller syntax for one column and must dispatch to ``"timestamp"`` rather
-than to the container's string form. Match tests use ``PandasEma`` (the ema
+than to the container's string form. Match tests use ``EmaFeatureGroup`` (the ema
 convention, mirroring ``TestEmaMatchFeatureGroupCriteria`` in test_integration).
 """
 
@@ -20,7 +20,7 @@ from mloda.user import Feature, Options
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 FEATURE_NAME = "value_float__ema_2"
@@ -39,7 +39,7 @@ class TestOrderByArity(ScalarArityTestBase):
 
     @classmethod
     def match_class(cls) -> Any:
-        return PandasEma
+        return EmaFeatureGroup
 
     @classmethod
     def match_feature_name(cls) -> str:
@@ -61,5 +61,5 @@ class TestOrderByArity(ScalarArityTestBase):
     def compute_values(cls, options: Options) -> list[Any] | None:
         # Compared as strings so that NaN, which never equals itself, stays comparable.
         df = pd.DataFrame(DataOperationsTestDataCreator.get_raw_data())
-        result = PandasEma.calculate_feature(df, feature_set_for(FEATURE_NAME, options))
+        result = calculate_with(PandasEma, df, feature_set_for(FEATURE_NAME, options))
         return [str(value) for value in extract_column(result, FEATURE_NAME)]

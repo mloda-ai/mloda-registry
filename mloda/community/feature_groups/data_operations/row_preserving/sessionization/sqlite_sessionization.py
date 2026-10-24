@@ -17,7 +17,9 @@ session under the strict ``gap > threshold`` rule) does not flip on noise.
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -27,10 +29,19 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 )
 
 
-class SqliteSessionization(SessionizationFeatureGroup):
+class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
+    feature_group = SessionizationFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls,
+        group: type[SessionizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.sessionize(data, features, compute_session=cls._compute_session)
 
     @classmethod
     def _compute_session(

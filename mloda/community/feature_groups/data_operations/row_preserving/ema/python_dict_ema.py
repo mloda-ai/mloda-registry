@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -20,10 +20,15 @@ from mloda.community.feature_groups.data_operations.python_dict_helpers import g
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 
 
-class PythonDictEma(EmaFeatureGroup):
+class PythonDictEma(Implementation[EmaFeatureGroup]):
+    feature_group = EmaFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls, group: type[EmaFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.ema(data, features, compute_ema=cls._compute_ema)
 
     @classmethod
     def _compute_ema(

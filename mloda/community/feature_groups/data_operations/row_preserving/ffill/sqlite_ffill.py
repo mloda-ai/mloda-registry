@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
@@ -16,10 +18,15 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
-class SqliteFfill(FfillFeatureGroup):
+class SqliteFfill(Implementation[FfillFeatureGroup]):
+    feature_group = FfillFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls, group: type[FfillFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.ffill(data, features, compute_ffill=cls._compute_ffill)
 
     @classmethod
     def _compute_ffill(

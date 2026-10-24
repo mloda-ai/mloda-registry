@@ -34,21 +34,21 @@ mapping internally.
 Only pandas and polars-lazy compute EMA natively. PyArrow, DuckDB and SQLite
 have no native exponentially weighted compute and a Python emulation is
 forbidden by the CFW-backend rule, so they ship no backend for EMA (absence).
-Compute subclasses implement ``_compute_ema`` (the backend EWM); the
-source-column presence guard is shared (``assert_source_columns_present``).
+Each backend is an ``Implementation`` supplying the EWM to ``ema``; the source-column presence
+guard is shared (``assert_source_columns_present``).
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
     property_spec,
 )
 from mloda.user import Feature
@@ -65,7 +65,7 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 
-class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, FeatureGroup):
+class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
@@ -126,7 +126,13 @@ class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPars
         return column_ref_value(order_by)
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def ema(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_ema: Callable[[Any, str, str, int, list[str], str], Any],
+    ) -> Any:
         """Compute one EMA column per feature in ``features``."""
         table = data
 
@@ -140,18 +146,6 @@ class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPars
             order_by = cls._extract_order_by(feature)
             assert_key_columns_present(data, partition_by, order_by)
 
-            table = cls._compute_ema(table, feature_name, source_col, span, partition_by, order_by)
+            table = compute_ema(table, feature_name, source_col, span, partition_by, order_by)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_ema(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        span: int,
-        partition_by: list[str],
-        order_by: str,
-    ) -> Any: ...

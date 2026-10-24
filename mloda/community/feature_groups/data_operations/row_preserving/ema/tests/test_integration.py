@@ -28,13 +28,11 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import (
-    PandasEma,
-)
+from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.testing.data_creator.base import column_selective
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -73,7 +71,7 @@ _EMA_3_BY_REGION: list[Any] = [
 
 def _ema_values(name: str, context: dict[str, Any]) -> list[Any]:
     """Run a single EMA feature on pandas through ``run_all`` and return its column."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, PandasEma})
+    plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, EmaFeatureGroup})
     feature = Feature(name, options=Options(context=context))
 
     results = mloda.run_all(
@@ -124,7 +122,7 @@ class TestEmaIntegration:
     def test_ema_2_with_column_selective_source(self) -> None:
         name = "value_float__ema_2"
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {column_selective(PandasDataOpsTestDataCreator), PandasEma}
+            {column_selective(PandasDataOpsTestDataCreator), EmaFeatureGroup}
         )
         feature = Feature(name, options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}))
 
@@ -140,23 +138,23 @@ class TestEmaMatchFeatureGroupCriteria:
     def test_valid_names_match(self) -> None:
         options = Options(context={"order_by": "timestamp", "partition_by": ["region"]})
         for name in ["value_float__ema_2", "amount__ema_5"]:
-            assert PandasEma.match_feature_group_criteria(name, options), f"expected {name} to match"
+            assert EmaFeatureGroup.match_feature_group_criteria(name, options), f"expected {name} to match"
 
     def test_invalid_names_do_not_match(self) -> None:
         options = Options(context={"order_by": "timestamp", "partition_by": ["region"]})
         # ema_0 is handled separately: the regex accepts the digit, so it MATCHES
         # here and is rejected at compute time instead (see test below).
         for name in ["value_float", "value_float__ema", "ema_2", "value_float__ffill"]:
-            assert not PandasEma.match_feature_group_criteria(name, options), f"expected {name} to NOT match"
+            assert not EmaFeatureGroup.match_feature_group_criteria(name, options), f"expected {name} to NOT match"
 
     def test_match_rejects_missing_config(self) -> None:
         """Name-based: a non-pattern name without config must fail to match."""
-        assert not PandasEma.match_feature_group_criteria("my_custom_result", Options())
+        assert not EmaFeatureGroup.match_feature_group_criteria("my_custom_result", Options())
 
     def test_missing_order_by_does_not_match(self) -> None:
         """Name path: a pattern name without order_by is a non-match."""
         options = Options(context={"partition_by": ["region"]})
-        assert not PandasEma.match_feature_group_criteria("value_float__ema_2", options)
+        assert not EmaFeatureGroup.match_feature_group_criteria("value_float__ema_2", options)
 
 
 class TestEmaRejectionRouting:
@@ -166,12 +164,12 @@ class TestEmaRejectionRouting:
     (span=0 matches the name pattern but is rejected inside the working pandas
     backend). ``test_ema_no_emulation_on_pyarrow`` covers the absence path: EMA
     ships no pyarrow backend, so a request pinned to PyArrow fails to resolve
-    with mloda core's generic no-feature-group error. Neither path emulates.
+    with a FeatureResolutionError. Neither path emulates.
     """
 
     def test_ema_0_rejected_at_compute(self) -> None:
         """span=0 matches the name pattern but is rejected when computed."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, PandasEma})
+        plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, EmaFeatureGroup})
         feature = Feature(
             "value_float__ema_0",
             options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}),
@@ -192,16 +190,16 @@ class TestEmaRejectionRouting:
         all -- a recursive Python emulation is forbidden by the CFW-backend rule.
         So even with a PyArrow data creator and the working pandas backend both
         enabled, a request pinned to ``compute_frameworks=[PyArrowTable]`` cannot
-        resolve to any EMA backend and mloda core raises its generic
-        no-feature-group resolution error. It does NOT silently emulate EMA.
+        resolve to any EMA implementation and mloda core raises a
+        FeatureResolutionError. It does NOT silently emulate EMA.
         """
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PandasEma})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, EmaFeatureGroup})
         feature = Feature(
             "value_float__ema_2",
             options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}),
         )
 
-        with pytest.raises(ValueError, match=r"(?i)no feature group"):
+        with pytest.raises(FeatureResolutionError, match=r"EmaFeatureGroup \(compute framework\)"):
             mloda.run_all(
                 [feature],
                 compute_frameworks=[PyArrowTable],

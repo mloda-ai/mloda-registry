@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import nan_safe_not_equal
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
-class PyArrowFfill(FfillFeatureGroup):
+class PyArrowFfill(Implementation[FfillFeatureGroup]):
     """PyArrow backend; also the cross-framework reference implementation.
 
     ``pyarrow.compute.fill_null_forward`` does NOT respect partition boundaries,
@@ -22,9 +24,14 @@ class PyArrowFfill(FfillFeatureGroup):
     (small) set of partition groups.
     """
 
+    feature_group = FfillFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[FfillFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.ffill(data, features, compute_ffill=cls._compute_ffill)
 
     @classmethod
     def _compute_ffill(

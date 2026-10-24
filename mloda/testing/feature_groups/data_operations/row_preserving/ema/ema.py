@@ -79,7 +79,11 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    calculate_with,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -266,7 +270,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def test_ema_span2_per_partition(self) -> None:
         """Per-partition EMA span=2 matches pinned EXPECTED_EMA_SPAN2."""
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
         col = self.extract_column(result, "value__ema_2")
         assert_values_with_nulls(col, EXPECTED_EMA_SPAN2, cast=float, approx=True)
@@ -274,21 +278,21 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def test_ema_span3_per_partition(self) -> None:
         """Per-partition EMA span=3 matches pinned EXPECTED_EMA_SPAN3."""
         fs = self._ema_feature_set(3)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_3")
         assert_values_with_nulls(col, EXPECTED_EMA_SPAN3, cast=float, approx=True)
 
     def test_ema_whole_table_span2(self) -> None:
         """With order_by only (no partition), EMA treats the whole table as one group."""
         fs = make_feature_set("value__ema_2", order_by="ts")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         assert_values_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN2, cast=float, approx=True)
 
     def test_ema_whole_table_span3(self) -> None:
         """Whole-table EMA span=3 matches pinned EXPECTED_EMA_WHOLE_SPAN3."""
         fs = make_feature_set("value__ema_3", order_by="ts")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_3")
         assert_values_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN3, cast=float, approx=True)
 
@@ -299,7 +303,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         produce ``EXPECTED_EMA_WHOLE_SPAN2`` instead.
         """
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         normalized = [None if v is None else float(v) for v in col]
         # Per-partition pinned values match.
@@ -320,7 +324,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         Row 5 is B's earliest timestamp (06:00) and is null -> NULL.
         """
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         assert col[2] is None, f"row 2 (A leading null) must be None, got {col[2]!r}"
         assert col[5] is None, f"row 5 (B leading null) must be None, got {col[5]!r}"
@@ -334,7 +338,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         exactly that "next value uses prior ema across the skipped null".
         """
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         # Interior null rows are NULL.
         assert col[10] is None, f"row 10 (A interior null) must be None, got {col[10]!r}"
@@ -346,7 +350,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def test_trailing_null_produces_null(self) -> None:
         """Trailing nulls (after the last non-null in time order) stay NULL."""
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         assert col[8] is None, f"row 8 (A trailing null) must be None, got {col[8]!r}"
         assert col[7] is None, f"row 7 (B trailing null) must be None, got {col[7]!r}"
@@ -354,7 +358,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def test_seed_is_first_non_null(self) -> None:
         """The first non-null in time order seeds the recurrence (ema == value)."""
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         # A seed: row 6 (01:00) value 1.0 -> ema 1.0.
         assert float(col[6]) == pytest.approx(1.0), f"A seed row 6 should be 1.0, got {col[6]!r}"
@@ -366,14 +370,14 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def test_original_row_order_preserved(self) -> None:
         """The passthrough ``id`` column must be unchanged in original row order."""
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         ids = self.extract_column(result, "id")
         assert [int(v) for v in ids] == _EMA_IDS, f"row order changed: {ids!r}"
 
     def test_source_column_unchanged(self) -> None:
         """The source ``value`` column must pass through unchanged."""
         fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         src = self.extract_column(result, "value")
         assert_values_with_nulls(src, _EMA_VALUES, cast=float, approx=True)
 
@@ -393,7 +397,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         assert_values_with_nulls(col, EXPECTED_EMA_SPAN2, cast=float, approx=True)
 

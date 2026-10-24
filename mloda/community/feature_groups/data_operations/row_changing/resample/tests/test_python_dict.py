@@ -7,6 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_changing.resample.python_dict_resample import (
     PythonDictResample,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     ResampleTestBase,
@@ -58,8 +59,8 @@ class TestPythonDictNonDivisorBucketRowCount:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("v__resample_7_minute_sum", time_column="ts")
 
-        result = PythonDictResample.calculate_feature(data, fs)
-        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictResample, data, fs)
+        oracle = calculate_with(PyArrowResample, arrow_table, fs)
 
         result_ts = extract_column(result, "ts")
         oracle_ts = extract_column(oracle, "ts")
@@ -113,8 +114,8 @@ class TestPythonDictNullTimestamp:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("value__resample_1_hour_mean", partition_by=["region"], time_column="ts")
 
-        result = PythonDictResample.calculate_feature(data, fs)
-        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictResample, data, fs)
+        oracle = calculate_with(PyArrowResample, arrow_table, fs)
 
         def _bucket_map(res: Any) -> dict[tuple[Any, Any], Any]:
             regions = extract_column(res, "region")
@@ -163,8 +164,8 @@ class TestPythonDictMinMaxSkipsNan:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"v__resample_1_hour_{agg}", time_column="ts")
 
-        result = PythonDictResample.calculate_feature(data, fs)
-        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictResample, data, fs)
+        oracle = calculate_with(PyArrowResample, arrow_table, fs)
 
         return (
             extract_column(result, f"v__resample_1_hour_{agg}"),
@@ -219,8 +220,8 @@ class TestPythonDictNanPartitionKeyGrouping:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("v__resample_1_hour_sum", partition_by=["grp"], time_column="ts")
 
-        result = PythonDictResample.calculate_feature(data, fs)
-        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictResample, data, fs)
+        oracle = calculate_with(PyArrowResample, arrow_table, fs)
 
         oracle_ts = extract_column(oracle, "ts")
         assert len(oracle_ts) == 1, f"sanity check on the oracle itself failed: expected 1 row, got {oracle_ts!r}"
@@ -292,8 +293,8 @@ class TestPythonDictNanPartitionColumnLeaksGroupKeySentinel:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("v__resample_1_hour_sum", partition_by=["grp"], time_column="ts")
 
-        result = PythonDictResample.calculate_feature(data, fs)
-        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictResample, data, fs)
+        oracle = calculate_with(PyArrowResample, arrow_table, fs)
 
         oracle_grp = extract_column(oracle, "grp")
         assert any(isinstance(v, float) and math.isnan(v) for v in oracle_grp), (

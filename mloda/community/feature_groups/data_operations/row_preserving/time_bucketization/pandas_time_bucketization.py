@@ -12,8 +12,10 @@ aligned input for ``week`` / ``month`` / ``year``, but is idempotent for
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.pandas_helpers import FIXED_FREQ_ALIASES
@@ -64,18 +66,29 @@ def _calendar_floor(series: pd.Series, unit: str) -> pd.Series:
     return floored_naive
 
 
-class PandasTimeBucketization(TimeBucketizationFeatureGroup):
+class PandasTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """Pandas backend for time bucketization."""
 
+    feature_group = TimeBucketizationFeatureGroup
+    compute_framework = PandasDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls,
+        group: type[TimeBucketizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.bucketize(
+            data, features, assert_timestamp=cls._assert_source_column_is_timestamp, compute_bucket=cls._compute_bucket
+        )
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: pd.DataFrame, source_col: str) -> None:
         series = data[source_col]
         if not pd.api.types.is_datetime64_any_dtype(series):
-            cls._raise_non_timestamp_source(source_col, series.dtype)
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, series.dtype)
 
     @classmethod
     def _compute_bucket(

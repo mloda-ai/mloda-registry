@@ -54,7 +54,7 @@ def _sort_none_last(values: list[Any]) -> list[Any]:
 
 def _run_resample(name: str, context: dict[str, Any]) -> pa.Table:
     """Run a single resample feature through ``run_all`` and return its table."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowResample})
+    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ResampleFeatureGroup})
     feature = Feature(name, options=Options(context=context))
 
     results = mloda.run_all(
@@ -94,7 +94,7 @@ class TestResampleIntegration:
     def test_daily_mean_with_column_selective_source(self) -> None:
         name = "value_float__resample_1_day_mean"
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {column_selective(PyArrowDataOpsTestDataCreator), PyArrowResample}
+            {column_selective(PyArrowDataOpsTestDataCreator), ResampleFeatureGroup}
         )
         feature = Feature(name, options=Options(context={"time_column": "timestamp", "partition_by": ["region"]}))
 
@@ -108,7 +108,7 @@ class TestChainedNameDropsContext:
     """A chained resample name drops context keys on the child; the error must name time_column."""
 
     def test_chained_child_missing_time_column_named_in_resolution_error(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowResample})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ResampleFeatureGroup})
         feature = Feature(
             "value_float__resample_1_hour_mean__resample_2_hour_sum",
             options=Options(context={"time_column": "timestamp"}),
@@ -127,13 +127,13 @@ class TestResampleMatchFeatureGroupCriteria:
 
     def test_valid_name_matches(self) -> None:
         options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
-        assert PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
+        assert ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
 
     def test_invalid_names_do_not_match(self) -> None:
         options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
         # median is not in the v1 agg set; ffill belongs to a different FG.
-        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_median", options)
-        assert not PyArrowResample.match_feature_group_criteria("value_float__ffill", options)
+        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_1_hour_median", options)
+        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__ffill", options)
 
     def test_zero_bucket_names_do_not_match(self) -> None:
         # n must be a positive integer (n >= 1); a zero bucket size is not selectable.
@@ -141,11 +141,11 @@ class TestResampleMatchFeatureGroupCriteria:
         # real work to do) but is rejected there via _parse_resample_op; resample_00_* fails
         # PREFIX_PATTERN outright (no leading-zero form of n is accepted).
         options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
-        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_0_hour_mean", options)
-        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_0_minute_count", options)
-        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_00_hour_sum", options)
+        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_0_hour_mean", options)
+        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_0_minute_count", options)
+        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_00_hour_sum", options)
         # Regression guard: a positive bucket size still matches.
-        assert PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
+        assert ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
 
     def test_config_garbage_resample_op_does_not_match(self) -> None:
         # A config-style feature carrying an unparseable resample_op token must be
@@ -156,7 +156,7 @@ class TestResampleMatchFeatureGroupCriteria:
     def test_missing_time_column_does_not_match(self) -> None:
         """Name path: a pattern name without time_column is a non-match."""
         options = Options(context={"partition_by": ["region"]})
-        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
+        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
 
     def test_config_path_missing_time_column_does_not_match(self) -> None:
         """Config path: a config feature without time_column stays a non-match."""
@@ -171,3 +171,26 @@ class TestResampleMatchFeatureGroupCriteria:
         assert _is_valid_resample_op("1_hour_mean") is True
         assert _is_valid_resample_op("not_a_token") is False
         assert _is_valid_resample_op(123) is False
+
+
+class TestResampleDivergentPandas:
+    """Pandas declares every resample agg divergent (it skips NaN), so the PyArrow reference serves them."""
+
+    def test_divergent_pandas_mean_is_served_by_pyarrow(self) -> None:
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
+
+        collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, ResampleFeatureGroup})
+        feature = Feature(
+            "value_float__resample_1_day_mean",
+            options=Options(context={"time_column": "timestamp", "partition_by": ["region"]}),
+        )
+
+        plan = mloda.explain([feature], compute_frameworks=[PandasDataFrame, PyArrowTable], plugin_collector=collector)
+
+        steps = [s for s in plan if s.step_kind == "compute" and s.feature_group is ResampleFeatureGroup]
+        assert len(steps) == 1
+        assert steps[0].implementation is PyArrowResample
+        assert steps[0].compute_framework is PyArrowTable

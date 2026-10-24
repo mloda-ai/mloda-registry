@@ -39,7 +39,9 @@ return results in input order, mirroring the tag-and-restore pattern in
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -165,12 +167,23 @@ def _tz_suffix_expr(quoted_source: str) -> str:
     return f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') THEN substr({quoted_source}, -6) ELSE '' END)"
 
 
-class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
+class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """SQLite backend for time bucketization."""
 
+    feature_group = TimeBucketizationFeatureGroup
+    compute_framework = SqliteFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls,
+        group: type[TimeBucketizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.bucketize(
+            data, features, assert_timestamp=cls._assert_source_column_is_timestamp, compute_bucket=cls._compute_bucket
+        )
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: SqliteRelation, source_col: str) -> None:
@@ -193,7 +206,7 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
         affinity = affinity_by_column[source_col]
         if affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
-            cls._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
 
         # Probe every non-null value via ``julianday`` to weed out
         # TEXT-affinity columns that hold non-timestamp content. A LIMIT 1
@@ -215,7 +228,7 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         row = cursor.fetchone()
         if row is not None:
             (raw_value,) = row
-            cls._raise_non_timestamp_source(
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(
                 source_col, f"SQLite affinity {affinity!r} (value {raw_value!r} does not parse as timestamp)"
             )
 

@@ -22,7 +22,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_em
 from mloda.community.feature_groups.data_operations.row_preserving.ema.polars_lazy_ema import (
     PolarsLazyEma,
 )
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import (
     EmaTestBase,
@@ -69,12 +69,12 @@ class TestPandasPolarsAgreement:
         feature_name = f"value__ema_{span}"
         fs = make_feature_set(feature_name, partition_by=["region"], order_by="ts")
 
-        pandas_result = PandasEma.calculate_feature(arrow_table.to_pandas(), fs)
+        pandas_result = calculate_with(PandasEma, arrow_table.to_pandas(), fs)
         pandas_col = [self._norm_null(v) for v in extract_column(pandas_result, feature_name)]
 
         lazy = pl.from_arrow(arrow_table)
         assert isinstance(lazy, pl.DataFrame)
-        polars_result = PolarsLazyEma.calculate_feature(lazy.lazy(), fs)
+        polars_result = calculate_with(PolarsLazyEma, lazy.lazy(), fs)
         polars_col = [self._norm_null(v) for v in extract_column(polars_result, feature_name)]
 
         assert len(pandas_col) == len(polars_col)

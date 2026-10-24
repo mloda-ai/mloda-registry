@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -31,10 +31,19 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 )
 
 
-class PythonDictSessionization(SessionizationFeatureGroup):
+class PythonDictSessionization(Implementation[SessionizationFeatureGroup]):
+    feature_group = SessionizationFeatureGroup
+    compute_framework = PythonDictFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls,
+        group: type[SessionizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.sessionize(data, features, compute_session=cls._compute_session)
 
     @classmethod
     def _compute_session(

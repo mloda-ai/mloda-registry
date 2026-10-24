@@ -11,7 +11,9 @@ half-up via midpoint comparison on epoch seconds (matches PyArrow's
 
 from __future__ import annotations
 
-from mloda.provider import ComputeFramework
+from typing import Any
+
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -53,12 +55,23 @@ def _bucket_seconds_for_fixed_freq(n: int, unit: str) -> int:
     raise ValueError(f"Bucket-seconds helper called for non-fixed-freq unit: {unit!r}")
 
 
-class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
+class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """DuckDB backend for time bucketization."""
 
+    feature_group = TimeBucketizationFeatureGroup
+    compute_framework = DuckDBFramework
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {DuckDBFramework}
+    def calculate(
+        cls,
+        group: type[TimeBucketizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.bucketize(
+            data, features, assert_timestamp=cls._assert_source_column_is_timestamp, compute_bucket=cls._compute_bucket
+        )
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: DuckdbRelation, source_col: str) -> None:
@@ -66,7 +79,7 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         dtype_str = type_by_column[source_col]
         upper = dtype_str.upper()
         if not any(upper == p or upper.startswith(p) for p in _DUCKDB_TIMESTAMP_PREFIXES):
-            cls._raise_non_timestamp_source(source_col, dtype_str)
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, dtype_str)
 
     @classmethod
     def _compute_bucket(

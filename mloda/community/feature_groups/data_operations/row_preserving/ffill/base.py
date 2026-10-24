@@ -25,21 +25,20 @@ Null rules pinned across all backends:
 - A null that follows a non-null gets the carried value.
 - Non-null source values pass through unchanged.
 
-PyArrow is the cross-framework reference. Subclasses implement ``_compute_ffill``
-(the backend-specific fill); the source-column presence guard is shared
-(``assert_source_columns_present``).
+PyArrow is the cross-framework reference. Each backend is an ``Implementation`` supplying the fill
+to ``ffill``; the source-column presence guard is shared (``assert_source_columns_present``).
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
     property_spec,
 )
 from mloda.user import Feature
@@ -56,7 +55,7 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 
-class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, FeatureGroup):
+class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it
@@ -107,7 +106,13 @@ class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPa
         return column_ref_value(order_by)
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def ffill(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_ffill: Callable[[Any, str, str, list[str], str], Any],
+    ) -> Any:
         """Compute one ffill column per feature in ``features``."""
         table = data
 
@@ -120,17 +125,6 @@ class FfillFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainPa
             order_by = cls._extract_order_by(feature)
             assert_key_columns_present(data, partition_by, order_by)
 
-            table = cls._compute_ffill(table, feature_name, source_col, partition_by, order_by)
+            table = compute_ffill(table, feature_name, source_col, partition_by, order_by)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_ffill(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        order_by: str,
-    ) -> Any: ...

@@ -25,12 +25,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
     _parse_sessionize_op,
     _sessionize_threshold_seconds,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
-    PandasSessionization,
-)
-from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
-    PyArrowSessionization,
-)
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 SESSIONIZE_FEATURE_NAME = "ts__sessionize_30_minute"
@@ -63,7 +57,7 @@ class TestPatternMatching:
     @pytest.mark.parametrize("unit", ["minute", "hour", "day", "week"])
     def test_matches_each_unit(self, unit: str) -> None:
         name = f"ts__sessionize_30_{unit}"
-        assert PandasSessionization.match_feature_group_criteria(name, _match_options()) is True
+        assert SessionizationFeatureGroup.match_feature_group_criteria(name, _match_options()) is True
 
     @pytest.mark.parametrize(
         ("feature_name", "expected"),
@@ -78,11 +72,11 @@ class TestPatternMatching:
         ],
     )
     def test_match_by_name(self, feature_name: str, expected: bool) -> None:
-        assert PandasSessionization.match_feature_group_criteria(feature_name, _match_options()) is expected
+        assert SessionizationFeatureGroup.match_feature_group_criteria(feature_name, _match_options()) is expected
 
     def test_config_source_without_sessionize_token_does_not_match(self) -> None:
         options = Options(context={"in_features": "value_int"})
-        assert PandasSessionization.match_feature_group_criteria("my_result", options) is False
+        assert SessionizationFeatureGroup.match_feature_group_criteria("my_result", options) is False
 
     def test_n_zero_matches_regex_but_rejected_at_parse(self) -> None:
         """``sessionize_0_minute`` matches the ``\\d+`` regex but n=0 is rejected at parse time.
@@ -91,18 +85,20 @@ class TestPatternMatching:
         rejects n<=0 downstream (see TestThresholdParser).
         """
         # The regex itself accepts the digit 0.
-        assert PandasSessionization.match_feature_group_criteria("ts__sessionize_0_minute", _match_options()) is True
+        assert (
+            SessionizationFeatureGroup.match_feature_group_criteria("ts__sessionize_0_minute", _match_options()) is True
+        )
 
     def test_name_based_match_still_works_with_agreeing_in_features_option(self) -> None:
         """A valid name-based feature still matches when ``in_features`` agrees with the name's source."""
         options = Options(context={"in_features": "ts", "order_by": "ts", "partition_by": ["user"]})
-        assert PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
+        assert SessionizationFeatureGroup.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
 
     def test_name_based_match_rejects_mismatched_in_features_option(self) -> None:
         """An ``in_features`` option that disagrees with the name's source is rejected."""
         options = Options(context={"in_features": "other", "order_by": "ts", "partition_by": ["user"]})
         with pytest.raises(ValueError, match=r"in_features is .*but the feature name's direct sources are \['ts'\]"):
-            PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options)
+            SessionizationFeatureGroup.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options)
 
 
 class TestThresholdParser:
@@ -166,7 +162,7 @@ class TestOrderByArity(ScalarArityTestBase):
 
     @classmethod
     def match_class(cls) -> Any:
-        return PandasSessionization
+        return SessionizationFeatureGroup
 
     @classmethod
     def match_feature_name(cls) -> str:
@@ -207,7 +203,7 @@ class TestSourceExtraction:
                 "partition_by": ["user"],
             }
         )
-        instance = PyArrowSessionization()
+        instance = SessionizationFeatureGroup()
         with pytest.raises(ValueError, match=r"(?i)feature name"):
             instance.input_features(options, FeatureName("my_result"))
 
@@ -242,5 +238,5 @@ class TestSourceExtraction:
 
     def test_input_features_returns_source_feature_from_name(self) -> None:
         """``input_features`` extracts the source feature ``a__b`` from ``a__b__sessionize_1_hour``."""
-        result = PyArrowSessionization().input_features(Options(), FeatureName("a__b__sessionize_1_hour"))
+        result = SessionizationFeatureGroup().input_features(Options(), FeatureName("a__b__sessionize_1_hour"))
         assert result == {Feature("a__b")}

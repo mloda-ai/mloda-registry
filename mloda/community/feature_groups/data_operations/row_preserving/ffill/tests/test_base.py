@@ -3,8 +3,7 @@
 Covers the arity contract of the scalar ``order_by`` key: core unwraps a
 one-element container when it reads a property value, so ``("timestamp",)`` is
 valid caller syntax for one column and must dispatch to ``"timestamp"`` rather
-than to the container's string form. Match tests use ``PyArrowFfill`` (the ffill
-convention, mirroring test_integration).
+than to the container's string form. Match tests use ``FfillFeatureGroup`` itself.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from mloda.user import Feature, Options
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 FEATURE_NAME = "amount__ffill"
@@ -35,7 +34,7 @@ class TestOrderByArity(ScalarArityTestBase):
 
     @classmethod
     def match_class(cls) -> Any:
-        return PyArrowFfill
+        return FfillFeatureGroup
 
     @classmethod
     def match_feature_name(cls) -> str:
@@ -55,7 +54,7 @@ class TestOrderByArity(ScalarArityTestBase):
 
     @classmethod
     def compute_values(cls, options: Options) -> list[Any] | None:
-        result = PyArrowFfill.calculate_feature(
-            PyArrowDataOpsTestDataCreator.create(), feature_set_for(FEATURE_NAME, options)
+        result = calculate_with(
+            PyArrowFfill, PyArrowDataOpsTestDataCreator.create(), feature_set_for(FEATURE_NAME, options)
         )
         return extract_column(result, FEATURE_NAME)

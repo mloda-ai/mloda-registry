@@ -21,7 +21,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.sqlite_time_bucketization import (
     SqliteTimeBucketization,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 
 
 class TestSqliteResultTypeContract:
@@ -38,7 +38,7 @@ class TestSqliteResultTypeContract:
         )
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
-        result = SqliteTimeBucketization().calculate_feature(rel, fs)
+        result = calculate_with(SqliteTimeBucketization, rel, fs)
         arrow = result.to_arrow_table()
         assert arrow.schema.field("timestamp__floor_1_day").type == pa.string()
 
@@ -53,7 +53,7 @@ class TestSqliteResultTypeContract:
         )
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
-        result = SqliteTimeBucketization().calculate_feature(rel, fs)
+        result = calculate_with(SqliteTimeBucketization, rel, fs)
         assert type(result).__name__ == "SqliteRelation"
         assert not hasattr(result, "timestamp_result_columns")
 
@@ -68,7 +68,7 @@ class TestSqliteResultTypeContract:
         )
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
-        result = SqliteTimeBucketization().calculate_feature(rel, fs)
+        result = calculate_with(SqliteTimeBucketization, rel, fs)
         values = result.to_arrow_table().column("timestamp__floor_1_day").to_pylist()
         assert values[0] == "2023-01-01 00:00:00+00:00"
 
@@ -94,7 +94,7 @@ class TestSqliteResultTypeContract:
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
         with pytest.raises(ValueError, match=r"(?i)non-utc|timezone|tz"):
-            SqliteTimeBucketization().calculate_feature(rel, fs)
+            calculate_with(SqliteTimeBucketization, rel, fs)
 
     def test_dst_zone_month_floor_rejected(self) -> None:
         """Direct regression for the DST-crossing month-floor bug.
@@ -116,7 +116,7 @@ class TestSqliteResultTypeContract:
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_month")
         with pytest.raises(ValueError, match=r"(?i)non-utc|timezone|tz"):
-            SqliteTimeBucketization().calculate_feature(rel, fs)
+            calculate_with(SqliteTimeBucketization, rel, fs)
 
     def test_tz_naive_source(self) -> None:
         tbl = pa.table(
@@ -129,7 +129,7 @@ class TestSqliteResultTypeContract:
         )
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
-        result = SqliteTimeBucketization().calculate_feature(rel, fs)
+        result = calculate_with(SqliteTimeBucketization, rel, fs)
         values = result.to_arrow_table().column("timestamp__floor_1_day").to_pylist()
         assert isinstance(values[0], str)
         # Naive source: no tz offset suffix after seconds; last char must be a digit.
@@ -151,7 +151,7 @@ class TestSqliteResultTypeContract:
         con.execute(f'INSERT INTO "{rel.table_name}" VALUES (?)', ("not-a-date",))  # nosec
         fs = make_feature_set("timestamp__floor_1_day")
         with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|parse"):
-            SqliteTimeBucketization().calculate_feature(rel, fs)
+            calculate_with(SqliteTimeBucketization, rel, fs)
 
     def test_null_propagates(self) -> None:
         tbl = pa.table(
@@ -164,6 +164,6 @@ class TestSqliteResultTypeContract:
         )
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
-        result = SqliteTimeBucketization().calculate_feature(rel, fs)
+        result = calculate_with(SqliteTimeBucketization, rel, fs)
         values = result.to_arrow_table().column("timestamp__floor_1_day").to_pylist()
         assert values[0] is None

@@ -11,6 +11,7 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.duckdb_time_bucketization import (
     DuckdbTimeBucketization,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     EXPECTED_FLOOR_1_DAY,
@@ -52,7 +53,7 @@ class TestDuckdbDateSourceRejected:
         rel = DuckdbRelation.from_arrow(con, date_table)
         fs = make_feature_set("timestamp__floor_1_day")
         with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|DATE"):
-            DuckdbTimeBucketization.calculate_feature(rel, fs)
+            calculate_with(DuckdbTimeBucketization, rel, fs)
 
 
 class TestDuckdbTimeBucketizationCalendarRound:
@@ -88,8 +89,8 @@ class TestDuckdbTimeBucketizationCalendarRound:
         rel = DuckdbRelation.from_arrow(con, arrow_table)
 
         fs = make_feature_set(feature_name)
-        result = DuckdbTimeBucketization.calculate_feature(rel, fs)
-        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+        result = calculate_with(DuckdbTimeBucketization, rel, fs)
+        oracle = calculate_with(PyArrowTimeBucketization, arrow_table, fs)
 
         actual = list(result.to_arrow_table().column(feature_name).to_pylist())
         expected = list(oracle.column(feature_name).to_pylist())
@@ -127,7 +128,7 @@ class TestDuckdbTimeBucketizationNonUtcSession:
 
         rel = DuckdbRelation.from_arrow(con, _create_bucket_arrow_table())
         fs = make_feature_set("timestamp__floor_1_day")
-        result = DuckdbTimeBucketization.calculate_feature(rel, fs)
+        result = calculate_with(DuckdbTimeBucketization, rel, fs)
 
         col = list(result.to_arrow_table().column("timestamp__floor_1_day").to_pylist())
 

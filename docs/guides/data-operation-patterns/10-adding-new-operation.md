@@ -105,7 +105,7 @@ class PyArrowYourOp(YourOpFeatureGroup):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
-The per-framework-subclass shape above is the one the families other than aggregation and point/scalar arithmetic use. Those use one `OperationFeatureGroup` plus an `Implementation` per framework (`supported` for capability, `divergent` for declared differences); aggregation's reference is a function (`reference_aggregation`), arithmetic's is its PyArrow Implementation. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md), `aggregation/pandas_aggregation.py` and `point_arithmetic/sqlite_point_arithmetic.py`.
+The per-framework-subclass shape above is the one the families other than aggregation, point/scalar arithmetic, time bucketization, ffill, EMA, resample and sessionization use. Those use one `OperationFeatureGroup` plus an `Implementation` per framework (`supported` for capability, `divergent` for declared differences); aggregation's reference is a function (`reference_aggregation`), the others' is their PyArrow Implementation (EMA pins literals). See [Framework-Specific](../feature-group-patterns/09-framework-specific.md), `aggregation/pandas_aggregation.py` and `point_arithmetic/sqlite_point_arithmetic.py`.
 
 ---
 

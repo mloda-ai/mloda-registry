@@ -58,7 +58,11 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    calculate_with,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -220,7 +224,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
     def test_basic_ffill_with_partition_and_order(self) -> None:
         """Per-partition ffill with partition_by=['region'] + order_by='ts'."""
         fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
         col = self.extract_column(result, "value__ffill")
         assert_values_with_nulls(col, EXPECTED_FFILL, cast=float, approx=True)
@@ -232,7 +236,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         Row 1 (B, 10:30) follows only that leading null -> stays null too.
         """
         fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ffill")
         assert col[9] is None, f"row 9 (B leading null) must stay None, got {col[9]!r}"
         assert col[1] is None, f"row 1 (B still leading) must stay None, got {col[1]!r}"
@@ -240,7 +244,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
     def test_interior_and_trailing_null_filled(self) -> None:
         """Interior nulls after a non-null and trailing nulls are carried forward."""
         fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ffill")
         # Interior: row 2 (A, 11:00) after A's 1.0 at 10:00 -> 1.0.
         assert float(col[2]) == pytest.approx(1.0), f"row 2 interior null -> 1.0, got {col[2]!r}"
@@ -254,7 +258,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
     def test_no_partition_whole_table_ffill(self) -> None:
         """With order_by only (no partition), ffill treats the whole table as one group."""
         fs = make_feature_set("value__ffill", order_by="ts")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ffill")
         assert_values_with_nulls(col, NAIVE_WHOLE_TABLE_FFILL, cast=float, approx=True)
 
@@ -265,7 +269,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         ignores ``partition_by`` would produce ``NAIVE_WHOLE_TABLE_FFILL``.
         """
         fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ffill")
         normalized = [None if v is None else float(v) for v in col]
         assert normalized == EXPECTED_FFILL, f"per-partition result mismatch: {normalized!r}"
@@ -276,14 +280,14 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
     def test_original_row_order_preserved(self) -> None:
         """The passthrough ``id`` column must be unchanged in original row order."""
         fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         ids = self.extract_column(result, "id")
         assert [int(v) for v in ids] == _FFILL_IDS, f"row order changed: {ids!r}"
 
     def test_source_column_unchanged(self) -> None:
         """The source ``value`` column must pass through unchanged (only nulls get a NEW column)."""
         fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         src = self.extract_column(result, "value")
         assert_values_with_nulls(src, _FFILL_VALUES, cast=float, approx=True)
 
@@ -303,7 +307,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ffill")
         assert_values_with_nulls(col, EXPECTED_FFILL, cast=float, approx=True)
 

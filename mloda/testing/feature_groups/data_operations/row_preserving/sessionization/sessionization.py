@@ -75,7 +75,11 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    calculate_with,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -232,7 +236,7 @@ class SessionizationTestBase(
     def test_per_partition_30_minute(self) -> None:
         """Per-user 30-minute sessionization (order_by DEFAULTS to source ``ts``)."""
         fs = self._session_feature_set(30, "minute")  # no order_by -> default to source column
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
@@ -240,14 +244,14 @@ class SessionizationTestBase(
     def test_per_partition_1_hour(self) -> None:
         """Per-user 1-hour sessionization (order_by passed EXPLICITLY)."""
         fs = self._session_feature_set(1, "hour", partition_by=["user"], order_by="ts")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_1_hour")
         assert_values_with_nulls(col, EXPECTED_SESSION_1_HOUR, cast=int)
 
     def test_whole_table_30_minute(self) -> None:
         """With order_by only (no partition), sessionize treats the whole table as one stream."""
         fs = self._session_feature_set(30, "minute", partition_by=[], order_by="ts")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE_WHOLE, cast=int)
 
@@ -258,7 +262,7 @@ class SessionizationTestBase(
         produce ``EXPECTED_SESSION_30_MINUTE_WHOLE`` instead.
         """
         fs = self._session_feature_set(30, "minute", partition_by=["user"], order_by="ts")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         normalized = [int(v) for v in col]
         assert normalized == EXPECTED_SESSION_30_MINUTE, f"per-partition mismatch: {normalized!r}"
@@ -287,7 +291,7 @@ class SessionizationTestBase(
         )
         data = self.create_test_data(table)
         fs = make_feature_set("ts__sessionize_1_minute", partition_by=[], order_by="ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, "ts__sessionize_1_minute")
         assert_values_with_nulls(col, [0, 0, 1], cast=int)
 
@@ -310,7 +314,7 @@ class SessionizationTestBase(
         )
         data = self.create_test_data(table)
         fs = self._session_feature_set(30, "minute")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
         is_new = [int(v) for v in self.extract_column(result, "is_new")]
@@ -321,14 +325,14 @@ class SessionizationTestBase(
     def test_original_row_order_preserved(self) -> None:
         """The passthrough ``id`` column must be unchanged in original row order."""
         fs = self._session_feature_set(30, "minute")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         ids = self.extract_column(result, "id")
         assert [int(v) for v in ids] == _SESSION_IDS, f"row order changed: {ids!r}"
 
     def test_source_ts_column_unchanged(self) -> None:
         """The source ``ts`` timestamp column must pass through unchanged."""
         fs = self._session_feature_set(30, "minute")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         src = self.extract_column(result, "ts")
         assert list(src) == list(_SESSION_TIMESTAMPS), f"ts column changed: {src!r}"
 
@@ -346,7 +350,7 @@ class SessionizationTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
 
@@ -408,4 +412,4 @@ class SessionizationTestBase(
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match=r"(?i)feature name"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)

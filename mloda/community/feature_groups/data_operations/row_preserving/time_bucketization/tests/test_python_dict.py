@@ -9,6 +9,7 @@ import pytest
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.python_dict_time_bucketization import (  # noqa: E501
     PythonDictTimeBucketization,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
@@ -61,7 +62,7 @@ class TestPythonDictDateSourceRejected:
         data = {"timestamp": [date(2023, 1, 1)]}
         fs = make_feature_set("timestamp__floor_1_day")
         with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|DATE"):
-            PythonDictTimeBucketization.calculate_feature(data, fs)
+            calculate_with(PythonDictTimeBucketization, data, fs)
 
 
 class TestPythonDictNonUtcTimezoneSupported:
@@ -102,8 +103,8 @@ class TestPythonDictNonUtcTimezoneSupported:
         data = {"timestamp": [datetime(2023, 3, 31, 14, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))]}
         fs = make_feature_set("timestamp__floor_1_month")
 
-        result = PythonDictTimeBucketization.calculate_feature(data, fs)
-        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictTimeBucketization, data, fs)
+        oracle = calculate_with(PyArrowTimeBucketization, arrow_table, fs)
 
         actual = result["timestamp__floor_1_month"][0]
         expected = oracle.column("timestamp__floor_1_month").to_pylist()[0]
@@ -136,7 +137,7 @@ class TestPythonDictNonUtcTimezoneSupported:
         data = {"timestamp": [dt]}
         fs = make_feature_set("timestamp__floor_1_month")
 
-        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+        result = calculate_with(PythonDictTimeBucketization, data, fs)
 
         actual = result["timestamp__floor_1_month"][0]
         assert (actual.year, actual.month, actual.day, actual.hour, actual.minute, actual.second) == (
@@ -200,8 +201,8 @@ class TestPythonDictRoundDstCrossing:
         data = {"timestamp": [datetime(2023, 3, 12, 12, 0, 0, tzinfo=ZoneInfo("America/New_York"))]}
         fs = make_feature_set("timestamp__round_1_day")
 
-        result = PythonDictTimeBucketization.calculate_feature(data, fs)
-        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictTimeBucketization, data, fs)
+        oracle = calculate_with(PyArrowTimeBucketization, arrow_table, fs)
 
         actual = result["timestamp__round_1_day"][0]
         expected = oracle.column("timestamp__round_1_day").to_pylist()[0]
@@ -235,7 +236,7 @@ class TestPythonDictRoundDstCrossing:
         data = {"timestamp": [dt]}
         fs = make_feature_set("timestamp__round_1_day")
 
-        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+        result = calculate_with(PythonDictTimeBucketization, data, fs)
 
         actual = result["timestamp__round_1_day"][0]
         assert (actual.year, actual.month, actual.day, actual.hour, actual.minute, actual.second) == (
@@ -288,8 +289,8 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("timestamp__round_1_month")
 
-        result = PythonDictTimeBucketization.calculate_feature(data, fs)
-        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictTimeBucketization, data, fs)
+        oracle = calculate_with(PyArrowTimeBucketization, arrow_table, fs)
 
         actual = result["timestamp__round_1_month"][0]
         expected = oracle.column("timestamp__round_1_month").to_pylist()[0]
@@ -319,8 +320,8 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("timestamp__round_1_year")
 
-        result = PythonDictTimeBucketization.calculate_feature(data, fs)
-        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictTimeBucketization, data, fs)
+        oracle = calculate_with(PyArrowTimeBucketization, arrow_table, fs)
 
         actual = result["timestamp__round_1_year"][0]
         expected = oracle.column("timestamp__round_1_year").to_pylist()[0]

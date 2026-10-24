@@ -40,21 +40,21 @@ is not matched.
 
 Every backend (pandas, polars-lazy, PyArrow, DuckDB, SQLite) computes
 sessionization NATIVELY; there is no rejection of supported inputs. PyArrow is
-the cross-framework reference oracle. Compute subclasses implement
-``_compute_session`` (the backend gap-and-cumsum); the partition_by and
+the cross-framework reference oracle. Each backend is an
+``Implementation`` supplying the gap-and-cumsum to ``sessionize``; the partition_by and
 order_by presence guard is shared (``assert_key_columns_present``).
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
     property_spec,
 )
 from mloda.user import Feature, FeatureName, Options
@@ -116,7 +116,7 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, FeatureGroup):
+class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
@@ -195,7 +195,13 @@ class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, Fe
         return column_ref_value(order_by)
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def sessionize(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_session: Callable[[Any, str, str, int, list[str]], Any],
+    ) -> Any:
         """Compute one session-id column per feature in ``features``."""
         table = data
 
@@ -212,17 +218,6 @@ class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, Fe
             order_label = "Source column" if order_by == source_col else "order_by"
             assert_key_columns_present(data, partition_by, order_by, order_label=order_label)
 
-            table = cls._compute_session(table, feature_name, order_by, threshold_seconds, partition_by)
+            table = compute_session(table, feature_name, order_by, threshold_seconds, partition_by)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_session(
-        cls,
-        data: Any,
-        feature_name: str,
-        order_col: str,
-        threshold_seconds: int,
-        partition_by: list[str],
-    ) -> Any: ...

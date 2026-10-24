@@ -10,8 +10,10 @@ floored otherwise floored.offset_by(duration)`` for fixed-freq units, and
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.polars_helpers import duration_token
@@ -27,19 +29,30 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
 
 
-class PolarsLazyTimeBucketization(TimeBucketizationFeatureGroup):
+class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """Polars-lazy backend for time bucketization."""
 
+    feature_group = TimeBucketizationFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls,
+        group: type[TimeBucketizationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.bucketize(
+            data, features, assert_timestamp=cls._assert_source_column_is_timestamp, compute_bucket=cls._compute_bucket
+        )
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: pl.LazyFrame, source_col: str) -> None:
         schema = data.collect_schema()
         dtype = schema[source_col]
         if not (dtype == pl.Datetime or (hasattr(dtype, "base_type") and dtype.base_type() == pl.Datetime)):
-            cls._raise_non_timestamp_source(source_col, dtype)
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, dtype)
 
     @classmethod
     def _compute_bucket(

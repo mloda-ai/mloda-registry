@@ -9,9 +9,11 @@ every other backend must match.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
@@ -29,12 +31,17 @@ _PA_AGG_FUNCS: dict[str, str] = {
 }
 
 
-class PyArrowResample(ResampleFeatureGroup):
+class PyArrowResample(Implementation[ResampleFeatureGroup]):
     """PyArrow backend; also the cross-framework reference implementation."""
 
+    feature_group = ResampleFeatureGroup
+    compute_framework = PyArrowTable
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+    def calculate(
+        cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.resample(data, features, compute_resample=cls._compute_resample)
 
     @classmethod
     def _compute_resample(

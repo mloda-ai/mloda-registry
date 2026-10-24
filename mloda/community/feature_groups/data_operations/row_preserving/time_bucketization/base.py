@@ -35,18 +35,19 @@ datetime FG's ``datetime_op``.
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
-from mloda.user import Feature
+from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
@@ -116,12 +117,30 @@ def _parse_bucket_op(token: str) -> tuple[str, int, str]:
     return op, n, unit
 
 
-class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+def _resolve_bucket_op_subtype(feature_name: str, options: Options) -> str | None:
+    """Return the bare op (floor / ceil / round) from the name token or the ``bucket_op`` option."""
+    token, _source = FeatureChainParser.parse_feature_name(
+        feature_name, TimeBucketizationFeatureGroup._get_prefix_patterns()
+    )
+    if token is None:
+        raw = options.get(TimeBucketizationFeatureGroup.BUCKET_OP)
+        if raw is None:
+            return None
+        token = op_token_value(raw)
+    try:
+        return _parse_bucket_op(token)[0]
+    except ValueError:
+        return None
+
+
+class TimeBucketizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise timestamp bucketization.
 
-    Subclasses must implement ``_compute_bucket`` (the backend-specific
-    arithmetic) and ``_assert_source_column_is_timestamp`` (the dtype guard).
+    Each backend is an ``Implementation`` supplying the bucket arithmetic and the timestamp dtype
+    guard to ``bucketize``.
     """
+
+    SUBTYPES = SubtypeDeclaration(universe=TIME_BUCKETIZATION_OPS.keys(), resolver=_resolve_bucket_op_subtype)
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -205,7 +224,7 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def _raise_non_timestamp_source(source_col: str, got: object) -> None:
         """Shared error format for the timestamp-source contract.
 
-        Backend overrides of ``_assert_source_column_is_timestamp`` call
+        Backend timestamp guards call
         this helper so the message stays uniform across all backends.
         """
         raise ValueError(
@@ -213,17 +232,14 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         )
 
     @classmethod
-    @abstractmethod
-    def _assert_source_column_is_timestamp(cls, data: Any, source_col: str) -> None:
-        """Reject non-timestamp source columns with a clear ``ValueError``.
-
-        Backend-specific; implemented per backend. Implementations should
-        call ``cls._raise_non_timestamp_source(source_col, <native dtype>)``
-        to keep the message format uniform.
-        """
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    def bucketize(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        assert_timestamp: Callable[[Any, str], None],
+        compute_bucket: Callable[[Any, str, str, str, int, str], Any],
+    ) -> Any:
         """Compute one bucketization column per feature in ``features``.
 
         For each feature:
@@ -234,7 +250,7 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
            invalid tokens such as ``n=0`` or ``floor_2_week``).
         4. Assert the source column is present.
         5. Assert the source column is a timestamp/datetime type.
-        6. Dispatch to ``_compute_bucket`` for the backend-specific math.
+        6. Dispatch to ``compute_bucket`` for the backend-specific math.
 
         Null timestamps propagate to null output. The output column has the
         same timestamp type (resolution, tz) as the input.
@@ -250,20 +266,8 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
             op, n, unit = _parse_bucket_op(op_token)
 
-            cls._assert_source_column_is_timestamp(table, source_col)
+            assert_timestamp(table, source_col)
 
-            table = cls._compute_bucket(table, feature_name, source_col, op, n, unit)
+            table = compute_bucket(table, feature_name, source_col, op, n, unit)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_bucket(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        op: str,
-        n: int,
-        unit: str,
-    ) -> Any: ...

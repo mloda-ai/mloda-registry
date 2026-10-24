@@ -8,8 +8,8 @@ import pytest
 from mloda.provider import PropertySpec, collect_match_rejections
 from mloda.user import Options
 
-from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
-from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
+from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
@@ -20,8 +20,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_r
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
-    PyArrowSessionization,
+from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
+    SessionizationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import FAMILIES, _load_class
 
@@ -79,7 +79,7 @@ class TestConfigPathGuardRejectionReported:
         options = Options(context={"order_by": 123})
         assert PandasRank._strict_validation_rejection_reason("some_unrelated_feature", options) is None
 
-    @pytest.mark.parametrize("cls", [PandasEma, PyArrowFfill, PyArrowSessionization])
+    @pytest.mark.parametrize("cls", [EmaFeatureGroup, FfillFeatureGroup, SessionizationFeatureGroup])
     def test_name_only_group_reports_nothing_for_a_config_name(self, cls: Any) -> None:
         """Name-only families: a config-path feature is not a candidate, so no reason is reported."""
         options = Options(context={"in_features": "v", "order_by": 123})
@@ -137,7 +137,7 @@ class TestPresentRequiredOptionReportsNothing:
 
     def test_present_order_by_reports_nothing(self) -> None:
         options = Options(context={"order_by": "ts"})
-        assert PyArrowFfill._strict_validation_rejection_reason("value_float__ffill", options) is None
+        assert FfillFeatureGroup._strict_validation_rejection_reason("value_float__ffill", options) is None
 
 
 class TestRejectionReasonHookNeverRaises:
@@ -151,7 +151,7 @@ class TestRejectionReasonHookNeverRaises:
                 raise RuntimeError("repr exploded")
 
         options = Options(context={"order_by": ExplodingRepr()})
-        reason = PyArrowFfill._strict_validation_rejection_reason("value_float__ffill", options)
+        reason = FfillFeatureGroup._strict_validation_rejection_reason("value_float__ffill", options)
         assert reason is not None
         assert "'order_by'" in reason
         assert "must be" in reason
