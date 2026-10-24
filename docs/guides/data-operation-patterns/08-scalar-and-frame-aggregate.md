@@ -25,7 +25,7 @@ PluginLoader.all()
 feature = Feature("value_int__max_scalar")
 ```
 
-Supported aggregations are `sum`, `min`, `max`, `avg`/`mean`, `count`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, and `median`. `mode`, `nunique`, `first`, and `last` are not supported on scalar aggregate, only on [window aggregation](06-window-aggregation.md); they need ordering or group structure that a single global scalar does not provide.
+Scalar and frame aggregate are each one group with one `Implementation` per framework (`PandasScalarAggregate`, `PolarsLazyFrameAggregate`, ...). Supported aggregations are `sum`, `min`, `max`, `avg`/`mean`, `count`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, and `median`. `mode`, `nunique`, `first`, and `last` are not supported on scalar aggregate, only on [window aggregation](06-window-aggregation.md); they need ordering or group structure that a single global scalar does not provide.
 
 Scalar aggregate accepts the `mask` option. Masked rows have their source value replaced with NULL before the aggregate computes; the output still has the same row count.
 
@@ -122,7 +122,7 @@ Feature(
 
 ### Time window
 
-`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Units `second`, `minute`, `hour`, `day`, `week` are supported on every framework. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days) and are only available on Polars-lazy and DuckDB; Pandas and SQLite reject those units at match time because neither engine has a native calendar-anchored window primitive that matches the reference. See [Known divergences: SQLite + Pandas reject month/year time windows](known-divergences.md#sqlite--pandas-reject-monthyear-time-windows) and the [framework support matrix](framework-support-matrix.md). The `order_by` column must be a timestamp.
+`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Units `second`, `minute`, `hour`, `day`, `week` are supported on every framework. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days) and are only available on Polars-lazy and DuckDB; the Pandas and SQLite Implementations reject those units through `accepts` (the group checks it in `supports_compute_framework`, so resolution fails) because neither engine has a native calendar-anchored window primitive that matches the reference. See [Known divergences: SQLite + Pandas reject month/year time windows](known-divergences.md#sqlite--pandas-reject-monthyear-time-windows) and the [framework support matrix](framework-support-matrix.md). The `order_by` column must be a timestamp.
 
 ### Cumulative
 
