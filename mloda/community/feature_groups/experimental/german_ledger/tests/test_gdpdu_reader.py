@@ -12,7 +12,7 @@ from typing import Any
 from xml.etree.ElementTree import ParseError  # nosec B405
 
 import pytest
-from mloda.provider import FeatureSet, SourceMatch
+from mloda.provider import FeatureSet
 from mloda.user import Options
 
 from mloda.community.feature_groups.experimental.german_ledger.reader import (
@@ -20,6 +20,8 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
     parse_citation,
     parse_descriptor_bytes,
 )
+
+from .isolated import claim, claimant, source_match
 
 HERE = Path(__file__).parent
 DOSSIER_A = HERE / "fixtures" / "dossier_a"
@@ -87,10 +89,7 @@ def test_a_descriptor_naming_the_gdpdu_dtd_still_parses() -> None:
 def test_the_identity_of_a_refused_descriptor_is_still_a_name(tmp_path: Path, raw: bytes) -> None:
     """data_access_identity never raises: a refused descriptor still gets a name."""
     (tmp_path / "index.xml").write_bytes(raw)
-    assert (
-        GdpduReader.data_access_identity(SourceMatch(source=str(tmp_path), access=str(tmp_path)))
-        == f"gdpdu:{tmp_path.name}"
-    )
+    assert GdpduReader.data_access_identity(source_match(tmp_path)) == f"gdpdu:{tmp_path.name}"
 
 
 # --- reader overlap through the resolution chain ------------------------------------------------
@@ -127,23 +126,8 @@ def test_a_gdpdu_folder_does_not_claim_a_csv_column_name(tmp_path: Path) -> None
     assert _claimant([folder], "Bezeichnung") is None
 
 
-def _claim(
-    folders: list[Path], name: str, options: dict[str, str] | None = None, groups: set[Any] | None = None
-) -> Any:
-    """Resolve `name` over `folders` with only `groups` enabled (default: the GDPdU reader)."""
-    from mloda.steward import resolve_feature
-    from mloda.user import DataAccessCollection, Feature, PluginCollector
-
-    return resolve_feature(
-        Feature(name, Options(options or {})),
-        plugin_collector=PluginCollector.enabled_feature_groups(groups or {GdpduReader}),
-        data_access_collection=DataAccessCollection(folders={str(f) for f in folders}),
-    )
-
-
 def _claimant(folders: list[Path], name: str) -> Any:
-    result = _claim(folders, name)
-    return None if result.error else result.feature_group
+    return claimant(folders, name, {GdpduReader})
 
 
 def _twin_pair() -> list[Path]:
@@ -226,7 +210,7 @@ def test_a_host_subclass_of_the_gdpdu_reader_pinned_by_name_stands_the_datev_rea
 
     try:
         folder = str(_twin_pair()[1])
-        result = _claim([_twin_pair()[1]], "gdpdu_journal", {"_HostGdpdu": folder}, {DatevExtfReader})
+        result = claim([_twin_pair()[1]], "gdpdu_journal", {DatevExtfReader}, {"_HostGdpdu": folder})
         assert result.feature_group is not DatevExtfReader, result.feature_group
     finally:
         del _HostGdpdu

@@ -6,15 +6,15 @@ import shutil
 import subprocess  # nosec
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from mloda.provider import FeatureGroup, FeatureSet
-from mloda.steward import verified_context
-from mloda.user import DataAccessCollection, Feature, PluginCollector, PluginLoader, mloda
+from mloda.provider import FeatureGroup, FeatureSet, SourceMatch
+from mloda.steward import resolve_feature, verified_context
+from mloda.user import DataAccessCollection, Feature, Options, PluginCollector, PluginLoader, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
@@ -54,6 +54,25 @@ def run_isolated(name: str) -> dict[str, Any]:
     assert proc.returncode == 0, proc.stdout + proc.stderr[-2000:]
     facts: dict[str, Any] = json.loads(proc.stdout.strip().splitlines()[-1])
     return facts
+
+
+def source_match(path: Path | str) -> SourceMatch:
+    return SourceMatch(source=str(path), access=str(path))
+
+
+def claim(folders: Sequence[Path | str], name: str, groups: set[Any], options: dict[str, str] | None = None) -> Any:
+    """Resolve `name` over `folders` with only `groups` enabled."""
+    return resolve_feature(
+        Feature(name, Options(options or {})),
+        plugin_collector=PluginCollector.enabled_feature_groups(groups),
+        data_access_collection=DataAccessCollection(folders={str(f) for f in folders}),
+    )
+
+
+def claimant(folders: Sequence[Path | str], name: str, groups: set[Any], options: dict[str, str] | None = None) -> Any:
+    """The feature group resolution gives `name` over `folders` with only `groups` enabled, or None."""
+    result = claim(folders, name, groups, options)
+    return None if result.error else result.feature_group
 
 
 def _root(exc: BaseException) -> BaseException:

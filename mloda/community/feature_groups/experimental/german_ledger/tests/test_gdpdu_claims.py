@@ -13,7 +13,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet, SourceMatch
+from mloda.provider import FeatureSet
 from mloda.user import DataAccessCollection, Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -33,7 +33,7 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import So
 
 from ._host import PLUGINS, ListSink, audit_gate, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
-from .isolated import run_isolated
+from .isolated import claim, run_isolated, source_match
 
 HERE = Path(__file__).parent
 
@@ -76,17 +76,10 @@ def test_collision_gate() -> None:
     """With a reader that claims every name, the journal's name gate is what keeps it off revenue__sources."""
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue", Options()) is True
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue__sources", Options()) is False
-    # The stock reader declines this on its own; the collision scenario below is what pins the gate.
-    from mloda.steward import resolve_feature
-    from mloda.user import PluginCollector
 
+    # The stock reader declines this on its own; the collision scenario below is what pins the gate.
     def claimed(name: str) -> Any:
-        result = resolve_feature(
-            Feature(name),
-            plugin_collector=PluginCollector.enabled_feature_groups({JournalFeatureGroup}),
-            data_access_collection=DataAccessCollection(folders={str(FIX / "dossier_a")}),
-        )
-        return result.feature_group
+        return claim([FIX / "dossier_a"], name, {JournalFeatureGroup}).feature_group
 
     assert claimed("gdpdu_journal") is JournalFeatureGroup
     assert claimed("revenue__sources") is None
@@ -1531,15 +1524,11 @@ def test_implied_accuracy_does_not_round_a_wide_amount_at_parse_time() -> None:
         assert got == Decimal("123456789012345678901234567890123456.78"), got
 
 
-def _match(folder: Path | str) -> SourceMatch:
-    return SourceMatch(source=str(folder), access=str(folder))
-
-
 def test_reader_answers_columns_from_the_descriptor() -> None:
     """`columns` is load-bearing for matching: index.xml declares every column before a byte of data is read."""
     # Each dossier answers with ITS OWN declared names -- the second exporter's shape is not
     # the first one's, which is the whole point of reading the descriptor rather than sniffing.
-    assert GdpduReader.columns(_match(FIX / "dossier_a")) == [
+    assert GdpduReader.columns(source_match(FIX / "dossier_a")) == [
         "Satznr",
         "Konto",
         "Betrag",
@@ -1548,7 +1537,7 @@ def test_reader_answers_columns_from_the_descriptor() -> None:
         "Belegtext",
         "__origin",
     ]
-    assert GdpduReader.columns(_match(FIX / "dossier_c")) == [
+    assert GdpduReader.columns(source_match(FIX / "dossier_c")) == [
         "Satz",
         "Sachkonto",
         "Umsatz",
@@ -1566,7 +1555,7 @@ def test_columns_does_not_claim_the_admissibility_column() -> None:
     overstatement the rest of this package exists to prevent, one layer down.
     """
 
-    columns = GdpduReader.columns(_match(FIX / "dossier_a"))
+    columns = GdpduReader.columns(source_match(FIX / "dossier_a"))
     assert columns is not None
     assert ADMISSIBILITY_COLUMN not in columns
     assert GdpduReader.ORIGIN_COLUMN in columns
@@ -1580,7 +1569,7 @@ def test_the_dossier_identity_names_its_fingerprint_not_a_local_path() -> None:
     The override names the dossier and the same descriptor-plus-data fingerprint the row
     citations carry, so an extender's record joins with the citations it vouches for.
     """
-    ident = GdpduReader.data_access_identity(_match(FIX / "dossier_a"))
+    ident = GdpduReader.data_access_identity(source_match(FIX / "dossier_a"))
     origin = GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet()).column("__origin")[0].as_py()
     fingerprint = origin.split("@", 1)[1].split(":", 1)[0]
     assert ident == f"gdpdu:dossier_a@{fingerprint}", (ident, origin)
@@ -1592,12 +1581,12 @@ def test_the_dossier_identity_names_its_fingerprint_not_a_local_path() -> None:
         shutil.copytree(FIX / "dossier_a", d)
         gl = d / "GL.txt"
         gl.write_text(gl.read_text().replace("Umsatz Oktober", "Umsatz Oktobers"))
-        assert GdpduReader.data_access_identity(_match(d)) != ident
+        assert GdpduReader.data_access_identity(source_match(d)) != ident
 
         # a dossier that cannot be fingerprinted is named, not crashed on: core calls this
         # before the load, and the load is where the actual error belongs
         (d / "index.xml").write_text("<oops")
-        assert GdpduReader.data_access_identity(_match(d)) == "gdpdu:dossier_a"
+        assert GdpduReader.data_access_identity(source_match(d)) == "gdpdu:dossier_a"
 
 
 def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
@@ -1623,7 +1612,7 @@ def test_extenders_see_the_dossier_identity_on_input_data_load() -> None:
         function_extender={Recorder()},
         plugin_collector=PLUGINS,
     )
-    assert seen == [GdpduReader.data_access_identity(_match(FIX / "dossier_a"))], seen
+    assert seen == [GdpduReader.data_access_identity(source_match(FIX / "dossier_a"))], seen
 
 
 def test_a_declared_skip_num_bytes_is_refused_rather_than_disregarded() -> None:

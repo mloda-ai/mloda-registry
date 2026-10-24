@@ -15,11 +15,13 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet, SourceMatch
+from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
 from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL, GdpduReader
+
+from .isolated import claimant, source_match
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
@@ -430,21 +432,9 @@ def test_a_folder_with_no_booking_batch_is_refused(tmp_path: Path) -> None:
 # --- claiming a folder, identity ---------------------------------------------------------
 
 
-def _match(folder: Path | str) -> SourceMatch:
-    return SourceMatch(source=str(folder), access=str(folder))
-
-
 def _claimant(folder: Path | str, name: str = JOURNAL) -> Any:
     """The reader that resolution gives `name` over `folder`, or None, with both readers enabled."""
-    from mloda.steward import resolve_feature
-    from mloda.user import DataAccessCollection, PluginCollector
-
-    result = resolve_feature(
-        Feature(name),
-        plugin_collector=PluginCollector.enabled_feature_groups({GdpduReader, DatevExtfReader}),
-        data_access_collection=DataAccessCollection(folders={str(folder)}),
-    )
-    return result.feature_group if not result.error else None
+    return claimant([folder], name, {GdpduReader, DatevExtfReader})
 
 
 def test_the_reader_claims_a_batch_folder_and_nothing_else(tmp_path: Path) -> None:
@@ -459,7 +449,7 @@ def test_the_reader_claims_a_batch_folder_and_nothing_else(tmp_path: Path) -> No
 
 
 def test_identity_names_the_folder_and_fingerprint_and_no_personal_data(tmp_path: Path) -> None:
-    ident = DatevExtfReader.data_access_identity(_match(LEDERMANN))
+    ident = DatevExtfReader.data_access_identity(source_match(LEDERMANN))
     assert re.fullmatch(r"datev:datev_ledermann@[0-9a-f]{12}", ident), ident
     for leak in ("1001", "456", "XY", "Chief", str(HERE)):
         assert leak not in ident
@@ -470,17 +460,17 @@ def test_identity_names_the_folder_and_fingerprint_and_no_personal_data(tmp_path
     broken = tmp_path / "broken"
     broken.mkdir()
     (broken / "EXTF_x.csv").write_bytes(b"\xff\xfe")
-    assert DatevExtfReader.data_access_identity(_match(broken)).startswith("datev:broken")
-    assert DatevExtfReader.data_access_identity(_match(tmp_path / "absent")) == "datev:absent"
+    assert DatevExtfReader.data_access_identity(source_match(broken)).startswith("datev:broken")
+    assert DatevExtfReader.data_access_identity(source_match(tmp_path / "absent")) == "datev:absent"
 
 
 def test_the_identity_moves_when_a_batch_is_edited(tmp_path: Path) -> None:
     d = tmp_path / "books"
     shutil.copytree(LEDERMANN, d)
-    before = DatevExtfReader.data_access_identity(_match(d))
+    before = DatevExtfReader.data_access_identity(source_match(d))
     p = d / "EXTF_Buchungsstapel.csv"
     p.write_bytes(p.read_bytes().replace(b"5950,00", b"5950,01"))
-    assert DatevExtfReader.data_access_identity(_match(d)) != before
+    assert DatevExtfReader.data_access_identity(source_match(d)) != before
 
 
 # --- third-party export shapes, on invented bookings -------------------------------------
