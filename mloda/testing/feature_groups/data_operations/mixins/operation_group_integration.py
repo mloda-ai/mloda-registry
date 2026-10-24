@@ -18,7 +18,16 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column,
 
 
 class OperationGroupIntegrationTestMixin:
-    """Operation-group integration tests; the host class is a DataOpsIntegrationTestBase."""
+    """Mixin providing operation-group integration tests through mloda's full pipeline.
+
+    Requires the host class to provide (from DataOpsIntegrationTestBase):
+    - ``feature_group_class()``
+    - ``compute_framework_class()``
+    - ``primary_feature_name()`` / ``primary_feature_options()`` / ``primary_expected_values()``
+    - ``_make_feature(name, options_context)``
+    - ``_plugin_collector()``
+    - ``_assert_values_equal(actual, expected)``
+    """
 
     @classmethod
     def _implementations_on_framework(cls) -> set[type[Any]]:

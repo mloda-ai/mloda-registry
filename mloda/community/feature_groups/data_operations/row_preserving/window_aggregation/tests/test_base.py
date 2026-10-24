@@ -16,7 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     WindowAggregationFeatureGroup,
 )
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
@@ -52,6 +52,109 @@ class TestClassAttributes:
     def test_max_in_features_is_one(self) -> None:
         """MAX_IN_FEATURES should be 1 (single source column)."""
         assert WindowAggregationFeatureGroup.MAX_IN_FEATURES == 1
+
+
+def _implementation(module: str, name: str) -> Any:
+    """The named window Implementation; skips when its optional backend is not installed."""
+    package = "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation"
+    return getattr(pytest.importorskip(f"{package}.{module}"), name)
+
+
+_NAN_DIVERGENT_PANDAS = {
+    "mode",
+    "sum",
+    "avg",
+    "mean",
+    "count",
+    "std",
+    "var",
+    "std_pop",
+    "var_pop",
+    "std_samp",
+    "var_samp",
+}
+
+
+class TestOperationGroupShape:
+    """Window-specific value pins; the generic shape checks live in test_operation_groups.py."""
+
+    def test_group_declares_the_window_aggregation_type_subtype_key(self) -> None:
+        declaration = WindowAggregationFeatureGroup.SUBTYPES
+        assert declaration is not None
+        assert declaration.key == "window_aggregation_type"
+
+
+class TestSupportedAndDivergent:
+    """Capability and NaN-divergence are declared on the shipped Implementations."""
+
+    def test_pyarrow_supported_excludes_median_and_mode(self) -> None:
+        supported = _implementation("pyarrow_window_aggregation", "PyArrowWindowAggregation").supported
+        assert supported == frozenset(
+            {
+                "sum",
+                "avg",
+                "mean",
+                "count",
+                "min",
+                "max",
+                "nunique",
+                "std",
+                "var",
+                "std_pop",
+                "std_samp",
+                "var_pop",
+                "var_samp",
+                "first",
+                "last",
+            }
+        )
+
+    def test_sqlite_supported_is_the_basic_aggregates(self) -> None:
+        supported = _implementation("sqlite_window_aggregation", "SqliteWindowAggregation").supported
+        assert supported == frozenset({"sum", "avg", "mean", "count", "min", "max"})
+
+    @pytest.mark.parametrize(
+        ("module", "name"),
+        [
+            ("pandas_window_aggregation", "PandasWindowAggregation"),
+            ("polars_lazy_window_aggregation", "PolarsLazyWindowAggregation"),
+            ("duckdb_window_aggregation", "DuckdbWindowAggregation"),
+            ("python_dict_window_aggregation", "PythonDictWindowAggregation"),
+        ],
+    )
+    def test_other_implementations_are_unrestricted(self, module: str, name: str) -> None:
+        assert _implementation(module, name).supported is None
+
+    def test_pandas_divergent_agg_types(self) -> None:
+        divergent = _implementation("pandas_window_aggregation", "PandasWindowAggregation").divergent
+        assert set(divergent) == _NAN_DIVERGENT_PANDAS
+
+    def test_sqlite_divergent_agg_types(self) -> None:
+        divergent = _implementation("sqlite_window_aggregation", "SqliteWindowAggregation").divergent
+        assert set(divergent) == {"sum", "avg", "mean", "count"}
+
+    @pytest.mark.parametrize(
+        ("module", "name"),
+        [
+            ("pyarrow_window_aggregation", "PyArrowWindowAggregation"),
+            ("polars_lazy_window_aggregation", "PolarsLazyWindowAggregation"),
+            ("duckdb_window_aggregation", "DuckdbWindowAggregation"),
+            ("python_dict_window_aggregation", "PythonDictWindowAggregation"),
+        ],
+    )
+    def test_other_implementations_declare_no_divergence(self, module: str, name: str) -> None:
+        assert not _implementation(module, name).divergent
+
+
+class TestSubtypeResolution:
+    """supported and divergent apply only if the group resolves the agg type; a miss is silent None."""
+
+    def test_resolves_from_the_feature_name(self) -> None:
+        assert WindowAggregationFeatureGroup.resolve_subtype("x__sum_window", Options()) == "sum"
+
+    def test_resolves_from_the_config_option(self) -> None:
+        options = Options(context={"window_aggregation_type": "median", "in_features": "x", "partition_by": ["g"]})
+        assert WindowAggregationFeatureGroup.resolve_subtype("my_result", options) == "median"
 
 
 class TestPatternMatching:
@@ -250,7 +353,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowWindowAggregation.calculate_feature(table, fs)
+        result = calculate_with(PyArrowWindowAggregation, table, fs)
         assert isinstance(result, pa.Table)
         assert "my_sum_result" in result.column_names
 
@@ -394,13 +497,15 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def compute_values(cls, options: Options) -> list[Any] | None:
-        # Window aggregation reads order_by inline in calculate_feature rather than through an
+        # Window aggregation reads order_by inline in its compute rather than through an
         # extractor, so only a run through the backend shows a container reaching it unwrapped.
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
             PyArrowWindowAggregation,
         )
 
-        result = PyArrowWindowAggregation.calculate_feature(
-            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_window_result", options)
+        result = calculate_with(
+            PyArrowWindowAggregation,
+            PyArrowDataOpsTestDataCreator.create(),
+            feature_set_for("my_window_result", options),
         )
         return extract_column(result, "my_window_result")

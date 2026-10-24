@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, escalate_match_abort, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
+    escalate_match_abort,
+    property_spec,
+)
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES as _BASE_AGGREGATION_TYPES,
@@ -38,7 +46,7 @@ AGGREGATION_TYPES = {
 }
 
 
-class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
+class WindowAggregationFeatureGroup(OperationFeatureGroup, AggregationFeatureGroupBase):
     """Base class for window aggregation operations that preserve row count.
 
     Window aggregation computes an aggregate over a partitioned group and
@@ -108,6 +116,8 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
     - ``partition_by``: List of columns to partition by
     - ``order_by``: Column to order by (required for first/last)
     """
+
+    SUBTYPES = SubtypeDeclaration(key=WINDOW_AGGREGATION_TYPE)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")
 
@@ -213,8 +223,14 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Shared loop: extract params from each feature, delegate to _compute_window.
+    def aggregate(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_window: Callable[[Any, str, str, list[str], str, str | None, list[tuple[str, str, Any]] | None], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to ``compute_window``.
 
         Supports both string-based features (e.g. "value_int__sum_window") and
         configuration-based features (via Options with window_aggregation_type, in_features,
@@ -238,20 +254,6 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
             assert_key_columns_present(data, partition_by, order_by, mask_spec)
 
-            table = cls._compute_window(table, feature_name, source_col, partition_by, agg_type, order_by, mask_spec)
+            table = compute_window(table, feature_name, source_col, partition_by, agg_type, order_by, mask_spec)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_window(
-        cls,
-        data: Any,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        order_by: str | None = None,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> Any:
-        """Subclasses must implement the actual window computation."""

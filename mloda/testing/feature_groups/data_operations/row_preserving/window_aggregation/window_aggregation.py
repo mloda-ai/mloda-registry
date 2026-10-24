@@ -21,7 +21,7 @@ from mloda.user import Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -82,6 +82,7 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "max": [2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0],
     "sum": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
     "avg": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
+    "mean": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
     "count": [3, 3, 3, 4, 4, 4, 4],
     "std": [float("nan")] * 7,
     "var": [float("nan")] * 7,
@@ -90,13 +91,14 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "std_samp": [float("nan")] * 7,
     "var_samp": [float("nan")] * 7,
 }
-# Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas' mode()
+# Known per-backend divergences, declared by the implementation's ``divergent``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
 # both skip it in sum/avg/count; pandas also skips NaN in std/var.
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
     "sum": [3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0],
     "avg": [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0],
+    "mean": [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0],
     "count": [2, 2, 2, 2, 2, 2, 2],
     "std": [0.5] * 3 + [1.0] * 4,
     "std_pop": [0.5] * 3 + [1.0] * 4,
@@ -269,19 +271,20 @@ class WindowAggregationTestBase(
         return f"val__{case}_window"
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the PyArrow-backed reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
-            ReferenceWindowAggregation,
+            reference_window_aggregation,
         )
 
-        return ReferenceWindowAggregation
+        return reference_window_aggregation(table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 
     def test_sum_window_region(self) -> None:
         """Sum of value_int partitioned by region, broadcast back to every row."""
         fs = make_feature_set("value_int__sum_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -292,7 +295,7 @@ class WindowAggregationTestBase(
     def test_avg_window_region(self) -> None:
         """Average of value_int partitioned by region, broadcast back to every row."""
         fs = make_feature_set("value_int__avg_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -303,7 +306,7 @@ class WindowAggregationTestBase(
     def test_count_window_region(self) -> None:
         """Count of non-null value_int partitioned by region."""
         fs = make_feature_set("value_int__count_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -314,7 +317,7 @@ class WindowAggregationTestBase(
     def test_min_window_region(self) -> None:
         """Minimum of value_int partitioned by region."""
         fs = make_feature_set("value_int__min_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -325,7 +328,7 @@ class WindowAggregationTestBase(
     def test_max_window_region(self) -> None:
         """Maximum of value_int partitioned by region."""
         fs = make_feature_set("value_int__max_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -336,7 +339,7 @@ class WindowAggregationTestBase(
     def test_null_policy_skip_avg_with_null_values(self) -> None:
         """NullPolicy.SKIP: Group B has a null value_int at row 4. Avg should skip it."""
         fs = make_feature_set("value_int__avg_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__avg_window")
         assert result_col[4] == pytest.approx(GROUP_B_AVG_EXPECTED, rel=1e-6)
@@ -347,7 +350,7 @@ class WindowAggregationTestBase(
     def test_null_policy_null_is_group(self) -> None:
         """NullPolicy.NULL_IS_GROUP: Row 11 has region=None. It should form its own group."""
         fs = make_feature_set("value_int__sum_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col[11] == NULL_GROUP_SUM_EXPECTED
@@ -388,7 +391,7 @@ class WindowAggregationTestBase(
         """Population standard deviation of value_int partitioned by region (ddof=0)."""
         self._skip_if_unsupported("std")
         fs = make_feature_set("value_int__std_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_window")
         # Group A values: [10, -5, 0, 20] -> population std (ddof=0)
@@ -403,7 +406,7 @@ class WindowAggregationTestBase(
         """Population variance of value_int partitioned by region (ddof=0)."""
         self._skip_if_unsupported("var")
         fs = make_feature_set("value_int__var_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_window")
         a_vals = [10, -5, 0, 20]
@@ -415,7 +418,7 @@ class WindowAggregationTestBase(
         """Explicit population standard deviation (ddof=0), identical to std."""
         self._skip_if_unsupported("std_pop")
         fs = make_feature_set("value_int__std_pop_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_pop_window")
         a_vals = [10, -5, 0, 20]
@@ -426,7 +429,7 @@ class WindowAggregationTestBase(
         """Sample standard deviation (ddof=1)."""
         self._skip_if_unsupported("std_samp")
         fs = make_feature_set("value_int__std_samp_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_samp_window")
         a_vals = [10, -5, 0, 20]
@@ -437,7 +440,7 @@ class WindowAggregationTestBase(
         """Explicit population variance (ddof=0), identical to var."""
         self._skip_if_unsupported("var_pop")
         fs = make_feature_set("value_int__var_pop_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_pop_window")
         a_vals = [10, -5, 0, 20]
@@ -448,7 +451,7 @@ class WindowAggregationTestBase(
         """Sample variance (ddof=1)."""
         self._skip_if_unsupported("var_samp")
         fs = make_feature_set("value_int__var_samp_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_samp_window")
         a_vals = [10, -5, 0, 20]
@@ -459,7 +462,7 @@ class WindowAggregationTestBase(
         """Median of value_int partitioned by region."""
         self._skip_if_unsupported("median")
         fs = make_feature_set("value_int__median_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__median_window")
         # Group A sorted: [-5, 0, 10, 20] -> median = 5.0
@@ -481,7 +484,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__mode_window")
         assert result_col == [10, 10, 10, 10, 50, 50, 50, 50, 15, 15, 15, -10]
@@ -494,7 +497,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("value_int__nunique_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__nunique_window")
         assert result_col[0] == 4  # Group A: {10, -5, 0, 20} (no nulls)
@@ -512,7 +515,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_window", ["region"], order_by="value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__first_window")
         assert result_col == EXPECTED_FIRST_BY_REGION
@@ -527,7 +530,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("last")
         fs = make_feature_set("value_int__last_window", ["region"], order_by="value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__last_window")
         assert result_col == EXPECTED_LAST_BY_REGION
@@ -556,7 +559,7 @@ class WindowAggregationTestBase(
             self._skip_if_unsupported(agg_type)
         feature_name = f"score__{agg_type}_window"
         fs = make_feature_set(feature_name, ["region"], order_by=order_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, feature_name)
         assert all(v is None for v in result_col)
@@ -568,7 +571,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("score__nunique_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "score__nunique_window")
         assert all(v == 0 for v in result_col)
@@ -578,7 +581,7 @@ class WindowAggregationTestBase(
     def test_multi_key_partition_sum(self) -> None:
         """Sum of value_int partitioned by [region, category]."""
         fs = make_feature_set("value_int__sum_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col[0] == 10  # A/X: [10, 0]
@@ -593,7 +596,7 @@ class WindowAggregationTestBase(
     def test_multi_key_partition_count(self) -> None:
         """Count of non-null value_int partitioned by [region, category]."""
         fs = make_feature_set("value_int__count_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__count_window")
         assert result_col[0] == 2  # A/X: 2 non-null
@@ -615,7 +618,7 @@ class WindowAggregationTestBase(
         )
         data = self.create_test_data(table)
         fs = make_feature_set("value__first_window", ["region"], order_by="ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "value__first_window")
 
@@ -635,7 +638,7 @@ class WindowAggregationTestBase(
         )
         data = self.create_test_data(table)
         fs = make_feature_set("value__last_window", ["region"], order_by="ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "value__last_window")
 
@@ -646,7 +649,7 @@ class WindowAggregationTestBase(
     def test_multi_key_float_avg(self) -> None:
         """Avg of value_float partitioned by [region, category]."""
         fs = make_feature_set("value_float__avg_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_float__avg_window")
         # A/X: [1.5, None] -> avg = 1.5
@@ -671,7 +674,7 @@ class WindowAggregationTestBase(
         self._skip_if_unsupported(agg_type)
         feature_name = f"value_int__{agg_type}_window"
         fs = make_feature_set(feature_name, ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, feature_name)
         # Only groups with >= 2 non-null values are checked.
@@ -689,7 +692,7 @@ class WindowAggregationTestBase(
         """Nunique of value_int partitioned by [region, category]."""
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("value_int__nunique_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__nunique_window")
         assert result_col[0] == 2  # (A,X): {10, 0}
@@ -709,7 +712,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__mode_window")
         assert result_col == [10, -5, 10, -5, 60, 50, 30, 60, 15, 15, 15, -10]
@@ -718,7 +721,7 @@ class WindowAggregationTestBase(
         """First non-null value_int per [region, category], ordered by value_int."""
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_window", ["region", "category"], order_by="value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__first_window")
         # (A,X) rows 0,2: sorted [0, 10] -> first = 0
@@ -737,7 +740,7 @@ class WindowAggregationTestBase(
         """Last non-null value_int per [region, category], ordered by value_int."""
         self._skip_if_unsupported("last")
         fs = make_feature_set("value_int__last_window", ["region", "category"], order_by="value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__last_window")
         # (A,X) rows 0,2: sorted [0, 10] -> last = 10
@@ -757,7 +760,7 @@ class WindowAggregationTestBase(
     def test_mask_sum_window_equal(self) -> None:
         """Sum of value_int where category='X', partitioned by region."""
         fs = make_feature_set("value_int__sum_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -768,7 +771,7 @@ class WindowAggregationTestBase(
     def test_mask_avg_window_equal(self) -> None:
         """Avg of value_int where category='X', partitioned by region."""
         fs = make_feature_set("value_int__avg_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__avg_window")
@@ -779,7 +782,7 @@ class WindowAggregationTestBase(
     def test_mask_count_window_equal(self) -> None:
         """Count of non-null value_int where category='X', partitioned by region."""
         fs = make_feature_set("value_int__count_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__count_window")
@@ -788,7 +791,7 @@ class WindowAggregationTestBase(
     def test_mask_min_window_equal(self) -> None:
         """Min of value_int where category='X', partitioned by region."""
         fs = make_feature_set("value_int__min_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__min_window")
@@ -797,7 +800,7 @@ class WindowAggregationTestBase(
     def test_mask_max_window_equal(self) -> None:
         """Max of value_int where category='X', partitioned by region."""
         fs = make_feature_set("value_int__max_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__max_window")
@@ -810,7 +813,7 @@ class WindowAggregationTestBase(
             ["region"],
             mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__sum_window")
@@ -823,7 +826,7 @@ class WindowAggregationTestBase(
     def test_mask_no_mask_unchanged(self) -> None:
         """Without mask, results match the standard unmasked test."""
         fs = make_feature_set("value_int__sum_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col == [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
@@ -834,7 +837,7 @@ class WindowAggregationTestBase(
         fs = make_feature_set(
             "value_int__first_window", ["region"], order_by="timestamp", mask=("category", "equal", "X")
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__first_window")
         assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
@@ -845,7 +848,7 @@ class WindowAggregationTestBase(
         fs = make_feature_set(
             "value_int__last_window", ["region"], order_by="timestamp", mask=("category", "equal", "X")
         )
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__last_window")
         assert result_col == [0, 0, 0, 0, 60, 60, 60, 60, 15, 15, 15, -10]
@@ -854,7 +857,7 @@ class WindowAggregationTestBase(
         """Nunique of value_int where category='X', partitioned by region."""
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("value_int__nunique_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__nunique_window")
         assert result_col == [2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1]
@@ -862,7 +865,7 @@ class WindowAggregationTestBase(
     def test_mask_fully_masked_window(self) -> None:
         """All rows masked out (category='Z') should produce None for every row."""
         fs = make_feature_set("value_int__sum_window", ["region"], mask=("category", "equal", "Z"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__sum_window")
         assert all(v is None for v in result_col)
@@ -871,7 +874,7 @@ class WindowAggregationTestBase(
         """Mode of value_int where category='X', partitioned by region (row-preserving)."""
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region"], mask=("category", "equal", "X"))
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__mode_window")
         assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
@@ -895,13 +898,13 @@ class WindowAggregationTestBase(
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_window_sum")
         assert result_col == EXPECTED_SUM_BY_REGION
 
     def test_unsupported_aggregation_type_raises(self) -> None:
-        """Calling calculate_feature with an unknown aggregation type should raise."""
+        """Computing an unknown aggregation type should raise."""
         from mloda.provider import FeatureSet
         from mloda.user import Feature
 
@@ -916,17 +919,21 @@ class WindowAggregationTestBase(
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Matching tests -------------------------------------------------------
 
     def test_match_rejects_empty_partition_by(self) -> None:
         """Empty partition_by must be rejected at match time, not reach backend-specific compute."""
         options = Options(context={"partition_by": [], "order_by": "value_int"})
-        assert not self.implementation_class().match_feature_group_criteria("value_int__sum_window", options, None)
+        assert not feature_group_of(self.implementation_class()).match_feature_group_criteria(
+            "value_int__sum_window", options, None
+        )
 
         valid_options = Options(context={"partition_by": ["region"]})
-        assert self.implementation_class().match_feature_group_criteria("value_int__sum_window", valid_options, None)
+        assert feature_group_of(self.implementation_class()).match_feature_group_criteria(
+            "value_int__sum_window", valid_options, None
+        )
 
     # -- Row-order preservation ------------------------------------------------
 
@@ -941,7 +948,7 @@ class WindowAggregationTestBase(
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_window", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(
@@ -963,7 +970,7 @@ class WindowAggregationTestBase(
         Compares (value_int, category) tuples to detect tied-row swaps.
         """
         fs = make_feature_set("value_int__sum_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(

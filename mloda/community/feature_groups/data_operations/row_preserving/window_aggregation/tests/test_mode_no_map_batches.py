@@ -18,7 +18,7 @@ import polars as pl
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.polars_lazy_window_aggregation import (
     PolarsLazyWindowAggregation,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 
 
 def test_polars_lazy_window_aggregation_mode_plan_has_no_map_batches() -> None:
@@ -31,7 +31,7 @@ def test_polars_lazy_window_aggregation_mode_plan_has_no_map_batches() -> None:
     )
     fs = make_feature_set("value_int__mode_window", ["region"])
 
-    result = PolarsLazyWindowAggregation.calculate_feature(lf, fs)
+    result = calculate_with(PolarsLazyWindowAggregation, lf, fs)
 
     assert isinstance(result, pl.LazyFrame)
 

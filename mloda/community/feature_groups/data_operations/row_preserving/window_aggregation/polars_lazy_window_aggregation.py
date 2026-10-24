@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
@@ -42,10 +42,19 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
 _SUPPORTED_AGG_TYPES = {*_POLARS_AGG_EXPRS.keys(), "mode", "median", "first", "last"}
 
 
-class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
+class PolarsLazyWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
+    feature_group = WindowAggregationFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls,
+        group: type[WindowAggregationFeatureGroup],
+        data: Any,
+        features: FeatureSet,
+        framework: ComputeFramework | None,
+    ) -> Any:
+        return group.aggregate(data, features, compute_window=cls._compute_window)
 
     @classmethod
     def _compute_window(

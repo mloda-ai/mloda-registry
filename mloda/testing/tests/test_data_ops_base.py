@@ -318,33 +318,129 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
     assert _RecordingImpl.seen == [{"partition_by": ["g"]}]
 
 
-def _reference_calculate_with_an_implementation_reference() -> Any:
+def _make_impl(divergent: dict[str, str] | None = None) -> tuple[Any, Any]:
+    """A throwaway (group, implementation) pair; callers drop both and gc.collect() to unregister them."""
     from mloda.provider import Implementation, OperationFeatureGroup
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-    class _RefGroup(OperationFeatureGroup):
-        @classmethod
-        def calculate_feature(cls, data: Any, features: Any) -> Any:
-            return ("group", data, features.implementation)
+    class _ProbeGroup(OperationFeatureGroup):
+        pass
 
-    class _RefImpl(Implementation[_RefGroup]):
-        feature_group = _RefGroup
+    class _ProbeImpl(Implementation[_ProbeGroup]):
+        feature_group = _ProbeGroup
         compute_framework = PyArrowTable
 
-    class _ImplRefStub(_StubDataOpsTestBase):
+        @classmethod
+        def calculate(cls, group: Any, data: Any, features: Any, framework: Any) -> Any:
+            return ("implementation", group, data)
+
+    if divergent is not None:
+        _ProbeImpl.divergent = divergent
+    return _ProbeGroup, _ProbeImpl
+
+
+def _stub_for(impl: Any, *, reference: bool) -> type[_StubDataOpsTestBase]:
+    class _ImplStub(_StubDataOpsTestBase):
         @classmethod
         def implementation_class(cls) -> Any:
-            return _RefImpl
+            return impl
 
         @classmethod
         def reference_implementation_class(cls) -> Any:
-            return _RefImpl
+            if not reference:
+                raise NotImplementedError
+            return impl
 
-    result = _ImplRefStub.reference_calculate("data", helpers.make_feature_set("f"))
-    return result, _RefImpl.__name__
+    return _ImplStub
 
 
-def test_reference_calculate_runs_an_implementation_reference_through_its_feature_group() -> None:
-    (tag, data, implementation), name = _reference_calculate_with_an_implementation_reference()
-    assert (tag, data) == ("group", "data")
-    assert implementation.__name__ == name
+def test_reference_calculate_default_runs_an_implementation_reference() -> None:
+    import gc
+
+    from mloda.provider import Implementation, get_all_subclasses
+
+    def check() -> None:
+        group, impl = _make_impl()
+        fs = helpers.make_feature_set("f")
+        result = _stub_for(impl, reference=True).reference_calculate(pa.table({"f": [1]}), fs)
+        assert result[0] == "implementation"
+        assert result[1] is group
+        assert fs.implementation is impl
+
+    check()
+    gc.collect()
+    assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
+
+
+# -- nan_divergent_agg_types default ------------------------------------------
+
+
+def test_nan_divergent_agg_types_default_reads_the_implementation_divergent() -> None:
+    import gc
+
+    def check() -> None:
+        _, impl = _make_impl({"sum": "skips NaN", "mean": "skips NaN"})
+        assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset({"sum", "mean"})
+
+    check()
+    gc.collect()
+
+
+def test_nan_divergent_agg_types_default_is_empty_for_an_implementation_without_divergence() -> None:
+    import gc
+
+    def check() -> None:
+        _, impl = _make_impl({})
+        assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset()
+
+    check()
+    gc.collect()
+
+
+def test_nan_divergent_agg_types_default_is_empty_for_a_non_implementation() -> None:
+    assert _StubDataOpsTestBase.nan_divergent_agg_types() == frozenset()
+    assert _CompareStub.nan_divergent_agg_types() == frozenset()
+
+
+def test_aggregation_test_base_does_not_override_nan_divergent_agg_types() -> None:
+    from mloda.testing.feature_groups.data_operations.aggregation.aggregation import AggregationTestBase
+
+    assert "nan_divergent_agg_types" not in vars(AggregationTestBase)
+
+
+# -- DataOpsIntegrationTestBase.pipeline_compute_frameworks --------------------
+
+
+def test_pipeline_compute_frameworks_defaults_to_the_compute_framework_class() -> None:
+    from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+
+    class _Marker:
+        pass
+
+    class _IntegrationStub(DataOpsIntegrationTestBase):
+        @classmethod
+        def compute_framework_class(cls) -> type:
+            return _Marker
+
+    assert _IntegrationStub.pipeline_compute_frameworks() == [_Marker]
+
+
+def test_pipeline_compute_frameworks_is_overridable() -> None:
+    from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+
+    class _A:
+        pass
+
+    class _B:
+        pass
+
+    class _IntegrationStub(DataOpsIntegrationTestBase):
+        @classmethod
+        def compute_framework_class(cls) -> type:
+            return _A
+
+        @classmethod
+        def pipeline_compute_frameworks(cls) -> list[type]:
+            return [_A, _B]
+
+    assert _IntegrationStub.pipeline_compute_frameworks() == [_A, _B]

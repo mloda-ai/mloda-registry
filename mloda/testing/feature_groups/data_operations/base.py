@@ -24,6 +24,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.provider import Implementation
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
@@ -85,7 +86,7 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
-        """Run the reference (a FeatureGroup or Implementation class) on the canonical PyArrow table."""
+        """Run the reference (a FeatureGroup or Implementation class) on the canonical PyArrow table; override for a function."""
         return calculate_with(cls.reference_implementation_class(), table, features)
 
     # -- Setup / teardown ------------------------------------------------------
@@ -165,10 +166,14 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """Agg types where this framework pins a known NaN divergence instead of the policy (default: none).
+        """Agg types where this framework pins a known NaN divergence instead of the policy.
 
+        Default: the ``divergent`` set of the Implementation under test, empty for any other plugin.
         Read by ``NanPolicyTestMixin.test_mixin_nan_policy``; see docs/guides/data-operation-patterns/known-divergences.md.
         """
+        impl = cls.implementation_class()
+        if isinstance(impl, type) and issubclass(impl, Implementation):
+            return frozenset(impl.divergent)
         return frozenset()
 
     # -- Cross-framework comparison --------------------------------------------

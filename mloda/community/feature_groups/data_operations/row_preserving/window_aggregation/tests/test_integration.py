@@ -16,20 +16,26 @@ import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
-    PyArrowWindowAggregation,
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+    WindowAggregationFeatureGroup,
 )
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 
-class TestWindowAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
+class TestWindowAggregationIntegration(
+    MaskIntegrationTestMixin, OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase
+):
     """Standard integration tests inherited from the base class."""
 
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowWindowAggregation
+        return WindowAggregationFeatureGroup
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -104,13 +110,67 @@ class TestWindowAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrat
         return [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
 
 
+class TestIntegrationDivergentPandas:
+    """Pandas declares sum divergent (it skips NaN), so data already in Pandas is still summed by PyArrow."""
+
+    @staticmethod
+    def _step(name: str) -> Any:
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        collector = PluginCollector.enabled_feature_groups(
+            {PandasDataOpsTestDataCreator, WindowAggregationFeatureGroup}
+        )
+        feature = Feature(name, options=Options(context={"partition_by": ["region"]}))
+        plan = mloda.explain([feature], compute_frameworks=[PandasDataFrame, PyArrowTable], plugin_collector=collector)
+        steps = [
+            step for step in plan if step.step_kind == "compute" and step.feature_group is WindowAggregationFeatureGroup
+        ]
+        assert len(steps) == 1
+        return steps[0]
+
+    def test_divergent_pandas_sum_is_served_by_pyarrow(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
+            PyArrowWindowAggregation,
+        )
+
+        step = self._step("value_int__sum_window")
+        assert step.implementation is PyArrowWindowAggregation
+        assert step.compute_framework is PyArrowTable
+
+    def test_non_divergent_pandas_max_stays_on_pandas(self) -> None:
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
+            PandasWindowAggregation,
+        )
+
+        step = self._step("value_int__max_window")
+        assert step.implementation is PandasWindowAggregation
+        assert step.compute_framework is PandasDataFrame
+
+
+class TestIntegrationUnsupportedFrameworkRejected:
+    """PyArrow does not support median, so a PyArrow-only run is rejected at resolve time, not at compute time."""
+
+    def test_median_window_is_rejected_on_pyarrow_only(self) -> None:
+        from mloda.user import FeatureResolutionError
+
+        collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup}
+        )
+        feature = Feature("value_int__median_window", options=Options(context={"partition_by": ["region"]}))
+        with pytest.raises(FeatureResolutionError):
+            mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=collector)
+
+
 class TestIntegrationMultipleFeatures:
     """Test multiple window aggregation features in a single run_all call."""
 
     def test_sum_and_avg_together(self) -> None:
         """Request both sum and avg features in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup}
         )
 
         f_sum = Feature(
@@ -165,7 +225,7 @@ class TestIntegrationMultipleFeatures:
     def test_different_aggregation_types(self) -> None:
         """Request min and max features in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, WindowAggregationFeatureGroup}
         )
 
         f_min = Feature(

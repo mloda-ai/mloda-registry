@@ -349,11 +349,6 @@ class AggregationTestBase(
 
         return reference_aggregation(table, features)
 
-    @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """The agg types the implementation declares as NaN-divergent via ``divergent``."""
-        return frozenset(cls.implementation_class().divergent)
-
     # -- Concrete test methods (inherited for free) --------------------------
 
     def test_sum_agg_region(self) -> None:

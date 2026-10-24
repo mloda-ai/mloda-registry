@@ -1,4 +1,4 @@
-"""Test reference implementation for window aggregation feature groups.
+"""Test reference for window aggregation: the shared loop with a PyArrow-backed compute.
 
 Accepts PyArrow tables but computes in Python for median and mode. Used as
 the cross-framework comparison baseline in test suites. Native PyArrow
@@ -14,8 +14,7 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda.provider import FeatureSet
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
@@ -53,77 +52,24 @@ _ORDERED_FUNCS: dict[str, str] = {
 _SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS, "median", "mode"}
 
 
-class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
+def _compute_window(
+    table: pa.Table,
+    feature_name: str,
+    source_col: str,
+    partition_by: list[str],
+    agg_type: str,
+    order_by: str | None = None,
+    mask_spec: list[tuple[str, str, Any]] | None = None,
+) -> pa.Table:
+    if mask_spec is not None:
+        table = apply_pyarrow_mask(table, source_col, mask_spec)
 
-    @classmethod
-    def _compute_window(
-        cls,
-        table: pa.Table,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        order_by: str | None = None,
-        mask_spec: list[tuple[str, str, Any]] | None = None,
-    ) -> pa.Table:
-        if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
+    num_rows = table.num_rows
+    t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
 
-        num_rows = table.num_rows
-        t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
-
-        if agg_type in _PA_AGG_FUNCS:
-            pa_func = _PA_AGG_FUNCS[agg_type]
-            grouped = t_with_idx.group_by(partition_by).aggregate(
-                [
-                    (source_col, pa_func),
-                    (_IDX_COL, "list"),
-                ]
-            )
-            agg_col = f"{source_col}_{pa_func}"
-
-        elif agg_type in _VARIANCE_FUNCS:
-            pa_func, ddof = _VARIANCE_FUNCS[agg_type]
-            grouped = t_with_idx.group_by(partition_by).aggregate(
-                [
-                    (source_col, pa_func, pc.VarianceOptions(ddof=ddof)),
-                    (_IDX_COL, "list"),
-                ]
-            )
-            agg_col = f"{source_col}_{pa_func}"
-
-        elif agg_type in _ORDERED_FUNCS:
-            return cls._compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by)
-
-        elif agg_type in ("median", "mode"):
-            return cls._compute_via_list(t_with_idx, feature_name, source_col, partition_by, agg_type)
-
-        else:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
-
-        return cls._broadcast(table, grouped, agg_col, feature_name, num_rows)
-
-    @classmethod
-    def _compute_ordered(
-        cls,
-        t_with_idx: pa.Table,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-        order_by: str | None,
-    ) -> pa.Table:
-        pa_func = _ORDERED_FUNCS[agg_type]
-        sort_keys = [(col, "ascending") for col in partition_by]
-        if order_by:
-            sort_keys.append((order_by, "ascending"))
-        indices = pc.sort_indices(t_with_idx, sort_keys=sort_keys)
-        sorted_t = t_with_idx.take(indices)
-
-        grouped = sorted_t.group_by(partition_by, use_threads=False).aggregate(
+    if agg_type in _PA_AGG_FUNCS:
+        pa_func = _PA_AGG_FUNCS[agg_type]
+        grouped = t_with_idx.group_by(partition_by).aggregate(
             [
                 (source_col, pa_func),
                 (_IDX_COL, "list"),
@@ -131,64 +77,112 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
         )
         agg_col = f"{source_col}_{pa_func}"
 
-        original_table = t_with_idx.drop_columns([_IDX_COL])
-        return cls._broadcast(original_table, grouped, agg_col, feature_name, original_table.num_rows)
-
-    @classmethod
-    def _compute_via_list(
-        cls,
-        t_with_idx: pa.Table,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        agg_type: str,
-    ) -> pa.Table:
+    elif agg_type in _VARIANCE_FUNCS:
+        pa_func, ddof = _VARIANCE_FUNCS[agg_type]
         grouped = t_with_idx.group_by(partition_by).aggregate(
             [
-                (source_col, "list"),
+                (source_col, pa_func, pc.VarianceOptions(ddof=ddof)),
                 (_IDX_COL, "list"),
             ]
         )
-        list_col = f"{source_col}_list"
-        idx_list_col = f"{_IDX_COL}_list"
+        agg_col = f"{source_col}_{pa_func}"
 
-        num_rows = t_with_idx.num_rows
-        result_values: list[Any] = [None] * num_rows
+    elif agg_type in _ORDERED_FUNCS:
+        return _compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by)
 
-        for g in range(grouped.num_rows):
-            vals = grouped.column(list_col)[g].as_py()
-            indices = grouped.column(idx_list_col)[g].as_py()
-            non_null = [v for v in vals if v is not None]
+    elif agg_type in ("median", "mode"):
+        return _compute_via_list(t_with_idx, feature_name, source_col, partition_by, agg_type)
 
-            if not non_null:
-                agg_val = None
-            elif agg_type == "median":
-                agg_val = aggregation_helpers.median(non_null)
-            else:
-                agg_val = aggregation_helpers.mode(non_null)
+    else:
+        raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
 
-            for idx in indices:
-                result_values[idx] = agg_val
+    return _broadcast(table, grouped, agg_col, feature_name, num_rows)
 
-        original_table = t_with_idx.drop_columns([_IDX_COL])
-        return original_table.append_column(feature_name, pa.array(result_values))
 
-    @classmethod
-    def _broadcast(
-        cls,
-        original_table: pa.Table,
-        grouped: pa.Table,
-        agg_col: str,
-        feature_name: str,
-        num_rows: int,
-    ) -> pa.Table:
-        idx_list_col = f"{_IDX_COL}_list"
-        result_values: list[Any] = [None] * num_rows
+def _compute_ordered(
+    t_with_idx: pa.Table,
+    feature_name: str,
+    source_col: str,
+    partition_by: list[str],
+    agg_type: str,
+    order_by: str | None,
+) -> pa.Table:
+    pa_func = _ORDERED_FUNCS[agg_type]
+    sort_keys = [(col, "ascending") for col in partition_by]
+    if order_by:
+        sort_keys.append((order_by, "ascending"))
+    indices = pc.sort_indices(t_with_idx, sort_keys=sort_keys)
+    sorted_t = t_with_idx.take(indices)
 
-        for g in range(grouped.num_rows):
-            agg_val = grouped.column(agg_col)[g].as_py()
-            indices = grouped.column(idx_list_col)[g].as_py()
-            for idx in indices:
-                result_values[idx] = agg_val
+    grouped = sorted_t.group_by(partition_by, use_threads=False).aggregate(
+        [
+            (source_col, pa_func),
+            (_IDX_COL, "list"),
+        ]
+    )
+    agg_col = f"{source_col}_{pa_func}"
 
-        return original_table.append_column(feature_name, pa.array(result_values))
+    original_table = t_with_idx.drop_columns([_IDX_COL])
+    return _broadcast(original_table, grouped, agg_col, feature_name, original_table.num_rows)
+
+
+def _compute_via_list(
+    t_with_idx: pa.Table,
+    feature_name: str,
+    source_col: str,
+    partition_by: list[str],
+    agg_type: str,
+) -> pa.Table:
+    grouped = t_with_idx.group_by(partition_by).aggregate(
+        [
+            (source_col, "list"),
+            (_IDX_COL, "list"),
+        ]
+    )
+    list_col = f"{source_col}_list"
+    idx_list_col = f"{_IDX_COL}_list"
+
+    num_rows = t_with_idx.num_rows
+    result_values: list[Any] = [None] * num_rows
+
+    for g in range(grouped.num_rows):
+        vals = grouped.column(list_col)[g].as_py()
+        indices = grouped.column(idx_list_col)[g].as_py()
+        non_null = [v for v in vals if v is not None]
+
+        if not non_null:
+            agg_val = None
+        elif agg_type == "median":
+            agg_val = aggregation_helpers.median(non_null)
+        else:
+            agg_val = aggregation_helpers.mode(non_null)
+
+        for idx in indices:
+            result_values[idx] = agg_val
+
+    original_table = t_with_idx.drop_columns([_IDX_COL])
+    return original_table.append_column(feature_name, pa.array(result_values))
+
+
+def _broadcast(
+    original_table: pa.Table,
+    grouped: pa.Table,
+    agg_col: str,
+    feature_name: str,
+    num_rows: int,
+) -> pa.Table:
+    idx_list_col = f"{_IDX_COL}_list"
+    result_values: list[Any] = [None] * num_rows
+
+    for g in range(grouped.num_rows):
+        agg_val = grouped.column(agg_col)[g].as_py()
+        indices = grouped.column(idx_list_col)[g].as_py()
+        for idx in indices:
+            result_values[idx] = agg_val
+
+    return original_table.append_column(feature_name, pa.array(result_values))
+
+
+def reference_window_aggregation(table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the shared window aggregation loop with the PyArrow-backed reference compute."""
+    return WindowAggregationFeatureGroup.aggregate(table, features, compute_window=_compute_window)

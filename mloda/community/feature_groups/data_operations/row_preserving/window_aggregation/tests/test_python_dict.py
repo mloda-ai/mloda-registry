@@ -49,7 +49,7 @@ class TestPythonDictNanPartitionKeyGrouping:
 
     Verified empirically: PyArrow's own ``Table.group_by()`` merges all NaN
     keys of a column into a single group, so "one shared NaN group" is the
-    correct target. ``ReferenceWindowAggregation`` drives its grouping
+    correct target. ``reference_window_aggregation`` drives its grouping
     through PyArrow's real ``group_by().aggregate()``, so it is a valid
     oracle here.
     """
@@ -57,9 +57,13 @@ class TestPythonDictNanPartitionKeyGrouping:
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
-            ReferenceWindowAggregation,
+            reference_window_aggregation,
         )
 
         arrow_table = pa.table(
@@ -71,8 +75,8 @@ class TestPythonDictNanPartitionKeyGrouping:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__sum_window", ["grp"])
 
-        result = PythonDictWindowAggregation.calculate_feature(data, fs)
-        oracle = ReferenceWindowAggregation.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictWindowAggregation, data, fs)
+        oracle = reference_window_aggregation(arrow_table, fs)
 
         result_col = extract_column(result, "val__sum_window")
         oracle_col = extract_column(oracle, "val__sum_window")
@@ -93,7 +97,7 @@ class TestPythonDictMinMaxSkipsNan:
     lines 152-155) reduces a group's non-null values with Python's builtin
     ``min()``/``max()``, which short-circuits to NaN the moment any element
     is NaN. PyArrow's ``pc.min``/``pc.max`` (exercised here through
-    ``ReferenceWindowAggregation``'s ``group_by().aggregate()`` call) skip
+    ``reference_window_aggregation``'s ``group_by().aggregate()`` call) skip
     NaN and return the true minimum/maximum among the non-NaN values.
     """
 
@@ -101,9 +105,13 @@ class TestPythonDictMinMaxSkipsNan:
     def _agg_via(agg_type: str) -> tuple[Any, Any]:
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
-            ReferenceWindowAggregation,
+            reference_window_aggregation,
         )
 
         arrow_table = pa.table(
@@ -115,8 +123,8 @@ class TestPythonDictMinMaxSkipsNan:
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"val__{agg_type}_window", ["grp"])
 
-        result = PythonDictWindowAggregation.calculate_feature(data, fs)
-        oracle = ReferenceWindowAggregation.calculate_feature(arrow_table, fs)
+        result = calculate_with(PythonDictWindowAggregation, data, fs)
+        oracle = reference_window_aggregation(arrow_table, fs)
 
         result_val = extract_column(result, f"val__{agg_type}_window")[0]
         oracle_val = extract_column(oracle, f"val__{agg_type}_window")[0]

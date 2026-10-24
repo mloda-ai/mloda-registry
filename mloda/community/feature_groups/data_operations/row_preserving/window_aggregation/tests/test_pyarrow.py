@@ -10,7 +10,7 @@ from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
     PyArrowWindowAggregation,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
@@ -56,7 +56,7 @@ class TestPyArrowWindowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, Wi
         fs = make_feature_set("value_int__first_window", ["region"], order_by="value_int")
         with warnings.catch_warnings():
             warnings.simplefilter("error", FutureWarning)
-            result = self.implementation_class().calculate_feature(self.test_data, fs)
+            result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__first_window")
         assert result_col == EXPECTED_FIRST_BY_REGION
@@ -66,7 +66,7 @@ class TestPyArrowWindowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, Wi
         fs = make_feature_set("value_int__last_window", ["region"], order_by="value_int")
         with warnings.catch_warnings():
             warnings.simplefilter("error", FutureWarning)
-            result = self.implementation_class().calculate_feature(self.test_data, fs)
+            result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__last_window")
         assert result_col == EXPECTED_LAST_BY_REGION

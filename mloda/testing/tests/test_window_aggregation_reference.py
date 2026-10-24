@@ -1,4 +1,4 @@
-"""Tests for ReferenceWindowAggregation (mloda.testing reference implementation)."""
+"""Tests for reference_window_aggregation (mloda.testing reference)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class TestReferenceWindowAggregationNoFutureWarning:
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
-            ReferenceWindowAggregation,
+            reference_window_aggregation,
         )
 
         arrow_table = PyArrowDataOpsTestDataCreator.create()
@@ -23,7 +23,7 @@ class TestReferenceWindowAggregationNoFutureWarning:
 
         with warnings.catch_warnings():
             warnings.simplefilter("error", FutureWarning)
-            result = ReferenceWindowAggregation.calculate_feature(arrow_table, fs)
+            result = reference_window_aggregation(arrow_table, fs)
 
         result_col = extract_column(result, f"value_int__{agg_type}_window")
         assert result_col == expected

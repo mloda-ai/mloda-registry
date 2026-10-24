@@ -18,7 +18,7 @@ Usage::
 
         @classmethod
         def feature_group_class(cls):
-            return PyArrowWindowAggregation
+            return WindowAggregationFeatureGroup
 
         @classmethod
         def data_creator_class(cls):
@@ -66,7 +66,7 @@ class DataOpsIntegrationTestBase(ABC):
     @classmethod
     @abstractmethod
     def feature_group_class(cls) -> Any:
-        """Return the feature group implementation class (e.g. PyArrowWindowAggregation)."""
+        """Return the feature group implementation class (e.g. WindowAggregationFeatureGroup)."""
 
     @classmethod
     @abstractmethod
@@ -145,6 +145,11 @@ class DataOpsIntegrationTestBase(ABC):
         """Relative tolerance for pytest.approx. Default: 1e-3."""
         return 1e-3
 
+    @classmethod
+    def pipeline_compute_frameworks(cls) -> list[type]:
+        """Compute frameworks enabled for the pipeline runs. Default: only ``compute_framework_class()``."""
+        return [cls.compute_framework_class()]
+
     # -- Helpers --------------------------------------------------------------
 
     def _make_feature(self, name: str, options_context: dict[str, Any]) -> Feature:
@@ -162,8 +167,9 @@ class DataOpsIntegrationTestBase(ABC):
         feature = self._make_feature(name, options_context)
         results = mloda.run_all(
             [feature],
-            compute_frameworks=[self.compute_framework_class()],
+            compute_frameworks=self.pipeline_compute_frameworks(),
             plugin_collector=self._plugin_collector(creator) if creator is not None else self._plugin_collector(),
+            output_framework=self.compute_framework_class(),
         )
         assert len(results) >= 1
 
@@ -239,8 +245,9 @@ class DataOpsIntegrationTestBase(ABC):
         with pytest.raises(ValueError):
             mloda.run_all(
                 [feature],
-                compute_frameworks=[self.compute_framework_class()],
+                compute_frameworks=self.pipeline_compute_frameworks(),
                 plugin_collector=plugin_collector,
+                output_framework=self.compute_framework_class(),
             )
 
     def test_family_base_is_not_selected_without_an_implementation(self) -> None:

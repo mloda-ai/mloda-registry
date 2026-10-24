@@ -33,11 +33,6 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
     def supported_agg_types(cls) -> set[str]:
         return {*cls.ALL_AGG_TYPES, "mean"}
 
-    @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count, mode() and std/var."""
-        return frozenset({"mode", "sum", "avg", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"})
-
 
 class TestPandasWindowAggregationNullableInt(PandasNullableIntTestMixin, TestPandasWindowAggregation):
     """Runs the window_aggregation suite on nullable pandas int columns."""
