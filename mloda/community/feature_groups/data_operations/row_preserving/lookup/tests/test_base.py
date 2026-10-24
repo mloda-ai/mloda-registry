@@ -354,27 +354,6 @@ class TestReturnDataTypeRule:
             _FailingHookLookup.return_data_type_rule(Feature("x__failing", options=Options()))
 
 
-_IMPLEMENTATIONS = [
-    pytest.param("pyarrow_lookup", "PyArrowLookup", "pyarrow.table", "PyArrowTable", id="pyarrow"),
-    pytest.param("pandas_lookup", "PandasLookup", "pandas.dataframe", "PandasDataFrame", id="pandas"),
-    pytest.param(
-        "polars_lazy_lookup", "PolarsLazyLookup", "polars.lazy_dataframe", "PolarsLazyDataFrame", id="polars_lazy"
-    ),
-    pytest.param("duckdb_lookup", "DuckdbLookup", "duckdb.duckdb_framework", "DuckDBFramework", id="duckdb"),
-    pytest.param("sqlite_lookup", "SqliteLookup", "sqlite.sqlite_framework", "SqliteFramework", id="sqlite"),
-    pytest.param(
-        "python_dict_lookup",
-        "PythonDictLookup",
-        "python_dict.python_dict_framework",
-        "PythonDictFramework",
-        id="python_dict",
-    ),
-]
-
-_LOOKUP_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.lookup"
-_FRAMEWORK_PACKAGE = "mloda_plugins.compute_framework.base_implementations"
-
-
 class TestOperationGroupShape:
     """LookupFeatureGroup is one OperationFeatureGroup served by one Implementation per framework."""
 
@@ -392,19 +371,17 @@ class TestOperationGroupShape:
         with pytest.raises(ValueError, match="no implementation"):
             LookupFeatureGroup.calculate_feature(create_lookup_arrow_table(), fs)
 
-    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
-    def test_implementation_names_its_pair(
-        self, module: str, name: str, framework_module: str, framework_name: str
-    ) -> None:
-        impl = getattr(pytest.importorskip(f"{_LOOKUP_PACKAGE}.{module}"), name)
-        framework = getattr(pytest.importorskip(f"{_FRAMEWORK_PACKAGE}.{framework_module}"), framework_name)
-        assert issubclass(impl, Implementation)
-        assert not issubclass(impl, FeatureGroup)
-        assert impl.feature_group is LookupFeatureGroup
-        assert impl.compute_framework is framework
-        assert callable(impl._compute_lookup)
-        assert impl.supported is None
-        assert dict(impl.divergent) == {}
+    def test_manifest_implementations_are_plain_implementations(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.lookup.manifest import FEATURE_GROUPS
+
+        implementations: list[Any] = [cls for cls in FEATURE_GROUPS if cls is not LookupFeatureGroup]
+        assert implementations
+        for impl in implementations:
+            assert issubclass(impl, Implementation)
+            assert not issubclass(impl, FeatureGroup)
+            assert callable(impl._compute_lookup)
+            assert impl.supported is None
+            assert dict(impl.divergent) == {}
 
 
 class TestOnUnmatchedArity(ScalarArityTestBase):

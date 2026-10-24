@@ -665,7 +665,7 @@ _OPERATION_GROUP_FAMILIES = ("aggregation", "lookup")
 
 def test_operation_group_families_are_converted() -> None:
     converted = {key for key, cls in _real_classes().items() if issubclass(cls, OperationFeatureGroup)}
-    assert set(_OPERATION_GROUP_FAMILIES) <= converted
+    assert converted == set(_OPERATION_GROUP_FAMILIES)
 
 
 @pytest.mark.parametrize("key", _OPERATION_GROUP_FAMILIES)
