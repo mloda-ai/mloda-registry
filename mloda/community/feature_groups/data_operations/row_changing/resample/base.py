@@ -31,9 +31,9 @@ Output columns are the ``partition_by`` columns, the bucketed ``time_column``
 ``{src}__resample_{n}_{unit}_{agg}``. Output row order is not guaranteed.
 
 PyArrow is the cross-framework reference. Features sharing one bucket grid are aggregated
-together; a different grid needs its own request. Each backend is an ``Implementation``
-supplying the floor + group + aggregate to ``resample``; presence guards are shared via
-``assert_source_columns_present``.
+together; a different grid needs a separate run_all call or its own Options(group=...).
+Each backend is an ``Implementation`` supplying the floor + group + aggregate to ``resample``;
+presence guards are shared via ``assert_source_columns_present``.
 """
 
 from __future__ import annotations
@@ -250,7 +250,7 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
         aggs: list[ResampleAgg] = []
         grids: dict[tuple[tuple[str, ...], str, int, str], list[str]] = {}
 
-        for feature in features.features:
+        for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
             n, unit, agg = _parse_resample_op(cls._extract_resample_op(feature))
             partition_by = cls._extract_partition_by(feature)
@@ -260,12 +260,17 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
             assert_source_columns_present(data, [source_col])
 
             aggs.append(ResampleAgg(feature.name, source_col, agg))
-            grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(feature.name)
+            grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(str(feature.name))
 
         if len(grids) > 1:
+            lines = "; ".join(
+                f"{names}: partition_by={list(pb)}, time_column={tc!r}, bucket={g_n}_{g_unit}"
+                for (pb, tc, g_n, g_unit), names in grids.items()
+            )
             raise ValueError(
-                f"Resample features with different bucket grids cannot share one request: {sorted(grids.values())}. "
-                "Each bucket grid needs its own request."
+                "Resample features with different bucket grids (partition_by, time_column and bucket size) "
+                f"cannot share one computation: {lines}. Request them in separate mloda.run_all calls, "
+                "or set the differing option via Options(group=...) so they compute separately."
             )
 
         ((partition_key, time_column, n, unit),) = grids

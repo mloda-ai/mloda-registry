@@ -78,8 +78,10 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
         group_exprs = [*partition_quoted, floor_sql]
 
         agg_parts = [
-            f"{nan_policy_agg_sql(data, spec.source_col, quote_ident(spec.source_col), spec.agg, _DUCKDB_AGG_FUNCS[spec.agg])}"
-            f" AS {quote_ident(spec.feature_name)}"
+            nan_policy_agg_sql(
+                data, spec.source_col, quote_ident(spec.source_col), spec.agg, _DUCKDB_AGG_FUNCS[spec.agg]
+            )
+            + f" AS {quote_ident(spec.feature_name)}"
             for spec in aggs
         ]
         select_parts = [*partition_quoted, f"{floor_sql} AS {quoted_time}", *agg_parts]
