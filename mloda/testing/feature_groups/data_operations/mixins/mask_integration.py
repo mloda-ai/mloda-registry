@@ -11,12 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, mloda
 
 from mloda.testing.data_creator.base import column_selective
-from mloda.testing.feature_groups.data_operations.helpers import is_null
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, is_null, result_column_names
 
 
 class MaskIntegrationTestMixin:
@@ -104,8 +103,8 @@ class MaskIntegrationTestMixin:
         options_ctx: dict[str, Any],
         mask_spec: Any,
         creator: type | None = None,
-    ) -> pa.Table:
-        """Run a single masked feature through the pipeline."""
+    ) -> Any:
+        """Run a single masked feature through the pipeline and return the framework result holding it."""
         ctx = dict(options_ctx)
         ctx["mask"] = mask_spec
         feature = Feature(name, options=Options(context=ctx))
@@ -120,7 +119,7 @@ class MaskIntegrationTestMixin:
 
         result_table = None
         for table in results:
-            if isinstance(table, pa.Table) and name in table.column_names:
+            if name in result_column_names(table):
                 result_table = table
                 break
 
@@ -136,9 +135,12 @@ class MaskIntegrationTestMixin:
             self.mask_integration_options(),
             self.mask_integration_spec(),
         )
-        assert result_table.num_rows == self.mask_integration_expected_row_count()
+        assert (
+            len(extract_column(result_table, self.mask_integration_feature_name()))
+            == self.mask_integration_expected_row_count()
+        )
 
-        result_col = result_table.column(self.mask_integration_feature_name()).to_pylist()
+        result_col = extract_column(result_table, self.mask_integration_feature_name())
         self._assert_mask_integration_values(result_col, self.mask_integration_expected())
 
     def test_mask_feature_with_column_selective_source(self) -> None:
@@ -149,9 +151,12 @@ class MaskIntegrationTestMixin:
             self.mask_integration_complex_spec(),
             creator=column_selective(self.data_creator_class()),  # type: ignore[attr-defined]
         )
-        assert result_table.num_rows == self.mask_integration_expected_row_count()
+        assert (
+            len(extract_column(result_table, self.mask_integration_feature_name()))
+            == self.mask_integration_expected_row_count()
+        )
 
-        result_col = result_table.column(self.mask_integration_feature_name()).to_pylist()
+        result_col = extract_column(result_table, self.mask_integration_feature_name())
         self._assert_mask_integration_values(result_col, self.mask_integration_complex_expected())
 
     def test_mask_complex_conditions_through_pipeline(self) -> None:
@@ -161,9 +166,12 @@ class MaskIntegrationTestMixin:
             self.mask_integration_options(),
             self.mask_integration_complex_spec(),
         )
-        assert result_table.num_rows == self.mask_integration_expected_row_count()
+        assert (
+            len(extract_column(result_table, self.mask_integration_feature_name()))
+            == self.mask_integration_expected_row_count()
+        )
 
-        result_col = result_table.column(self.mask_integration_feature_name()).to_pylist()
+        result_col = extract_column(result_table, self.mask_integration_feature_name())
         self._assert_mask_integration_values(result_col, self.mask_integration_complex_expected())
 
     def test_masked_and_unmasked_consistent(self) -> None:
@@ -180,12 +188,12 @@ class MaskIntegrationTestMixin:
 
         # Unmasked feature through pipeline
         result_unmasked = self._run_single_feature(name, base_options)  # type: ignore[attr-defined]
-        assert result_unmasked.num_rows == self.mask_integration_expected_row_count()
-        unmasked_col = result_unmasked.column(name).to_pylist()
+        assert len(extract_column(result_unmasked, name)) == self.mask_integration_expected_row_count()
+        unmasked_col = extract_column(result_unmasked, name)
         self._assert_mask_integration_values(unmasked_col, self.mask_integration_unmasked_expected())
 
         # Masked feature through pipeline (same name, different config)
         result_masked = self._run_masked_feature(name, base_options, self.mask_integration_spec())
-        assert result_masked.num_rows == self.mask_integration_expected_row_count()
-        masked_col = result_masked.column(name).to_pylist()
+        assert len(extract_column(result_masked, name)) == self.mask_integration_expected_row_count()
+        masked_col = extract_column(result_masked, name)
         self._assert_mask_integration_values(masked_col, self.mask_integration_expected())

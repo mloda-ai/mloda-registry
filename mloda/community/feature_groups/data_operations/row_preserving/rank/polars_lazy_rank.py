@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
@@ -12,10 +14,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 )
 
 
-class PolarsLazyRank(RankFeatureGroup):
+class PolarsLazyRank(Implementation[RankFeatureGroup]):
+    feature_group = RankFeatureGroup
+    compute_framework = PolarsLazyDataFrame
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
+    def calculate(
+        cls, group: type[RankFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.rank(data, features, compute_rank=cls._compute_rank)
 
     @classmethod
     def _row_number_nulls_last(

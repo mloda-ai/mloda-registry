@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -47,10 +49,20 @@ _SQLITE_RANK_FUNCS: dict[str, str] = {
 }
 
 
-class SqliteRank(RankFeatureGroup):
+class SqliteRank(Implementation[RankFeatureGroup]):
+    feature_group = RankFeatureGroup
+    compute_framework = SqliteFramework
+    divergent = {
+        "rank": "sqlite3 stores NaN as NULL, so they tie",
+        "dense_rank": "sqlite3 stores NaN as NULL, so they tie",
+        "percent_rank": "sqlite3 stores NaN as NULL, so they tie",
+    }
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {SqliteFramework}
+    def calculate(
+        cls, group: type[RankFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.rank(data, features, compute_rank=cls._compute_rank)
 
     @classmethod
     def _compute_rank(

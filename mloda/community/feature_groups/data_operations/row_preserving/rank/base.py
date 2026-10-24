@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from mloda.provider import (
@@ -11,9 +11,11 @@ from mloda.provider import (
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
+    OperationFeatureGroup,
+    SubtypeDeclaration,
     property_spec,
 )
-from mloda.user import DataType, Feature, Options
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
@@ -29,7 +31,6 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
 )
-from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 _RANK_TYPES = {
     "row_number": "Sequential position, no ties",
@@ -40,6 +41,12 @@ _RANK_TYPES = {
 
 #: Parametric rank families; each accepts a positive integer suffix (e.g. ``ntile_4``).
 _PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = ("ntile", "top", "bottom")
+
+_PARAMETRIC_RANK_DESCRIPTIONS = {
+    "ntile": "Divide rows into N roughly equal buckets",
+    "top": "True for the N highest values",
+    "bottom": "True for the N lowest values",
+}
 
 
 def _is_supported_rank_type(value: object) -> bool:
@@ -56,7 +63,7 @@ def _is_supported_rank_type(value: object) -> bool:
     return False
 
 
-class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+class RankFeatureGroup(OperationFeatureGroup, KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a
@@ -131,7 +138,14 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
     - ``in_features``: The source feature (names the result; ordering comes from ``order_by``)
     - ``partition_by``: List of columns to partition by
     - ``order_by``: Column to order by within each partition
+
+    Reference contract: nulls in the order column rank last; ties follow the reference.
     """
+
+    SUBTYPES = SubtypeDeclaration(
+        key="rank_type",
+        parametric_families={family: _PARAMETRIC_RANK_DESCRIPTIONS[family] for family in _PARAMETRIC_RANK_FAMILIES},
+    )
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
@@ -147,7 +161,7 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
     PREFIX_PATTERN = rf".*__(?P<{RANK_TYPE}>[\w]+)_ranked$"
 
     # Aliases of the module tables the validator reads: overriding them in a subclass has no
-    # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
+    # effect, per-backend narrowing belongs in Implementation.supported.
     RANK_TYPES = _RANK_TYPES
 
     PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = _PARAMETRIC_RANK_FAMILIES
@@ -182,7 +196,7 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
     @classmethod
     def _supports_rank_type(cls, rank_type: str) -> bool:
         """Check if the given rank type is supported, including ntile_N, top_N, and bottom_N."""
-        # Per-backend narrowing lives in SubtypeCapabilityHook, not here.
+        # Per-backend narrowing lives in Implementation.supported, not here.
         return _is_supported_rank_type(rank_type)
 
     @classmethod
@@ -239,27 +253,6 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
         return op_token_value(rank_type)
 
     @classmethod
-    def _resolve_rank_type(cls, feature_name: str, options: Options) -> str | None:
-        """Resolve the rank type from the feature name or options; None if unresolvable."""
-        try:
-            operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, cls._get_prefix_patterns())
-        except ValueError:
-            return None
-        if operation_config is not None:
-            return operation_config
-        rank_type = options.get(cls.RANK_TYPE)
-        return None if rank_type is None else op_token_value(rank_type)
-
-    @classmethod
-    def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
-        return cls._resolve_rank_type(feature_name, options)
-
-    @classmethod
-    def _capability_restrictable(cls, subtype: str) -> bool:
-        # Parametric families (ntile_N, top_N, bottom_N) stay open; only named types are checked.
-        return subtype in cls.RANK_TYPES
-
-    @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare deterministic rank output types.
 
@@ -277,8 +270,14 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
         return None
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Shared loop: extract params from each feature, delegate to _compute_rank.
+    def rank(
+        cls,
+        data: Any,
+        features: FeatureSet,
+        *,
+        compute_rank: Callable[[Any, str, list[str], str, str], Any],
+    ) -> Any:
+        """Shared loop: extract params from each feature, delegate to compute_rank.
 
         Supports both string-based features (e.g. "value_int__row_number_ranked") and
         configuration-based features (via Options with rank_type, in_features,
@@ -302,18 +301,6 @@ class RankFeatureGroup(KeyColumnInputsMixin, SubtypeCapabilityHook, FeatureChain
             order_by: Any = option_value(feature.options, cls.ORDER_BY, column_ref_value)
             assert_key_columns_present(data, partition_by, order_by)
 
-            table = cls._compute_rank(table, feature_name, partition_by, order_by, rank_type)
+            table = compute_rank(table, feature_name, partition_by, order_by, rank_type)
 
         return table
-
-    @classmethod
-    @abstractmethod
-    def _compute_rank(
-        cls,
-        data: Any,
-        feature_name: str,
-        partition_by: list[str],
-        order_by: str,
-        rank_type: str,
-    ) -> Any:
-        """Subclasses must implement the actual rank computation."""

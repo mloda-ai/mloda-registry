@@ -25,8 +25,8 @@ from mloda.provider import FeatureSet
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -143,30 +143,27 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def ranks_none_and_nan_apart(cls) -> bool:
         """Whether a None/NaN mix in order_by ranks as two tiers or one tie.
 
-        PyArrow >= 25 (the reference), DuckDB and Polars rank NaN and None
-        as two separate nulls-last tiers (NaN before None). PythonDict,
-        pandas and SQLite tie them into one run and override this to
-        ``False``.
+        PyArrow >= 25 (the reference), DuckDB and Polars rank NaN and None as two
+        nulls-last tiers (NaN before None). An implementation that ties them into one
+        run declares ``rank`` in its ``divergent``.
         """
-        return True
+        return "rank" not in cls.implementation_class().divergent
 
     # -- Reference implementation override --------------------------------------------
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        """Return the reference implementation class for cross-framework comparison."""
-        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import (
-            ReferenceRank,
-        )
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the PyArrow-backed reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 
-        return ReferenceRank
+        return reference_rank(table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 
     def test_row_number_ranked(self) -> None:
         """Row number of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -177,7 +174,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_rank_ranked(self) -> None:
         """Standard rank of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__rank_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -188,7 +185,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_dense_rank_ranked(self) -> None:
         """Dense rank of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__dense_rank_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -200,7 +197,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         """Percent rank of value_int partitioned by region, ordered by value_int."""
         self._skip_if_unsupported("percent_rank")
         fs = make_feature_set("value_int__percent_rank_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -217,7 +214,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_ntile_ranked(self) -> None:
         """Ntile_2 of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__ntile_2_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -238,7 +235,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_top_n_ranked(self) -> None:
         """Top 3 of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__top_3_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -249,7 +246,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_bottom_n_ranked(self) -> None:
         """Bottom 2 of value_int partitioned by region, ordered by value_int."""
         fs = make_feature_set("value_int__bottom_2_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
@@ -260,7 +257,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_null_policy_nulls_last(self) -> None:
         """NullPolicy.NULLS_LAST: null values in order_by column rank last."""
         fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__row_number_ranked")
         # Row 4 has value_int=None in group B. It should rank last (4).
@@ -271,7 +268,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_ntile_1_all_bucket_1(self) -> None:
         """Ntile_1: every row gets bucket 1."""
         fs = make_feature_set("value_int__ntile_1_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__ntile_1_ranked")
         assert all(v == 1 for v in result_col)
@@ -279,7 +276,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_ntile_n_exceeds_group_size(self) -> None:
         """Ntile_10 on groups smaller than 10: all buckets in 1..10, all unique per group."""
         fs = make_feature_set("value_int__ntile_10_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__ntile_10_ranked")
@@ -298,7 +295,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_rank_all_ties(self) -> None:
         """Group C has two tied values (15, 15). Rank and dense_rank must agree on those rows."""
         fs = make_feature_set("value_int__rank_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__rank_ranked")
         # Rows 8 and 9 are both value_int=15 in group C: both get rank 1
@@ -308,7 +305,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_top_n_exceeds_group_size(self) -> None:
         """Top 10 on groups smaller than 10: all rows are True."""
         fs = make_feature_set("value_int__top_10_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__top_10_ranked")
         assert all(v is True for v in result_col)
@@ -316,7 +313,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_bottom_n_exceeds_group_size(self) -> None:
         """Bottom 10 on groups smaller than 10: all rows are True."""
         fs = make_feature_set("value_int__bottom_10_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bottom_10_ranked")
         assert all(v is True for v in result_col)
@@ -324,7 +321,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_top_1_selects_maximum(self) -> None:
         """Top 1: only the row with the highest value in each partition is True."""
         fs = make_feature_set("value_int__top_1_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__top_1_ranked")
         # A: max=20 at row 3 -> True, rest False
@@ -370,7 +367,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__row_number_ranked", ["region"], "score")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "score__row_number_ranked")
         assert len(result_col) == 3
@@ -387,7 +384,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__rank_ranked", ["region"], "score")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "score__rank_ranked")
         assert len(result_col) == 3
@@ -449,7 +446,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_row_number")
         assert result_col == EXPECTED_ROW_NUMBER
@@ -472,7 +469,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         fs = FeatureSet()
         fs.add(feature)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "my_top_3")
         assert result_col == EXPECTED_TOP_3
@@ -494,14 +491,14 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------
 
     def test_null_partition_key_rank(self) -> None:
         """Null in partition_by forms its own group. Row 11 has region=None."""
         fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__row_number_ranked")
         # Row 11 has region=None, single row in its group -> row_number = 1
@@ -510,7 +507,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def test_multi_key_partition_rank(self) -> None:
         """Rank partitioned by [region, category] produces correct grouping."""
         fs = make_feature_set("value_int__row_number_ranked", ["region", "category"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__row_number_ranked")
         # Group A/X: values [10, 0] sorted -> [0, 10], row_number = [1, 2]
@@ -530,7 +527,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         data = self.create_test_data(table)
         fs = make_feature_set("value__row_number_ranked", ["region"], "ts")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "value__row_number_ranked")
         # Sorted by ts: 1->row_num 1, 2->row_num 2, None->row_num 3
@@ -549,7 +546,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         data = self.create_test_data(table)
         fs = make_feature_set("label__top_2_ranked", ["region"], "label")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "label__top_2_ranked")
         # DESC with nulls last: cherry(0), banana(2), apple(1), None(3)
@@ -566,7 +563,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         )
         data = self.create_test_data(table)
         fs = make_feature_set("label__bottom_2_ranked", ["region"], "label")
-        result = self.implementation_class().calculate_feature(data, fs)
+        result = calculate_with(self.implementation_class(), data, fs)
 
         result_col = self.extract_column(result, "label__bottom_2_ranked")
         # ASC with nulls last: apple(1), banana(2), cherry(0), None(3)
@@ -585,7 +582,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         (rows 8 and 9 both have value_int=15).
         """
         fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         input_id = list(
             zip(
@@ -618,6 +615,6 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         feature_name = f"val__{rank_type}_ranked"
         fs = make_feature_set(feature_name, ["grp"], "val")
 
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
-        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        ref = self.reference_calculate(table, fs)
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         return _extract_column(ref, feature_name), self.extract_column(result, feature_name)

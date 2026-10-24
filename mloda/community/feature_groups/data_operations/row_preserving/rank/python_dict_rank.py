@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -28,10 +28,20 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 )
 
 
-class PythonDictRank(RankFeatureGroup):
+class PythonDictRank(Implementation[RankFeatureGroup]):
+    feature_group = RankFeatureGroup
+    compute_framework = PythonDictFramework
+    divergent = {
+        "rank": "ties NaN with null in order_by",
+        "dense_rank": "ties NaN with null in order_by",
+        "percent_rank": "ties NaN with null in order_by",
+    }
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PythonDictFramework}
+    def calculate(
+        cls, group: type[RankFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.rank(data, features, compute_rank=cls._compute_rank)
 
     @classmethod
     def _compute_rank(

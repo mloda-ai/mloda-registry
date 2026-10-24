@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
-from mloda.provider import ComputeFramework
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
@@ -21,10 +23,20 @@ _PANDAS_RANK_METHODS: dict[str, str] = {
 }
 
 
-class PandasRank(RankFeatureGroup):
+class PandasRank(Implementation[RankFeatureGroup]):
+    feature_group = RankFeatureGroup
+    compute_framework = PandasDataFrame
+    divergent = {
+        "rank": "float64 cannot tell NaN from null, so they tie",
+        "dense_rank": "float64 cannot tell NaN from null, so they tie",
+        "percent_rank": "float64 cannot tell NaN from null, so they tie",
+    }
+
     @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PandasDataFrame}
+    def calculate(
+        cls, group: type[RankFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
+    ) -> Any:
+        return group.rank(data, features, compute_rank=cls._compute_rank)
 
     @classmethod
     def _compute_rank(

@@ -1,24 +1,22 @@
 """Behavioral guard for the unified match-time capability surface (issue #299).
 
 The aggregation, rank, and frame-aggregate families previously hand-rolled their own
-``supports_compute_framework`` plus a differently-shaped supported-types method. They were folded into one shared ``SubtypeCapabilityHook`` mixin (aggregation has since moved
-to ``Implementation.supported``; rank and frame-aggregate are still on the hook): a family declares its
+``supports_compute_framework`` plus a differently-shaped supported-types method. They were folded into one shared ``SubtypeCapabilityHook`` mixin (aggregation and rank have since moved
+to ``Implementation.supported``; frame-aggregate is still on the hook): a family declares its
 supported subtypes once via ``supported_op_subtypes(secondary)`` and the mixin turns that
 single declaration into match-time rejection through ``supports_compute_framework``.
 
 These tests pin that shared *behaviour* through the public hook (True/False), not through
 class structure: restricting the one declaration method rejects the unlisted subtype and
-accepts the listed one for every family, the unrestricted default accepts everything,
-rank's parametric families stay open, and frame-aggregate's optional secondary axis
-(frame_type) keys the restriction. Asserting on observable capability keeps them
-protecting the contract across future refactors of the class hierarchy.
+accepts the listed one, the unrestricted default accepts everything, and frame-aggregate's
+optional secondary axis (frame_type) keys the restriction. Asserting on observable capability
+keeps them protecting the contract across future refactors of the class hierarchy.
 
-Aggregation's own restriction (``Implementation.supported``) is covered in
-``aggregation/tests/test_base.py``.
+The aggregation and rank restrictions (``Implementation.supported``) are covered in
+``aggregation/tests/test_base.py`` and ``row_preserving/rank/tests/test_base.py``.
 
 ``SqliteFramework`` is a neutral driver: ``supports_compute_framework`` derives capability
-from the class's own ``supported_op_subtypes``, not from the framework argument, so the same
-framework exercises both families.
+from the class's own ``supported_op_subtypes``, not from the framework argument.
 """
 
 from __future__ import annotations
@@ -34,27 +32,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
     SqliteFrameAggregate,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 
 
 class TestUnifiedRestrictionSurface:
-    """Restricting the single ``supported_op_subtypes`` method drives match-time rejection for every family.
+    """Restricting the single ``supported_op_subtypes`` method drives match-time rejection.
 
-    The families resolve their discriminator (rank type / frame agg type) from different
-    feature-name shapes, but all inherit the same
+    Frame aggregate resolves its discriminator (frame agg type) from the feature name and inherits the
     ``supported_op_subtypes`` -> ``supports_compute_framework`` wiring.
     """
-
-    def test_rank_restriction(self) -> None:
-        """A rank subclass advertising only row_number rejects percent_rank and accepts row_number."""
-
-        class _Restricted(RankFeatureGroup):
-            @classmethod
-            def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
-                return frozenset({"row_number"})
-
-        assert _Restricted.supports_compute_framework("value__percent_rank_ranked", Options(), SqliteFramework) is False
-        assert _Restricted.supports_compute_framework("value__row_number_ranked", Options(), SqliteFramework) is True
 
     def test_frame_aggregate_restriction(self) -> None:
         """A frame-aggregate subclass advertising only sum rejects median rolling and accepts sum rolling."""
@@ -74,27 +59,12 @@ class TestUnrestrictedDefault:
     @pytest.mark.parametrize(
         "base, feature_name",
         [
-            (RankFeatureGroup, "value__percent_rank_ranked"),
             (FrameAggregateFeatureGroup, "value__median_rolling_3"),
         ],
     )
     def test_default_accepts_everything(self, base: type[SubtypeCapabilityHook], feature_name: str) -> None:
         """The base families ship no restriction, so the shared hook accepts every subtype (conservative)."""
         assert base.supports_compute_framework(feature_name, Options(), SqliteFramework) is True
-
-
-class TestRankParametricStaysOpen:
-    """Rank parametric families are never subtype-checked, even under a restriction."""
-
-    def test_parametric_family_open_under_restriction(self) -> None:
-        """ntile_N stays open through the shared hook even though it is not in the restricted set."""
-
-        class _Restricted(RankFeatureGroup):
-            @classmethod
-            def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
-                return frozenset({"row_number"})
-
-        assert _Restricted.supports_compute_framework("value__ntile_4_ranked", Options(), SqliteFramework) is True
 
 
 class TestFrameAggregateSecondaryAxis:
@@ -127,18 +97,6 @@ class TestUnrestrictedSkipsSubtypeResolution:
 
         assert _Unrestricted.supports_compute_framework("value__median_rolling_3", Options(), SqliteFramework) is True
 
-    def test_rank_unrestricted_skips_resolution(self) -> None:
-        """An unrestricted rank subclass accepts percent_rank without resolving the rank type."""
-
-        class _Unrestricted(RankFeatureGroup):
-            @classmethod
-            def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
-                raise AssertionError("subtype must not be resolved when the backend is unrestricted")
-
-        assert (
-            _Unrestricted.supports_compute_framework("value__percent_rank_ranked", Options(), SqliteFramework) is True
-        )
-
 
 class TestLegacyMethodNamesRejected:
     """Pre-#299 supported-types method names must fail loudly at class definition, not be silently ignored."""
@@ -156,7 +114,7 @@ class TestLegacyMethodNamesRejected:
         """Overriding the pre-#299 ``supported_rank_types`` raises TypeError naming ``supported_op_subtypes``."""
         with pytest.raises(TypeError, match="supported_op_subtypes"):
 
-            class _Legacy(RankFeatureGroup):
+            class _Legacy(FrameAggregateFeatureGroup):
                 @classmethod
                 def supported_rank_types(cls) -> frozenset[str]:
                     return frozenset({"row_number"})

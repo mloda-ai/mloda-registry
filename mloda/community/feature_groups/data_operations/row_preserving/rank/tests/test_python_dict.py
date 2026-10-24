@@ -36,11 +36,6 @@ class TestPythonDictRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, Pyth
     def reserved_columns_order_by(cls) -> str | None:
         return "value_int"
 
-    @classmethod
-    def ranks_none_and_nan_apart(cls) -> bool:
-        """``order_values_equal`` ties NaN and None on purpose (tie-run-splitting fix; see known-divergences.md)."""
-        return False
-
 
 class TestPythonDictRankNanOrderByHangs:
     """A NaN ``order_by`` value must not hang ``rank`` / ``dense_rank`` / ``percent_rank``.
@@ -78,7 +73,7 @@ class TestPythonDictRankNanPartitionKeyGrouping:
     Two rows that both carry ``float('nan')`` in a partition column compare unequal
     (``nan != nan``), so building the group key from the raw partition value would split
     them into separate one-row groups instead of one shared group, and each row would be
-    ranked alone within its own group instead of together. ``ReferenceRank`` builds its
+    ranked alone within its own group instead of together. ``reference_rank`` builds its
     group key the exact same way and reproduces this identical bug, so it is NOT a valid
     oracle here. Instead, this test asks PyArrow's own ``Table.group_by()`` directly which
     rows it considers one partition, and derives the expected row numbering from that.
@@ -89,7 +84,11 @@ class TestPythonDictRankNanPartitionKeyGrouping:
 
         import pyarrow as pa
 
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
 
         arrow_table = pa.table(
             {
@@ -110,7 +109,7 @@ class TestPythonDictRankNanPartitionKeyGrouping:
 
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__row_number_ranked", ["grp"], "val")
-        result = PythonDictRank.calculate_feature(data, fs)
+        result = calculate_with(PythonDictRank, data, fs)
         result_col = extract_column(result, "val__row_number_ranked")
 
         # Row 1 (val=20.0) is second (by val) within the shared NaN partition PyArrow

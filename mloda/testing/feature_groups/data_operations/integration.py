@@ -9,7 +9,8 @@ feature group, then inherit the concrete test methods for free:
 - single-feature pipeline tests (primary + secondary)
 - plugin discovery tests (discoverable + blocked when disabled)
 - pattern matching tests (valid names, invalid names, missing config)
-- an abstract family base is never selected without an implementation
+- an abstract family base is never selected without an implementation (an operation group is
+  never resolved on a framework that has no implementation)
 
 Usage::
 
@@ -31,13 +32,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-import pyarrow as pa
 import pytest
-from mloda.provider import FeatureGroup
+from mloda.provider import FeatureGroup, OperationFeatureGroup
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.data_creator.base import column_selective
-from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    extract_column,
+    result_column_names,
+)
 
 
 class DataOpsIntegrationTestBase(ABC):
@@ -141,6 +145,11 @@ class DataOpsIntegrationTestBase(ABC):
         """Relative tolerance for pytest.approx. Default: 1e-3."""
         return 1e-3
 
+    @classmethod
+    def no_implementation_framework(cls) -> type | None:
+        """A framework no Implementation of an operation group serves; None skips the operation-group check."""
+        return None
+
     # -- Helpers --------------------------------------------------------------
 
     def _make_feature(self, name: str, options_context: dict[str, Any]) -> Feature:
@@ -153,8 +162,8 @@ class DataOpsIntegrationTestBase(ABC):
             {creator or self.data_creator_class(), self.feature_group_class()}
         )
 
-    def _run_single_feature(self, name: str, options_context: dict[str, Any], creator: type | None = None) -> pa.Table:
-        """Run a single feature through the pipeline and return the result table."""
+    def _run_single_feature(self, name: str, options_context: dict[str, Any], creator: type | None = None) -> Any:
+        """Run a single feature through the pipeline and return the framework result holding it."""
         feature = self._make_feature(name, options_context)
         results = mloda.run_all(
             [feature],
@@ -165,7 +174,7 @@ class DataOpsIntegrationTestBase(ABC):
 
         result_table = None
         for table in results:
-            if isinstance(table, pa.Table) and name in table.column_names:
+            if name in result_column_names(table):
                 result_table = table
                 break
 
@@ -188,9 +197,9 @@ class DataOpsIntegrationTestBase(ABC):
             self.primary_feature_name(),
             self.primary_feature_options(),
         )
-        assert result_table.num_rows == self.expected_row_count()
+        assert len(extract_column(result_table, self.primary_feature_name())) == self.expected_row_count()
 
-        result_col = result_table.column(self.primary_feature_name()).to_pylist()
+        result_col = extract_column(result_table, self.primary_feature_name())
         self._assert_values_equal(result_col, self.primary_expected_values())
 
     def test_primary_feature_with_column_selective_source(self) -> None:
@@ -201,9 +210,9 @@ class DataOpsIntegrationTestBase(ABC):
             self.primary_feature_options(),
             creator=selective,
         )
-        assert result_table.num_rows == self.expected_row_count()
+        assert len(extract_column(result_table, self.primary_feature_name())) == self.expected_row_count()
 
-        result_col = result_table.column(self.primary_feature_name()).to_pylist()
+        result_col = extract_column(result_table, self.primary_feature_name())
         self._assert_values_equal(result_col, self.primary_expected_values())
 
     def test_secondary_feature_through_pipeline(self) -> None:
@@ -212,9 +221,9 @@ class DataOpsIntegrationTestBase(ABC):
             self.secondary_feature_name(),
             self.secondary_feature_options(),
         )
-        assert result_table.num_rows == self.expected_row_count()
+        assert len(extract_column(result_table, self.secondary_feature_name())) == self.expected_row_count()
 
-        result_col = result_table.column(self.secondary_feature_name()).to_pylist()
+        result_col = extract_column(result_table, self.secondary_feature_name())
         self._assert_values_equal(result_col, self.secondary_expected_values())
 
     def test_feature_group_is_discoverable(self) -> None:
@@ -241,6 +250,11 @@ class DataOpsIntegrationTestBase(ABC):
 
     def test_family_base_is_not_selected_without_an_implementation(self) -> None:
         """With only the family base(s) and the source enabled, resolution fails as abstract-only."""
+        group = self.feature_group_class()
+        if isinstance(group, type) and issubclass(group, OperationFeatureGroup):
+            self._assert_operation_group_needs_an_implementation(group)
+            return
+
         bases = [
             base
             for base in self.feature_group_class().__mro__[1:]
@@ -268,6 +282,18 @@ class DataOpsIntegrationTestBase(ABC):
                 plugin_collector=plugin_collector,
             )
         assert excinfo.value.result.failure_kind == "abstract_only"
+
+    def _assert_operation_group_needs_an_implementation(self, group: type) -> None:
+        """An operation group is concrete, so on a framework without an implementation it fails to resolve."""
+        framework = self.no_implementation_framework()
+        if framework is None:
+            pytest.skip("no framework without an implementation declared for this operation group")
+
+        plugin_collector = PluginCollector.enabled_feature_groups({self.data_creator_class(), group})
+        feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())
+
+        with pytest.raises(FeatureResolutionError):
+            mloda.run_all([feature], compute_frameworks=[framework], plugin_collector=plugin_collector)
 
     def test_match_feature_group_criteria_valid(self) -> None:
         """Verify match_feature_group_criteria accepts valid feature names."""

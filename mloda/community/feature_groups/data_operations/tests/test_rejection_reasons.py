@@ -16,7 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import PandasRank
+from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
@@ -69,7 +69,7 @@ class TestConfigPathGuardRejectionReported:
         options = Options(
             context={"rank_type": "row_number", "in_features": "value_float", "order_by": 123, "partition_by": ["g"]}
         )
-        reason = PandasRank._strict_validation_rejection_reason("my_result", options)
+        reason = RankFeatureGroup._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
         assert "option 'order_by' must be" in reason
         assert "got int 123" in reason
@@ -77,7 +77,7 @@ class TestConfigPathGuardRejectionReported:
     def test_non_candidate_with_guard_rejected_value_reports_nothing(self) -> None:
         """No pattern name and no in_features: rank was never a candidate, so nothing is reported."""
         options = Options(context={"order_by": 123})
-        assert PandasRank._strict_validation_rejection_reason("some_unrelated_feature", options) is None
+        assert RankFeatureGroup._strict_validation_rejection_reason("some_unrelated_feature", options) is None
 
     @pytest.mark.parametrize("cls", [EmaFeatureGroup, FfillFeatureGroup, SessionizationFeatureGroup])
     def test_name_only_group_reports_nothing_for_a_config_name(self, cls: Any) -> None:
@@ -99,8 +99,8 @@ class TestMultiElementArityRejectionReported:
                 "partition_by": ["region"],
             }
         )
-        assert PandasRank.match_feature_group_criteria("my_result", options, None) is False
-        reason = PandasRank._strict_validation_rejection_reason("my_result", options)
+        assert RankFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+        reason = RankFeatureGroup._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
         assert "option 'order_by' must be" in reason
         assert "exactly one" in reason
@@ -116,7 +116,7 @@ class TestMultiElementArityRejectionReported:
                 "partition_by": ["region"],
             }
         )
-        assert PandasRank._strict_validation_rejection_reason("my_result", options) is None
+        assert RankFeatureGroup._strict_validation_rejection_reason("my_result", options) is None
 
     def test_guard_rejected_container_type_reports_the_guard_not_arity(self) -> None:
         """A guard that rejects the container type itself must be named, not misreported as an arity failure.

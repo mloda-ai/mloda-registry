@@ -128,11 +128,14 @@ def probe_source(classes: list[tuple[str, str]], absent: list[str]) -> str:
 import importlib.util
 import sys
 
+from mloda.provider import Implementation
+
 failures = []
 for module, name in {classes!r}:
     try:
         cls = getattr(importlib.import_module(module), name)
-        for framework in cls.compute_framework_rule():
+        frameworks = (cls.compute_framework,) if issubclass(cls, Implementation) else cls.compute_framework_rule()
+        for framework in frameworks:
             if not framework.is_available():
                 failures.append(f"{{name}}: {{framework.__name__}} is not available")
     except Exception as exc:

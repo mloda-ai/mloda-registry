@@ -1,6 +1,6 @@
 """Shared match-time capability hook for the data-operation families (issue #299).
 
-The aggregation, rank, and frame_aggregate families previously each hand-rolled
+The frame_aggregate family previously hand-rolled
 ``supports_compute_framework`` plus a differently shaped supported-types method.
 This mixin owns the single implementation, and a family declares supported
 subtypes once via ``supported_op_subtypes(secondary)``, optionally keyed by a
