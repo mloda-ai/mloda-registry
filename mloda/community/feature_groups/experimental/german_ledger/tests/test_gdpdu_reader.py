@@ -317,6 +317,7 @@ def test_an_index_link_leaving_the_dossier_is_refused_unclaimed_and_unfingerprin
     (inner / "index.xml").rename(inner / "sub" / "real.xml")
     (inner / "index.xml").symlink_to(inner / "sub" / "real.xml")
     assert GdpduReader.load_data(str(inner), FeatureSet()).num_rows > 0
+    assert GdpduReader.dossier(str(inner)) == str(inner)
 
 
 def _dossier_naming(tmp_path: Path, url: str) -> Path:
@@ -330,7 +331,10 @@ def _dossier_naming(tmp_path: Path, url: str) -> Path:
 @posix_only
 @pytest.mark.parametrize("chain", [False, True], ids=["self_loop", "loop_through_outside"])
 def test_a_descriptor_url_naming_a_symlink_loop_is_a_value_error_not_a_crash(tmp_path: Path, chain: bool) -> None:
-    """A looping link, inside or through the outside, is refused on load and leaves the identity a bare name."""
+    """A looping link, inside or through the outside, is refused on load and leaves the identity a bare name.
+
+    Guards a RuntimeError that Python 3.10 to 3.12 raised on a loop.
+    """
     folder = _dossier_naming(tmp_path, "a" if chain else "loop")
     if chain:
         (tmp_path / "outside").mkdir()
@@ -339,5 +343,5 @@ def test_a_descriptor_url_naming_a_symlink_loop_is_a_value_error_not_a_crash(tmp
     else:
         (folder / "loop").symlink_to("loop")
     assert GdpduReader.data_access_identity(source_match(folder)) == f"gdpdu:{folder.name}"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="absent"):
         GdpduReader.load_data(str(folder), FeatureSet())

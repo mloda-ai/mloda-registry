@@ -39,8 +39,8 @@ JOURNAL = "gdpdu_journal"
 # overwritten by it, so the name is reserved rather than shared.
 _ORIGIN_COLUMN = "__origin"
 
-# The admissibility evidence column. An admissibility policy stamps it; SourcesFeatureGroup
-# refuses to total rows without it. Reserved for the same reason as the citation column: a
+# The admissibility evidence column. An admissibility policy stamps it; the concept and the
+# total both refuse rows without it. Reserved for the same reason as the citation column: a
 # descriptor declaring this name would be overwritten by the stamp.
 ADMISSIBILITY_COLUMN = "__admissibility"
 
@@ -396,18 +396,18 @@ def _within(base: str, path: str) -> bool:
 
 def _resolve_within(dossier_dir: str, url: str) -> str:
     """A descriptor is untrusted input: keep its URLs inside the dossier directory."""
-    target = os.path.join(dossier_dir, url)
-    if not _within(dossier_dir, target):
+    real = os.path.realpath(os.path.join(dossier_dir, url))
+    if not _within(dossier_dir, real):
         raise ValueError(f"descriptor URL {url!r} escapes the dossier directory")
-    return os.path.realpath(target)
+    return real
 
 
 def _descriptor(dossier_dir: str) -> str:
-    """The index.xml path, refused when it links outside the dossier."""
-    path = os.path.join(dossier_dir, INDEX_NAME)
-    if not _within(dossier_dir, path):
+    """The resolved index.xml path, refused when it links outside the dossier."""
+    real = os.path.realpath(os.path.join(dossier_dir, INDEX_NAME))
+    if not _within(dossier_dir, real):
         raise ValueError(f"{INDEX_NAME} links outside the dossier and is not read; copy it into the dossier")
-    return path
+    return real
 
 
 class InadmissibleTotal(Exception):
@@ -433,7 +433,7 @@ def refuse_unadmitted(table: pa.Table, requested: str) -> None:
         raise InadmissibleTotal(
             f"refusing {requested}: no admissibility evidence in {ADMISSIBILITY_COLUMN!r}. "
             "An admissibility policy (see AdmissibilityPolicyGroup) must stamp the rows "
-            "before a citable total is produced.",
+            "before a concept or total is produced.",
             verdicts={"unstamped": table.num_rows},
         )
     stamps = table.column(ADMISSIBILITY_COLUMN).to_pylist()
@@ -651,7 +651,7 @@ class GdpduReader(_ReaderJournal):
             found = os.path.dirname(path)
         else:
             return None
-        if not _within(found, os.path.join(found, INDEX_NAME)):
+        if not _within(found, os.path.realpath(os.path.join(found, INDEX_NAME))):
             record_match_rejection(
                 cls.get_class_name(), f"{INDEX_NAME} links outside its folder", stage=INPUT_DATA_STAGE
             )
