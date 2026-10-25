@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
@@ -203,12 +204,13 @@ class ScalarAggregateTestBase(
         return make_feature_set(feature_name)
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
-            PyArrowScalarAggregate,
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
+            reference_scalar_aggregate,
         )
 
-        return PyArrowScalarAggregate
+        return reference_scalar_aggregate(table, features)
 
     # -- Concrete tests ------------------------------------------------------
 

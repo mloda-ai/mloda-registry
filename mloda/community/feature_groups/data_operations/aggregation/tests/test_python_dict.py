@@ -50,9 +50,8 @@ class TestPythonDictNanPartitionKeyGrouping:
     Verified empirically: PyArrow's own ``Table.group_by()`` merges all NaN
     keys of a column into a single group (distinct from a null/None group),
     so "one shared NaN group" -- not "one singleton group per NaN row" -- is
-    the correct target behavior. ``reference_aggregation`` drives its grouping
-    through PyArrow's real ``group_by().aggregate()``, so it reproduces that
-    same live-PyArrow behavior and is a valid oracle here.
+    the correct target behavior. ``reference_aggregation`` is pure Python and
+    groups NaN keys together, so it agrees with that and is a valid oracle here.
     """
 
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
@@ -102,9 +101,8 @@ class TestPythonDictMinMaxSkipsNan:
     134-137) reduces a group's non-null values with Python's builtin
     ``min()``/``max()``. Python's builtins short-circuit to NaN the moment
     any element is NaN (``min([nan, 1.0, 3.0]) == nan``), but PyArrow's
-    ``pc.min``/``pc.max`` (exercised here through ``reference_aggregation``'s
-    ``group_by().aggregate()`` call) skip NaN and return the true minimum/
-    maximum among the non-NaN values.
+    ``pc.min``/``pc.max`` skip NaN and return the true minimum/maximum among
+    the non-NaN values, as does the pure Python ``reference_aggregation``.
     """
 
     @staticmethod

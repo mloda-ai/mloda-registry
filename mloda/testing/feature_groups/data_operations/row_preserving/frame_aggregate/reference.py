@@ -1,10 +1,6 @@
-"""Test reference implementation for frame aggregate feature groups.
+"""Pure Python reference for frame aggregate: the shared loop with a kernel-backed compute.
 
-Accepts PyArrow tables but computes in Python. Used as the cross-framework
-comparison baseline in test suites. Uses bulk ``to_pylist()`` extraction
-(one C++ call per column) instead of per-row ``.as_py()`` calls, then
-performs grouping, sorting, and windowed aggregation in pure Python on the
-extracted lists.
+pa.Table is only the I/O container; grouping, ordering and windowing run on ``to_pylist()`` lists.
 """
 
 from __future__ import annotations
@@ -18,7 +14,12 @@ from mloda.community.feature_groups.data_operations.mask_utils import apply_pyar
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
-from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
+from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
+    aggregate,
+    declared_type,
+    group_rows,
+    order_key,
+)
 
 
 def _compute_frame(
@@ -34,36 +35,18 @@ def _compute_frame(
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
     num_rows = table.num_rows
-
-    # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
-    partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
+    keys = [table.column(col).to_pylist() for col in partition_by]
     order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
-    source_col_data = (
-        apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
-    )
-    source_vals = source_col_data.to_pylist()
-
-    # Build group keys from extracted Python lists (no PyArrow calls in loop)
-    groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
-    for i in range(num_rows):
-        key = tuple(partition_lists[col][i] for col in partition_by)
-        if key not in groups:
-            groups[key] = []
-        groups[key].append((i, order_vals[i], source_vals[i]))
-
-    for key in groups:
-        groups[key].sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
+    source = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
+    source_vals = source.to_pylist()
 
     result_values: list[Any] = [None] * num_rows
-
-    for key, rows in groups.items():
-        for pos, (orig_idx, order_val, val) in enumerate(rows):
+    for indices in group_rows(keys, num_rows).values():
+        rows = [(i, order_vals[i], source_vals[i]) for i in sorted(indices, key=lambda i: order_key(order_vals[i]))]
+        for pos, (orig_idx, order_val, _) in enumerate(rows):
             if frame_type == "rolling":
                 wsize = int(frame_size) if frame_size is not None else 1
-                window_start = max(0, pos - wsize + 1)
-                window = [r[2] for r in rows[window_start : pos + 1]]
-            elif frame_type in ("cumulative", "expanding"):
-                window = [r[2] for r in rows[: pos + 1]]
+                window = [r[2] for r in rows[max(0, pos - wsize + 1) : pos + 1]]
             elif frame_type == "time":
                 window = _time_window(rows, pos, order_val, frame_size or 1, str(frame_unit or "day"))
             else:
@@ -71,8 +54,8 @@ def _compute_frame(
 
             result_values[orig_idx] = aggregate(window, agg_type)
 
-    new_col = pa.array(result_values)
-    return table.append_column(feature_name, new_col)
+    out_type = declared_type(agg_type, table.schema.field(source_col).type)
+    return table.append_column(feature_name, pa.array(result_values, type=out_type))
 
 
 def _time_window(

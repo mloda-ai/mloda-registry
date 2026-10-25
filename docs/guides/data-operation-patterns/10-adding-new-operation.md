@@ -147,7 +147,7 @@ class PyArrowYourOp(Implementation[YourOpFeatureGroup]):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
-Every family has this shape. The reference of aggregation, window and frame aggregate, rank, offset and percentile is a function (`reference_aggregation`, `reference_window_aggregation`, `reference_rank`, ...), the others' is their PyArrow Implementation (EMA pins literals). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergent`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
+Every family has this shape. The reference of aggregation, window, frame and scalar aggregate, rank, offset and percentile is a function (`reference_aggregation`, `reference_window_aggregation`, `reference_scalar_aggregate`, `reference_rank`, ...), the others' is their PyArrow Implementation (EMA pins literals). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergent`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 

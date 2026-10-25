@@ -1,6 +1,6 @@
 # Reference Implementation Pattern
 
-Every data operation has one framework designated as the reference. Other frameworks are correct if and only if they match the reference on the shared test suite. PyArrow is the reference for the operations that ship today; where it has no exact grouped kernel, a pure-Python reference applies PyArrow's semantics (see [When PyArrow has no kernel](#when-pyarrow-has-no-kernel-or-is-the-outlier)).
+Every data operation has one framework designated as the reference. Other frameworks are correct if and only if they match the reference on the shared test suite. The aggregating operations (aggregation, window aggregation, frame aggregate, scalar aggregate) have a pure Python reference. PyArrow is the reference for most other operations that ship today; where it has no exact grouped kernel, a pure-Python reference applies PyArrow's semantics (see [When PyArrow has no kernel](#when-pyarrow-has-no-kernel-or-is-the-outlier)).
 
 **What**: One framework implementation is the source of truth. Cross-framework tests run the same feature through both the target framework and the reference, then assert the two results match.
 **When**: Every time you add a new operation or add a new framework implementation for an existing operation.
@@ -38,7 +38,7 @@ ref_col = _extract_column(ref, feature_name)
 assert result_col == ref_col  # or pytest.approx for floats
 ```
 
-Aggregation, window aggregation, frame aggregate, rank, offset and percentile are the exceptions: each is one `OperationFeatureGroup` served by one `Implementation` per framework, so their test bases have no `reference_implementation_class`. Their references are the functions `reference_aggregation`, `reference_window_aggregation`, `reference_frame_aggregate`, `reference_rank`, `reference_offset` and `reference_percentile` (each `(table, features)`, in the operation's `reference.py` under `mloda/testing/feature_groups/data_operations/`), reached through `reference_calculate`, and the test kit runs the implementation with `calculate_with` (`mloda/testing/feature_groups/data_operations/helpers.py`). Their NaN divergences come from the implementation's shipped `divergent` mapping. Scalar aggregate, point and scalar arithmetic, lookup, time bucketization, ffill, resample, sessionization, string, datetime and binning are operation groups too, but keep `reference_implementation_class` pointing at their PyArrow Implementation; the default `reference_calculate` runs it through `calculate_with`, and the tests run the implementation under test with `calculate_with` as well. EMA has no PyArrow Implementation and pins literals instead of a live reference.
+Aggregation, window aggregation, frame aggregate, scalar aggregate, rank, offset and percentile are the exceptions: each is one `OperationFeatureGroup` served by one `Implementation` per framework, so their test bases have no `reference_implementation_class`. Their references are the functions `reference_aggregation`, `reference_window_aggregation`, `reference_frame_aggregate`, `reference_scalar_aggregate`, `reference_rank`, `reference_offset` and `reference_percentile` (each `(table, features)`, in the operation's `reference.py` under `mloda/testing/feature_groups/data_operations/`), reached through `reference_calculate`, and the test kit runs the implementation with `calculate_with` (`mloda/testing/feature_groups/data_operations/helpers.py`). Their NaN divergences come from the implementation's shipped `divergent` mapping. Point and scalar arithmetic, lookup, time bucketization, ffill, resample, sessionization, string, datetime and binning are operation groups too, but keep `reference_implementation_class` pointing at their PyArrow Implementation; the default `reference_calculate` runs it through `calculate_with`, and the tests run the implementation under test with `calculate_with` as well. EMA has no PyArrow Implementation and pins literals instead of a live reference.
 
 `self.test_data` is produced by the framework mixin's `create_test_data(pa.Table)`. The canonical input is always PyArrow; the mixin converts it once per test. This keeps the fixtures aligned: both sides compute from the *same* starting values, just in different native representations.
 
@@ -71,17 +71,40 @@ Do not "fix" a non-PyArrow framework to agree with the PyArrow bug. The referenc
 
 ---
 
+## Pure Python reference for the aggregating operations
+
+Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. Other operations do not have this reference yet. The contract, per agg type over one group's values:
+
+| Rule | Contract |
+|---|---|
+| None | Skipped by every agg type. An empty or all-None group gives 0 for count and nunique, None for the rest. |
+| NaN | A value, distinct from None. sum, avg, mean, std*, var* propagate it; count counts it; min and max skip it (all-NaN returns NaN); median skips it (all-NaN returns None); mode and nunique count it as one value; first and last skip only None. |
+| Signed zero | `0.0` and `-0.0` are one value (nunique, mode) and one partition key. |
+| std, var | Population for `std`, `var`, `std_pop`, `var_pop`; `ddof=1` for `*_samp`. Fewer than `ddof+1` values gives None. |
+| mode | Ties keep the first occurrence. |
+| Partition keys | NaN keys form one group, None is its own key, groups come in first-occurrence order. `partition_by=[]` is one whole-table group, also on an empty table. |
+| Dtype | count and nunique int64; avg, mean, median, std*, var* float64; sum widens signed integers to int64, unsigned to uint64, floats to float64 (a null-typed source gives float64, any other type raises `ValueError`); min, max, first, last and mode keep the source type. |
+
+- **Order**: within a group, `order_by` (window first and last, frame) sorts ascending: real values, then NaN, then None, stable.
+- **Row order**: window, frame and scalar keep input order; aggregation returns one row per group and is compared by key.
+- **Tolerance**: floats compare with `pytest.approx(rel=1e-6)` where a test sets `use_approx=True`.
+- **Masks**: non-matching rows become None before the aggregate. The mask semantics belong to mloda core's mask engine, so the references call `apply_pyarrow_mask` and only `to_pylist()` its output.
+
+For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)).
+
+---
+
 ## When PyArrow has no kernel, or is the outlier
 
-PyArrow has no exact grouped kernel for median, mode, rank, offset, percentile or frame_aggregate, so a pure-Python reference in `mloda/testing` computes them. Its answer follows these rules, in order:
+For the operations that keep a PyArrow-based reference, PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Python reference in `mloda/testing` computes them. Its answer follows these rules, in order:
 
-1. **The ungrouped PyArrow kernel.** Per group, the reference returns what PyArrow's ungrouped kernel for the same op returns on that group's values. Median is `pc.quantile(q=0.5)`, which skips NaN like null, so median always equals the p50 percentile; min/max skip NaN like `pc.min`/`pc.max` (all-NaN still returns NaN); mode counts NaN as one value like `pc.mode`; sum/mean propagate NaN (an all-NaN group keeps NaN) and count counts NaN as a value, as `pc.sum`/`pc.mean`/`pc.count` do; std/var propagate NaN too, as `pc.stddev`/`pc.variance` do. `PyArrowScalarAggregate` (median) and `reference_percentile` compute it directly; `aggregation_helpers` (shared by the aggregation, window_aggregation and frame_aggregate references) implements median and mode for the aggregation and window_aggregation references, and median, mode, min and max for the frame_aggregate reference. The aggregation and window_aggregation references get min/max directly from PyArrow's own grouped kernel (`Table.group_by().aggregate()`) instead, since PyArrow supports those natively.
+1. **The ungrouped PyArrow kernel.** Per group, the reference returns what PyArrow's ungrouped kernel for the same op returns on that group's values. `PyArrowScalarAggregate` and `reference_percentile` compute it directly; the aggregating references follow the contract above, which was set from the same kernels.
 2. **The majority.** Where no PyArrow kernel covers the op or the case, the majority of the frameworks that implement the op natively decides.
-3. **Mode ties, the one exception.** The reference breaks mode ties by first occurrence, while `pc.mode` picks the smallest value. Every backend already implements first occurrence, so switching would change all of them without improving agreement.
+3. **Mode ties, the one exception.** The aggregating references break mode ties by first occurrence, while `pc.mode` picks the smallest value. Every backend already implements first occurrence, so switching would change all of them without improving agreement.
 
 [Known divergences](known-divergences.md) records each decision. The reference and PythonDict stay separate implementations of the same rules: one shared implementation could not verify itself.
 
-**PyArrow as the outlier.** When PyArrow's convention is the odd one out (it alone keeps `0.0` and `-0.0` as separate groups), PyArrow stays the reference: re-voting the reference per edge case brings back the drift this pattern exists to prevent. A backend that would need a hot-path branch to match such an edge case, which the canonical fixture does not exercise, keeps its native convention as an accepted divergence, with a regression test that pins its choice.
+**PyArrow as the outlier.** For the operations that keep a PyArrow-based reference, PyArrow stays the reference when its convention is the odd one out: re-voting the reference per edge case brings back the drift this pattern exists to prevent. A backend that would need a hot-path branch to match such an edge case, which the canonical fixture does not exercise, keeps its native convention as an accepted divergence, with a regression test that pins its choice.
 
 ---
 

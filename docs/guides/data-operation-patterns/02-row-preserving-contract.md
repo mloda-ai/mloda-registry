@@ -29,7 +29,7 @@ assert result_col == ref_col  # exact match (or pytest.approx for floats)
 Two assertions, one invariant:
 
 1. **Row count**: `len(result_col) == len(ref_col)`.
-2. **Row order**: element-wise equality against the reference (PyArrow). Non-matching row order fails the second assertion even if the multiset of values is identical.
+2. **Row order**: element-wise equality against the reference. Non-matching row order fails the second assertion even if the multiset of values is identical.
 
 ---
 
@@ -103,7 +103,7 @@ If your framework reorders, you will see row-count assertions pass but value com
 
 ## Aggregation is different
 
-Aggregations under `data_operations/aggregation/` are **not** row-preserving. They reduce to one row per partition key. The [reference implementation](03-reference-implementation.md) still applies (PyArrow defines the expected result, through the function `reference_aggregation(table, features)`), but row count is expected to shrink. Aggregation is one `AggregationFeatureGroup` with one `Implementation` per framework (`PandasAggregation`, `PyArrowAggregation`, ...). The row-preserving binning and datetime families are operation groups too (`BinningFeatureGroup`, `DateTimeFeatureGroup`, with `DuckdbBinning` etc. as their Implementations); see [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
+Aggregations under `data_operations/aggregation/` are **not** row-preserving. They reduce to one row per partition key. The [reference implementation](03-reference-implementation.md) still applies (a pure Python reference defines the expected result, through the function `reference_aggregation(table, features)`), but row count is expected to shrink. Aggregation is one `AggregationFeatureGroup` with one `Implementation` per framework (`PandasAggregation`, `PyArrowAggregation`, ...). The row-preserving binning and datetime families are operation groups too (`BinningFeatureGroup`, `DateTimeFeatureGroup`, with `DuckdbBinning` etc. as their Implementations); see [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 

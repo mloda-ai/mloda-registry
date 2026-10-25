@@ -88,21 +88,21 @@ CROSS_FRAMEWORK_AGG_CASES: list[tuple[str, bool, bool]] = [
     ("var", True, True),
     ("median", True, True),
     ("nunique", True, False),
-    # PyArrow skips nulls (Group B returns 50, not None).
+    # The reference skips nulls (Group B returns 50, not None).
     ("first", True, False),
     ("last", True, False),
-    # PyArrow picks the first-encountered value on ties (Group A=10, Group B=50).
+    # The reference picks the first-encountered value on ties (Group A=10, Group B=50).
     ("mode", True, False),
 ]
 
 # (agg_type, expected {region: value}) for the advanced aggregations.
 ADVANCED_AGG_CASES: list[tuple[str, dict[Any, int]]] = [
-    # On ties (the all-unique groups A and B), PyArrow picks the first-encountered value.
+    # On ties (the all-unique groups A and B), the reference picks the first-encountered value.
     # Frameworks that use different tie-breaking must exclude 'mode' from supported_agg_types().
     ("mode", {"A": 10, "B": 50, "C": 15, None: -10}),
     # Distinct non-null values: A={10,-5,0,20}, B={50,30,60}, C={15,40}, None={-10}.
     ("nunique", {"A": 4, "B": 3, "C": 2, None: 1}),
-    # PyArrow skips nulls, so Group B returns 50 (first non-null), not None.
+    # The reference skips nulls, so Group B returns 50 (first non-null), not None.
     # Frameworks that cannot match must exclude 'first' from supported_agg_types().
     ("first", {"A": 10, "B": 50, "C": 15, None: -10}),
     # Group values in insertion order: A=[10,-5,0,20], B=[None,50,30,60], C=[15,15,40],
@@ -236,8 +236,8 @@ class AggregationTestBase(
     def merges_signed_zero_keys(cls) -> bool:
         """Whether this framework merges 0.0 and -0.0 partition keys into one group.
 
-        The reference splits them (PyArrow's Table.group_by() treats 0.0 and -0.0 as
-        distinct keys). Most backends merge them; TestPyArrowAggregation overrides to False.
+        The reference merges them (also for nunique values). PyArrow splits partition keys
+        and nunique values; TestPyArrowAggregation overrides to False.
         """
         return True
 
@@ -346,7 +346,7 @@ class AggregationTestBase(
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
-        """Run the PyArrow-backed reference function on the canonical table."""
+        """Run the pure Python reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
 
         return reference_aggregation(table, features)
@@ -1013,7 +1013,7 @@ class AggregationTestBase(
     def test_multi_key_partition_first(self) -> None:
         """First value of value_int grouped by [region, category] (insertion order).
 
-        PyArrow skips nulls: (B,X) has [None, 60], first non-null = 60.
+        The reference skips nulls: (B,X) has [None, 60], first non-null = 60.
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_agg", ["region", "category"])
@@ -1163,7 +1163,7 @@ class AggregationTestBase(
     # -- Signed-zero partition keys -------------------------------------------
 
     def test_signed_zero_partition_keys(self) -> None:
-        """Partition keys 0.0 and -0.0: reference splits into two groups, most backends merge them."""
+        """Partition keys 0.0 and -0.0: the reference and most backends merge them into one group."""
         table = pa.table(
             {
                 "k": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
@@ -1174,9 +1174,8 @@ class AggregationTestBase(
         fs = make_feature_set(feature_name, ["k"])
 
         ref = self.reference_calculate(table, fs)
-        assert ref.num_rows == 2, f"reference must split 0.0/-0.0 into two groups, got {ref.num_rows} rows"
-        ref_counts = sorted(extract_column(ref, feature_name))
-        assert ref_counts == [1, 2]
+        assert ref.num_rows == 1, f"reference must merge 0.0/-0.0 into one group, got {ref.num_rows} rows"
+        assert extract_column(ref, feature_name) == [3]
 
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         result_counts = sorted(self.extract_column(result, feature_name))
@@ -1189,3 +1188,21 @@ class AggregationTestBase(
             assert result_counts == [1, 2]
             signs = sorted(math.copysign(1, v) for v in self.extract_column(result, "k"))
             assert signs == [-1.0, 1.0]
+
+    def test_signed_zero_nunique_values(self) -> None:
+        """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
+        self._skip_if_unsupported("nunique")
+        table = pa.table(
+            {
+                "k": pa.array(["a", "a", "a"], type=pa.string()),
+                "v": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
+            }
+        )
+        feature_name = "v__nunique_agg"
+        fs = make_feature_set(feature_name, ["k"])
+
+        assert extract_column(self.reference_calculate(table, fs), feature_name) == [1]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = 1 if self.merges_signed_zero_keys() else 2
+        assert self.extract_column(result, feature_name) == [expected]

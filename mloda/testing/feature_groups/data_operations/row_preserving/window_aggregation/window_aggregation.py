@@ -276,7 +276,7 @@ class WindowAggregationTestBase(
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
-        """Run the PyArrow-backed reference function on the canonical table."""
+        """Run the pure Python reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
             reference_window_aggregation,
         )
@@ -377,7 +377,7 @@ class WindowAggregationTestBase(
             pytest.param("value_int__nunique_window", "nunique", None, False, id="nunique"),
             pytest.param("value_int__first_window", "first", "value_int", False, id="first"),
             pytest.param("value_int__last_window", "last", "value_int", False, id="last"),
-            # PyArrow picks the first-encountered value on ties. Frameworks that use
+            # The reference picks the first-encountered value on ties. Frameworks that use
             # different tie-breaking must exclude 'mode' from supported_agg_types().
             pytest.param("value_int__mode_window", "mode", None, False, id="mode"),
         ],
@@ -484,7 +484,7 @@ class WindowAggregationTestBase(
         """Mode of value_int partitioned by region.
 
         reference: [10,10,10,10, 50,50,50,50, 15,15,15, -10].
-        On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
+        On ties (all-unique groups A, B), the reference picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region"])
@@ -712,7 +712,7 @@ class WindowAggregationTestBase(
         """Mode of value_int partitioned by [region, category].
 
         reference: [10,-5,10,-5, 60,50,30,60, 15,15,15, -10].
-        On ties, PyArrow picks the first-encountered value.
+        On ties, the reference picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region", "category"])

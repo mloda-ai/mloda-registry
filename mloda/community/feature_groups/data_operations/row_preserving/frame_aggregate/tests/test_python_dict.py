@@ -46,14 +46,12 @@ class TestPythonDictNanPartitionKeyGrouping:
     column compare unequal (``nan != nan``), so the dict splits them into
     separate one-row groups/windows instead of one shared partition.
 
-    Note: this operation's own cross-framework test reference,
+    Note: this operation's cross-framework test reference,
     ``reference_frame_aggregate`` (row_preserving/frame_aggregate/reference.py),
-    builds its group key the exact same way (``key = tuple(partition_lists[col][i]
-    for col in partition_by)``) and therefore reproduces this identical bug --
-    it is NOT a valid oracle here. Instead, this test asks PyArrow's own
-    ``Table.group_by()`` directly which rows it considers one partition (the
-    live, ground-truth grouping fact), and derives the expected windowed sum
-    from that.
+    is pure Python and groups NaN keys together. This test additionally asks
+    PyArrow's own ``Table.group_by()`` directly which rows it considers one
+    partition (the live, ground-truth grouping fact), and derives the expected
+    windowed sum from that.
     """
 
     def test_nan_partition_rows_share_one_group_matches_pyarrow_group_by(self) -> None:
