@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any, BinaryIO, ClassVar
+from typing import Any, BinaryIO, ClassVar, Literal
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -27,6 +27,8 @@ from mloda.community.feature_groups.binary_model.errors import (
 from mloda.community.feature_groups.binary_model.transport import InvocationDirectory, minimal_environment, run_binary
 
 logger = logging.getLogger(__name__)
+
+LicenseSource = Literal["MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY", "LICENSE_FILE_OVERRIDE", "LICENSE_KEY_OVERRIDE"]
 
 _STRING_CELL_BYTE_LIMIT = 2**31 - 1
 
@@ -268,6 +270,17 @@ class BinaryModelMixin:
     def binary_environment(cls) -> dict[str, str]:
         """The minimal subprocess environment for this model's binary (contract: Data handling)."""
         return minimal_environment(license_file=cls.LICENSE_FILE_OVERRIDE, license_key=cls.LICENSE_KEY_OVERRIDE)
+
+    @classmethod
+    def license_source(cls) -> LicenseSource | None:
+        """The source the binary reads its license from, never its value (contract: License); derived from
+        the same forwarding as ``binary_environment``, so a subclass's own fallback there is not seen."""
+        environment = minimal_environment(license_file=cls.LICENSE_FILE_OVERRIDE, license_key=cls.LICENSE_KEY_OVERRIDE)
+        if "MLODA_LICENSE_FILE" in environment:
+            return "LICENSE_FILE_OVERRIDE" if cls.LICENSE_FILE_OVERRIDE else "MLODA_LICENSE_FILE"
+        if "MLODA_LICENSE_KEY" in environment:
+            return "LICENSE_KEY_OVERRIDE" if cls.LICENSE_KEY_OVERRIDE else "MLODA_LICENSE_KEY"
+        return None
 
     @classmethod
     def resolved_binary(cls) -> ResolvedBinary:
