@@ -10,10 +10,14 @@ from pathlib import Path
 from typing import Any
 
 _TERMINAL_UNKNOWN = "incomplete"
+_IMPLEMENTATION_FIELDS = frozenset({"implementation", "implementationVersion"})
+
 # Field -> the least step progress (0 started, 1 ended, 2 complete) both sides need for it to be comparable.
 _STEP_FIELDS = {
     "featureGroupVersion": 0,
     "pluginVersion": 0,
+    "implementation": 0,
+    "implementationVersion": 0,
     "computeFramework": 0,
     "inputFeatures": 1,
     "loadedDatasets": 1,
@@ -192,6 +196,8 @@ def _step(events: list[dict[str, Any]]) -> _Step:
     values: dict[str, Any] = {
         "featureGroupVersion": step_facet.get("featureGroupVersion"),
         "pluginVersion": step_facet.get("pluginVersion"),
+        "implementation": step_facet.get("implementation"),
+        "implementationVersion": step_facet.get("implementationVersion"),
         "computeFramework": step_facet.get("computeFramework"),
         "inputFeatures": tuple(sorted(str(i.get("name")) for i in plain)),
         "loadedDatasets": tuple(sorted(_loaded_dataset(i) for i in loaded)),
@@ -278,10 +284,12 @@ def _first(roots: list[dict[str, Any]], facet: str, field: str) -> Any:
 
 def _step_changes(label: str, a: _Step, b: _Step) -> list[Change]:
     level = min(a.level, b.level)
+    # Fields are unknown when implementation is missing on one side (plain feature group step, older record).
+    known = a.values["implementation"] is not None and b.values["implementation"] is not None
     return [
         Change(label, f, a.values[f], b.values[f])
         for f, needed in _STEP_FIELDS.items()
-        if level >= needed and a.values[f] != b.values[f]
+        if level >= needed and a.values[f] != b.values[f] and (known or f not in _IMPLEMENTATION_FIELDS)
     ]
 
 

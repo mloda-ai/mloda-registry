@@ -153,6 +153,8 @@ def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
             pluginVersion=context.plugin_version,
             computeFramework=context.compute_framework_name,
             featureNames=sorted(context.feature_names),
+            implementation=context.implementation,
+            implementationVersion=context.implementation_version,
             producer=producer,
         )
     }

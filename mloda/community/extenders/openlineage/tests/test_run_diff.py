@@ -237,6 +237,40 @@ class TestRunDiffStepChanges:
             assert _PLUS_ONE in str(change.step)
             assert (change.before, change.after) == (recorded_step.get(field) if before is _RECORDED else before, after)
 
+    @pytest.mark.parametrize(
+        ("edit", "expected"),
+        [
+            (lambda e: _facets(e)["mlodaStep"].update(implementation="m:B"), {"implementation": ("m:A", "m:B")}),
+            (
+                lambda e: _facets(e)["mlodaStep"].update(implementationVersion="2"),
+                {"implementationVersion": ("1", "2")},
+            ),
+            (lambda e: _facets(e)["mlodaStep"].pop("implementationVersion"), {"implementationVersion": ("1", None)}),
+            (None, {}),
+        ],
+        ids=["implementation", "implementationVersion", "implementationVersion-dropped", "older-record"],
+    )
+    def test_implementation_fields_are_compared_per_step_unless_one_side_has_no_implementation(
+        self, recorded: Events, edit: Edit | None, expected: dict[str, tuple[Any, Any]]
+    ) -> None:
+        base = _variant(
+            recorded,
+            lambda e: _facets(e)["mlodaStep"].update(implementation="m:A", implementationVersion="1"),
+            job=_PLUS_ONE,
+        )
+        if edit is None:
+            before, after = recorded, base
+        else:
+            before, after = base, _variant(base, edit, job=_PLUS_ONE)
+
+        found = _changes(diff_run_events(before, after).changes)
+
+        assert set(found) == set(expected)
+        for field, (old, new) in expected.items():
+            assert found[field].step is not None
+            assert _PLUS_ONE in str(found[field].step)
+            assert (found[field].before, found[field].after) == (old, new)
+
     def test_a_flipped_identity_fallback_flag_is_a_loaded_dataset_change(self, recorded: Events) -> None:
         before = _variant(recorded, _add_dataset_input(False), job=_PLUS_ONE, kind="COMPLETE")
         after = _variant(recorded, _add_dataset_input(True), job=_PLUS_ONE, kind="COMPLETE")

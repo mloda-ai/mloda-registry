@@ -47,7 +47,7 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG, CsvPyArrowTable
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage._facets import (
@@ -2036,6 +2036,34 @@ class TestOpenLineageExtenderParentRunFacet:
         assert transport.events
         assert all(_run_facet(event, "mlodaStep")["featureNames"] == ["a", "b"] for event in transport.events)
 
+    @pytest.mark.parametrize(
+        ("implementation", "implementation_version", "expected"),
+        [
+            ("pkg.mod:Impl", "v9", {"implementation": "pkg.mod:Impl", "implementationVersion": "v9"}),
+            ("neutral", None, {"implementation": "neutral"}),
+            (None, None, {}),
+        ],
+    )
+    def test_step_facet_carries_the_implementation_fields(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        implementation: str | None,
+        implementation_version: str | None,
+        expected: dict[str, str],
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with make_hook_context(
+            run_id=_RUN_A, implementation=implementation, implementation_version=implementation_version
+        ).activate():
+            extender(lambda: None)
+
+        assert transport.events
+        for event in transport.events:
+            step = _run_facet(event, "mlodaStep")
+            assert {k: step[k] for k in ("implementation", "implementationVersion") if k in step} == expected
+
 
 _PLAN_ID = "plan-0001"
 
@@ -2964,6 +2992,19 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
                     declared.append(dataset["facets"]["mlodaDeclared"]["attributes"])
         assert declared
         assert all(attributes == {"license": "a"} for attributes in declared)
+
+    def test_csv_source_step_carries_the_serving_implementation_and_its_version(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], tmp_path: Path
+    ) -> None:
+        client, transport = ol_capture
+
+        run_csv_feature(tmp_path, OpenLineageExtender(client=client))
+
+        steps = [json.loads(Serde.to_json(e))["run"]["facets"].get("mlodaStep", {}) for e in transport.events]
+        expected = f"{CsvPyArrowTable.__module__}:{CsvPyArrowTable.__qualname__}"
+        served = [s for s in steps if s.get("implementation") == expected]
+        assert served
+        assert all(s.get("implementationVersion") == CsvPyArrowTable.version() for s in served)
 
     @pytest.mark.parametrize(
         ("declarations", "expected", "conflicts"),

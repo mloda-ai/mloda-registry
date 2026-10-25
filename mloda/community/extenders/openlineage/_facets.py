@@ -59,6 +59,8 @@ class MlodaStepRunFacet(RunFacet):
     pluginVersion: str | None = attr.field(default=None)
     computeFramework: str | None = attr.field(default=None)
     featureNames: list[str] | None = attr.field(default=None)
+    implementation: str | None = attr.field(default=None)
+    implementationVersion: str | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:
