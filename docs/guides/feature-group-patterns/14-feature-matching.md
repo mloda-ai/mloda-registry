@@ -18,13 +18,12 @@ When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda c
 The default `match_feature_group_criteria()` checks in order:
 
 ```text
-1. Input data match     → Source FeatureGroups use CLAIM_ROUTES
-2. Exact class name     → "MyFeature" == class MyFeature
-3. Prefix match         → "MyFeature_x".startswith("MyFeature_")
-4. Explicit names       → name in feature_names_supported()
+1. Exact class name     → "MyFeature" == class MyFeature
+2. Prefix match         → "MyFeature_x".startswith("MyFeature_")
+3. Explicit names       → name in feature_names_supported()
 ```
 
-The first rule that returns `True` claims the name. If FeatureChainParserMixin is used, pattern matching is also applied.
+Source FeatureGroups claim through their own `CLAIM_ROUTES`, not these rules. The first rule that returns `True` claims the name. If FeatureChainParserMixin is used, pattern matching is also applied.
 
 A claimed name must still pass the group's `PROPERTY_MAPPING`: since mloda 0.15.0 a plain group's default matcher runs the strict-value and `match_guard` checks, and the presence guard checks required keys (on a patterned group, only for names its pattern owns). Declare an optional key with `default=None`; see [Options: Validation](11-options.md#validation-and-conditional-requirements).
 

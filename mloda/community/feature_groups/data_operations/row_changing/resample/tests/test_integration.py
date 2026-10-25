@@ -158,7 +158,7 @@ class TestResampleIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegra
 
 
 class TestResampleSplitFeatureSets:
-    """Features of one request that split into several FeatureSets."""
+    """Data-type-split requests batch into one step; distinct groups and chained names also compute."""
 
     _CONTEXT = {"time_column": "timestamp", "partition_by": ["region"]}
     _MEAN = "value_float__resample_1_day_mean"

@@ -1094,7 +1094,7 @@ class TestAuditExtenderConstruction:
             [42],
             [ReadFileFG],
             [SourceFeatureGroup],
-            [MlodaTestingClassPiiRoot],
+            [DataCreatorFeatureGroup],
         ],
         ids=[
             "str_entry",
@@ -1105,7 +1105,7 @@ class TestAuditExtenderConstruction:
             "int",
             "read_file_base",
             "source_base",
-            "data_creator_group",
+            "data_creator_base",
         ],
     )
     def test_a_classification_policy_with_a_bad_exempt_readers_entry_raises(self, value: Any) -> None:

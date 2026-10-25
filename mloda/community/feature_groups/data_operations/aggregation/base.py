@@ -53,7 +53,7 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
 
     Several features with the same ``partition_by`` are aggregated together in one result, each with its
     own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call. Features split into separate
-    steps need distinct ``Options(group=...)``.
+    steps (they cannot share one framework or carry different group options) need distinct ``Options(group=...)``.
 
     ## Supported Aggregation Types
 

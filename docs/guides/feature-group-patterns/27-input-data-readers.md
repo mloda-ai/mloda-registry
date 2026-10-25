@@ -118,7 +118,7 @@ record_match_rejection(
 
 ## Your Own Root FeatureGroup
 
-A source FeatureGroup is the root group: write the behavior you want (its own `compute_framework_rule()`, domain, columns) on the source group itself. A `DataCreatorFeatureGroup` builds its data in `calculate_feature`. The reserved reader option key is `"mloda_source_reader"` (`RESERVED_READER_OPTION_KEY`).
+A source FeatureGroup is the root group: write the behavior you want (its own `compute_framework_rule()`, domain, columns) on the source group itself. A `DataCreatorFeatureGroup` builds its data in `calculate_feature`. The reserved reader option key is `"mloda_source_reader"` (`RESERVED_READER_OPTION_KEY` in `mloda.core.abstract_plugins.components.options`).
 
 ## Non-File / HTTP Sources
 

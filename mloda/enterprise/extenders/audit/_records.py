@@ -16,10 +16,10 @@ def _is_blank(value: str | None) -> bool:
 
 
 def _parse_event_time(event_time: object) -> datetime:
-    """A record's event_time as an aware UTC datetime; ValueError if unparseable. removesuffix: 3.10 rejects a Z."""
+    """A record's event_time as an aware UTC datetime; ValueError if unparseable."""
     if not isinstance(event_time, str):
         raise ValueError(f"event_time {event_time!r} is not a string")
-    parsed = datetime.fromisoformat(event_time.removesuffix("Z"))
+    parsed = datetime.fromisoformat(event_time)
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)

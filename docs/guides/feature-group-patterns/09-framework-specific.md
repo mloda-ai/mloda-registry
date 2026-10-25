@@ -202,14 +202,14 @@ class PandasColumnTotal(Implementation[ColumnTotal]):
     def calculate(
         cls, group: type[ColumnTotal], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.total(data, features, perform=cls._perform, add_column=cls._add_result_to_data)
+        return group.total(data, features, perform=cls._perform, add_column=cls._add_column)
 
     @classmethod
     def _perform(cls, data: Any, op: str, source: str) -> Any:
         return getattr(data[source], op)()
 
     @classmethod
-    def _add_result_to_data(cls, data: Any, name: str, result: Any) -> Any:
+    def _add_column(cls, data: Any, name: str, result: Any) -> Any:
         data[name] = result
         return data
 
@@ -222,7 +222,7 @@ class PyArrowColumnTotal(Implementation[ColumnTotal]):
     def calculate(
         cls, group: type[ColumnTotal], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.total(data, features, perform=cls._perform, add_column=cls._add_result_to_data)
+        return group.total(data, features, perform=cls._perform, add_column=cls._add_column)
 
     @classmethod
     def _perform(cls, data: pa.Table, op: str, source: str) -> Any:
@@ -232,7 +232,7 @@ class PyArrowColumnTotal(Implementation[ColumnTotal]):
         return pc.max(pc.if_else(pc.is_nan(column), None, column)).as_py()
 
     @classmethod
-    def _add_result_to_data(cls, data: pa.Table, name: str, result: Any) -> pa.Table:
+    def _add_column(cls, data: pa.Table, name: str, result: Any) -> pa.Table:
         return data.append_column(name, pa.array([result] * data.num_rows))
 ```
 
@@ -290,7 +290,7 @@ class PandasOnlyGroup(FeatureGroup):
         return {PandasDataFrame}
 ```
 
-`None` (the default) allows any framework. Aggregation, window aggregation, scalar aggregate, frame aggregate, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset, percentile, string, datetime and binning are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
+`None` (the default) allows any framework. Aggregation, window aggregation, scalar aggregate, frame aggregate, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset, percentile, string, datetime and binning are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. For a third-party group served by one FeatureGroup subclass per framework, the base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
 
 ## Available Frameworks
 

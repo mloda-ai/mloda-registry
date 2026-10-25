@@ -85,7 +85,7 @@ There is one source group per format (`CsvFG`, `ParquetFG`, `SqliteFG`, ...), an
 |------|-------------|
 | [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG` base file source group |
 | [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
-| [data_creator.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/data_creator_feature_group.py) | `DataCreatorFeatureGroup` base |
+| [data_creator_feature_group.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/data_creator_feature_group.py) | `DataCreatorFeatureGroup` base |
 | [create_synthetic_data.py](https://github.com/mloda-ai/mloda/blob/main/docs/docs/examples/mloda_basics/create_synthetic_data.py) | Synthetic data example |
 
 ## Combines With

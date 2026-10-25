@@ -541,10 +541,8 @@ class TestIntegrationMultipleFeatures:
             ),
         ],
     )
-    def test_same_framework_split_requests_compute_in_one_step(
-        self, frameworks: list[Any], features: list[Feature]
-    ) -> None:
-        """Requests that differ only in data type or allowed frameworks batch into one step and compute correctly."""
+    def test_split_requests_compute_in_one_step(self, frameworks: list[Any], features: list[Feature]) -> None:
+        """Requests that differ in data type or allowed frameworks (one or two) batch into one step and compute correctly."""
         plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
         results = mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
 

@@ -16,8 +16,13 @@ Connections live in the `DataAccessCollection`; the framework binds the single c
 - It chooses among the connection's content in `find_sources` and reports the connection a match reads with `match_connection`.
 
 ```python
+import sqlite3
+from collections.abc import Collection
 from typing import Any, ClassVar
-from mloda.provider import ClaimRoute, FeatureGroup, NamePolicy, PropertySpec, SourceFeatureGroup, SourceMatch
+
+import pyarrow as pa
+
+from mloda.provider import ClaimRoute, NamePolicy, PropertySpec, SourceFeatureGroup, SourceMatch
 from mloda.user import DataAccessCollection, Options
 
 
@@ -39,13 +44,28 @@ class DatabaseSourceFG(SourceFeatureGroup):
     ) -> list[SourceMatch]:
         connections = {} if data_access_collection is None else data_access_collection.connections
         handle = cls.read_option("connection_handle", options)
-        if handle not in connections:
+        if not isinstance(connections.get(handle), sqlite3.Connection):
             return []  # record_match_rejection(...) says why, see the Source FeatureGroups guide
-        return [SourceMatch(f"db::{handle}", connections[handle])]
+        connection = connections[handle]
+        tables = [row[0] for row in connection.execute("select name from sqlite_master where type = 'table'")]
+        return [SourceMatch(f"db::{handle}::{table}", (connection, table)) for table in tables]
+
+    @classmethod
+    def columns(cls, match: SourceMatch) -> Collection[str] | None:
+        connection, table = match.access
+        return [row[1] for row in connection.execute(f'pragma table_info("{table}")')]
 
     @classmethod
     def match_connection(cls, match: SourceMatch) -> Any | None:
-        return match.access
+        return match.access[0]
+
+    @classmethod
+    def load_neutral(cls, match: SourceMatch, features: Any) -> Any:
+        connection, table = match.access
+        names = sorted(features.get_all_names())
+        select = ", ".join(f'"{name}"' for name in names)
+        rows = connection.execute(f'select {select} from "{table}"').fetchall()  # nosec B608
+        return pa.table({name: [row[i] for row in rows] for i, name in enumerate(names)})
 ```
 
 `DuckdbFG` in `mloda_plugins` is the complete model (catalog read, `columns`, `load_neutral`, an `Implementation` per framework). The in-repo `mloda/community/feature_groups/experimental/german_ledger` reader shows a source group with its own claim route.
@@ -53,14 +73,20 @@ class DatabaseSourceFG(SourceFeatureGroup):
 ## Matching Priority
 
 ```text
-1. Input data match     → Source FeatureGroups (claim routes, find_sources)
-2. Exact class name     → Default matching
-...
+1. Exact class name     → "MyFeature" == class MyFeature
+2. Prefix match         → "MyFeature_x".startswith("MyFeature_")
+3. Explicit names       → name in feature_names_supported()
+
+Source FeatureGroups claim through their own claim routes (`find_sources`), not these rules.
 ```
 
 ## Folder-Based Matching
 
 ```python
+from mloda.provider import FeatureGroup
+from mloda.user import DataAccessCollection, Options
+
+
 class CsvFeature(FeatureGroup):
     @classmethod
     def match_feature_group_criteria(
@@ -108,17 +134,17 @@ A feature group resolves one resource with `resolve(kind, predicate=..., hint=..
   iteration order decide
 
 When several resources of the same kind could match a consumer, the user picks one
-by name via the `data_access_handle` key in `Options`. The feature group forwards it
-as the `hint`:
+by name via the `connection_handle` option (the same key the claim route declares). The feature group forwards it
+as the `hint`. Core also accepts `data_access_handle` as a fallback hint for connections, and the file and database readers use it:
 
 ```python
 from mloda.user import Options
 
 # User side: pin which named connection this feature should bind to.
-options = Options(context={"data_access_handle": "warehouse"})
+options = Options(context={"connection_handle": "warehouse"})
 
 # Feature group side (inside find_sources, where the collection is data_access_collection):
-conn = dac.resolve("connection", hint=options.get("data_access_handle"))
+conn = dac.resolve("connection", hint=options.get("connection_handle"))
 assert conn is warehouse_conn
 ```
 
@@ -157,7 +183,7 @@ instead of silently mis-matching later. Keep the handle and make the value a
 mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
 `credentials={"prod": Credential(dsn="dsn-string")}`. A bare
 `credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
-slot, so a later `data_access_handle="prod"` lookup would no longer find it.
+slot, so a later handle lookup for `"prod"` would no longer find it.
 
 Resolver ambiguity errors redact credential values (keys stay visible, values render
 as `***`), so secrets stay out of logs and tracebacks.

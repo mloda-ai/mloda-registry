@@ -11,6 +11,7 @@ at match time rather than inside ``calculate_feature``.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -19,6 +20,7 @@ from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     assert_key_columns_present,
+    assert_no_earlier_step_output,
     assert_source_columns_present,
     available_columns,
     column_ref_value,
@@ -400,3 +402,20 @@ class TestKeyColumnFeatures:
     @pytest.mark.parametrize("value", [["ts", "other"], ("ts", "other"), ""])
     def test_non_column_ref_is_not_declared(self, key: str, value: Any) -> None:
         assert key_column_features(Options(context={key: value}), [_GROUPED_SOURCE]) == set()
+
+
+class TestAssertNoEarlierStepOutput:
+    """``assert_no_earlier_step_output`` rejects a frame holding another feature's output column."""
+
+    _PATTERN = r"value_int__(sum|max)_agg"
+    _FEATURES = SimpleNamespace(features=[SimpleNamespace(name="value_int__sum_agg")])
+
+    def test_raises_with_group_hint_on_earlier_step_output(self) -> None:
+        data = {"region": [1], "value_int": [2], "value_int__max_agg": [3]}
+        with pytest.raises(ValueError, match="value_int__max_agg") as excinfo:
+            assert_no_earlier_step_output(data, self._FEATURES, self._PATTERN, "aggregation", ["value_int"])
+        assert "Options(group=" in str(excinfo.value)
+
+    def test_does_not_raise_for_own_output_source_and_unrelated_columns(self) -> None:
+        data = {"region": [1], "value_int": [2], "value_int__sum_agg": [3]}
+        assert_no_earlier_step_output(data, self._FEATURES, self._PATTERN, "aggregation", ["value_int"])
