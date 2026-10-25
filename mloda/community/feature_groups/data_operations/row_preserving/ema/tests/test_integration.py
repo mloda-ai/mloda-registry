@@ -8,10 +8,8 @@ plumbing.
 EMA computes natively only on pandas / polars-lazy; it ships NO PyArrow (or
 duckdb / sqlite) backend at all (the absence convention: a recursive Python
 emulation is forbidden by the CFW-backend rule). The shared
-``DataOpsIntegrationTestBase`` is PyArrow-only (its result filter and value
-assertions use ``pa.Table`` APIs), so it does NOT fit a pandas-only FG. This
-module therefore uses bespoke ``run_all`` tests (mirroring time_bucketization's
-``TestIntegrationMultipleFeatures``) with a local pandas data creator.
+``DataOpsIntegrationTestBase`` therefore runs on pandas with a pandas data
+creator, and ``OperationGroupIntegrationTestMixin`` adds the operation-group checks.
 
 Expected EMA columns are computed OFFLINE on the canonical dataset using the
 pinned formula ``s.ewm(span=span, adjust=False, ignore_na=True).mean().mask(
@@ -21,7 +19,6 @@ production feature group is not imported to generate its own oracle.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import pytest
@@ -35,9 +32,12 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 # Loads the Implementations that serve the group.
 from mloda.community.feature_groups.data_operations.row_preserving.ema import manifest as _manifest  # noqa: F401
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
-from mloda.testing.data_creator.base import column_selective
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,
 # nulls skipped (ignore_na=True), output null where the input is null.
@@ -71,87 +71,82 @@ _EMA_3_BY_REGION: list[Any] = [
 ]
 
 
-def _ema_values(name: str, context: dict[str, Any]) -> list[Any]:
-    """Run a single EMA feature on pandas through ``run_all`` and return its column."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, EmaFeatureGroup})
-    feature = Feature(name, options=Options(context=context))
+class TestEmaIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> type:
+        return EmaFeatureGroup
 
-    results = mloda.run_all(
-        [feature],
-        compute_frameworks=[PandasDataFrame],
-        plugin_collector=plugin_collector,
-    )
+    @classmethod
+    def data_creator_class(cls) -> type:
+        return PandasDataOpsTestDataCreator
 
-    for table in results:
-        if isinstance(table, pd.DataFrame) and name in table.columns:
-            return list(table[name])
+    @classmethod
+    def compute_framework_class(cls) -> type:
+        return PandasDataFrame
 
-    raise AssertionError(f"No result frame with {name} found")
+    @classmethod
+    def several_frameworks(cls) -> list[type[Any]]:
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+        return [PandasDataFrame, PolarsLazyDataFrame]
 
-def _assert_ema_equal(actual: list[Any], expected: list[Any]) -> None:
-    """Compare EMA columns elementwise, treating NaN and None as equal nulls."""
-    assert len(actual) == len(expected)
-    for got, want in zip(actual, expected):
-        got_is_null = got is None or (isinstance(got, float) and math.isnan(got))
-        want_is_null = want is None
-        if want_is_null:
-            assert got_is_null, f"expected null, got {got!r}"
-        else:
-            assert not got_is_null
-            assert got == pytest.approx(want, rel=1e-9)
+    @classmethod
+    def primary_feature_name(cls) -> str:
+        return "value_float__ema_2"
 
+    @classmethod
+    def primary_feature_options(cls) -> dict[str, Any]:
+        return {"order_by": "timestamp", "partition_by": ["region"]}
 
-class TestEmaIntegration:
-    """Bespoke ``run_all`` integration tests for EMA on the pandas backend."""
+    @classmethod
+    def primary_expected_values(cls) -> list[Any]:
+        return _EMA_2_BY_REGION
 
-    def test_ema_2_through_pipeline(self) -> None:
-        values = _ema_values(
-            "value_float__ema_2",
-            {"order_by": "timestamp", "partition_by": ["region"]},
-        )
-        assert len(values) == 12
-        _assert_ema_equal(values, _EMA_2_BY_REGION)
+    @classmethod
+    def secondary_feature_name(cls) -> str:
+        return "value_float__ema_3"
 
-    def test_ema_3_through_pipeline(self) -> None:
-        values = _ema_values(
-            "value_float__ema_3",
-            {"order_by": "timestamp", "partition_by": ["region"]},
-        )
-        assert len(values) == 12
-        _assert_ema_equal(values, _EMA_3_BY_REGION)
+    @classmethod
+    def secondary_feature_options(cls) -> dict[str, Any]:
+        return {"order_by": "timestamp", "partition_by": ["region"]}
 
-    def test_ema_2_with_column_selective_source(self) -> None:
-        name = "value_float__ema_2"
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {column_selective(PandasDataOpsTestDataCreator), EmaFeatureGroup}
-        )
-        feature = Feature(name, options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}))
+    @classmethod
+    def secondary_expected_values(cls) -> list[Any]:
+        return _EMA_3_BY_REGION
 
-        results = mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+    @classmethod
+    def valid_feature_names(cls) -> list[str]:
+        return ["value_float__ema_2", "amount__ema_5"]
 
-        frame = next(t for t in results if isinstance(t, pd.DataFrame) and name in t.columns)
-        _assert_ema_equal(list(frame[name]), _EMA_2_BY_REGION)
+    @classmethod
+    def invalid_feature_names(cls) -> list[str]:
+        # ema_0 matches the regex and is rejected at compute time instead (see TestEmaRejectionRouting).
+        return ["value_float", "value_float__ema", "ema_2", "value_float__ffill"]
 
+    @classmethod
+    def match_options(cls) -> Options:
+        return Options(context={"order_by": "timestamp", "partition_by": ["region"]})
 
-class TestEmaMatchFeatureGroupCriteria:
-    """match_feature_group_criteria routing for the ``.*__ema_\\d+$`` pattern."""
+    @classmethod
+    def use_approx(cls) -> bool:
+        return True
 
-    def test_valid_names_match(self) -> None:
-        options = Options(context={"order_by": "timestamp", "partition_by": ["region"]})
-        for name in ["value_float__ema_2", "amount__ema_5"]:
-            assert EmaFeatureGroup.match_feature_group_criteria(name, options), f"expected {name} to match"
+    @classmethod
+    def approx_rel(cls) -> float:
+        return 1e-9
 
-    def test_invalid_names_do_not_match(self) -> None:
-        options = Options(context={"order_by": "timestamp", "partition_by": ["region"]})
-        # ema_0 is handled separately: the regex accepts the digit, so it MATCHES
-        # here and is rejected at compute time instead (see test below).
-        for name in ["value_float", "value_float__ema", "ema_2", "value_float__ffill"]:
-            assert not EmaFeatureGroup.match_feature_group_criteria(name, options), f"expected {name} to NOT match"
+    @classmethod
+    def nan_is_null(cls) -> bool:
+        return True
 
     def test_match_rejects_missing_config(self) -> None:
         """Name-based: a non-pattern name without config must fail to match."""
         assert not EmaFeatureGroup.match_feature_group_criteria("my_custom_result", Options())
+
+
+class TestEmaMatchFeatureGroupCriteria:
+    """match_feature_group_criteria cases the shared base does not carry."""
 
     def test_missing_order_by_does_not_match(self) -> None:
         """Name path: a pattern name without order_by is a non-match."""

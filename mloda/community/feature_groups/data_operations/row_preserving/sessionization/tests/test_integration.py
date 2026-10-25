@@ -5,13 +5,14 @@ Verifies that the sessionization feature group resolves through
 feature-name resolution (``match_feature_group_criteria``), and pipeline
 plumbing.
 
-sessionization computes natively on every backend, but the shared
-``DataOpsIntegrationTestBase`` is tied to the canonical 12-row dataset, whose
-``timestamp`` column has a null and duplicate values that make a by-hand
-session-id pin awkward. This module therefore uses bespoke ``run_all`` tests
-(mirroring ema's ``TestEmaIntegration``) with a small pandas-only data source
-whose expected session ids are computed by hand from the documented algorithm
-(gap > threshold starts a new session; ``session_id = cumsum(is_new) - 1``).
+sessionization computes natively on every backend. The shared
+``DataOpsIntegrationTestBase`` runs on a small pandas-only data source (the
+canonical 12-row dataset has a null and duplicate ``timestamp`` values that make
+a by-hand session-id pin awkward) whose expected session ids are computed by hand
+from the documented algorithm (gap > threshold starts a new session;
+``session_id = cumsum(is_new) - 1``). ``OperationGroupIntegrationTestMixin`` adds
+the operation-group checks. Matching is name-based, so
+``test_match_rejects_missing_config`` is overridden to use a non-pattern name.
 """
 
 from __future__ import annotations
@@ -24,8 +25,9 @@ import pytest
 pd = pytest.importorskip("pandas")
 
 from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 # Loads the Implementations that serve the group.
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization import (
@@ -34,7 +36,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SessionizationFeatureGroup,
 )
-from mloda.testing.data_creator.base import column_selective
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 
 _U = timezone.utc
 
@@ -42,6 +47,8 @@ _U = timezone.utc
 #   10:00 (new s0) -> 10:25 (+25<=30 same s0) -> 11:00 (+35>30 new s1)
 #   -> 11:20 (+20<=30 same s1) -> 12:30 (+70>30 new s2)
 _SESSION_30_MINUTE_EXPECTED: list[int] = [0, 0, 1, 1, 2]
+# Every gap (25, 35, 20, 70 minutes) exceeds 10, so each row is its own session.
+_SESSION_10_MINUTE_EXPECTED: list[int] = [0, 1, 2, 3, 4]
 
 
 class SessionIntegrationDataCreator(FeatureGroup):
@@ -76,61 +83,63 @@ class SessionIntegrationDataCreator(FeatureGroup):
         return {cls.compute_framework}
 
 
-def _session_values(name: str, context: dict[str, Any]) -> list[Any]:
-    """Run a single sessionization feature on pandas through ``run_all``."""
-    plugin_collector = PluginCollector.enabled_feature_groups(
-        {SessionIntegrationDataCreator, SessionizationFeatureGroup}
-    )
-    feature = Feature(name, options=Options(context=context))
+class TestSessionizationIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> type:
+        return SessionizationFeatureGroup
 
-    results = mloda.run_all(
-        [feature],
-        compute_frameworks=[PandasDataFrame],
-        plugin_collector=plugin_collector,
-    )
+    @classmethod
+    def data_creator_class(cls) -> type:
+        return SessionIntegrationDataCreator
 
-    for table in results:
-        if isinstance(table, pd.DataFrame) and name in table.columns:
-            return list(table[name])
+    @classmethod
+    def compute_framework_class(cls) -> type:
+        return PandasDataFrame
 
-    raise AssertionError(f"No result frame with {name} found")
+    @classmethod
+    def several_frameworks(cls) -> list[type[Any]]:
+        return [PandasDataFrame, PyArrowTable]
 
+    @classmethod
+    def expected_row_count(cls) -> int:
+        return 5
 
-class TestSessionizationIntegration:
-    """Bespoke ``run_all`` integration tests on the pandas backend."""
+    @classmethod
+    def primary_feature_name(cls) -> str:
+        return "ts__sessionize_30_minute"
 
-    def test_sessionize_30_minute_through_pipeline(self) -> None:
-        values = _session_values(
-            "ts__sessionize_30_minute",
-            {"order_by": "ts", "partition_by": ["user"]},
-        )
-        assert len(values) == 5
-        assert [int(v) for v in values] == _SESSION_30_MINUTE_EXPECTED
+    @classmethod
+    def primary_feature_options(cls) -> dict[str, Any]:
+        return {"order_by": "ts", "partition_by": ["user"]}
 
-    def test_sessionize_with_column_selective_source(self) -> None:
-        name = "ts__sessionize_30_minute"
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {column_selective(SessionIntegrationDataCreator), SessionizationFeatureGroup}
-        )
-        feature = Feature(name, options=Options(context={"order_by": "ts", "partition_by": ["user"]}))
+    @classmethod
+    def primary_expected_values(cls) -> list[Any]:
+        return _SESSION_30_MINUTE_EXPECTED
 
-        results = mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+    @classmethod
+    def secondary_feature_name(cls) -> str:
+        return "ts__sessionize_10_minute"
 
-        frame = next(t for t in results if isinstance(t, pd.DataFrame) and name in t.columns)
-        assert [int(v) for v in frame[name]] == _SESSION_30_MINUTE_EXPECTED
+    @classmethod
+    def secondary_feature_options(cls) -> dict[str, Any]:
+        return {"order_by": "ts", "partition_by": ["user"]}
 
+    @classmethod
+    def secondary_expected_values(cls) -> list[Any]:
+        return _SESSION_10_MINUTE_EXPECTED
 
-class TestSessionizationMatchFeatureGroupCriteria:
-    """match_feature_group_criteria routing for the sessionize pattern."""
+    @classmethod
+    def valid_feature_names(cls) -> list[str]:
+        return ["ts__sessionize_30_minute", "event__sessionize_1_hour"]
 
-    def test_valid_names_match(self) -> None:
-        options = Options(context={"order_by": "ts", "partition_by": ["user"]})
-        for name in ["ts__sessionize_30_minute", "event__sessionize_1_hour"]:
-            assert SessionizationFeatureGroup.match_feature_group_criteria(name, options), f"expected {name} to match"
+    @classmethod
+    def invalid_feature_names(cls) -> list[str]:
+        return ["ts", "ts__sessionize", "ts__sessionize_30", "ts__sessionize_30_month"]
 
-    def test_invalid_names_do_not_match(self) -> None:
-        options = Options(context={"order_by": "ts", "partition_by": ["user"]})
-        for name in ["ts", "ts__sessionize", "ts__sessionize_30", "ts__sessionize_30_month"]:
-            assert not SessionizationFeatureGroup.match_feature_group_criteria(name, options), (
-                f"expected {name} to NOT match"
-            )
+    @classmethod
+    def match_options(cls) -> Options:
+        return Options(context={"order_by": "ts", "partition_by": ["user"]})
+
+    def test_match_rejects_missing_config(self) -> None:
+        """Name-based: a non-pattern name without config must fail to match."""
+        assert not SessionizationFeatureGroup.match_feature_group_criteria("my_custom_result", Options())

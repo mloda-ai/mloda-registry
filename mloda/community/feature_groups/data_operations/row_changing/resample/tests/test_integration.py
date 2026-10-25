@@ -6,10 +6,9 @@ a ``PluginCollector``, including plugin discovery, feature-name resolution
 
 resample is ROW-CHANGING: it collapses event rows onto a regular time grid, so
 the output row count differs from the 12-row input and the output row order is
-unspecified. The shared ``DataOpsIntegrationTestBase`` assumes a row-preserving
-12-row exact-column compare, so it does NOT fit; this module uses bespoke
-``run_all`` tests instead (mirroring time_bucketization's
-``TestIntegrationMultipleFeatures``).
+unspecified. The shared ``DataOpsIntegrationTestBase`` runs with a reduced
+``expected_row_count`` and ``compare_sorted``, and
+``OperationGroupIntegrationTestMixin`` adds the operation-group checks.
 
 The public pipeline returns only the requested aggregate column (the partition
 and bucket-start columns are not part of the selected output), so the assertions
@@ -32,11 +31,13 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     ResampleFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
-    PyArrowResample,
-)
-from mloda.testing.data_creator.base import column_selective
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PYARROW_TABLE,
+    OperationGroupIntegrationTestMixin,
+    RoutingCase,
+)
 
 # Daily resample of ``value_float`` grouped by ``(region, bucket_start)`` on the
 # canonical dataset (dropna=False, so the null-timestamp row and the null-region
@@ -74,26 +75,76 @@ def _run_resample(name: str, context: dict[str, Any], *more_names: str) -> pa.Ta
     raise AssertionError(f"No result table with {names} found")
 
 
-class TestResampleIntegration:
-    """Bespoke ``run_all`` integration tests for the row-changing resample FG."""
+class TestResampleIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> type:
+        return ResampleFeatureGroup
 
-    def test_daily_mean_through_pipeline(self) -> None:
-        name = "value_float__resample_1_day_mean"
-        table = _run_resample(name, {"time_column": "timestamp", "partition_by": ["region"]})
+    @classmethod
+    def data_creator_class(cls) -> type:
+        return PyArrowDataOpsTestDataCreator
 
-        assert table.num_rows == _NUM_BUCKETS
+    @classmethod
+    def compute_framework_class(cls) -> type:
+        return PyArrowTable
 
-        col = table.column(name).to_pylist()
-        assert _sort_none_last(col) == _MEAN_SORTED
+    @classmethod
+    def expected_row_count(cls) -> int:
+        return _NUM_BUCKETS
 
-    def test_daily_count_through_pipeline(self) -> None:
-        name = "value_float__resample_1_day_count"
-        table = _run_resample(name, {"time_column": "timestamp", "partition_by": ["region"]})
+    @classmethod
+    def compare_sorted(cls) -> bool:
+        return True
 
-        assert table.num_rows == _NUM_BUCKETS
+    @classmethod
+    def primary_feature_name(cls) -> str:
+        return "value_float__resample_1_day_mean"
 
-        col = table.column(name).to_pylist()
-        assert sorted(col) == _COUNT_SORTED
+    @classmethod
+    def primary_feature_options(cls) -> dict[str, Any]:
+        return {"time_column": "timestamp", "partition_by": ["region"]}
+
+    @classmethod
+    def primary_expected_values(cls) -> list[Any]:
+        return _MEAN_SORTED
+
+    @classmethod
+    def secondary_feature_name(cls) -> str:
+        return "value_float__resample_1_day_count"
+
+    @classmethod
+    def secondary_feature_options(cls) -> dict[str, Any]:
+        return {"time_column": "timestamp", "partition_by": ["region"]}
+
+    @classmethod
+    def secondary_expected_values(cls) -> list[Any]:
+        return _COUNT_SORTED
+
+    @classmethod
+    def valid_feature_names(cls) -> list[str]:
+        return ["value_float__resample_1_hour_mean"]
+
+    @classmethod
+    def invalid_feature_names(cls) -> list[str]:
+        # median is not in the v1 agg set; ffill belongs to a different FG.
+        return ["value_float__resample_1_hour_median", "value_float__ffill"]
+
+    @classmethod
+    def match_options(cls) -> Options:
+        return Options(context={"time_column": "timestamp", "partition_by": ["region"]})
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        """Pandas declares every resample agg divergent (it skips NaN), so the PyArrow reference serves them."""
+        return [
+            RoutingCase(
+                "value_float__resample_1_day_mean",
+                cls.primary_feature_options(),
+                implementation="mloda.community.feature_groups.data_operations.row_changing.resample."
+                "pyarrow_resample:PyArrowResample",
+                compute_framework=PYARROW_TABLE,
+            )
+        ]
 
     def test_daily_mean_and_sum_in_one_run(self) -> None:
         mean_name = "value_float__resample_1_day_mean"
@@ -105,18 +156,6 @@ class TestResampleIntegration:
         sums = _sort_none_last(table.column(sum_name).to_pylist())
         assert sums.count(None) == _SUM_SORTED.count(None)
         assert [v for v in sums if v is not None] == pytest.approx([v for v in _SUM_SORTED if v is not None], abs=1e-12)
-
-    def test_daily_mean_with_column_selective_source(self) -> None:
-        name = "value_float__resample_1_day_mean"
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {column_selective(PyArrowDataOpsTestDataCreator), ResampleFeatureGroup}
-        )
-        feature = Feature(name, options=Options(context={"time_column": "timestamp", "partition_by": ["region"]}))
-
-        results = mloda.run_all([feature], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
-
-        table = next(t for t in results if isinstance(t, pa.Table) and name in t.column_names)
-        assert _sort_none_last(table.column(name).to_pylist()) == _MEAN_SORTED
 
 
 class TestResampleSplitFeatureSets:
@@ -191,16 +230,6 @@ class TestChainedNameDropsContext:
 class TestResampleMatchFeatureGroupCriteria:
     """match_feature_group_criteria routing for the resample pattern."""
 
-    def test_valid_name_matches(self) -> None:
-        options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
-        assert ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
-
-    def test_invalid_names_do_not_match(self) -> None:
-        options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
-        # median is not in the v1 agg set; ffill belongs to a different FG.
-        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__resample_1_hour_median", options)
-        assert not ResampleFeatureGroup.match_feature_group_criteria("value_float__ffill", options)
-
     def test_zero_bucket_names_do_not_match(self) -> None:
         # n must be a positive integer (n >= 1); a zero bucket size is not selectable.
         # resample_0_* matches PREFIX_PATTERN (n=0 is accepted so _validate_string_match has
@@ -237,26 +266,3 @@ class TestResampleMatchFeatureGroupCriteria:
         assert _is_valid_resample_op("1_hour_mean") is True
         assert _is_valid_resample_op("not_a_token") is False
         assert _is_valid_resample_op(123) is False
-
-
-class TestResampleDivergentPandas:
-    """Pandas declares every resample agg divergent (it skips NaN), so the PyArrow reference serves them."""
-
-    def test_divergent_pandas_mean_is_served_by_pyarrow(self) -> None:
-        pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-        from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
-
-        collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, ResampleFeatureGroup})
-        feature = Feature(
-            "value_float__resample_1_day_mean",
-            options=Options(context={"time_column": "timestamp", "partition_by": ["region"]}),
-        )
-
-        plan = mloda.explain([feature], compute_frameworks=[PandasDataFrame, PyArrowTable], plugin_collector=collector)
-
-        steps = [s for s in plan if s.step_kind == "compute" and s.feature_group is ResampleFeatureGroup]
-        assert len(steps) == 1
-        assert steps[0].implementation is PyArrowResample
-        assert steps[0].compute_framework is PyArrowTable
