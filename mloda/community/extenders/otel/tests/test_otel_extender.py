@@ -2455,7 +2455,7 @@ class TestOtelExtenderRunAll:
 
         spans = exporter.get_finished_spans()
         span_names = {span.name for span in spans}
-        # A root DataCreator-based feature group never triggers VALIDATE_INPUT_FEATURE (no data
+        # A root DataCreatorFeatureGroup never triggers VALIDATE_INPUT_FEATURE (no data
         # exists to validate before calculate runs), so only these two hooks are expected here.
         assert "mloda.validate.output" in span_names
         assert any(name.startswith("calculate ") for name in span_names), span_names

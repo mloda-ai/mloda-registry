@@ -5173,8 +5173,7 @@ class TestAuditExtenderClassificationRunAll:
                     run()
 
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        # A source group is probed for the input only: its class-name prefix no longer claims the chain-shaped
-        # requested name (mloda 0.18).
+        # A source group is probed for the input only: its class-name prefix no longer claims the chain-shaped name.
         assert sorted((r["hook"], r["reader_class"], r["feature_names"][0]) for r in denies) == (
             [] if allowed else [("INPUT_DATA_MATCH", _qualname(CsvFG), "alpha")]
         )

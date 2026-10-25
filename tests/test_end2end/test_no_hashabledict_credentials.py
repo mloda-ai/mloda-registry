@@ -89,7 +89,7 @@ def test_credential_hashabledict_on_one_line_flagged(line: str, tmp_path: Path) 
     assert "m.py" in hits[0]
 
 
-def test_multiline_baseinputdata_reader_tuple_flagged(tmp_path: Path) -> None:
+def test_multiline_source_group_reader_tuple_flagged(tmp_path: Path) -> None:
     """A HashableDict a couple lines from a SourceFeatureGroup marker is flagged."""
     body = "reader = SourceFeatureGroup(\n    source='pg',\n    creds=HashableDict({'host': 'h'}),\n)\n"
     _write(tmp_path / "m.py", body)
