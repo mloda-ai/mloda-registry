@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 import pytest
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, OperationFeatureGroup, is_match_abort
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin, always_required
@@ -945,22 +945,6 @@ _PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.frame_
 _ROLLING_OPTIONS = Options(context={"partition_by": ["region"], "order_by": "ts"})
 
 
-class TestOperationGroupShape:
-    """Frame-specific value pins; the generic shape checks live in TestFrameAggregateOperationGroup."""
-
-    def test_group_is_an_operation_group_keeping_its_mixins(self) -> None:
-        assert issubclass(FrameAggregateFeatureGroup, OperationFeatureGroup)
-        mro = FrameAggregateFeatureGroup.__mro__
-        assert mro.index(KeyColumnInputsMixin) < mro.index(FeatureGroup)
-        assert mro.index(FeatureChainParserMixin) < mro.index(FeatureGroup)
-
-    def test_subtypes_is_shape_b_over_the_aggregation_universe(self) -> None:
-        declaration = FrameAggregateFeatureGroup.SUBTYPES
-        assert declaration is not None
-        assert declaration.resolver is not None
-        assert declaration.universe == frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
-
-
 _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 
@@ -1048,8 +1032,19 @@ class TestFrameAggregateOperationGroup(OperationGroupTestBase):
     def option_probes(cls) -> list[tuple[str, Options, str]]:
         return [("my_result", config_frame_options("median", "rolling"), "median")]
 
-    def test_unmatched_name_resolves_to_no_subtype(self) -> None:
-        assert FrameAggregateFeatureGroup.resolve_subtype("plain_feature", Options()) is None
+    @classmethod
+    def unresolved_probes(cls) -> list[tuple[str, Options]]:
+        return [("plain_feature", Options())]
+
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
+
+    def test_group_keeps_both_mixins_ahead_of_the_feature_group(self) -> None:
+        # OperationFeatureGroup precedes the mixins here, so mixins() does not apply.
+        mro = FrameAggregateFeatureGroup.__mro__
+        assert mro.index(KeyColumnInputsMixin) < mro.index(FeatureGroup)
+        assert mro.index(FeatureChainParserMixin) < mro.index(FeatureGroup)
 
 
 class TestTimeUnits:

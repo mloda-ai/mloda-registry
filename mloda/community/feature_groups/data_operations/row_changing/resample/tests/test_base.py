@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-import importlib
 import time
 from dataclasses import replace
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureChainParserMixin, FeatureSet
 from mloda.user import DataType, Feature, FeatureName, Options
 
+from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 class TestReturnDataTypeRule:
@@ -81,62 +84,104 @@ class TestPrefixPatternPerformance:
         assert elapsed < 2.0, f"match_feature_group_criteria took {elapsed:.3f}s on an adversarial name; expected < 2s"
 
 
-class TestSubtypes:
-    """The agg is the group's subtype: the universe is every resample agg, resolved from the name or the option."""
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
-    def test_universe_is_every_resample_agg(self) -> None:
-        assert ResampleFeatureGroup.subtype_universe() == set(RESAMPLE_AGGS)
 
-    def test_resolves_from_the_feature_name(self) -> None:
-        assert ResampleFeatureGroup.resolve_subtype("value__resample_1_hour_mean", Options()) == "mean"
+class TestResampleOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return ResampleFeatureGroup
 
-    def test_resolves_from_the_config_option(self) -> None:
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_changing.resample"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "duckdb",
+                "duckdb_resample",
+                "DuckdbResample",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_resample",
+                "PandasResample",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                divergent=frozenset({"sum", "mean", "count", "min", "max"}),
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_resample",
+                "PolarsLazyResample",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_resample",
+                "PyArrowResample",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_resample",
+                "PythonDictResample",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str | None:
+        return None
+
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset(RESAMPLE_AGGS)
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "resample"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_resample"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("value_float__resample_1_day_mean", time_column="timestamp", partition_by=["region"])
+
+    @classmethod
+    def mixins(cls) -> tuple[type, ...]:
+        return (KeyColumnInputsMixin, FeatureChainParserMixin)
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("value__resample_1_hour_mean", "mean")]
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
         options = Options(context={"resample_op": "2_day_sum", "in_features": "value", "time_column": "timestamp"})
-        assert ResampleFeatureGroup.resolve_subtype("my_result", options) == "sum"
+        return [("my_result", options, "sum")]
 
-    def test_unresolvable_is_none(self) -> None:
-        assert ResampleFeatureGroup.resolve_subtype("my_result", Options()) is None
-        assert ResampleFeatureGroup.resolve_subtype("value__resample_1_hour_median", Options()) is None
+    @classmethod
+    def unresolved_probes(cls) -> list[tuple[str, Options]]:
+        return [("my_result", Options()), ("value__resample_1_hour_median", Options())]
 
-
-class TestSupportedAndDivergent:
-    """NaN-divergence is declared on PandasResample; every other implementation is unrestricted and reference-equal."""
-
-    @staticmethod
-    def _implementation(module: str, name: str) -> Any:
-        package = "mloda.community.feature_groups.data_operations.row_changing.resample"
-        path = f"{package}.{module}"
-        if module.startswith(("pandas", "polars", "duckdb")):
-            return getattr(pytest.importorskip(path), name)
-        return getattr(importlib.import_module(path), name)
-
-    def test_pandas_divergent_agg_types(self) -> None:
-        divergent = self._implementation("pandas_resample", "PandasResample").divergent
-        assert set(divergent) == {"sum", "mean", "count", "min", "max"}
-
-    def test_pandas_divergent_is_inside_the_universe_with_a_reason(self) -> None:
-        divergent = self._implementation("pandas_resample", "PandasResample").divergent
-        assert set(divergent) <= ResampleFeatureGroup.subtype_universe()
-        assert all(isinstance(reason, str) and reason for reason in divergent.values())
-
-    def test_pandas_divergence_applies_to_a_resample_feature(self) -> None:
-        pandas_resample = self._implementation("pandas_resample", "PandasResample")
-        assert pandas_resample.divergence(ResampleFeatureGroup, "val__resample_1_day_sum", Options()) is not None
-
-    @pytest.mark.parametrize(
-        ("module", "name"),
-        [
-            ("pyarrow_resample", "PyArrowResample"),
-            ("polars_lazy_resample", "PolarsLazyResample"),
-            ("duckdb_resample", "DuckdbResample"),
-            ("python_dict_resample", "PythonDictResample"),
-        ],
-    )
-    def test_other_implementations_are_unrestricted_and_not_divergent(self, module: str, name: str) -> None:
-        implementation = self._implementation(module, name)
-        assert implementation.supported is None
-        assert not implementation.divergent
-        assert implementation.divergence(ResampleFeatureGroup, "val__resample_1_day_sum", Options()) is None
+    def test_divergence_applies_exactly_where_sum_is_divergent(self, impl_id: str) -> None:
+        spec = self._spec(impl_id)
+        impl = self._implementation(spec)
+        divergence = impl.divergence(ResampleFeatureGroup, "val__resample_1_day_sum", Options())
+        assert (divergence is not None) == ("sum" in spec.divergent)
 
 
 class TestResampleOpConfig:

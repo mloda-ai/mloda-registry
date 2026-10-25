@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureChainParserMixin, FeatureSet
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
@@ -13,7 +14,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     TimeBucketizationFeatureGroup,
     _parse_bucket_op,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 
 # Helper builders for parametrized tests.
@@ -262,31 +265,113 @@ class TestBucketOpExtraction:
         assert result == op_token
 
 
-class TestSubtypeResolution:
-    """The op subtype (floor / ceil / round) resolves from the name token or the ``bucket_op`` option."""
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
-    def test_group_declares_subtypes_over_the_ops(self) -> None:
-        assert TimeBucketizationFeatureGroup.SUBTYPES is not None
-        assert TimeBucketizationFeatureGroup.subtype_universe() == set(TIME_BUCKETIZATION_OPS)
 
-    @pytest.mark.parametrize(
-        ("feature_name", "expected"),
-        [
+class TestTimeBucketizationOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return TimeBucketizationFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.time_bucketization"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "duckdb",
+                "duckdb_time_bucketization",
+                "DuckdbTimeBucketization",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_time_bucketization",
+                "PandasTimeBucketization",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_time_bucketization",
+                "PolarsLazyTimeBucketization",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_time_bucketization",
+                "PyArrowTimeBucketization",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_time_bucketization",
+                "PythonDictTimeBucketization",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_time_bucketization",
+                "SqliteTimeBucketization",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> str | None:
+        return None
+
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset(TIME_BUCKETIZATION_OPS)
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "bucketize"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_bucket"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("timestamp__floor_1_day")
+
+    @classmethod
+    def mixins(cls) -> tuple[type, ...]:
+        return (FeatureChainParserMixin,)
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [
             ("ts__floor_1_day", "floor"),
             ("ts__ceil_5_minute", "ceil"),
             ("ts__round_1_hour", "round"),
-        ],
-    )
-    def test_resolves_from_the_feature_name(self, feature_name: str, expected: str) -> None:
-        assert TimeBucketizationFeatureGroup.resolve_subtype(feature_name, Options()) == expected
+        ]
 
-    @pytest.mark.parametrize(("bucket_op", "expected"), [("floor_1_day", "floor"), ("ceil_5_minute", "ceil")])
-    def test_resolves_from_the_config_option(self, bucket_op: str, expected: str) -> None:
-        options = Options(context={"bucket_op": bucket_op, "in_features": "ts"})
-        assert TimeBucketizationFeatureGroup.resolve_subtype("my_result", options) == expected
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return [
+            ("my_result", Options(context={"bucket_op": "floor_1_day", "in_features": "ts"}), "floor"),
+            ("my_result", Options(context={"bucket_op": "ceil_5_minute", "in_features": "ts"}), "ceil"),
+        ]
 
-    def test_unresolvable_name_is_none(self) -> None:
-        assert TimeBucketizationFeatureGroup.resolve_subtype("plain_name", Options()) is None
+    @classmethod
+    def unresolved_probes(cls) -> list[tuple[str, Options]]:
+        return [("plain_name", Options())]
+
+    def test_group_does_not_define_the_timestamp_assertion(self) -> None:
+        assert not hasattr(TimeBucketizationFeatureGroup, "_assert_source_column_is_timestamp")
 
 
 class TestForwardedBucketOpMismatch:

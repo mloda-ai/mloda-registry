@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import copy
-import inspect
 import pickle  # nosec
 from typing import Any
 
 import pytest
-from mloda.provider import FeatureGroup, Implementation, OperationFeatureGroup, is_match_abort
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -28,6 +27,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     FULL_STR_MAP,
     INT_TO_STR_MAP,
@@ -362,34 +362,104 @@ class TestReturnDataTypeRule:
             _FailingHookLookup.return_data_type_rule(Feature("x__failing", options=Options()))
 
 
-class TestOperationGroupShape:
-    """LookupFeatureGroup is one OperationFeatureGroup served by one Implementation per framework."""
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
-    def test_group_is_a_concrete_operation_group(self) -> None:
-        assert issubclass(LookupFeatureGroup, OperationFeatureGroup)
-        assert not inspect.isabstract(LookupFeatureGroup)
-        assert LookupFeatureGroup.SUBTYPES is None
 
-    def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
-        assert callable(LookupFeatureGroup.lookup)
-        assert not hasattr(LookupFeatureGroup, "_compute_lookup")
+class TestLookupOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return LookupFeatureGroup
 
-    def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
-        fs = make_feature_set("product_code__lookup", lookup_mapping=PARTIAL_STR_MAP)
-        with pytest.raises(ValueError, match="no implementation"):
-            LookupFeatureGroup.calculate_feature(create_lookup_arrow_table(), fs)
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.lookup"
 
-    def test_manifest_implementations_are_plain_implementations(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.lookup.manifest import FEATURE_GROUPS
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "duckdb",
+                "duckdb_lookup",
+                "DuckdbLookup",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_lookup",
+                "PandasLookup",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_lookup",
+                "PolarsLazyLookup",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_lookup",
+                "PyArrowLookup",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_lookup",
+                "PythonDictLookup",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_lookup",
+                "SqliteLookup",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+            ),
+        ]
 
-        implementations: list[Any] = [cls for cls in FEATURE_GROUPS if cls is not LookupFeatureGroup]
-        assert implementations
-        for impl in implementations:
-            assert issubclass(impl, Implementation)
-            assert not issubclass(impl, FeatureGroup)
-            assert callable(impl._compute_lookup)
-            assert impl.supported is None
-            assert dict(impl.divergent) == {}
+    @classmethod
+    def subtype_key(cls) -> None:
+        """Lookup has no subtype dimension."""
+        return None
+
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset()
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "lookup"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_lookup"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("product_code__lookup", lookup_mapping=PARTIAL_STR_MAP)
+
+    @classmethod
+    def mixins(cls) -> tuple[type, ...]:
+        return (FeatureChainParserMixin,)
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return []
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return []
+
+    @classmethod
+    def unresolved_probes(cls) -> list[tuple[str, Options]]:
+        return [("product_code__lookup", Options())]
 
 
 class TestOnUnmatchedArity(ScalarArityTestBase):

@@ -17,15 +17,19 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureChainParserMixin, FeatureSet
 from mloda.user import Feature, FeatureName, Options
 
+from mloda.community.feature_groups.data_operations.base import NameOnlyMatchMixin
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SESSIONIZATION_UNITS,
     SessionizationFeatureGroup,
     _parse_sessionize_op,
     _sessionize_threshold_seconds,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 
 SESSIONIZE_FEATURE_NAME = "ts__sessionize_30_minute"
 
@@ -240,3 +244,103 @@ class TestSourceExtraction:
         """``input_features`` extracts the source feature ``a__b`` from ``a__b__sessionize_1_hour``."""
         result = SessionizationFeatureGroup().input_features(Options(), FeatureName("a__b__sessionize_1_hour"))
         assert result == {Feature("a__b")}
+
+
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
+
+
+class TestSessionizationOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return SessionizationFeatureGroup
+
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.sessionization"
+
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "duckdb",
+                "duckdb_sessionization",
+                "DuckdbSessionization",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "pandas",
+                "pandas_sessionization",
+                "PandasSessionization",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_sessionization",
+                "PolarsLazySessionization",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "pyarrow",
+                "pyarrow_sessionization",
+                "PyArrowSessionization",
+                f"{_ENGINE}.pyarrow.table",
+                "PyArrowTable",
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_sessionization",
+                "PythonDictSessionization",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_sessionization",
+                "SqliteSessionization",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+            ),
+        ]
+
+    @classmethod
+    def subtype_key(cls) -> None:
+        """Sessionization has no subtype dimension."""
+        return None
+
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset()
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "sessionize"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_session"
+
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("timestamp__sessionize_30_minute", partition_by=["region"])
+
+    @classmethod
+    def mixins(cls) -> tuple[type, ...]:
+        return (NameOnlyMatchMixin, FeatureChainParserMixin)
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return []
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        return []
+
+    @classmethod
+    def unresolved_probes(cls) -> list[tuple[str, Options]]:
+        return [("timestamp__sessionize_30_minute", Options())]
