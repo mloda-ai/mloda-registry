@@ -23,7 +23,7 @@ def _is_nan(v: Any) -> bool:
     return isinstance(v, float) and math.isnan(v)
 
 
-_SUPPORTED_AGG_TYPES = {
+SUPPORTED_AGG_TYPES = {
     "sum",
     "avg",
     "mean",
@@ -85,7 +85,7 @@ def aggregate(values: list[Any], agg_type: str) -> Any:
     if agg_type == "last":
         return non_null[-1]
 
-    raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES)
+    raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES)
 
 
 def std(values: list[Any], ddof: int = 0) -> Any:
@@ -150,13 +150,15 @@ def declared_type(agg_type: str, source_type: pa.DataType) -> pa.DataType:
     if agg_type == "sum":
         if pa.types.is_signed_integer(source_type):
             return pa.int64()
-        if pa.types.is_unsigned_integer(source_type):
+        if pa.types.is_unsigned_integer(source_type) or pa.types.is_boolean(source_type):
             return pa.uint64()
         if pa.types.is_floating(source_type) or pa.types.is_null(source_type):
             return pa.float64()
         raise ValueError(f"Aggregation 'sum' is not defined for source type {source_type}")
     if agg_type in ("min", "max", "first", "last", "mode"):
         return source_type
-    if agg_type in _SUPPORTED_AGG_TYPES:
+    if agg_type in SUPPORTED_AGG_TYPES:
+        if not (pa.types.is_integer(source_type) or pa.types.is_floating(source_type) or pa.types.is_null(source_type)):
+            raise ValueError(f"Aggregation '{agg_type}' is not defined for source type {source_type}")
         return pa.float64()
-    raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES)
+    raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES)

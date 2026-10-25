@@ -4,7 +4,7 @@ Every data operation has one framework designated as the reference. Other framew
 
 **What**: One framework implementation is the source of truth. Cross-framework tests run the same feature through both the target framework and the reference, then assert the two results match.
 **When**: Every time you add a new operation or add a new framework implementation for an existing operation.
-**Why**: Without a fixed reference, frameworks drift into mutually incompatible results (e.g. different NULL handling, different tie-breaking in ranks). Making PyArrow authoritative keeps semantics aligned without requiring everyone to agree on an abstract spec.
+**Why**: Without a fixed reference, frameworks drift into mutually incompatible results (e.g. different NULL handling, different tie-breaking in ranks). For the operations that keep a PyArrow-based reference, making PyArrow authoritative keeps semantics aligned without requiring everyone to agree on an abstract spec; the aggregating operations pin the same idea in a written contract instead.
 **Where**: `mloda/testing/feature_groups/data_operations/base.py::DataOpsTestBase._compare_with_reference`.
 **How**: Each framework mixin provides `create_test_data` (converts the canonical PyArrow table to the framework's native format) and `extract_column` (materializes the result back to a Python list for comparison).
 
@@ -12,13 +12,13 @@ Every data operation has one framework designated as the reference. Other framew
 
 ## Why PyArrow
 
-PyArrow implementations are:
+For the families that keep a PyArrow-based reference, PyArrow implementations are:
 
 - **Columnar and index-based**, so row order is trivially preserved.
 - **Explicit about NULL** via `pa.array` masks, so NULL handling is unambiguous.
 - **Deterministic**: `pc.sort_indices`, `pc.rank`, `pc.round` give the same result every run.
 
-These properties make PyArrow a reasonable ground truth. It is not faster than the others; it is the cleanest semantic reference.
+These properties make PyArrow a reasonable ground truth for those families. It is not faster than the others; it is the cleanest semantic reference.
 
 ---
 
@@ -48,7 +48,7 @@ Aggregation, window aggregation, frame aggregate, scalar aggregate, rank, offset
 
 For integer operations, matching means exact element-wise equality including NULLs. For floating-point operations, the test harness accepts `pytest.approx` with `rel=1e-6` when `use_approx=True`. That tolerance exists because frameworks differ in accumulation order (running sums through SQL engines vs. columnar reductions), not because results are allowed to drift.
 
-If your framework produces NaN where PyArrow produces NULL, the comparison fails. NaN and NULL are not interchangeable; frame-level tests treat them as distinct.
+If your framework produces NaN where the reference produces NULL, the comparison fails. NaN and NULL are not interchangeable; frame-level tests treat them as distinct.
 
 ---
 
@@ -83,22 +83,22 @@ Aggregation, window aggregation, frame aggregate and scalar aggregate share one 
 | std, var | Population for `std`, `var`, `std_pop`, `var_pop`; `ddof=1` for `*_samp`. Fewer than `ddof+1` values gives None. |
 | mode | Ties keep the first occurrence. |
 | Partition keys | NaN keys form one group, None is its own key, groups come in first-occurrence order. `partition_by=[]` is one whole-table group, also on an empty table. |
-| Dtype | count and nunique int64; avg, mean, median, std*, var* float64; sum widens signed integers to int64, unsigned to uint64, floats to float64 (a null-typed source gives float64, any other type raises `ValueError`); min, max, first, last and mode keep the source type. |
+| Dtype | count and nunique int64; avg, mean, median, std*, var* float64; sum widens signed integers to int64, unsigned integers and bool to uint64, floats to float64 (a null-typed source gives float64, any other type raises `ValueError`); avg, mean, median, std* and var* accept only integer, floating or null sources and raise `ValueError` naming the type otherwise; an int64 sum that overflows raises; min, max, first, last and mode keep the source type. |
 
 - **Order**: within a group, `order_by` (window first and last, frame) sorts ascending: real values, then NaN, then None, stable.
 - **Row order**: window, frame and scalar keep input order; aggregation returns one row per group and is compared by key.
 - **Tolerance**: floats compare with `pytest.approx(rel=1e-6)` where a test sets `use_approx=True`.
 - **Masks**: non-matching rows become None before the aggregate. The mask semantics belong to mloda core's mask engine, so the references call `apply_pyarrow_mask` and only `to_pylist()` its output.
 
-For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)).
+Declared dtypes bind the reference only; backends are compared by value. For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)).
 
 ---
 
 ## When PyArrow has no kernel, or is the outlier
 
-For the operations that keep a PyArrow-based reference, PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Python reference in `mloda/testing` computes them. Its answer follows these rules, in order:
+PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Python reference in `mloda/testing` computes them. Its answer follows these rules, in order:
 
-1. **The ungrouped PyArrow kernel.** Per group, the reference returns what PyArrow's ungrouped kernel for the same op returns on that group's values. `PyArrowScalarAggregate` and `reference_percentile` compute it directly; the aggregating references follow the contract above, which was set from the same kernels.
+1. **The ungrouped PyArrow kernel.** Per group, the reference returns what PyArrow's ungrouped kernel for the same op returns on that group's values. `reference_percentile` computes it directly; the aggregating references follow the contract above, which was set from the same kernels.
 2. **The majority.** Where no PyArrow kernel covers the op or the case, the majority of the frameworks that implement the op natively decides.
 3. **Mode ties, the one exception.** The aggregating references break mode ties by first occurrence, while `pc.mode` picks the smallest value. Every backend already implements first occurrence, so switching would change all of them without improving agreement.
 

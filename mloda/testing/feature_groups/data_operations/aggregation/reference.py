@@ -15,7 +15,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
-    _SUPPORTED_AGG_TYPES,
+    SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
     group_rows,
@@ -25,8 +25,8 @@ from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
 def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: list[str]) -> pa.Table:
     """One row per group (first-occurrence order): the partition columns plus one column per spec."""
     for spec in specs:
-        if spec.agg_type not in _SUPPORTED_AGG_TYPES:
-            raise unsupported_agg_type_error(spec.agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
+        if spec.agg_type not in SUPPORTED_AGG_TYPES:
+            raise unsupported_agg_type_error(spec.agg_type, SUPPORTED_AGG_TYPES, framework="Reference")
 
     keys = [table.column(c).to_pylist() for c in partition_by]
     groups = group_rows(keys, table.num_rows)
@@ -35,10 +35,15 @@ def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: 
         for j, c in enumerate(partition_by)
     ]
     for spec in specs:
-        column = apply_pyarrow_mask(table, spec.source_col, spec.mask_spec) if spec.mask_spec else None
-        values = (column if column is not None else table.column(spec.source_col)).to_pylist()
+        out_type = declared_type(spec.agg_type, table.schema.field(spec.source_col).type)
+        source = (
+            apply_pyarrow_mask(table, spec.source_col, spec.mask_spec)
+            if spec.mask_spec is not None
+            else table.column(spec.source_col)
+        )
+        values = source.to_pylist()
         results = [aggregate([values[i] for i in rows], spec.agg_type) for rows in groups.values()]
-        arrays.append(pa.array(results, type=declared_type(spec.agg_type, table.schema.field(spec.source_col).type)))
+        arrays.append(pa.array(results, type=out_type))
     return pa.table(arrays, names=[*partition_by, *(spec.feature_name for spec in specs)])
 
 

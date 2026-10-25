@@ -202,7 +202,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # computed in Python from sanitized integer/unit values, embedded as a
         # numeric literal.
         #
-        # Peer handling: the PyArrow reference uses ``rows[:pos+1]`` after a stable
+        # Peer handling: the reference uses ``rows[:pos+1]`` after a stable
         # sort by order_by, so peers at the same order_by but later physical position
         # are excluded from the current row's window. SQL ``BETWEEN`` would include
         # all same-ts peers (both earlier and later), so the upper bound is split into
@@ -212,7 +212,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         #
         # When the outer row's order_by is NULL, ``julianday(NULL)`` is NULL and the
         # comparison short-circuits to NULL, which would leave the row with a NULL
-        # aggregate. The PyArrow reference returns the source value of just the current
+        # aggregate. The reference returns the source value of just the current
         # row in that case (see reference.py:115-116). The OR branch matches the
         # self-row only when ``t.{order_by}`` is NULL, restoring reference parity.
         sql = " ".join(  # nosec

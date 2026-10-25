@@ -16,7 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     WindowAggregationFeatureGroup,
 )
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
-    _SUPPORTED_AGG_TYPES,
+    SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
     group_rows,
@@ -33,8 +33,8 @@ def _compute_window(
     order_by: str | None = None,
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
-    if agg_type not in _SUPPORTED_AGG_TYPES:
-        raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
+    if agg_type not in SUPPORTED_AGG_TYPES:
+        raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES, framework="Reference")
 
     keys = [table.column(c).to_pylist() for c in partition_by]
     # Keys and order stay unmasked; only the aggregated values are masked.
@@ -42,6 +42,7 @@ def _compute_window(
     values = source.to_pylist()
     order_vals = table.column(order_by).to_pylist() if order_by else None
 
+    out_type = declared_type(agg_type, table.schema.field(source_col).type)
     result: list[Any] = [None] * table.num_rows
     for rows in group_rows(keys, table.num_rows).values():
         if order_vals is not None and agg_type in ("first", "last"):
@@ -49,7 +50,6 @@ def _compute_window(
         value = aggregate([values[i] for i in rows], agg_type)
         for i in rows:
             result[i] = value
-    out_type = declared_type(agg_type, table.schema.field(source_col).type)
     return table.append_column(feature_name, pa.array(result, type=out_type))
 
 

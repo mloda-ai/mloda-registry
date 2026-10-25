@@ -65,6 +65,11 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         return False
 
     @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """pandas ties NaN and None in order_by, so ties keep input order."""
+        return False
+
+    @classmethod
     def supports_datetime_min_max_source(cls) -> bool:
         # pandas window ops only aggregate numeric columns, so a datetime min/max source is rejected.
         return False

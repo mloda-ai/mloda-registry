@@ -188,7 +188,7 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             }[unit]
             # Peer handling: polars ``rolling_*_by`` with ``closed="both"`` is value-based
             # and includes every row whose ``by`` value equals the current row's value,
-            # even peers that come later in physical position. The PyArrow reference uses
+            # even peers that come later in physical position. The reference uses
             # ``rows[:pos+1]`` after a stable sort, excluding later peers. To match, add a
             # 1-nanosecond offset proportional to physical row position (cast to ns precision
             # first so the offset is representable) and extend the window by N nanoseconds

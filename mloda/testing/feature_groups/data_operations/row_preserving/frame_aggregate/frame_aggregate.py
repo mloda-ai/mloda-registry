@@ -483,6 +483,14 @@ class FrameAggregateTestBase(
         """Whether min/max over a datetime source column is computed; ``False`` expects a ValueError."""
         return True
 
+    @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """Whether order_by puts NaN before None (the reference: real values, NaN, then None).
+
+        Backends that tie NaN and None override to False.
+        """
+        return True
+
     # -- Rolling tests -------------------------------------------------------
 
     def test_rolling_sum_window_3(self) -> None:
@@ -1217,6 +1225,25 @@ class FrameAggregateTestBase(
         assert result_col[1] == 10
         assert result_col[2] == 30
         assert result_col[0] == 130
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None in the cumulative frame."""
+        table = pa.table(
+            {
+                "g": ["a", "a", "a"],
+                "o": pa.array([None, float("nan"), 1.0], type=pa.float64()),
+                "v": pa.array([10, 20, 30], type=pa.int64()),
+            }
+        )
+        feature_name = "v__cumsum"
+        self._skip_if_frame_feature_unsupported(feature_name, ["g"], "o")
+        fs = make_feature_set(feature_name, ["g"], "o")
+
+        assert self.reference_calculate(table, fs).column(feature_name).to_pylist() == [60, 50, 30]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [60, 50, 30] if self.orders_nan_before_none() else [40, 60, 30]
+        assert self.extract_column(result, feature_name) == expected
 
     # No ``supported_agg_types`` exists on this base, so a feature's support is probed
     # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.

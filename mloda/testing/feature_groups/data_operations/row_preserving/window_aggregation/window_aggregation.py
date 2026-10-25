@@ -212,6 +212,23 @@ class WindowAggregationTestBase(
         """Aggregation types this framework supports. Override to restrict."""
         return cls.ALL_AGG_TYPES
 
+    @classmethod
+    def merges_signed_zero_keys(cls) -> bool:
+        """Whether this framework merges 0.0 and -0.0 partition keys and nunique values.
+
+        The reference merges them. PyArrow splits partition keys and nunique values;
+        TestPyArrowWindowAggregation overrides to False.
+        """
+        return True
+
+    @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """Whether order_by puts NaN before None (the reference: real values, NaN, then None).
+
+        Backends that tie NaN and None override to False.
+        """
+        return True
+
     # -- MaskTestMixin configuration -------------------------------------------
 
     @classmethod
@@ -649,6 +666,64 @@ class WindowAggregationTestBase(
         # last with order_by sorts by ts: [1->10, 2->20, None->100, None->200]
         # last non-null = 200, broadcast to all rows
         assert result_col == [200, 200, 200, 200]
+
+    def test_signed_zero_partition_keys(self) -> None:
+        """Partition keys 0.0 and -0.0: the reference and most backends merge them into one group."""
+        table = pa.table(
+            {
+                "k": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
+                "v": pa.array([1, 2, 3], type=pa.int64()),
+            }
+        )
+        feature_name = "v__count_window"
+        fs = make_feature_set(feature_name, ["k"])
+
+        assert self._ref_column(table, fs, feature_name) == [3, 3, 3]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [3, 3, 3] if self.merges_signed_zero_keys() else [1, 2, 2]
+        assert self.extract_column(result, feature_name) == expected
+
+    def test_signed_zero_nunique_values(self) -> None:
+        """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
+        self._skip_if_unsupported("nunique")
+        table = pa.table(
+            {
+                "k": pa.array(["a", "a", "a"], type=pa.string()),
+                "v": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
+            }
+        )
+        feature_name = "v__nunique_window"
+        fs = make_feature_set(feature_name, ["k"])
+
+        assert self._ref_column(table, fs, feature_name) == [1, 1, 1]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [1, 1, 1] if self.merges_signed_zero_keys() else [2, 2, 2]
+        assert self.extract_column(result, feature_name) == expected
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None, so last is the None row's value."""
+        self._skip_if_unsupported("last")
+        table = pa.table(
+            {
+                "g": ["a", "a", "a"],
+                "o": pa.array([None, float("nan"), 1.0], type=pa.float64()),
+                "v": pa.array([10, 20, 30], type=pa.int64()),
+            }
+        )
+        feature_name = "v__last_window"
+        fs = make_feature_set(feature_name, ["g"], order_by="o")
+
+        assert self._ref_column(table, fs, feature_name) == [10, 10, 10]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [10, 10, 10] if self.orders_nan_before_none() else [20, 20, 20]
+        assert self.extract_column(result, feature_name) == expected
+
+    def _ref_column(self, table: pa.Table, fs: FeatureSet, feature_name: str) -> list[Any]:
+        column: list[Any] = self.reference_calculate(table, fs).column(feature_name).to_pylist()
+        return column
 
     def test_multi_key_float_avg(self) -> None:
         """Avg of value_float partitioned by [region, category]."""

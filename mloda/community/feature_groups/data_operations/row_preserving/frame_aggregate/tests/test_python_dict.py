@@ -30,6 +30,11 @@ class TestPythonDictFrameAggregate(CapabilityHookTestMixin, PythonDictTestMixin,
         return PythonDictFrameAggregate
 
     @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """PythonDict ties NaN and None in order_by, so ties keep input order."""
+        return False
+
+    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value_time_frame", time_frame_options("month")),

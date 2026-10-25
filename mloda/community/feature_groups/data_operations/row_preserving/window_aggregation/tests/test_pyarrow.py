@@ -51,6 +51,11 @@ class TestPyArrowWindowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, Wi
             "last",
         }
 
+    @classmethod
+    def merges_signed_zero_keys(cls) -> bool:
+        """PyArrow's group_by splits 0.0/-0.0 partition keys and nunique values."""
+        return False
+
     def test_first_window_no_future_warning(self) -> None:
         """first with partition_by must not raise pyarrow's null_placement FutureWarning."""
         fs = make_feature_set("value_int__first_window", ["region"], order_by="value_int")

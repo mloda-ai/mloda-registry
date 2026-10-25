@@ -10,11 +10,13 @@ from typing import Any
 import pyarrow as pa
 from mloda.provider import FeatureSet
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
+    SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
     group_rows,
@@ -34,6 +36,10 @@ def _compute_frame(
     frame_unit: str | None = None,
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
+    if agg_type not in SUPPORTED_AGG_TYPES:
+        raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES, framework="Reference")
+
+    out_type = declared_type(agg_type, table.schema.field(source_col).type)
     num_rows = table.num_rows
     keys = [table.column(col).to_pylist() for col in partition_by]
     order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
@@ -49,12 +55,13 @@ def _compute_frame(
                 window = [r[2] for r in rows[max(0, pos - wsize + 1) : pos + 1]]
             elif frame_type == "time":
                 window = _time_window(rows, pos, order_val, frame_size or 1, str(frame_unit or "day"))
-            else:
+            elif frame_type in ("cumulative", "expanding"):
                 window = [r[2] for r in rows[: pos + 1]]
+            else:
+                raise ValueError(f"Unknown frame_type '{frame_type}'")
 
             result_values[orig_idx] = aggregate(window, agg_type)
 
-    out_type = declared_type(agg_type, table.schema.field(source_col).type)
     return table.append_column(feature_name, pa.array(result_values, type=out_type))
 
 

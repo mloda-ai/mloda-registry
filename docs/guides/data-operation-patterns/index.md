@@ -10,7 +10,7 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 
 1. [Overview](01-overview.md) - Categories, naming patterns, and where the code lives
 2. [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input
-3. [Reference implementation pattern](03-reference-implementation.md) - PyArrow is the source of truth
+3. [Reference implementation pattern](03-reference-implementation.md) - PyArrow is the source of truth for most operations; the aggregating operations have a pure Python reference
 4. [Supported ops per framework](04-supported-ops.md) - Excluding ops a framework cannot express
 5. [Binning](05-binning.md) - `bin` vs `qbin`, NTILE vs rank, NULL handling
 6. [Window aggregation](06-window-aggregation.md) - Partitioned aggregates broadcast per row
@@ -25,5 +25,5 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 15. [Sessionization](15-sessionization.md) - Assign a gap-threshold session id on an ordered timestamp (`{ts}__sessionize_{n}_{unit}`), per partition (row-preserving)
 16. [`return_data_type_rule` failure handling](16-return-data-type-rule.md) - The fail-fast, post-selection contract: why the type rules no longer catch extraction errors, how binning/resample matching was tightened so a selected feature never raises, and the completeness-test guard (#244 -> #265, core #485/#493)
 17. [Key lookup](17-lookup.md) - Replace a key column with mapped values (`{col}__lookup`, `lookup_mapping`, `on_unmatched`), plus a plugin hook for external mapping tables (row-preserving)
-18. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
+18. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the reference, with the mitigation for each
 19. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides

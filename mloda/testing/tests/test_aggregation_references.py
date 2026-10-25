@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 from typing import Any
 
 import pyarrow as pa
 import pytest
 from mloda.user import DataType, Feature, Options
 
+NAN = float("nan")
+_TS_UTC = pa.timestamp("us", tz="UTC")
+_DATATYPE_TO_PA = {DataType.INT64: pa.int64(), DataType.DOUBLE: pa.float64()}
+_AGG_TYPES = ["count", "nunique", "sum", "avg", "min", "max", "median", "std", "var", "first", "last", "mode"]
+_STATISTIC_AGG_TYPES = ["avg", "mean", "median", "std", "var", "std_pop", "std_samp", "var_pop", "var_samp"]
 
-class TestReferenceWindowAggregationNoFutureWarning:
-    """first/last with partition_by must not raise pyarrow's null_placement FutureWarning."""
+
+class TestReferenceWindowFirstLast:
+    """The window reference gives the expected first/last values per region."""
 
     @staticmethod
     def _agg_no_warning(agg_type: str, expected: list[Any]) -> None:
@@ -47,9 +54,6 @@ class TestReferenceWindowAggregationNoFutureWarning:
         )
 
         self._agg_no_warning("last", EXPECTED_LAST_BY_REGION)
-
-
-NAN = float("nan")
 
 
 class TestAggregateKernelContract:
@@ -134,9 +138,6 @@ class TestOrderKey:
         assert [tag for _, tag in result] == ["a", "c", "b", "d", "e", "f"]
 
 
-_TS_UTC = pa.timestamp("us", tz="UTC")
-
-
 class TestDeclaredType:
     """declared_type(agg_type, source_type) is the schema of an aggregate column."""
 
@@ -151,10 +152,8 @@ class TestDeclaredType:
     def test_counting_is_int64(self, agg_type: str, source_type: pa.DataType) -> None:
         assert self._declared(agg_type, source_type) == pa.int64()
 
-    @pytest.mark.parametrize(
-        "agg_type", ["avg", "mean", "median", "std", "var", "std_pop", "std_samp", "var_pop", "var_samp"]
-    )
-    @pytest.mark.parametrize("source_type", [pa.int64(), pa.float32()])
+    @pytest.mark.parametrize("agg_type", _STATISTIC_AGG_TYPES)
+    @pytest.mark.parametrize("source_type", [pa.int64(), pa.float32(), pa.null()])
     def test_statistics_are_float64(self, agg_type: str, source_type: pa.DataType) -> None:
         assert self._declared(agg_type, source_type) == pa.float64()
 
@@ -164,6 +163,8 @@ class TestDeclaredType:
             (pa.int32(), pa.int64()),
             (pa.int64(), pa.int64()),
             (pa.uint8(), pa.uint64()),
+            (pa.bool_(), pa.uint64()),
+            (pa.null(), pa.float64()),
             (pa.float32(), pa.float64()),
             (pa.float64(), pa.float64()),
         ],
@@ -175,17 +176,20 @@ class TestDeclaredType:
         with pytest.raises(ValueError, match="string"):
             self._declared("sum", pa.string())
 
+    @pytest.mark.parametrize("agg_type", _STATISTIC_AGG_TYPES)
+    @pytest.mark.parametrize("source_type", [_TS_UTC, pa.string()])
+    def test_statistics_on_non_numeric_raise_naming_the_type(self, agg_type: str, source_type: pa.DataType) -> None:
+        with pytest.raises(ValueError, match=re.escape(str(source_type))):
+            self._declared(agg_type, source_type)
+
     @pytest.mark.parametrize("agg_type", ["min", "max", "first", "last", "mode"])
     @pytest.mark.parametrize("source_type", [pa.int64(), pa.float64(), pa.string(), _TS_UTC])
     def test_value_picking_keeps_source_type(self, agg_type: str, source_type: pa.DataType) -> None:
         assert self._declared(agg_type, source_type) == source_type
 
 
-_DATATYPE_TO_PA = {DataType.INT64: pa.int64(), DataType.DOUBLE: pa.float64()}
-_AGG_TYPES = ["count", "nunique", "sum", "avg", "min", "max", "median", "std", "var", "first", "last", "mode"]
-
-
-def _rule_cases() -> list[Any]:
+def _rule_cases() -> list[tuple[Any, str, Options, str]]:
+    """(family, feature name, options, agg type) for every pair the family supports with a non-None rule."""
     from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
     from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
         FrameAggregateFeatureGroup,
@@ -199,38 +203,43 @@ def _rule_cases() -> list[Any]:
 
     part = Options(context={"partition_by": ["region"]})
     framed = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-    families: list[tuple[Any, str, Options, list[str]]] = [
-        (AggregationFeatureGroup, "value_int__{a}_agg", part, _AGG_TYPES),
-        (WindowAggregationFeatureGroup, "value_int__{a}_window", part, _AGG_TYPES),
-        (FrameAggregateFeatureGroup, "value_int__{a}_rolling_3", framed, [a for a in _AGG_TYPES if a != "nunique"]),
-        (ScalarAggregateFeatureGroup, "value_int__{a}_scalar", Options(), [a for a in _AGG_TYPES if a != "nunique"]),
+    families: list[tuple[Any, str, Options]] = [
+        (AggregationFeatureGroup, "value_int__{a}_agg", part),
+        (WindowAggregationFeatureGroup, "value_int__{a}_window", part),
+        (FrameAggregateFeatureGroup, "value_int__{a}_rolling_3", framed),
+        (ScalarAggregateFeatureGroup, "value_int__{a}_scalar", Options()),
     ]
-    return [
-        pytest.param(group, template.format(a=agg), options, agg, id=f"{group.__name__}-{agg}")
-        for group, template, options, aggs in families
-        for agg in aggs
-    ]
+    cases: list[tuple[Any, str, Options, str]] = []
+    for group, template, options in families:
+        for agg in _AGG_TYPES:
+            name = template.format(a=agg)
+            if group.match_feature_group_criteria(name, options) and (
+                group.return_data_type_rule(Feature(name, options=options)) is not None
+            ):
+                cases.append((group, name, options, agg))
+    return cases
+
+
+_RULE_CASES = _rule_cases()
 
 
 class TestDeclaredTypeAgreesWithReturnDataTypeRule:
     """Where a family's return_data_type_rule is non-None, declared_type gives the same type."""
 
-    @pytest.mark.parametrize("group, name, options, agg_type", _rule_cases())
+    @pytest.mark.parametrize(
+        "group, name, options, agg_type",
+        [pytest.param(*case, id=f"{case[0].__name__}-{case[3]}") for case in _RULE_CASES],
+    )
     def test_agrees(self, group: Any, name: str, options: Options, agg_type: str) -> None:
         from mloda.testing.feature_groups.data_operations.aggregation_helpers import declared_type
 
         rule = group.return_data_type_rule(Feature(name, options=options))
-        if rule is None:
-            pytest.skip("rule leaves the type open")
         assert declared_type(agg_type, pa.int64()) == _DATATYPE_TO_PA[rule]
 
-    def test_counting_rule_is_exercised(self) -> None:
-        """Guard against vacuity: count has a non-None rule in every family."""
-        counting = [c for c in _rule_cases() if c.values[3] == "count"]
-        assert len(counting) == 4
-        for case in counting:
-            group, name, options, _ = case.values
-            assert group.return_data_type_rule(Feature(name, options=options)) == DataType.INT64
+    def test_every_family_contributes_a_case(self) -> None:
+        """Guard against vacuity: each of the four families has at least one checked pair."""
+        families = {group.__name__ for group, _, _, _ in _RULE_CASES}
+        assert len(families) == 4
 
 
 class TestReferenceScalarAggregateRejectsUnsupported:
@@ -246,3 +255,28 @@ class TestReferenceScalarAggregateRejectsUnsupported:
         fs = make_feature_set("value_int__nunique_scalar")
         with pytest.raises(ValueError, match="nunique"):
             reference_scalar_aggregate(PyArrowDataOpsTestDataCreator.create(), fs)
+
+
+class TestReferenceAggregationRejectsNonNumericSum:
+    """sum over a string column raises ValueError, not the kernel's TypeError."""
+
+    def test_sum_on_string_column_raises_value_error(self) -> None:
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        table = pa.table({"g": ["a", "a"], "value": ["x", "y"]})
+        with pytest.raises(ValueError, match="string"):
+            reference_aggregation(table, make_feature_set("value__sum_agg", ["g"]))
+
+
+class TestReferenceFrameRejectsUnknownFrameType:
+    """_compute_frame raises ValueError on a frame type it does not know."""
+
+    def test_unknown_frame_type_raises_value_error(self) -> None:
+        from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
+            _compute_frame,
+        )
+
+        table = pa.table({"g": ["a", "a"], "o": [1, 2], "v": [10, 20]})
+        with pytest.raises(ValueError, match="bogus"):
+            _compute_frame(table, "v__sum", "v", ["g"], "o", "sum", "bogus")

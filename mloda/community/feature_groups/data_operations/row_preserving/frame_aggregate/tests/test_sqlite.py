@@ -33,6 +33,11 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         return SqliteFrameAggregate
 
     @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """SQLite ties NaN and None in order_by."""
+        return False
+
+    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value__sum_rolling_3", Options()),

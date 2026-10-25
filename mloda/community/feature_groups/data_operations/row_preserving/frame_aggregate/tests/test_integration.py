@@ -149,7 +149,7 @@ class TestFrameAggregateIntegration(
 
     @classmethod
     def mask_integration_options(cls) -> dict[str, Any]:
-        # Masked rows keep their order key, as in the backend unit tests; the PyArrow reference differs here.
+        # Masked rows keep their order key, as in the backend unit tests; the reference differs here.
         return {"partition_by": ["region"], "order_by": "value_int"}
 
     @classmethod

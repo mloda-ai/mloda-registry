@@ -159,7 +159,7 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         DuckDB ``RANGE BETWEEN INTERVAL '{N}' {unit} PRECEDING AND CURRENT ROW``
         is a clean one-liner but uses peer-set semantics: it includes every row
         whose ``order_by`` equals the current row's ``order_by``, even peers
-        that come later in physical position. The PyArrow reference uses
+        that come later in physical position. The reference uses
         ``rows[:pos+1]`` after a stable sort, excluding later peers. To match
         the reference, this method tags rows with a ``with_row_number`` column
         and uses that tag as a tiebreaker in a correlated subquery.
