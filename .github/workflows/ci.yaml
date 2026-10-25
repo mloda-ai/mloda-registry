@@ -42,8 +42,8 @@ jobs:
         uv tool install tox --with tox-uv
     - name: Run tox
       run: tox -e ${{ matrix.toxenv }}
-      # The full tox run is close to 3 minutes on the slowest interpreter, so this leaves headroom.
-      timeout-minutes: 6
+      # The slowest env takes up to about 6 minutes for this step, so this leaves headroom.
+      timeout-minutes: 10
       env:
         PYTEST_WORKERS: "4"
 
