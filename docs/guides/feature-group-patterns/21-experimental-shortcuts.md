@@ -36,7 +36,7 @@ See [dynamic_feature_group_factory.py](https://github.com/mloda-ai/mloda/blob/ma
 Mixin that simplifies defining complex input sources via Options.
 
 **Use when**:
-- Input features come from multiple origins (API, DataCreator, other features)
+- Input features come from multiple origins (API, DataCreatorFeatureGroup, other features)
 - You need joins/merges between sources
 - Defining input features declaratively via Options rather than code
 

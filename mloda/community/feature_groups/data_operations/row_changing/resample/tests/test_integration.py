@@ -20,7 +20,6 @@ production feature group is not imported to generate its own oracle.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import pyarrow as pa
@@ -171,15 +170,19 @@ class TestResampleSplitFeatureSets:
 
     @pytest.mark.parametrize("order", ["mean_first", "count_first"])
     @pytest.mark.parametrize("count_source", ["value_float", "timestamp"])
-    def test_split_by_data_type_error_names_group_remedy(self, count_source: str, order: str) -> None:
-        """The error is raised even when the later step's source and keys survive the earlier reduction."""
+    def test_split_by_data_type_requests_compute_in_one_step(self, count_source: str, order: str) -> None:
+        """Requests that differ only in data type batch into one step, so the later one sees the unreduced frame."""
         mean = Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.DOUBLE)
-        count = Feature(
-            f"{count_source}__resample_1_day_count", options=Options(context=self._CONTEXT), data_type=DataType.INT64
-        )
+        count_name = f"{count_source}__resample_1_day_count"
+        count = Feature(count_name, options=Options(context=self._CONTEXT), data_type=DataType.INT64)
         features = [mean, count] if order == "mean_first" else [count, mean]
-        with pytest.raises(ValueError, match=re.escape("Options(group=")):
-            self._run(features)
+        results = self._run(features)
+
+        table = next(t for t in results if isinstance(t, pa.Table) and self._MEAN in t.column_names)
+        assert _sort_none_last(table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
+        # The null-timestamp row has no timestamp to count, so that source counts one bucket fewer than value_float.
+        expected_counts = _COUNT_SORTED if count_source == "value_float" else [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2]
+        assert sorted(table.column(count_name).to_pylist()) == expected_counts
 
     def test_chained_resample_runs_without_group_error(self) -> None:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""

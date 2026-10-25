@@ -8,16 +8,12 @@ import runpy
 import shutil
 import sys
 import tempfile
+import tomllib
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 CONFIG_DIR = Path("config")
 PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"

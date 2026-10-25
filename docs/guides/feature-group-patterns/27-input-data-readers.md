@@ -7,7 +7,7 @@ How to point a feature at a source FeatureGroup and how to write your own for a 
 **Why**: Source selection is contract-driven, not guesswork; knowing the contract avoids reading mloda core source.
 **Where**: Connector plugins (a CKAN CSV group, a direct-URL group, a REST JSON group side by side).
 
-Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/data-access-patterns.md). `BaseInputData` remains only as the marker base of `DataCreator` and `ApiInputData`; mloda 0.17 removed the 0.16 reader classes.
+Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/data-access-patterns.md). Request data (`api_data=`) is served by the source group `ApiDataFG`; synthetic data by `DataCreatorFeatureGroup`.
 
 ## Pointing a Feature at a Group
 
@@ -118,11 +118,11 @@ record_match_rejection(
 
 ## Your Own Root FeatureGroup
 
-A root group of your own that fronts a `BaseInputData` family no longer loads data: `BaseInputData` has no reader behavior. A source FeatureGroup is the root group, so write the behavior you wanted (its own `compute_framework_rule()`, domain, columns) on the source group itself. `DataCreator` groups still build their data in `calculate_feature`.
+A source FeatureGroup is the root group: write the behavior you want (its own `compute_framework_rule()`, domain, columns) on the source group itself. A `DataCreatorFeatureGroup` builds its data in `calculate_feature`. The reserved reader option key is `"mloda_source_reader"` (`RESERVED_READER_OPTION_KEY`).
 
 ## Non-File / HTTP Sources
 
-`ReadFileFG` is file-suffix and directory shaped. For a non-file source write a `SourceFeatureGroup` subclass with a pointed-only open route: `ClaimRoute(kind, NamePolicy.OPEN, False)`. It claims a name only when pointed at (`options={"UbaAirFG": url}` or `feature_group=UbaAirFG`). An open route that is searched raises `TypeError` at class definition. A plain `FeatureGroup` is not a pointer target, and `ApiInputData` injects in-memory data passed through the API request, it is not an HTTP client.
+`ReadFileFG` is file-suffix and directory shaped. For a non-file source write a `SourceFeatureGroup` subclass with a pointed-only open route: `ClaimRoute(kind, NamePolicy.OPEN, False)`. It claims a name only when pointed at (`options={"UbaAirFG": url}` or `feature_group=UbaAirFG`). An open route that is searched raises `TypeError` at class definition. A plain `FeatureGroup` is not a pointer target, and `ApiDataFG` serves in-memory data passed through the API request, it is not an HTTP client.
 
 ```python
 from typing import Any

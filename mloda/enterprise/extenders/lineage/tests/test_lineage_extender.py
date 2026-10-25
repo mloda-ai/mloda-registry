@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 import pytest
 from mloda.provider import (
     ComputeFramework,
-    DataCreator,
+    DataCreatorFeatureGroup,
     FeatureGroup,
     FeatureSet,
     PropertySpec,
@@ -71,12 +71,12 @@ _LOADED = "data.csv"
 _DEFAULT_FEATURE_GROUP_CLASS = "mloda.testing.DummyFeatureGroup"
 
 
-class _Root(FeatureGroup):
+class _Root(DataCreatorFeatureGroup):
     """Root step: no inputs and no dataset load, so no column lineage."""
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({_ROOT, _ROOT_A, _ROOT_B})
+    def feature_names_supported(cls) -> set[str]:
+        return {_ROOT, _ROOT_A, _ROOT_B}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
@@ -95,8 +95,8 @@ class _RootWithOptionDefault(_Root):
     }
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({_ROOT_DEFAULTED})
+    def feature_names_supported(cls) -> set[str]:
+        return {_ROOT_DEFAULTED}
 
 
 class _Derived(FeatureGroup):

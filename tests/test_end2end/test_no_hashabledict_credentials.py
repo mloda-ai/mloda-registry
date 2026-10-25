@@ -2,8 +2,8 @@
 
 mloda 0.9.0 dropped ``HashableDict`` acceptance from the credentials /
 DB-reader data-access path: passing a ``HashableDict`` as a credential value to
-``DataAccessCollection`` / ``add_credentials``, or in a ``BaseInputData`` reader
-tuple, now raises ``ValueError`` (use ``Credential(...)`` or a plain dict).
+``DataAccessCollection`` / ``add_credentials``, or in a ``SourceFeatureGroup`` reader
+option (``mloda_source_reader``), now raises ``ValueError`` (use ``Credential(...)`` or a plain dict).
 ``HashableDict`` stays valid for other uses (e.g. ``Options`` group hashing),
 so this guard only flags ``HashableDict`` usages near a credential /
 data-access marker. The registry is currently clean; this trips loudly if such
@@ -21,7 +21,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist"}
-_MARKERS = ("credentials", "DataAccessCollection", "BaseInputData")
+_MARKERS = ("credentials", "DataAccessCollection", "SourceFeatureGroup", "mloda_source_reader")
 
 
 def _in_scope_indices(path: Path, lines: list[str]) -> set[int]:
@@ -90,8 +90,17 @@ def test_credential_hashabledict_on_one_line_flagged(line: str, tmp_path: Path) 
 
 
 def test_multiline_baseinputdata_reader_tuple_flagged(tmp_path: Path) -> None:
-    """A HashableDict a couple lines from a BaseInputData marker is flagged."""
-    body = "reader = BaseInputData(\n    source='pg',\n    creds=HashableDict({'host': 'h'}),\n)\n"
+    """A HashableDict a couple lines from a SourceFeatureGroup marker is flagged."""
+    body = "reader = SourceFeatureGroup(\n    source='pg',\n    creds=HashableDict({'host': 'h'}),\n)\n"
+    _write(tmp_path / "m.py", body)
+    hits = find_hashabledict_credential_usages(tmp_path)
+    assert len(hits) == 1
+    assert "HashableDict" in hits[0]
+
+
+def test_multiline_source_reader_option_flagged(tmp_path: Path) -> None:
+    """A HashableDict a couple lines from a mloda_source_reader marker is flagged."""
+    body = "options = {\n    'mloda_source_reader': 'pg',\n    'creds': HashableDict({'host': 'h'}),\n}\n"
     _write(tmp_path / "m.py", body)
     hits = find_hashabledict_credential_usages(tmp_path)
     assert len(hits) == 1

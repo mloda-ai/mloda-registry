@@ -14,7 +14,6 @@ integration tests verify values as sets (not keyed by partition columns).
 from __future__ import annotations
 
 import importlib
-import re
 from typing import Any
 
 import pyarrow as pa
@@ -542,11 +541,27 @@ class TestIntegrationMultipleFeatures:
             ),
         ],
     )
-    def test_split_feature_sets_error_names_group_remedy(self, frameworks: list[Any], features: list[Feature]) -> None:
-        """Features of one request split into several FeatureSets raise an error naming Options(group=...)."""
+    def test_same_framework_split_requests_compute_in_one_step(
+        self, frameworks: list[Any], features: list[Feature]
+    ) -> None:
+        """Requests that differ only in data type or allowed frameworks batch into one step and compute correctly."""
         plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
-        with pytest.raises(ValueError, match=re.escape("Options(group=")):
-            mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
+        results = mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
+
+        expected: dict[str, list[Any]] = {
+            "value_int__median_agg": sorted([5.0, 50.0, 15.0, -10.0]),
+            "value_int__max_agg": sorted(EXPECTED_MAX_BY_REGION.values()),
+            "value_int__sum_agg": sorted(EXPECTED_SUM_BY_REGION.values()),
+            "region__count_agg": [0, 3, 4, 4],
+        }
+        found: dict[str, list[Any]] = {}
+        for t in results:
+            frame = t.to_pandas() if isinstance(t, pa.Table) else t
+            for feature in features:
+                name = str(feature.name)
+                if name in frame.columns:
+                    found[name] = sorted(frame[name].tolist())
+        assert found == {str(f.name): expected[str(f.name)] for f in features}
 
     def test_chained_aggregation_runs_without_group_error(self) -> None:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""

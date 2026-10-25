@@ -117,10 +117,6 @@ RUN_TIMEOUT = __RUN_TIMEOUT__
 
 class MlodaTestingSigtermSleeper(FeatureGroup):
     @classmethod
-    def input_data(cls):
-        return None
-
-    @classmethod
     def match_feature_group_criteria(cls, feature_name, options, data_access_collection=None):
         return str(getattr(feature_name, "name", feature_name)) == "sigterm_sleeping"
 

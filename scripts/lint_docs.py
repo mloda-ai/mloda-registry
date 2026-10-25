@@ -8,14 +8,10 @@ import ast
 import functools
 import re
 import sys
+import tomllib
 from collections import deque
 from pathlib import Path
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"

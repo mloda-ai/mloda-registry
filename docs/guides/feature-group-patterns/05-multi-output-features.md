@@ -143,19 +143,19 @@ Declare the `~part` names with `OUTPUT_PARTS`. Core then computes the base featu
 
 ```python
 from mloda.user import PluginCollector, PluginLoader, mloda
-from mloda.provider import DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet
 
 PluginLoader.all()
 
 
-class Guide05Measure(FeatureGroup):
+class Guide05Measure(DataCreatorFeatureGroup):
     """Returns a value and a unit for the feature guide05_measure."""
 
     OUTPUT_PARTS = ("value", "unit")
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({"guide05_measure"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide05_measure"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -181,12 +181,12 @@ from mloda.provider import ANY_OUTPUT_PART
 from mloda.user import Feature, FeatureName, Options
 
 
-class Guide05Labels(FeatureGroup):
+class Guide05Labels(DataCreatorFeatureGroup):
     """Source of a guide05_label column."""
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({"guide05_label"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide05_label"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

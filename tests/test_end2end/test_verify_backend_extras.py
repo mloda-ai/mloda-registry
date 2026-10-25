@@ -360,7 +360,7 @@ def test_tox_env_runs_the_script_without_installing_the_project() -> None:
     assert re.search(r"^skip_install\s*=\s*true$", block, re.MULTILINE)
     assert re.search(r"^runner\s*=\s*uv-venv-runner$", block, re.MULTILINE)
     deps = tox_deps("verify-backend-extras")
-    assert "setuptools" in deps and "tomli" in deps
+    assert "setuptools" in deps
     assert re.search(r"^[^\n#]*python scripts/verify_backend_extras\.py\s*$", block, re.MULTILINE)
 
 

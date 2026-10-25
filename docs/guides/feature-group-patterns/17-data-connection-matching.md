@@ -2,46 +2,59 @@
 
 How to match feature groups against data connections.
 
-**What**: Match features to specific data sources via the `MatchData` mixin.
+**What**: Bind a feature to one connection of the `DataAccessCollection`.
 **When**: Feature availability depends on the data connection (database, API, file).
 **Why**: Same feature name can have different implementations per data source.
 **Where**: Database connectors, API clients, file source groups with specific schemas.
 
 ## How It Works
 
-The `MatchData` mixin checks if a feature group can handle a request based on the available data connection. A feature group opts in by mixing it in and overriding `match_data_access`, which returns the resource to bind (or `None` to decline).
+Connections live in the `DataAccessCollection`; the framework binds the single connection it accepts.
+
+- Pin one with the `connection_handle` option, or `Feature(name, connection=conn)` (sets a handle for you).
+- A source group that reads a connection declares `ClaimRoute("connection", ...)`.
+- It chooses among the connection's content in `find_sources` and reports the connection a match reads with `match_connection`.
 
 ```python
-from typing import Any
-from mloda.provider import FeatureGroup, MatchData
+from typing import Any, ClassVar
+from mloda.provider import ClaimRoute, FeatureGroup, NamePolicy, PropertySpec, SourceFeatureGroup, SourceMatch
 from mloda.user import DataAccessCollection, Options
 
 
-class DatabaseFeature(MatchData, FeatureGroup):
+class DatabaseSourceFG(SourceFeatureGroup):
+    CLAIM_ROUTES: ClassVar[tuple[ClaimRoute, ...]] = (
+        ClaimRoute("connection", NamePolicy.CHECKED, True, ("connection_handle",)),
+    )
+    PROPERTY_MAPPING: ClassVar[dict[str, PropertySpec]] = {
+        "connection_handle": PropertySpec("Name of the connection to read.", default=None)
+    }
+
     @classmethod
-    def match_data_access(
+    def find_sources(
         cls,
+        route: ClaimRoute,
         feature_name: str,
         options: Options,
-        data_access_collection: DataAccessCollection | None = None,
-        framework_connection_object: Any | None = None,
-    ) -> Any:
-        if data_access_collection is None:
-            return None
-        # resolve(...) returns the single connection, None if none match, and
-        # raises if several match without a disambiguating handle (see
-        # "Named Handles" below).
-        return data_access_collection.resolve("connection", hint=options.get("data_access_handle"))
+        data_access_collection: DataAccessCollection | None,
+    ) -> list[SourceMatch]:
+        connections = {} if data_access_collection is None else data_access_collection.connections
+        handle = cls.read_option("connection_handle", options)
+        if handle not in connections:
+            return []  # record_match_rejection(...) says why, see the Source FeatureGroups guide
+        return [SourceMatch(f"db::{handle}", connections[handle])]
+
+    @classmethod
+    def match_connection(cls, match: SourceMatch) -> Any | None:
+        return match.access
 ```
+
+`DuckdbFG` in `mloda_plugins` is the complete model (catalog read, `columns`, `load_neutral`, an `Implementation` per framework). The in-repo `mloda/community/feature_groups/experimental/german_ledger` reader shows a source group with its own claim route.
 
 ## Matching Priority
 
-In `match_feature_group_criteria()`, data access matching is checked early:
-
 ```text
-1. Input data match     → Root features
-2. Data access match    → MatchData mixin        ← HERE
-3. Exact class name     → Default matching
+1. Input data match     → Source FeatureGroups (claim routes, find_sources)
+2. Exact class name     → Default matching
 ...
 ```
 
@@ -104,7 +117,7 @@ from mloda.user import Options
 # User side: pin which named connection this feature should bind to.
 options = Options(context={"data_access_handle": "warehouse"})
 
-# Feature group side (inside match_data_access, where the collection is data_access_collection):
+# Feature group side (inside find_sources, where the collection is data_access_collection):
 conn = dac.resolve("connection", hint=options.get("data_access_handle"))
 assert conn is warehouse_conn
 ```

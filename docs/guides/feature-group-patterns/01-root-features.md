@@ -6,31 +6,31 @@ Root features have no input dependencies - they are pipeline entry points.
 **When**: You need data from external sources OR generate data in-place.
 **Why**: Every feature pipeline starts with data; root features are the entry points.
 **Where**: CSV/Parquet files, database connectors, API clients, synthetic data, test data.
-**How**: Return a `DataCreator` or `ApiInputData` (`BaseInputData` subclasses) from `input_data()`, or subclass a source FeatureGroup (`CsvFG`, `ParquetFG`, `SqliteFG`, your own) that claims features itself.
+**How**: Subclass `DataCreatorFeatureGroup` to generate data in place, or subclass a source FeatureGroup (`CsvFG`, `ParquetFG`, `SqliteFG`, `ApiDataFG`, your own) that claims features itself.
 
 ## Key Characteristic
 
 | Method | Behavior |
 |--------|----------|
-| `input_data()` | Returns a `BaseInputData` subclass (`DataCreator`, `ApiInputData`); a source FeatureGroup claims features through `CLAIM_ROUTES` instead |
+| `feature_names_supported()` | Names a `DataCreatorFeatureGroup` generates (omit when the only name is the class name); a source FeatureGroup claims features through `CLAIM_ROUTES` instead |
 | `input_features()` | Returns `None` (no dependencies) |
 
 ## Complete Example
 
-A `DataCreator` generates data in place, without an external source (test data, synthetic data). It lists the feature names the group creates.
+A `DataCreatorFeatureGroup` generates data in place, without an external source (test data, synthetic data). It lists the feature names the group creates; the class name always matches too.
 
 ```python
 from typing import Any
 
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureSet
 
 
-class OrderSyntheticData(FeatureGroup):
+class OrderSyntheticData(DataCreatorFeatureGroup):
     """Generate synthetic order data."""
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"order_id", "product_id", "quantity"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"order_id", "product_id", "quantity"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -39,14 +39,14 @@ class OrderSyntheticData(FeatureGroup):
 
 The return shape is a contract, not a style choice. On `PythonDictFramework` it is columnar `dict[str, list]`, and a root feature group must return its columns even when it has no rows: `{"my_column": []}`, never `[]` or `{}`. An empty source directory or a query with no hits is a zero-row result, and a result with zero columns raises `EmptyResultError`. See [calculate_feature](12-calculate-feature.md#return-contract).
 
-Files, documents and databases are read by source FeatureGroups, which load the data themselves; a root group with its own `BaseInputData` family is no longer a loading mechanism. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
+Files, documents and databases are read by source FeatureGroups, which load the data themselves. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
 
 ## Test
 
 ```python
 def test_root_feature():
-    # Verify it's a root feature (has input_data, no input_features)
-    assert isinstance(OrderSyntheticData.input_data(), DataCreator)
+    # Verify it's a root feature (no input_features)
+    assert issubclass(OrderSyntheticData, DataCreatorFeatureGroup)
 
     # Verify calculation
     result = OrderSyntheticData.calculate_feature(None, None)
@@ -85,7 +85,7 @@ There is one source group per format (`CsvFG`, `ParquetFG`, `SqliteFG`, ...), an
 |------|-------------|
 | [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG` base file source group |
 | [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
-| [data_creator.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/creator/data_creator.py) | DataCreator base |
+| [data_creator.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/data_creator_feature_group.py) | `DataCreatorFeatureGroup` base |
 | [create_synthetic_data.py](https://github.com/mloda-ai/mloda/blob/main/docs/docs/examples/mloda_basics/create_synthetic_data.py) | Synthetic data example |
 
 ## Combines With

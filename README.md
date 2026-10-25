@@ -1,6 +1,6 @@
 [![CI](https://github.com/mloda-ai/mloda-registry/actions/workflows/ci.yaml/badge.svg)](https://github.com/mloda-ai/mloda-registry/actions/workflows/ci.yaml)
 [![PyPI](https://img.shields.io/pypi/v/mloda-community.svg)](https://pypi.org/project/mloda-community/)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![mloda](https://img.shields.io/badge/built%20with-mloda-blue.svg)](https://github.com/mloda-ai/mloda)
 
 # mloda-registry

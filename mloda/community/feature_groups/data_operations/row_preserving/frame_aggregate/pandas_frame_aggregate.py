@@ -59,7 +59,7 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         return group.aggregate(data, features, compute_frame=cls._compute_frame)
 
     @classmethod
-    def accepts(cls, feature_name: str, options: Options) -> bool:
+    def accepts(cls, feature_name: str, options: Options, *, part: str | None = None) -> bool:
         return FrameAggregateFeatureGroup.frame_accepts(feature_name, options, time_units=cls.SUPPORTED_TIME_UNITS)
 
     _FIXED_FREQ_CODES: dict[str, str] = {

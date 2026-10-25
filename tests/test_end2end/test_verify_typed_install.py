@@ -16,7 +16,7 @@ import pytest
 from tests.script_loader import load_script
 from tests.test_end2end.test_verify_independent_installs import _FakeCompletedProcess
 from tests.toml_loader import load_toml
-from tests.tox_ini import tox_deps
+from tests.tox_ini import tox_block
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_typed_install.py"
@@ -206,7 +206,7 @@ def test_main_installs_pins_and_mypy_then_runs_mypy_from_the_venv(monkeypatch: p
     assert Path(kwargs["cwd"]) == Path(seen["tmpdir"]), f"mypy must run in the install tmpdir, got {kwargs['cwd']}"
 
 
-def test_tox_env_installs_a_toml_parser() -> None:
-    """Python 3.10 has no tomllib and verify_common pulls in a toml parser, so the env must install tomli."""
-    deps = tox_deps("verify-typed-install")
-    assert "tomli" in deps, f"verify-typed-install must install tomli, got {deps}"
+def test_tox_env_does_not_install_tomli() -> None:
+    """Python 3.11+ ships tomllib, so the env must not install the tomli backport."""
+    block = tox_block("verify-typed-install")
+    assert "tomli" not in block, f"verify-typed-install must not install tomli, got {block}"

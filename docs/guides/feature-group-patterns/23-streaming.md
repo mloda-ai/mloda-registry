@@ -49,6 +49,8 @@ for result in session.stream_run(api_data={"MyKey": {"feature_a": [1, 2], "featu
     print(result)
 ```
 
+`stream_run()` needs the same set keys and column names as `prepare()`.
+
 ## What Streaming Does NOT Do
 
 - **Row-by-row streaming** — individual rows are not yielded as they are computed.

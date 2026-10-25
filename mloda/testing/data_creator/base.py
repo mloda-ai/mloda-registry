@@ -3,7 +3,7 @@
 Provides a fixed 12-row dataset with deliberate edge cases (nulls, duplicates,
 gaps, empty strings, all-null columns) that data-operations plugins can use as
 a shared test fixture. Follows the ATestDataCreator pattern from mloda core:
-a FeatureGroup with input_data() -> DataCreator(...) that serves as a root
+a DataCreatorFeatureGroup that serves as a root
 data source in mloda's pipeline.
 """
 
@@ -13,11 +13,11 @@ import functools
 from datetime import date, datetime, timezone
 from typing import Any
 
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import ComputeFramework, DataCreatorFeatureGroup, FeatureSet
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 
-class DataOperationsTestDataCreator(FeatureGroup):
+class DataOperationsTestDataCreator(DataCreatorFeatureGroup):
     """Test data source FeatureGroup for data-operations plugins.
 
     Call ``get_raw_data()`` for a plain dict of lists (12 rows).
@@ -28,8 +28,8 @@ class DataOperationsTestDataCreator(FeatureGroup):
     compute_framework: type[ComputeFramework] = PyArrowTable
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator(set(cls.get_raw_data().keys()))
+    def feature_names_supported(cls) -> set[str]:
+        return set(cls.get_raw_data().keys())
 
     @classmethod
     def get_raw_data(cls) -> dict[str, list[Any]]:

@@ -152,7 +152,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 `_resolve_operation(feature, config_key)` tries string-based parsing via `PREFIX_PATTERN` first, then falls back to `options.get(config_key)`. On the string path, a named-capture pattern returns the capture named `config_key`, and a positional pattern returns its first group for any key. See [Chained Features](03-chained-features.md) for the full pattern.
 
-A base that writes into the caller's data rather than returning a new frame (Pattern 9) calls the column-wise data hooks from inside `calculate_feature` rather than accessing columns directly. See [Framework-Specific: Column-Wise Data Hooks](09-framework-specific.md#column-wise-data-hooks).
+Framework-specific column access belongs in one `Implementation` per framework behind the operation group. See [Framework-Specific](09-framework-specific.md#complete-example).
 
 ---
 

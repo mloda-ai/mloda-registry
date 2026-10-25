@@ -176,15 +176,15 @@ the link to `run_all` (the `links` parameter is a `set`):
 
 ```python
 import pandas as pd
-from mloda.provider import DataCreator
+from mloda.provider import DataCreatorFeatureGroup
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 
-class RunEvents(EventFeatureGroup):
+class RunEvents(EventFeatureGroup, DataCreatorFeatureGroup):
     @classmethod
-    def input_data(cls) -> DataCreator | None:
-        return DataCreator({"id", "symbol", "event_ts"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"id", "symbol", "event_ts"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -196,10 +196,10 @@ class RunEvents(EventFeatureGroup):
         return {PandasDataFrame}
 
 
-class RunQuotes(QuoteFeatureGroup):
+class RunQuotes(QuoteFeatureGroup, DataCreatorFeatureGroup):
     @classmethod
-    def input_data(cls) -> DataCreator | None:
-        return DataCreator({"symbol", "quote_ts", "price"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"symbol", "quote_ts", "price"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -241,7 +241,7 @@ results = mloda.run_all(
 assert list(results[0]["asof_event_price"]) == [100, 110]
 ```
 
-A complete, runnable version (two `DataCreator`-backed source feature groups, a small
+A complete, runnable version (two `DataCreatorFeatureGroup`-backed feature groups, a small
 hand-traced dataset, and the backward-join semantics asserted row by row) lives in the
 registry test suite:
 [`tests/test_end2end/test_asof_join_example.py`](https://github.com/mloda-ai/mloda-registry/blob/main/tests/test_end2end/test_asof_join_example.py).

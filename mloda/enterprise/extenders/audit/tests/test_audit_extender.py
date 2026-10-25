@@ -30,9 +30,8 @@ from unittest.mock import Mock, patch
 import pyarrow as pa
 import pytest
 from mloda.provider import (
-    BaseInputData,
     ComputeFramework,
-    DataCreator,
+    DataCreatorFeatureGroup,
     FeatureGroup,
     FeatureSet,
     ReadFileFG,
@@ -215,12 +214,12 @@ class _PlainGroup(FeatureGroup):
     """Declares nothing, so it takes the policy's undeclared level."""
 
 
-class MlodaTestingClassPiiRoot(FeatureGroup):
+class MlodaTestingClassPiiRoot(DataCreatorFeatureGroup):
     """Root source declared pii."""
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({_PII_COLUMN})
+    def feature_names_supported(cls) -> set[str]:
+        return {_PII_COLUMN}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
@@ -1095,7 +1094,7 @@ class TestAuditExtenderConstruction:
             [42],
             [ReadFileFG],
             [SourceFeatureGroup],
-            [BaseInputData],
+            [MlodaTestingClassPiiRoot],
         ],
         ids=[
             "str_entry",
@@ -1106,7 +1105,7 @@ class TestAuditExtenderConstruction:
             "int",
             "read_file_base",
             "source_base",
-            "base_input_data",
+            "data_creator_group",
         ],
     )
     def test_a_classification_policy_with_a_bad_exempt_readers_entry_raises(self, value: Any) -> None:
@@ -5174,14 +5173,10 @@ class TestAuditExtenderClassificationRunAll:
                     run()
 
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        # A source group is probed for the requested name and for its input.
+        # A source group is probed for the input only: its class-name prefix no longer claims the chain-shaped
+        # requested name (mloda 0.18).
         assert sorted((r["hook"], r["reader_class"], r["feature_names"][0]) for r in denies) == (
-            []
-            if allowed
-            else [
-                ("INPUT_DATA_MATCH", _qualname(CsvFG), _CSV_MASKED),
-                ("INPUT_DATA_MATCH", _qualname(CsvFG), "alpha"),
-            ]
+            [] if allowed else [("INPUT_DATA_MATCH", _qualname(CsvFG), "alpha")]
         )
 
     def test_a_masking_step_over_a_public_source_stays_public_for_a_public_principal(

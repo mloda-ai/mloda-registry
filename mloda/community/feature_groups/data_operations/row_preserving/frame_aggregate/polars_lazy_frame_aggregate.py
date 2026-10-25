@@ -44,7 +44,7 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         return group.aggregate(data, features, compute_frame=cls._compute_frame)
 
     @classmethod
-    def accepts(cls, feature_name: str, options: Options) -> bool:
+    def accepts(cls, feature_name: str, options: Options, *, part: str | None = None) -> bool:
         """Polars cumulative/expanding frames exclude std/var/median; rolling/time support all."""
         cumulative = frozenset(_CUMULATIVE_AGG_TYPES)
         return FrameAggregateFeatureGroup.frame_accepts(

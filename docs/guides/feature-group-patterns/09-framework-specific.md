@@ -31,9 +31,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 from mloda.provider import (
-    BaseInputData,
     ComputeFramework,
-    DataCreator,
+    DataCreatorFeatureGroup,
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
@@ -91,12 +90,12 @@ class PyArrowDoubled(Implementation[DoubledFeatureGroup]):
         return data.append_column(name, pc.multiply(data[source], 2))
 
 
-class ValueSource(FeatureGroup):
+class ValueSource(DataCreatorFeatureGroup):
     """Root data for the run below."""
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"value"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"value"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -239,7 +238,7 @@ class PyArrowColumnTotal(Implementation[ColumnTotal]):
 
 - NaN can arrive as null after a framework transfer, so state the contract over missing values, not NaN alone
 - Divergence is declared per operation, not detected from the data
-- Besides `supported`, the classmethod `accepts(feature_name, options)` (default `True`) can decline a feature; a framework whose implementation declines it is not a candidate
+- Besides `supported`, the classmethod `accepts(feature_name, options, *, part=None)` (default `True`; `part` is the requested output part) can decline a feature; a framework whose implementation declines it is not a candidate
 - The same `Implementation[G]` serves source groups: `data` is then the `SourceMatch`, see [27-input-data-readers.md](27-input-data-readers.md)
 
 With Pandas and PyArrow both enabled, a sum runs on PyArrow with the reason `prefers a matching version`. A pin overrides that choice:
@@ -292,61 +291,6 @@ class PandasOnlyGroup(FeatureGroup):
 ```
 
 `None` (the default) allows any framework. Aggregation, window aggregation, scalar aggregate, frame aggregate, point/scalar arithmetic, lookup, time bucketization, ffill, EMA, resample, sessionization, rank, offset, percentile, string, datetime and binning are converted; a new backend for one of them is an `Implementation[Group]`, not a subclass of the group. Other data-operation families still use one FeatureGroup subclass per framework. Such a base must keep its compute hook `@abstractmethod` (from `abc`), so mloda never selects the base on a framework without a subclass; mloda raises `FeatureResolutionError` instead of failing at compute time.
-
-## Column-Wise Data Hooks
-
-For groups that still use per-framework subclasses (a live `mloda.provider` API), a base built on `FeatureChainParserMixin` (Pattern 3) that touches columns directly, rather than returning a whole new frame, owes its framework subclasses the column-wise data hooks its `calculate_feature` calls, drawn from `_get_available_columns`, `_check_source_features_exist`, `_add_result_to_data`. The mixin defines all three as non-abstract classmethods that raise `NotImplementedError` naming the class and hook, so a framework subclass that skips one fails at compute time rather than at class-definition time.
-
-Declare which of the three your base's `calculate_feature` actually calls with `REQUIRED_COLUMNWISE_HOOKS`, normally set to one of two constants from `mloda.provider`:
-
-| Constant | Declares |
-|----------|----------|
-| `COLUMNWISE_HOOKS` | `_check_source_features_exist`, `_add_result_to_data` |
-| `COLUMN_DISCOVERY_HOOKS` | those two plus `_get_available_columns`, for a base that resolves column names against the data |
-
-```py
-from mloda.provider import COLUMN_DISCOVERY_HOOKS, FeatureChainParserMixin, FeatureGroup
-from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
-
-class MyFeatureBase(FeatureChainParserMixin, FeatureGroup):
-    PREFIX_PATTERN = r"^.+__my_op$"
-    REQUIRED_COLUMNWISE_HOOKS = COLUMN_DISCOVERY_HOOKS
-
-
-class MyFeaturePandas(MyFeatureBase):
-    @classmethod
-    def compute_framework_rule(cls):
-        return {PandasDataFrame}
-
-    @classmethod
-    def _get_available_columns(cls, data):
-        return PandasDataFrame.extract_column_names(data)
-
-    @classmethod
-    def _check_source_features_exist(cls, data, feature_names):
-        available = PandasDataFrame.extract_column_names(data)
-        if set(feature_names) - available:
-            raise ValueError(f"Missing source features, available: {sorted(available)}")
-
-    @classmethod
-    def _add_result_to_data(cls, data, feature_name, result):
-        data[feature_name] = result
-        return data
-```
-
-Assert the contract holds in your own test suite instead of discovering a gap mid-run. `missing_columnwise_hooks` only checks the hooks a class declares, so pin the declaration too or a class that never sets `REQUIRED_COLUMNWISE_HOOKS` passes vacuously:
-
-```py
-from mloda.provider import COLUMN_DISCOVERY_HOOKS, missing_columnwise_hooks
-
-
-def test_my_feature_pandas_implements_its_hooks():
-    assert MyFeaturePandas.REQUIRED_COLUMNWISE_HOOKS == COLUMN_DISCOVERY_HOOKS
-    assert missing_columnwise_hooks(MyFeaturePandas) == []
-```
-
-A hook that is not a `@classmethod` or `@staticmethod` counts as missing: `cls._hook(data, ...)` passes the class into the first parameter, so a plain function never receives the data. Assert `missing_columnwise_hooks` on the framework-bound class, not the base: the base declares the contract but implements none of it itself, so it reports every hook it declares as missing.
 
 ## Available Frameworks
 

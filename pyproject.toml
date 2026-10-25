@@ -27,7 +27,6 @@ dev = [
     "ruff",
     "mypy",
     "bandit",
-    "tomli",
     "python-dateutil",
     "types-python-dateutil",
     "duckdb",

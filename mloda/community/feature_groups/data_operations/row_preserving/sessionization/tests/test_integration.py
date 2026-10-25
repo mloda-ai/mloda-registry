@@ -24,7 +24,7 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import ComputeFramework, DataCreatorFeatureGroup, FeatureSet
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -51,7 +51,7 @@ _SESSION_30_MINUTE_EXPECTED: list[int] = [0, 0, 1, 1, 2]
 _SESSION_10_MINUTE_EXPECTED: list[int] = [0, 1, 2, 3, 4]
 
 
-class SessionIntegrationDataCreator(FeatureGroup):
+class SessionIntegrationDataCreator(DataCreatorFeatureGroup):
     """Local pandas data source: one user, five rows with deliberate gaps."""
 
     compute_framework: type[ComputeFramework] = PandasDataFrame
@@ -71,8 +71,8 @@ class SessionIntegrationDataCreator(FeatureGroup):
         }
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator(set(cls.get_raw_data().keys()))
+    def feature_names_supported(cls) -> set[str]:
+        return set(cls.get_raw_data().keys())
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

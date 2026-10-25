@@ -53,11 +53,11 @@ All siblings share one feature name. A discriminator option picks the sibling; e
 ```python
 from typing import Any, ClassVar
 
-from mloda.provider import DataCreator, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import DataCreatorFeatureGroup, FeatureSet, property_spec
 from mloda.user import DataAccessCollection, Feature, FeatureName, Options
 
 
-class BaseRetriever(FeatureGroup):
+class BaseRetriever(DataCreatorFeatureGroup):
     ROOT_FEATURE_NAME = "retrieved_passages"
     BACKEND = "retrieve_backend"
     BACKENDS: ClassVar[dict[str, str]] = {}  # empty: the base never matches
@@ -68,8 +68,8 @@ class BaseRetriever(FeatureGroup):
     }
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({cls.ROOT_FEATURE_NAME})
+    def feature_names_supported(cls) -> set[str]:
+        return {cls.ROOT_FEATURE_NAME}
 
     @classmethod
     def match_feature_group_criteria(

@@ -91,6 +91,8 @@ session = mloda.prepare([Feature("col")], compute_frameworks=["PandasDataFrame"]
 result = session.run(api_data={"MyKey": {"col": [1, 2]}})
 ```
 
+`run()` needs the same set keys and column names as `prepare()`.
+
 See [Realtime Execution](feature-group-patterns/24-realtime.md) for details.
 
 ## Direct Import

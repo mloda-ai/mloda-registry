@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - exercised only without pyarrow install
     pa = None
     PyArrowTable = None  # type: ignore[assignment,misc]
 
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import ComputeFramework, DataCreatorFeatureGroup, FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Index, Link, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
@@ -47,7 +47,7 @@ def _to_frame(framework: type[ComputeFramework], columns: dict[str, Any]) -> Any
     return pa.table(columns)
 
 
-class _AsofEventSource(FeatureGroup):
+class _AsofEventSource(DataCreatorFeatureGroup):
     """LEFT side (events); subclasses only pin ``compute_framework``."""
 
     compute_framework: type[ComputeFramework]
@@ -71,8 +71,8 @@ class _AsofEventSource(FeatureGroup):
         return [Index(("symbol",))]
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator(set(cls.get_raw_data().keys()))
+    def feature_names_supported(cls) -> set[str]:
+        return set(cls.get_raw_data().keys())
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -83,7 +83,7 @@ class _AsofEventSource(FeatureGroup):
         return {cls.compute_framework}
 
 
-class _AsofQuoteSource(FeatureGroup):
+class _AsofQuoteSource(DataCreatorFeatureGroup):
     """RIGHT side (per-symbol price timeline); subclasses only pin ``compute_framework``."""
 
     compute_framework: type[ComputeFramework]
@@ -106,8 +106,8 @@ class _AsofQuoteSource(FeatureGroup):
         return [Index(("symbol",))]
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator(set(cls.get_raw_data().keys()))
+    def feature_names_supported(cls) -> set[str]:
+        return set(cls.get_raw_data().keys())
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

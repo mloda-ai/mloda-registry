@@ -36,7 +36,7 @@ api_data = {"Customers": {"age": [17, 30, 70], "region": ["EU", "NA", "EU"], "my
 features = [Feature.not_typed(name) for name in ("age", "region", "my_feature")]
 
 result = mloda.run_all(features, global_filter=global_filter, api_data=api_data)
-assert result[0]["age"].tolist() == [30]
+assert result[0]["age"] == [30]
 ```
 
 You can also use the `FilterType` enum directly:

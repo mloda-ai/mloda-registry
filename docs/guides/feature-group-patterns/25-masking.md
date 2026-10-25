@@ -67,7 +67,7 @@ Pass a `mask` key in the feature's context options:
 
 ```python
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
-from mloda.provider import ApiInputDataFeature
+from mloda.provider import ApiDataFG
 from mloda.user import Feature, Options, PluginCollector, PluginLoader, mloda
 
 PluginLoader.all()
@@ -93,7 +93,7 @@ result = mloda.run_all(
     [feature],
     compute_frameworks=["PandasDataFrame"],
     api_data={"MaskData": data},
-    plugin_collector=PluginCollector.enabled_feature_groups({AggregationFeatureGroup, ApiInputDataFeature}),
+    plugin_collector=PluginCollector.enabled_feature_groups({AggregationFeatureGroup, ApiDataFG}),
 )
 # Region A: the Y row is masked (5), leaving 10. Region B: 20 + 30 = 50.
 assert sorted(result[0]["value_int__sum_agg"]) == [10, 50]

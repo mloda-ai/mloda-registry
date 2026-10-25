@@ -325,7 +325,7 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
 def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
     """Map each non-stdlib, non-mloda top-level import root under root_dir to the files that use it."""
     stdlib_roots = set(sys.stdlib_module_names)
-    # Bridge stdlib drift across the 3.10-3.14 support window (e.g. PEP 594 removals, tomllib addition).
+    # Bridge stdlib drift across the 3.11-3.14 support window (e.g. PEP 594 removals, tomllib addition).
     stdlib_roots.update(
         {
             "aifc",

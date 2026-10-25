@@ -11,7 +11,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec
+from mloda.provider import ApiDataFG, FeatureSet, PropertySpec
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -346,7 +346,7 @@ class TestIntegration:
             [_config_feature("pseudonymized_email")],
             compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubAnonymizer}),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
         )
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "pseudonymized_email") == expected
@@ -357,7 +357,7 @@ class TestIntegration:
             [_string_feature()],
             compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubAnonymizer}),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
         )
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "email__hmac_sha256_pseudonymized") == expected

@@ -38,7 +38,7 @@ from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.utils import get_all_subclasses
 from mloda.core.abstract_plugins.compute_framework import ComputeFramework
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
-from mloda.provider import DataCreator, FeatureSet, ImplementationPinError
+from mloda.provider import DataCreatorFeatureGroup, FeatureSet, ImplementationPinError
 from mloda.steward import resolve_feature
 from mloda.user import DataAccessCollection, Options, PluginCollector, load_features_from_config
 from mloda.user import mloda as real_mloda
@@ -369,10 +369,10 @@ def test_test_section_sibling_test_passes_against_the_way_2_example() -> None:
 def _price_source() -> type[FeatureGroup]:
     """Pandas-only source of a ``price`` column with a NaN, built on first use so nothing registers at import."""
 
-    class PriceSource(FeatureGroup):
+    class PriceSource(DataCreatorFeatureGroup):
         @classmethod
-        def input_data(cls) -> DataCreator:
-            return DataCreator({"price"})
+        def feature_names_supported(cls) -> set[str]:
+            return {"price"}
 
         @classmethod
         def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

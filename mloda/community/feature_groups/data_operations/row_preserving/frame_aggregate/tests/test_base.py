@@ -1114,6 +1114,24 @@ class TestImplementationAccepts:
         assert impl.accepts(f"value__{agg_type}_7_day_window", _ROLLING_OPTIONS)
 
     @pytest.mark.parametrize(
+        ("module", "name", "accepted", "rejected"),
+        [
+            ("pandas_frame_aggregate", "PandasFrameAggregate", "value__sum_3_day_window", "value__sum_1_month_window"),
+            ("sqlite_frame_aggregate", "SqliteFrameAggregate", "value__sum_3_day_window", "value__sum_1_month_window"),
+            ("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate", "value__std_rolling_3", "value__cumstd"),
+        ],
+    )
+    @pytest.mark.parametrize("part", [None, "sum"])
+    def test_accepts_takes_the_part_keyword_without_changing_the_result(
+        self, module: str, name: str, accepted: str, rejected: str, part: str | None
+    ) -> None:
+        impl = load_implementation(_PACKAGE, module, name)
+        assert impl.accepts(accepted, _ROLLING_OPTIONS, part=part) == impl.accepts(accepted, _ROLLING_OPTIONS)
+        assert impl.accepts(rejected, _ROLLING_OPTIONS, part=part) == impl.accepts(rejected, _ROLLING_OPTIONS)
+        assert impl.accepts(accepted, _ROLLING_OPTIONS, part=part)
+        assert not impl.accepts(rejected, _ROLLING_OPTIONS, part=part)
+
+    @pytest.mark.parametrize(
         ("module", "name"),
         [
             ("duckdb_frame_aggregate", "DuckdbFrameAggregate"),

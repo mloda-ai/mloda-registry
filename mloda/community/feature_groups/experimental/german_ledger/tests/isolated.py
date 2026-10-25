@@ -110,7 +110,7 @@ def _revenue(folder: Path, plugin_collector: Any = None) -> str:
 
 
 def collision() -> dict[str, Any]:
-    """A reader that claims every name: the journal's name gate yields a total, without it resolution collides."""
+    """A reader that claims every name: with or without the journal's name gate, core keeps it off the computed name."""
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
     from mloda.community.feature_groups.experimental.german_ledger.tests._host import PLUGINS
 

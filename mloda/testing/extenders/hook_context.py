@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from mloda.steward import ExtenderHook, HookContext, OutputSchema
 
@@ -11,6 +11,9 @@ if TYPE_CHECKING:
 
     from mloda.provider import SourceFeatureGroup
     from mloda.steward import AsOfJoinConfig
+
+# Mirrors HookContext.input_check; core does not export the alias.
+InputCheck = Literal["checked", "skipped_source", "skipped_empty"]
 
 
 def make_hook_context(
@@ -56,6 +59,7 @@ def make_hook_context(
     declared_attributes: dict[str, str | int | float | bool] | None = None,
     reader_class: type[SourceFeatureGroup] | None = None,
     result_attributes: dict[str, str | int | float | bool] | None = None,
+    input_check: InputCheck | None = None,
 ) -> HookContext:
     """Build a HookContext test fixture; every keyword lands unchanged on the result."""
     return HookContext(
@@ -100,4 +104,5 @@ def make_hook_context(
         declared_attributes=declared_attributes,
         reader_class=reader_class,
         result_attributes=result_attributes,
+        input_check=input_check,
     )

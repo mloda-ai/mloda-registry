@@ -30,7 +30,7 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 ## How It Works
 
 1. **`mloda.prepare(features, ...)`** resolves features, builds the dependency graph, and returns a `session` object. This is the expensive step.
-2. **`session.run(api_data=...)`** executes the pre-built plan with fresh input data. This is cheap and can be called repeatedly.
+2. **`session.run(api_data=...)`** executes the pre-built plan with fresh input data. This is cheap and can be called repeatedly. `run()` needs the same set keys and column names as `prepare()`, else it raises `ValueError`.
 
 ## Comparison with `run_all`
 

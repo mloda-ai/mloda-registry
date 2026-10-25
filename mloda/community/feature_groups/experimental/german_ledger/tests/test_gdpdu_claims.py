@@ -75,7 +75,7 @@ FIX = HERE / "fixtures"
 
 
 def test_collision_gate() -> None:
-    """Skr and Sources need a ledger source; the name gate keeps a claim-all reader off revenue__sources."""
+    """Skr and Sources need a ledger source; the name gate and core keep a claim-all reader off revenue__sources."""
     dossier = str(FIX / "dossier_a")
     with_source = DataAccessCollection(folders={dossier})
     no_ledger = DataAccessCollection(folders={str(FIX)})
@@ -97,7 +97,7 @@ def test_collision_gate() -> None:
     assert skr.match_feature_group_criteria("revenue", Options({"GdpduReader": str(FIX)}), datev) is False
     assert skr.match_feature_group_criteria("revenue", Options(), datev) is True
 
-    # The stock reader declines this on its own; the collision scenario below is what pins the gate.
+    # The stock reader declines this on its own; the scenario below shows the total survives a claim-all reader.
     def claimed(name: str) -> Any:
         return claim([FIX / "dossier_a"], name, {JournalFeatureGroup}).feature_group
 
@@ -106,10 +106,7 @@ def test_collision_gate() -> None:
 
     facts = run_isolated("collision")
     assert facts["gated"] == "45385.06", facts
-    ungated = facts["ungated"]
-    assert ungated.startswith("FeatureResolutionError: Multiple feature groups found"), facts
-    for name in ("SourcesFeatureGroup", "PermissiveReader"):
-        assert name in ungated, facts
+    assert facts["ungated"] == "45385.06", facts
 
 
 def test_gate_records_only_its_own_rejection() -> None:

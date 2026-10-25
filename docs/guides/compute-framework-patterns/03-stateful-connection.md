@@ -137,4 +137,4 @@ result = mloda.run_all(
 
 - **Category 1**: Inherits base structure
 - **Merge Engine** (Concept 6): Connection passed to merge engine
-- **MatchData**: Match feature groups to connections
+- **Connection source groups**: `ClaimRoute("connection", ...)` and `match_connection`, see [Data Connection Matching](../feature-group-patterns/17-data-connection-matching.md)

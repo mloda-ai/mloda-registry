@@ -35,7 +35,7 @@ Q1: Does it load external data (file, DB, external API)?
     NO  → Continue
 
 Q2: How many input features?
-    0 → Pattern 1: Root Feature (or DataCreator, see 01-root-features)
+    0 → Pattern 1: Root Feature (or DataCreatorFeatureGroup, see 01-root-features)
     1+ → Pattern 2: Derived (see Q3)
 
 Q3: Should it be reusable via naming pattern (input__operation)?
@@ -86,7 +86,7 @@ Q17: Need to understand calculate_feature() and runtime context?
     YES → See 12-calculate-feature
 
 Q18: Does it receive data programmatically at runtime (e.g. via API call)?
-    YES → See ApiInputData docs: https://mloda-ai.github.io/mloda/in_depth/api-input-data/
+    YES → See ApiDataFG docs: https://mloda-ai.github.io/mloda/in_depth/access-feature-data/#apidatafg
 
 Q19: Need to create feature groups dynamically or simplify complex input sources?
     YES → See 21-experimental-shortcuts

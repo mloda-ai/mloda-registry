@@ -13,13 +13,9 @@ import os
 import re
 import subprocess  # nosec
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, cast
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pyarrow as pa
 import pytest

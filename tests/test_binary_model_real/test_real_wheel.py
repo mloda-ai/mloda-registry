@@ -29,7 +29,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiInputDataFeature, FeatureSet
+from mloda.provider import ApiDataFG, FeatureSet
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -207,7 +207,7 @@ def _run_end_to_end(case: _Case, feature_class: type[BinaryExampleFeatureGroup] 
         [feature],
         compute_frameworks=[PyArrowTable],
         api_data={"BinaryRealWheelData": rows},
-        plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, feature_class}),
+        plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, feature_class}),
     )
     expected = case.expected(rows)
     found = False

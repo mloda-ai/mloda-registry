@@ -18,11 +18,10 @@ When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda c
 The default `match_feature_group_criteria()` checks in order:
 
 ```text
-1. Input data match     → Root features with matching input_data(); source FeatureGroups use CLAIM_ROUTES
-2. Data access match    → MatchData mixin with data connection
-3. Exact class name     → "MyFeature" == class MyFeature
-4. Prefix match         → "MyFeature_x".startswith("MyFeature_")
-5. Explicit names       → name in feature_names_supported()
+1. Input data match     → Source FeatureGroups use CLAIM_ROUTES
+2. Exact class name     → "MyFeature" == class MyFeature
+3. Prefix match         → "MyFeature_x".startswith("MyFeature_")
+4. Explicit names       → name in feature_names_supported()
 ```
 
 The first rule that returns `True` claims the name. If FeatureChainParserMixin is used, pattern matching is also applied.

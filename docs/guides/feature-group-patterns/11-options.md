@@ -116,7 +116,7 @@ A `PREFIX_PATTERN` capture is text. `name_converter` turns it into the typed val
 from typing import Any, ClassVar
 
 from mloda.provider import (
-    DataCreator,
+    DataCreatorFeatureGroup,
     DefaultOptionKeys,
     FeatureChainParserMixin,
     FeatureGroup,
@@ -129,10 +129,10 @@ from mloda.user import PluginCollector, PluginLoader, mloda
 PluginLoader.all()
 
 
-class Guide11Prices(FeatureGroup):
+class Guide11Prices(DataCreatorFeatureGroup):
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({"guide11_price"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide11_price"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

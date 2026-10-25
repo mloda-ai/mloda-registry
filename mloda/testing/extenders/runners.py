@@ -12,9 +12,8 @@ from typing import Any, ClassVar
 
 import pyarrow as pa
 from mloda.provider import (
-    BaseInputData,
     ComputeFramework,
-    DataCreator,
+    DataCreatorFeatureGroup,
     FeatureGroup,
     FeatureSet,
 )
@@ -134,8 +133,8 @@ class _JoinSource:
         return [Index((cls._index_column,))]
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator(set(cls._columns))
+    def feature_names_supported(cls) -> set[str]:
+        return set(cls._columns)
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
@@ -149,14 +148,14 @@ class _JoinSource:
 # Module-level so MULTIPROCESSING can pickle the link by path.
 # The MlodaTesting class prefix and the column prefix keep them from colliding with a host's features once registered
 # (the default matcher also matches by class name).
-class MlodaTestingJoinLeft(_JoinSource, FeatureGroup):
+class MlodaTestingJoinLeft(_JoinSource, DataCreatorFeatureGroup):
     """Left PyArrow source of the join."""
 
     _columns = {"mloda_testing_left_id": [1, 2, 3], "mloda_testing_left_value": [10, 20, 30]}
     _index_column = "mloda_testing_left_id"
 
 
-class MlodaTestingJoinRight(_JoinSource, FeatureGroup):
+class MlodaTestingJoinRight(_JoinSource, DataCreatorFeatureGroup):
     """Right PyArrow source of the join."""
 
     _columns = {"mloda_testing_right_id": [1, 2, 4], "mloda_testing_right_value": [100, 200, 400]}
@@ -322,7 +321,7 @@ class CountingExtender(Extender):
 
 
 # The MlodaTesting prefix keeps it and its minted subclasses from matching a host feature by class name.
-class MlodaTestingFailingFeatureGroup(FeatureGroup):
+class MlodaTestingFailingFeatureGroup(DataCreatorFeatureGroup):
     """Primary-source feature group that always raises; the sentinel feature_name never matches a real request."""
 
     feature_name: str = "mloda_testing_never_requested"
@@ -330,8 +329,8 @@ class MlodaTestingFailingFeatureGroup(FeatureGroup):
     failure: type[BaseException] = RuntimeError
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({cls.feature_name})
+    def feature_names_supported(cls) -> set[str]:
+        return {cls.feature_name}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]]:

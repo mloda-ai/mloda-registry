@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec, property_spec
+from mloda.provider import ApiDataFG, FeatureSet, PropertySpec, property_spec
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -353,7 +353,7 @@ class TestIntegration:
             [feature],
             compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubExample}),
         )
         expected = compute_expected_hash_column(rows, ["col_a", "col_b"], None)
         found = False
@@ -371,7 +371,7 @@ class TestIntegration:
             [feature_a, feature_b],
             compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubExample}),
             column_ordering="request_order",
         )
         found_a = False
@@ -395,16 +395,14 @@ class TestIntegration:
                 [feature],
                 compute_frameworks=[PyArrowTable],
                 api_data={"BinaryExampleData": {"col_a": ["alpha"]}},
-                plugin_collector=PluginCollector.enabled_feature_groups(
-                    {ApiInputDataFeature, BinaryExampleFeatureGroup}
-                ),
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, BinaryExampleFeatureGroup}),
             )
 
     def test_single_hashed_feature_end_to_end_with_group_options(self) -> None:
         """Same request as ``test_single_hashed_feature_end_to_end``, but the options are passed as
         GROUP options instead of context options: mloda forwards group options to the input
         features it resolves (here, ``col_a``/``col_b``), so unless the group refuses to claim its
-        own inputs (contract: Options), this ambiguously resolves both ``ApiInputDataFeature`` and
+        own inputs (contract: Options), this ambiguously resolves both ``ApiDataFG`` and
         ``StubExample`` for ``col_a``/``col_b`` and fails with a multiple-feature-groups error."""
         rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta", "gamma"], "col_b": ["x", "y", "z"]}
         feature = Feature(
@@ -414,7 +412,7 @@ class TestIntegration:
             [feature],
             compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubExample}),
         )
         expected = compute_expected_hash_column(rows, ["col_a", "col_b"], None)
         found = False

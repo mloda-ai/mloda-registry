@@ -5,15 +5,11 @@ from __future__ import annotations
 
 import runpy
 import sys
+import tomllib
 from collections.abc import Callable, Collection
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 

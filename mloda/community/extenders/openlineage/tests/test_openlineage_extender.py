@@ -4629,7 +4629,7 @@ _SIGTERM_RUN_TIMEOUT = 120.0
 _SIGTERM_CHILD = """
 import sys, time
 import pyarrow as pa
-from mloda.provider import BaseInputData, FeatureGroup
+from mloda.provider import FeatureGroup
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
@@ -4639,10 +4639,6 @@ RUN_TIMEOUT = __RUN_TIMEOUT__
 
 
 class SigtermSleepingFeature(FeatureGroup):
-    @classmethod
-    def input_data(cls):
-        return None
-
     @classmethod
     def match_feature_group_criteria(cls, feature_name, options, data_access_collection=None):
         return str(getattr(feature_name, "name", feature_name)) == "sigterm_sleeping"

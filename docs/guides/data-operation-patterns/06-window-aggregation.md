@@ -42,19 +42,19 @@ from typing import Any
 import duckdb
 import pyarrow as pa
 
-from mloda.provider import BaseInputData, DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureSet
 from mloda.user import DataAccessCollection, Feature, Options, PluginLoader, mloda
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 
 PluginLoader.all()
 
 
-class WindowData(FeatureGroup):
+class WindowData(DataCreatorFeatureGroup):
     """Source columns for the example."""
 
     @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"region", "value_int", "ts"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"region", "value_int", "ts"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

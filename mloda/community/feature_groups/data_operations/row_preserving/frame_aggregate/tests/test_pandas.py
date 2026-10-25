@@ -111,10 +111,7 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
 
     def test_pandas_dep_pinned_to_22_for_lowercase_freq_codes(self) -> None:
         """_FIXED_FREQ_CODES uses lowercase 's','min','h' which require pandas>=2.2."""
-        try:
-            import tomllib  # py311+
-        except ModuleNotFoundError:
-            import tomli as tomllib  # type: ignore[no-redef,unused-ignore]
+        import tomllib
         from pathlib import Path
 
         repo_root = Path(__file__).resolve()

@@ -47,7 +47,7 @@ is Dependabot-managed.
 # Illustrative values; see config/shared.toml for the current ones.
 [project]
 version = "0.4.0"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 keywords = ["mloda", "mloda-plugin"]
 # No License classifier: the SPDX license string is emitted.

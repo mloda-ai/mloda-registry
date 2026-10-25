@@ -334,7 +334,7 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
 
 def _make_impl(
     divergent: dict[str, str] | None = None,
-    accepts: Callable[[Any, str, Any], bool] | None = None,
+    accepts: Callable[..., bool] | None = None,
     supported: frozenset[str] | None = None,
 ) -> tuple[Any, Any]:
     """A throwaway (group, implementation) pair; use ``_with_probe_impl`` so it is unregistered again."""
@@ -370,7 +370,7 @@ def _probe_impl_names() -> list[str]:
 def _with_probe_impl(
     check: Callable[[Any, Any], None],
     divergent: dict[str, str] | None = None,
-    accepts: Callable[[Any, str, Any], bool] | None = None,
+    accepts: Callable[..., bool] | None = None,
     supported: frozenset[str] | None = None,
 ) -> None:
     """Run ``check(group, impl)`` on a throwaway pair, then drop it and assert the probe is unregistered."""
@@ -574,7 +574,7 @@ def test_capability_hook_rejects_fails_for_an_accepts_override_without_probes() 
         except pytest.skip.Exception:
             pytest.fail("guard skipped instead of asserting for an accepts() override without probes")
 
-    _with_probe_impl(check, accepts=lambda cls, feature_name, options: False)
+    _with_probe_impl(check, accepts=lambda cls, feature_name, options, *, part=None: False)
 
 
 def test_capability_hook_rejects_fails_for_a_supported_restriction_without_probes() -> None:

@@ -21,16 +21,16 @@ Stand-ins for your own groups, used by the examples below:
 ```python
 from typing import Any
 
-from mloda.provider import DataCreator, FeatureChainParserMixin, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureChainParserMixin, FeatureGroup, FeatureSet
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
 
 
-class MyFeature(FeatureGroup):
+class MyFeature(DataCreatorFeatureGroup):
     @classmethod
-    def input_data(cls) -> DataCreator | None:
-        return DataCreator({"my_feature", "feature_a", "feature_b"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"my_feature", "feature_a", "feature_b"}
 
     @classmethod
     def compute_framework_rule(cls) -> Any:
@@ -113,10 +113,10 @@ def test_full_pipeline():
 The rule that a FeatureGroup must return columns even at zero rows (see [calculate_feature](12-calculate-feature.md#empty-results)) is enforced during the run, not inside `calculate_feature()`. A Level 2 test that calls `calculate_feature()` directly passes on a group that returns `[]` or `{}` for "nothing found"; the same group raises `EmptyResultError` the first time that path is hit through a run. Cover every reachable empty path (no source files, a query with no hits, a filter that removes every row) at Level 3:
 
 ```python
-class EmptyFeature(FeatureGroup):
+class EmptyFeature(DataCreatorFeatureGroup):
     @classmethod
-    def input_data(cls) -> DataCreator | None:
-        return DataCreator({"empty_feature"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"empty_feature"}
 
     @classmethod
     def compute_framework_rule(cls) -> Any:
@@ -157,10 +157,10 @@ Isolate derived features from expensive upstream computations by disabling depen
 from mloda.user import Feature, Options, PluginCollector, mloda
 
 
-class ExpensiveUpstreamFeature(FeatureGroup):
+class ExpensiveUpstreamFeature(DataCreatorFeatureGroup):
     @classmethod
-    def input_data(cls) -> DataCreator | None:
-        return DataCreator({"upstream_feature"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"upstream_feature"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -206,7 +206,7 @@ Test that each result differs from the reference exactly where `divergent` decla
 import math
 from typing import Any
 
-from mloda.provider import DataCreator, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -220,12 +220,12 @@ EXPECTED = {
 }
 
 
-class Guide10Prices(FeatureGroup):
+class Guide10Prices(DataCreatorFeatureGroup):
     """Pandas-only source with a missing value."""
 
     @classmethod
-    def input_data(cls) -> DataCreator:
-        return DataCreator({"guide10_price"})
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide10_price"}
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -341,7 +341,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 
 | Pattern | Level 1 Focus | Level 2 Focus |
 |---------|---------------|---------------|
-| Root | `input_data()` returns instance (a source group: its claim routes and `find_sources`) | Data loading works |
+| Root | `feature_names_supported()` (a source group: its claim routes and `find_sources`) | Data loading works |
 | Derived | `input_features()` correct | Transformation logic |
 | Chained | Pattern regex matching | Suffix extraction |
 | Multi-input | `&` parsing | Multiple inputs combined |
