@@ -80,7 +80,7 @@ class DataOpsIntegrationTestBase(ABC):
     For operations where result order is not guaranteed (aggregation),
     set ``compare_sorted`` to True.
 
-    For floating-point results, set ``use_approx`` to True.
+    For floating-point results, set ``use_approx`` to True; set ``nan_is_null`` to True if NaN stands for null.
     """
 
     # -- Abstract methods: subclasses must implement --------------------------
@@ -163,6 +163,11 @@ class DataOpsIntegrationTestBase(ABC):
         return False
 
     @classmethod
+    def nan_is_null(cls) -> bool:
+        """If True, a NaN in the result matches an expected None."""
+        return False
+
+    @classmethod
     def approx_rel(cls) -> float:
         """Relative tolerance for pytest.approx. Default: 1e-3."""
         return 1e-3
@@ -208,7 +213,9 @@ class DataOpsIntegrationTestBase(ABC):
             actual = sorted(actual, key=lambda x: (x is None, x))
             expected = sorted(expected, key=lambda x: (x is None, x))
 
-        assert_values_with_nulls(actual, expected, approx=self.use_approx(), rel=self.approx_rel())
+        assert_values_with_nulls(
+            actual, expected, approx=self.use_approx(), rel=self.approx_rel(), nan_is_null=self.nan_is_null()
+        )
 
     # -- Concrete test methods (inherited for free) ---------------------------
 

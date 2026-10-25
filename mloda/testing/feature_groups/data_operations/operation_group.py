@@ -98,6 +98,21 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         """Subtypes that are aliases and so must be divergent together."""
         return []
 
+    @classmethod
+    def universe(cls) -> frozenset[str] | None:
+        """The exact ``subtype_universe()``; ``frozenset()`` means no subtype dimension. Default: not pinned."""
+        return None
+
+    @classmethod
+    def unresolved_probes(cls) -> list[tuple[str, Options]]:
+        """(feature name, options) pairs that must resolve to no subtype."""
+        return []
+
+    @classmethod
+    def mixins(cls) -> tuple[type, ...] | None:
+        """The mixins that must directly follow the group in the MRO, before OperationFeatureGroup. Default: skip."""
+        return None
+
     # -- Plumbing ---------------------------------------------------------------
 
     _case_fixtures: ClassVar[dict[str, str]] = {"impl_id": "implementation_ids"}
@@ -130,11 +145,21 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         assert mro.index(FeatureChainParserMixin) < mro.index(FeatureGroup)
 
     def test_group_declares_the_subtype_key(self) -> None:
+        if self.universe() == frozenset():
+            assert self.group_class().SUBTYPES is None
+            return
         declaration = self.group_class().SUBTYPES
         assert declaration is not None
         assert declaration.key == self.subtype_key()
         if self.subtype_key() is None:
             assert declaration.resolver is not None
+
+    def test_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
+        mixins = self.mixins()
+        if mixins is None:
+            pytest.skip("no mixins declared")
+        mro = self.group_class().__mro__
+        assert mro[1 : len(mixins) + 3] == (*mixins, OperationFeatureGroup, FeatureGroup)
 
     def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
         assert callable(getattr(self.group_class(), self.loop_method()))
@@ -192,6 +217,11 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         for first, second in self.alias_pairs():
             assert (first in divergent) == (second in divergent)
 
+    def test_universe_is_the_declared_set(self) -> None:
+        if self.universe() is None:
+            pytest.skip("no universe declared")
+        assert self.group_class().subtype_universe() == self.universe()
+
     # -- Subtype resolution -----------------------------------------------------
 
     def test_resolves_from_the_feature_name(self) -> None:
@@ -201,6 +231,10 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     def test_resolves_from_the_config_option(self) -> None:
         for name, options, subtype in self.option_probes():
             assert self.group_class().resolve_subtype(name, options) == subtype
+
+    def test_unresolvable_probes_resolve_to_no_subtype(self) -> None:
+        for name, options in self.unresolved_probes():
+            assert self.group_class().resolve_subtype(name, options) is None
 
     # -- Manifest ---------------------------------------------------------------
 

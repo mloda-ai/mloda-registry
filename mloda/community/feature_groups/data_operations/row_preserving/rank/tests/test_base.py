@@ -2,18 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
-import inspect
 from typing import Any
 
 import pytest
-from mloda.provider import (
-    DefaultOptionKeys,
-    FeatureChainParserMixin,
-    FeatureGroup,
-    Implementation,
-    OperationFeatureGroup,
-)
+from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin
@@ -23,6 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for, make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 
 
@@ -79,116 +72,98 @@ class TestClassAttributes:
         assert RankFeatureGroup.MAX_IN_FEATURES == 1
 
 
-_IMPLEMENTATIONS = [
-    pytest.param(
-        "pandas_rank",
-        "PandasRank",
-        "mloda_plugins.compute_framework.base_implementations.pandas.dataframe",
-        "PandasDataFrame",
-        id="pandas",
-    ),
-    pytest.param(
-        "polars_lazy_rank",
-        "PolarsLazyRank",
-        "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe",
-        "PolarsLazyDataFrame",
-        id="polars_lazy",
-    ),
-    pytest.param(
-        "duckdb_rank",
-        "DuckdbRank",
-        "mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework",
-        "DuckDBFramework",
-        id="duckdb",
-    ),
-    pytest.param(
-        "sqlite_rank",
-        "SqliteRank",
-        "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework",
-        "SqliteFramework",
-        id="sqlite",
-    ),
-    pytest.param(
-        "python_dict_rank",
-        "PythonDictRank",
-        "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework",
-        "PythonDictFramework",
-        id="python_dict",
-    ),
-]
+_ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
-_RANK_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.rank"
-
-_NONE_NAN_DIVERGENT = {"rank", "dense_rank", "percent_rank"}
+_NONE_NAN_DIVERGENT = frozenset({"rank", "dense_rank", "percent_rank"})
 
 
-def _implementation(module: str, name: str) -> Any:
-    """The named rank Implementation; skips when its optional backend is not installed."""
-    return getattr(pytest.importorskip(f"{_RANK_PACKAGE}.{module}"), name)
+class TestRankOperationGroup(OperationGroupTestBase):
+    @classmethod
+    def group_class(cls) -> Any:
+        return RankFeatureGroup
 
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.community.feature_groups.data_operations.row_preserving.rank"
 
-class TestOperationGroupShape:
-    """RankFeatureGroup is one OperationFeatureGroup served by one Implementation per framework."""
+    @classmethod
+    def implementations(cls) -> list[ImplSpec]:
+        return [
+            ImplSpec(
+                "pandas",
+                "pandas_rank",
+                "PandasRank",
+                f"{_ENGINE}.pandas.dataframe",
+                "PandasDataFrame",
+                divergent=_NONE_NAN_DIVERGENT,
+                dependency="pandas",
+            ),
+            ImplSpec(
+                "polars_lazy",
+                "polars_lazy_rank",
+                "PolarsLazyRank",
+                f"{_ENGINE}.polars.lazy_dataframe",
+                "PolarsLazyDataFrame",
+                dependency="polars",
+            ),
+            ImplSpec(
+                "duckdb",
+                "duckdb_rank",
+                "DuckdbRank",
+                f"{_ENGINE}.duckdb.duckdb_framework",
+                "DuckDBFramework",
+                dependency="duckdb",
+            ),
+            ImplSpec(
+                "sqlite",
+                "sqlite_rank",
+                "SqliteRank",
+                f"{_ENGINE}.sqlite.sqlite_framework",
+                "SqliteFramework",
+                divergent=_NONE_NAN_DIVERGENT,
+            ),
+            ImplSpec(
+                "python_dict",
+                "python_dict_rank",
+                "PythonDictRank",
+                f"{_ENGINE}.python_dict.python_dict_framework",
+                "PythonDictFramework",
+                divergent=_NONE_NAN_DIVERGENT,
+            ),
+        ]
 
-    def test_group_is_a_concrete_operation_group(self) -> None:
-        assert issubclass(RankFeatureGroup, OperationFeatureGroup)
-        assert not inspect.isabstract(RankFeatureGroup)
+    @classmethod
+    def subtype_key(cls) -> str:
+        return "rank_type"
 
-    def test_group_mro_puts_the_mixins_before_the_operation_group(self) -> None:
-        assert RankFeatureGroup.__mro__[1:5] == (
-            KeyColumnInputsMixin,
-            FeatureChainParserMixin,
-            OperationFeatureGroup,
-            FeatureGroup,
-        )
+    @classmethod
+    def loop_method(cls) -> str:
+        return "rank"
 
-    def test_group_declares_the_rank_type_subtype_key(self) -> None:
-        declaration = RankFeatureGroup.SUBTYPES
-        assert declaration is not None
-        assert declaration.key == "rank_type"
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_rank"
 
-    def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
-        assert callable(RankFeatureGroup.rank)
-        assert not hasattr(RankFeatureGroup, "_compute_rank")
+    @classmethod
+    def probe_feature_set(cls) -> FeatureSet:
+        return make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
 
-    def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
-        """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
-        fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
-        with pytest.raises(ValueError, match="no implementation"):
-            RankFeatureGroup.calculate_feature(PyArrowDataOpsTestDataCreator.create(), fs)
+    @classmethod
+    def mixins(cls) -> tuple[type, ...]:
+        return (KeyColumnInputsMixin, FeatureChainParserMixin)
 
-    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
-    def test_implementation_names_its_pair(
-        self, module: str, name: str, framework_module: str, framework_name: str
-    ) -> None:
-        impl = _implementation(module, name)
-        framework = getattr(pytest.importorskip(framework_module), framework_name)
-        assert issubclass(impl, Implementation)
-        assert not issubclass(impl, FeatureGroup)
-        assert impl.feature_group is RankFeatureGroup
-        assert impl.compute_framework is framework
-        assert impl.__module__ == f"{_RANK_PACKAGE}.{module}"
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset({"row_number", "rank", "dense_rank", "percent_rank", "ntile", "top", "bottom"})
 
-    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
-    def test_implementation_keeps_its_compute_rank(
-        self, module: str, name: str, framework_module: str, framework_name: str
-    ) -> None:
-        assert callable(_implementation(module, name)._compute_rank)
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return [("x__ntile_4_ranked", "ntile_4")]
 
-
-class TestSubtypes:
-    """The rank_type subtype dimension, including the parametric families."""
-
-    def test_universe_is_the_named_types_and_family_names(self) -> None:
-        assert RankFeatureGroup.subtype_universe() == {
-            "row_number",
-            "rank",
-            "dense_rank",
-            "percent_rank",
-            "ntile",
-            "top",
-            "bottom",
-        }
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Options, str]]:
+        options = Options(context={"rank_type": "top_3", "in_features": "x", "partition_by": ["g"], "order_by": "x"})
+        return [("my_result", options, "top_3")]
 
     @pytest.mark.parametrize(
         ("instance", "family"),
@@ -197,73 +172,10 @@ class TestSubtypes:
     def test_canonical_subtype_collapses_a_parametric_instance(self, instance: str, family: str) -> None:
         assert RankFeatureGroup.canonical_subtype(instance) == family
 
-    def test_resolves_from_the_feature_name(self) -> None:
-        assert RankFeatureGroup.resolve_subtype("x__ntile_4_ranked", Options()) == "ntile_4"
-
-    def test_resolves_from_the_config_option(self) -> None:
-        options = Options(context={"rank_type": "top_3", "in_features": "x", "partition_by": ["g"], "order_by": "x"})
-        assert RankFeatureGroup.resolve_subtype("my_result", options) == "top_3"
-
     @pytest.mark.parametrize("feature_name", ["value_int__ntile_x_ranked", "value_int__ntile_0_ranked"])
     def test_malformed_parametric_instance_is_rejected_at_match(self, feature_name: str) -> None:
         options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
         assert RankFeatureGroup.match_feature_group_criteria(feature_name, options, None) is False
-
-
-class TestSupportedAndDivergent:
-    """Capability and None/NaN divergence are declared on the shipped Implementations."""
-
-    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
-    def test_no_implementation_restricts_supported(
-        self, module: str, name: str, framework_module: str, framework_name: str
-    ) -> None:
-        assert _implementation(module, name).supported is None
-
-    @pytest.mark.parametrize(
-        ("module", "name"),
-        [
-            ("python_dict_rank", "PythonDictRank"),
-            ("pandas_rank", "PandasRank"),
-            ("sqlite_rank", "SqliteRank"),
-        ],
-    )
-    def test_none_nan_tying_backends_declare_the_ties_divergent(self, module: str, name: str) -> None:
-        divergent = _implementation(module, name).divergent
-        assert set(divergent) == _NONE_NAN_DIVERGENT
-        assert all(isinstance(reason, str) and reason for reason in divergent.values())
-
-    @pytest.mark.parametrize(
-        ("module", "name"), [("polars_lazy_rank", "PolarsLazyRank"), ("duckdb_rank", "DuckdbRank")]
-    )
-    def test_none_nan_separating_backends_declare_no_divergence(self, module: str, name: str) -> None:
-        assert not _implementation(module, name).divergent
-
-    @pytest.mark.parametrize(("module", "name", "framework_module", "framework_name"), _IMPLEMENTATIONS)
-    def test_divergent_is_inside_the_universe(
-        self, module: str, name: str, framework_module: str, framework_name: str
-    ) -> None:
-        assert set(_implementation(module, name).divergent) <= RankFeatureGroup.subtype_universe()
-
-
-class TestManifest:
-    """The entry-point manifest lists the group and its Implementations."""
-
-    def test_manifest_lists_the_group_and_every_installed_implementation(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.rank.manifest import FEATURE_GROUPS
-
-        assert RankFeatureGroup in FEATURE_GROUPS
-        listed = {cls.__name__ for cls in FEATURE_GROUPS if issubclass(cls, Implementation)}
-        expected = {"SqliteRank", "PythonDictRank"}
-        for name, dependency in (
-            ("PandasRank", "pandas"),
-            ("PolarsLazyRank", "polars"),
-            ("DuckdbRank", "duckdb"),
-        ):
-            if importlib.util.find_spec(dependency) is not None:
-                expected.add(name)
-        assert listed == expected
-        implementations: list[Any] = [cls for cls in FEATURE_GROUPS if cls is not RankFeatureGroup]
-        assert all(cls.feature_group is RankFeatureGroup for cls in implementations)
 
 
 class TestPropertyMapping:
