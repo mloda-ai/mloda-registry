@@ -30,7 +30,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     OutputContractError,
     UnsupportedError,
 )
-from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin, LicenseSource
 from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
 from mloda.testing.binary_model.arrow import arrow_stream_bytes, arrow_stream_bytes_invalid_utf8
 from mloda.testing.binary_model.conformance import (
@@ -714,6 +714,9 @@ class TestLicenseOverrides:
                 "/env/license.txt", "env-key", "", None, "MLODA_LICENSE_KEY", id="empty_file_override_keeps_env"
             ),
             pytest.param("/env/license.txt", "env-key", "", "", None, id="both_overrides_empty_suppress_env"),
+            pytest.param(
+                "/env/license.txt", "env-key", None, "", "MLODA_LICENSE_FILE", id="empty_key_override_keeps_env_file"
+            ),
         ],
     )
     def test_license_source_names_the_source_the_binary_reads(
@@ -723,7 +726,7 @@ class TestLicenseOverrides:
         env_key: str | None,
         file_override: str | None,
         key_override: str | None,
-        expected: str | None,
+        expected: LicenseSource | None,
     ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
@@ -731,13 +734,13 @@ class TestLicenseOverrides:
             monkeypatch.setenv("MLODA_LICENSE_FILE", env_file)
         if env_key is not None:
             monkeypatch.setenv("MLODA_LICENSE_KEY", env_key)
-        attrs: dict[str, Any] = {"BINARY_PLUGIN_ID": PLUGIN_ID}
-        if file_override is not None:
-            attrs["LICENSE_FILE_OVERRIDE"] = file_override
-        if key_override is not None:
-            attrs["LICENSE_KEY_OVERRIDE"] = key_override
-        model: type[BinaryModelMixin] = type("_LicenseSourceModel", (BinaryModelMixin,), attrs)
-        assert model.license_source() == expected
+
+        class _LicenseSourceModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = PLUGIN_ID
+            LICENSE_FILE_OVERRIDE = file_override
+            LICENSE_KEY_OVERRIDE = key_override
+
+        assert _LicenseSourceModel.license_source() == expected
 
     def test_license_source_ignores_a_binary_environment_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)

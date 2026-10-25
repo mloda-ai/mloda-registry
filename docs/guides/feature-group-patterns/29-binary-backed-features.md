@@ -23,7 +23,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 | `MAX_BATCH_BYTES` | Upper bound per record batch sent to the binary; oversized batches are split until they fit, keeping `utf8` arrays clear of the 2 GiB offset limit |
 | `MAX_BATCH_ROWS` | Upper bound on rows per record batch; keeps a binary's output arrays clear of the offset limit when it writes more bytes per row than it reads |
 
-`license_source()` names the source the binary will read (`MLODA_LICENSE_FILE`, `MLODA_LICENSE_KEY`, `LICENSE_FILE_OVERRIDE` or `LICENSE_KEY_OVERRIDE`), never its value, or `None` when there is none; a plugin with its own fallback in `binary_environment` uses it instead of repeating the precedence.
+`license_source()` returns the name of the source the binary will read (`MLODA_LICENSE_FILE`, `MLODA_LICENSE_KEY`, `LICENSE_FILE_OVERRIDE` or `LICENSE_KEY_OVERRIDE`), or `None` when none is set; it never returns the value. It does not see a fallback added in an overridden `binary_environment`, so a plugin checks it for `None` to decide when its own fallback applies instead of repeating the precedence.
 
 The wheel is imported inside the call, never at module level of the FeatureGroup or its `manifest.py`: mloda's plugin loader aborts discovery on a `ModuleNotFoundError` it does not know as optional, and a missing wheel must only fail the call.
 

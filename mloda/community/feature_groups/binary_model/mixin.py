@@ -267,15 +267,20 @@ class BinaryModelMixin:
     MAX_BATCH_ROWS: ClassVar[int] = _DEFAULT_MAX_BATCH_ROWS
 
     @classmethod
-    def binary_environment(cls) -> dict[str, str]:
-        """The minimal subprocess environment for this model's binary (contract: Data handling)."""
+    def _forwarded_environment(cls) -> dict[str, str]:
+        """The environment forwarded from the class attributes and the host, before any subclass fallback."""
         return minimal_environment(license_file=cls.LICENSE_FILE_OVERRIDE, license_key=cls.LICENSE_KEY_OVERRIDE)
 
     @classmethod
+    def binary_environment(cls) -> dict[str, str]:
+        """The minimal subprocess environment for this model's binary (contract: Data handling)."""
+        return cls._forwarded_environment()
+
+    @classmethod
     def license_source(cls) -> LicenseSource | None:
-        """The source the binary reads its license from, never its value (contract: License); derived from
-        the same forwarding as ``binary_environment``, so a subclass's own fallback there is not seen."""
-        environment = minimal_environment(license_file=cls.LICENSE_FILE_OVERRIDE, license_key=cls.LICENSE_KEY_OVERRIDE)
+        """The source the binary reads its license from, never its value (contract: License); a fallback
+        added in an overridden ``binary_environment`` is not seen."""
+        environment = cls._forwarded_environment()
         if "MLODA_LICENSE_FILE" in environment:
             return "LICENSE_FILE_OVERRIDE" if cls.LICENSE_FILE_OVERRIDE else "MLODA_LICENSE_FILE"
         if "MLODA_LICENSE_KEY" in environment:
