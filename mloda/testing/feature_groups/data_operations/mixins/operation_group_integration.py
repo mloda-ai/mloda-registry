@@ -21,6 +21,7 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column,
 
 PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.table:PyArrowTable"
 PANDAS_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.pandas.dataframe:PandasDataFrame"
+POLARS_LAZY_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe:PolarsLazyDataFrame"
 SQLITE_FRAMEWORK = "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework:SqliteFramework"
 
 

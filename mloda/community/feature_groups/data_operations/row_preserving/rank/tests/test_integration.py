@@ -23,11 +23,10 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
+    POLARS_LAZY_DATAFRAME,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
-
-POLARS_LAZY_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe:PolarsLazyDataFrame"
 
 
 @pytest.fixture

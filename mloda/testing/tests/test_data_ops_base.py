@@ -609,3 +609,5 @@ def test_implementation_import_fails_unless_the_dependency_is_declared() -> None
         _Stub._implementation(missing)
     with pytest.raises(pytest.skip.Exception):
         _Stub._implementation(missing._replace(dependency="no_such_dependency"))
+    with pytest.raises(ModuleNotFoundError):
+        _Stub._implementation(missing._replace(dependency="pytest"))

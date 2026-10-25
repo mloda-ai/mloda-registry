@@ -30,7 +30,8 @@ class ImplSpec(NamedTuple):
     """One Implementation of the group and what it must declare.
 
     ``module`` is the module that defines the Implementation. ``supported`` None means unrestricted.
-    ``dependency`` is the optional package that gates the manifest entry.
+    ``dependency`` is the optional package that gates the manifest entry and turns a missing backend into a skip
+    (without it the import must succeed).
     """
 
     id: str
@@ -100,7 +101,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     @classmethod
     def universe(cls) -> frozenset[str] | None:
-        """The exact ``subtype_universe()``; ``frozenset()`` means no subtype dimension. Default: not pinned."""
+        """The exact ``subtype_universe()``; ``frozenset()`` asserts ``SUBTYPES is None``. Default: not pinned."""
         return None
 
     @classmethod
@@ -110,7 +111,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     @classmethod
     def mixins(cls) -> tuple[type, ...] | None:
-        """The mixins that must directly follow the group in the MRO, before OperationFeatureGroup. Default: skip."""
+        """The mixins directly after the group, followed by OperationFeatureGroup and then FeatureGroup. Default: skip."""
         return None
 
     # -- Plumbing ---------------------------------------------------------------
@@ -127,9 +128,11 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     @classmethod
     def _implementation(cls, spec: ImplSpec) -> Any:
-        """The Implementation class; skips only when its declared optional dependency is missing."""
+        """The Implementation class; skips only when its declared dependency is missing, else imports strictly."""
         path = f"{cls.backend_package()}.{spec.module}"
-        module = pytest.importorskip(path) if spec.dependency else importlib.import_module(path)
+        if spec.dependency:
+            pytest.importorskip(spec.dependency)
+        module = importlib.import_module(path)
         return getattr(module, spec.name)
 
     # -- Group shape ------------------------------------------------------------

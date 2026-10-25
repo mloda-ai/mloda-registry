@@ -238,7 +238,9 @@ class TestYourOpOperationGroup(OperationGroupTestBase):
     # Plus probe_feature_set, name_probes, option_probes (see binning/tests/test_base.py)
 ```
 
-Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins that come right before `OperationFeatureGroup` in the MRO, and `alias_pairs()`.
+Each `ImplSpec.module` is the module that defines the Implementation. Set `dependency` for an optional backend: a missing dependency skips that spec, while a module that fails to import fails the test.
+
+Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, and `alias_pairs()`.
 
 ---
 
