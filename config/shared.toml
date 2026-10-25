@@ -3,7 +3,7 @@
 
 [project]
 version = "0.11.0"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 keywords = ["mloda", "mloda-plugin"]
 # No License classifier: the SPDX `license` string is emitted and setuptools rejects both.
@@ -13,7 +13,6 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -33,5 +32,5 @@ build-backend = "setuptools.build_meta"
 
 [defaults]
 license = "Apache-2.0"
-core_dependency = "mloda>=0.17.0,<0.18.0"
+core_dependency = "mloda>=0.18.0,<0.19.0"
 optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }

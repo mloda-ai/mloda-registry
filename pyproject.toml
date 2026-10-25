@@ -8,10 +8,10 @@ name = "mloda-registry-workspace"
 version = "0.2.0"
 description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     # Generated from config/shared.toml [defaults].core_dependency; run: python scripts/generate_pyproject.py
-    "mloda>=0.17.0,<0.18.0",
+    "mloda>=0.18.0,<0.19.0",
 ]
 authors = [
     { name = "Tom Kaltofen", email = "info@mloda.ai" }
