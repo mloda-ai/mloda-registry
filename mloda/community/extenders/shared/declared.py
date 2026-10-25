@@ -2,29 +2,17 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
-from typing import Any
-
-_INT_MIN = -(2**63)
-_INT_MAX = 2**63 - 1
 
 
-def declared_scalars(declared: Mapping[str, Any] | None) -> dict[str, str | int | float | bool]:
-    """A fresh dict of the str, bool, int and finite float declarations, types unchanged."""
-    if declared is None:
-        return {}
-    # Core's filter is internal and skips a hand-built HookContext, whose NaN json.dumps(allow_nan=False) rejects.
-    return {
-        key: value
-        for key, value in declared.items()
-        if isinstance(value, (str, bool))
-        or (isinstance(value, int) and _INT_MIN <= value <= _INT_MAX)
-        or (isinstance(value, float) and math.isfinite(value))
-    }
+def declared_scalars(declared: Mapping[str, str | int | float | bool] | None) -> dict[str, str | int | float | bool]:
+    """A fresh plain dict of the declarations, which core's HookContext already filtered to portable scalars."""
+    return {} if declared is None else dict(declared)
 
 
-def readable_declared(declared: Mapping[str, Any] | None) -> dict[str, str | int | float | bool] | None:
+def readable_declared(
+    declared: Mapping[str, str | int | float | bool] | None,
+) -> dict[str, str | int | float | bool] | None:
     """None when core could not read the declaration, else its portable scalars (possibly empty)."""
     return None if declared is None else declared_scalars(declared)
 
