@@ -19,6 +19,7 @@ from functools import lru_cache
 from types import MappingProxyType, ModuleType
 from typing import Any
 
+from mloda.core.abstract_plugins.implementation import accessible_implementations, current_implementations
 from mloda.provider import Implementation
 from mloda.user import Options
 
@@ -409,7 +410,8 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
     base_cls: type[Any] = getattr(base_module, spec.base_class)
     subtypes = spec.subtypes(base_module) if spec.subtypes is not None else None
 
-    frameworks: dict[str, frozenset[str] | None] = {}
+    frameworks: dict[str, frozenset[str] | None]
+    found: list[tuple[str, Any]] = []
     op_dirname = spec.package.rsplit(".", 1)[-1]
     for prefix in _FRAMEWORK_MODULE_PREFIXES:
         backend_module = _import_optional(f"{spec.package}.{prefix}_{op_dirname}")
@@ -420,11 +422,17 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
         if impl is None:
             continue
         framework = impl.compute_framework
-        key = str(framework.__name__)
-        if subtypes is None or spec.probe is None:
-            frameworks[key] = None
-        else:
-            frameworks[key] = _supported_subtypes(base_cls, framework, base_module, subtypes, spec.probe)
+        found.append((str(framework.__name__), framework))
+
+    if subtypes is None or spec.probe is None:
+        frameworks = dict.fromkeys((key for key, _ in found))
+    else:
+        probe = spec.probe
+        # The snapshot makes the core implementation scan run once per operation instead of once per probe.
+        with accessible_implementations(current_implementations()):
+            frameworks = {
+                key: _supported_subtypes(base_cls, framework, base_module, subtypes, probe) for key, framework in found
+            }
 
     return OperationInfo(
         name=spec.name,

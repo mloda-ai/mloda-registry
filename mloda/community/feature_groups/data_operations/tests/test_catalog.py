@@ -252,6 +252,31 @@ class TestAggregationFrameworksIgnoreUserSubclasses:
             gc.collect()
 
 
+class TestCatalogBuildScansCoreOncePerOperation:
+    def test_loaded_implementations_called_at_most_once_per_operation(self) -> None:
+        """Building the catalog runs the core implementation scan at most once per operation."""
+        import importlib
+        from unittest.mock import patch
+
+        from mloda.community.feature_groups.data_operations.catalog import _OPERATION_SPECS, _load_catalog
+
+        core = importlib.import_module("mloda.core.abstract_plugins.implementation")
+
+        _load_catalog.cache_clear()
+        try:
+            baseline = DataOperationsCatalog.list()
+            _load_catalog.cache_clear()
+            with patch.object(core, "loaded_implementations", wraps=core.loaded_implementations) as spy:
+                counted = DataOperationsCatalog.list()
+            calls = spy.call_count
+        finally:
+            _load_catalog.cache_clear()
+
+        assert [info.name for info in counted] == EXPECTED_OPERATION_NAMES
+        assert counted == baseline
+        assert calls <= len(_OPERATION_SPECS), f"loaded_implementations called {calls} times"
+
+
 class TestStringCell:
     def test_sqlite_supports_only_trim_and_length(self) -> None:
         """SQLite string refuses upper/lower/reverse at match time; the catalog must reflect it."""
