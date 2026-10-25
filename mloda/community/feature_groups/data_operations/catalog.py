@@ -411,7 +411,7 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
     subtypes = spec.subtypes(base_module) if spec.subtypes is not None else None
 
     frameworks: dict[str, frozenset[str] | None]
-    found: list[tuple[str, Any]] = []
+    found: list[tuple[str, type[Any]]] = []
     op_dirname = spec.package.rsplit(".", 1)[-1]
     for prefix in _FRAMEWORK_MODULE_PREFIXES:
         backend_module = _import_optional(f"{spec.package}.{prefix}_{op_dirname}")
@@ -425,7 +425,7 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
         found.append((str(framework.__name__), framework))
 
     if subtypes is None or spec.probe is None:
-        frameworks = dict.fromkeys((key for key, _ in found))
+        frameworks = dict.fromkeys(key for key, _ in found)
     else:
         probe = spec.probe
         # The snapshot makes the core implementation scan run once per operation instead of once per probe.

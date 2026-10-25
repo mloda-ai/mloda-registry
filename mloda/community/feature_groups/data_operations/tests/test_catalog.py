@@ -255,7 +255,6 @@ class TestAggregationFrameworksIgnoreUserSubclasses:
 class TestCatalogBuildScansCoreOncePerOperation:
     def test_loaded_implementations_called_at_most_once_per_operation(self) -> None:
         """Building the catalog runs the core implementation scan at most once per operation."""
-        import importlib
         from unittest.mock import patch
 
         from mloda.community.feature_groups.data_operations.catalog import _OPERATION_SPECS, _load_catalog
@@ -274,7 +273,8 @@ class TestCatalogBuildScansCoreOncePerOperation:
 
         assert [info.name for info in counted] == EXPECTED_OPERATION_NAMES
         assert counted == baseline
-        assert calls <= len(_OPERATION_SPECS), f"loaded_implementations called {calls} times"
+        probing = sum(1 for spec in _OPERATION_SPECS if spec.subtypes is not None and spec.probe is not None)
+        assert calls <= probing, f"loaded_implementations called {calls} times"
 
 
 class TestStringCell:
