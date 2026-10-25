@@ -82,7 +82,7 @@ class TestOffsetIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrati
 
     @classmethod
     def secondary_expected_values(cls) -> list[Any]:
-        # Smallest value_int per region (nulls last): A -5, B 30, C 15, no region -10.
+        # Smallest value_int per region, nulls last.
         return [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 
     @classmethod

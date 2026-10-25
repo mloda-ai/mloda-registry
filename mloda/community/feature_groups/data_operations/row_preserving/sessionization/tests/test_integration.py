@@ -47,7 +47,7 @@ _U = timezone.utc
 #   10:00 (new s0) -> 10:25 (+25<=30 same s0) -> 11:00 (+35>30 new s1)
 #   -> 11:20 (+20<=30 same s1) -> 12:30 (+70>30 new s2)
 _SESSION_30_MINUTE_EXPECTED: list[int] = [0, 0, 1, 1, 2]
-# Every gap (25, 35, 20, 70 minutes) exceeds 10, so each row is its own session.
+# Every gap exceeds the 10 minute threshold, so each row is its own session.
 _SESSION_10_MINUTE_EXPECTED: list[int] = [0, 1, 2, 3, 4]
 
 
