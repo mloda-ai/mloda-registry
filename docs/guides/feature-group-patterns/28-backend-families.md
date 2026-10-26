@@ -106,7 +106,7 @@ Rules:
 - **Keep the value sets disjoint.** Two siblings claiming `"faiss"` fail with `Multiple feature groups found`. Pin this with a test that enables every sibling at once.
 - **Only the discriminator stays required.** Since mloda 0.15.0 a key without a default must be present for a sibling to match, through the overridden matcher too: omitting it matches no sibling, and the error names the absent key. Declare every other key with `default=None` ([Options](11-options.md#validation-and-conditional-requirements)).
 - **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): here `retrieve_backend="fiass"` ends in a bare `No feature groups found`. Required presence, defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
-- **Record why a sibling declined.** End the matcher like this so the error lists each sibling's reason (a matching sibling hides them). `NAME_STAGE` and `record_match_rejection` come from `mloda.provider` (`mloda>=0.14.0`):
+- **Record why a sibling declined.** End the matcher like this so the error lists each sibling's reason (a matching sibling hides them). `NAME_STAGE` and `record_match_rejection` come from `mloda.provider`:
 
 ```py
 backend = options.get(cls.BACKEND)

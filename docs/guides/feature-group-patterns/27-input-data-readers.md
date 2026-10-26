@@ -150,13 +150,19 @@ class UbaAirFG(SourceFeatureGroup):
     @classmethod
     def load_neutral(
         cls, match: SourceMatch, features: FeatureSet
-    ) -> Any: ...  # HTTP GET match.access, return the table
+    ) -> Any: ...  # HTTP GET match.access, return a columnar dict
+
+    @classmethod
+    def neutral_type(cls, match: SourceMatch) -> type | None:
+        return dict
 
 
 features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/airdata/v4"})]
 ```
 
 `SourceMatch.source` is the credential-free label (equality and hash use it, never `access`). Several sources found for one name in one group abort, so keep `source` unique per access. A per-framework fast path is an `Implementation[UbaAirFG]` from `mloda.provider`, defined at module level; without one `load_neutral` runs and a transformer converts.
+
+`neutral_type` names the type `load_neutral` returns (default `None`). A run without `compute_frameworks` then prefers a framework that takes it as is (here `PythonDictFramework`), and the plan step says `loads natively`. Without it the first framework by class name is used, and its conversion can fail on mixed or nested cells. Runs that pass `compute_frameworks` are unaffected. `ApiDataFG` reports its own value type but returns `None` once a subclass overrides `load_neutral` or `api_values`, so such a subclass declares `neutral_type` itself.
 
 ### Audit Identity
 

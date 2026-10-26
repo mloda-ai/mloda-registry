@@ -90,7 +90,7 @@ class SourceStats(FeatureGroup):
 
 - Record only when the name is otherwise addressed to the group; a plain mismatch returns `False` silently.
 - Prefer recording to raising: a raise from the hook is contained as a `match hook` near-miss, a worse reason.
-- `NAME_STAGE` ships in mloda 0.14.0, so a plugin that imports it needs `mloda>=0.14.0`. The literal `"name"` also works on older cores, where the near-miss reads `(option value)`.
+- `NAME_STAGE` from `mloda.provider` labels the near-miss `(feature name)`.
 - To name a rejected option value, declare `expected` on the spec instead (see [Whole-Value Guards](#whole-value-guards-with-match_guard)).
 
 See [Feature Group Matching](https://mloda-ai.github.io/mloda/in_depth/feature-group-matching/).

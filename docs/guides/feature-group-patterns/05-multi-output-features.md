@@ -225,14 +225,17 @@ To derive the parts from the feature name or options, override the classmethod `
 
 - The base is computed once and `calculate_feature()` sees the base name
 - Only the requested parts are returned
-- An undeclared part fails at resolution, listing the declared parts
+- A declared part matches only in full
+- An undeclared part fails at resolution before any load, listing the declared parts: with `OUTPUT_PARTS = ("value", "unit")`, `measure~value~x` is refused (labelled `(feature name)`)
+- To accept a nested part, declare both `0` and `0~lower` so `f~0` and `f~0~lower` resolve
+- For variable-width nested parts, override `output_parts` or use `ANY_OUTPUT_PART`
+- A request for `f~0` still returns its nested columns
 - With `ANY_OUTPUT_PART`, a requested part that was not produced fails after the computation
-- A nested `f~0~lower` is declared by its first level
 - A trailing `~N` is read against the declared parts too: `measure~0` fails unless `0` is declared
 - `match_feature_group_criteria()` is asked with the full name first, then the base name; `input_features()` and `calculate_feature()` see the base name
 - Artifacts are keyed by the base name
 
-See [Declaring Output Parts](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/multiple_result_columns.md#declaring-output-parts) in the core docs.
+See [Declaring Output Parts](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/multiple_result_columns.md#declaring-output-parts) in the core docs.
 
 ## Requesting Multiple Parts Together
 

@@ -43,6 +43,14 @@ assert any(list(df["sales_total"]) == [3, 3, 5] for df in result if "sales_total
 | `cascade_context_keys` | array | No | Context keys pushed to every input down the chain (mloda 0.16.0+) |
 | `feature_group` | string | No | Class name to scope resolution to (matches that class and its subclasses) |
 | `implementation` | string or array | No | Implementation class name(s) that must serve the feature (operation groups with one Implementation per framework) |
+| `keep_index` | boolean | No | Return the key columns (`index`, else the group's `index_columns()`) next to the feature; with neither, the run fails |
+| `index` | array | No | The feature's key columns, non-empty and distinct; also the join-side binding |
+
+`keep_index` and `index` are top-level only; a nested `in_features` dict rejects them. Pair them, since the MCP/service request schema requires `index` when `keep_index` is true:
+
+```json
+{ "name": "daily_sales", "keep_index": true, "index": ["customer_id"] }
+```
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
 
