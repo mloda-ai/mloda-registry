@@ -14,5 +14,7 @@ def bound_method(func: Any) -> Any:
 def class_attribute(func: Any, name: str) -> Any:
     """The named attribute off func's owning class, or None when func has no owner or lacks the attribute."""
     owner = getattr(bound_method(func), "__self__", None)
+    if owner is None:
+        return None
     owning_class = owner if isinstance(owner, type) else type(owner)
     return getattr(owning_class, name, None)

@@ -78,3 +78,4 @@ def test_class_attribute_returns_none_for_a_plain_function() -> None:
         return None
 
     assert class_attribute(plain, "marker") is None
+    assert class_attribute(plain, "__name__") is None
