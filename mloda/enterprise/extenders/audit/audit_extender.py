@@ -220,8 +220,8 @@ class AuditExtender(Extender):
     (gate_readers, default True) at plan time a reader declaring a level above it: one deny record (per plan, reader,
     reason and feature set) with hook INPUT_DATA_MATCH and reader_class, and
     ClassificationDeniedError on every probe (exempt_readers source group classes skip this plan-time gate; the run-start check still applies). Core contains that error (the reader is skipped; planning fails if no reader is left), and likewise a sink failure on it.
-    A refusal binds only that class: an undeclared parent, subclass or sibling reaching the same searched source
-    serves it at the undeclared level, so declare the level on each or disable the others."""
+    A refusal binds only that class: another source group reaching the same searched source serves it at its own level
+    (undeclared when it declares none), so declare the level on each or keep the others out with PluginCollector."""
 
     def __init__(
         self,

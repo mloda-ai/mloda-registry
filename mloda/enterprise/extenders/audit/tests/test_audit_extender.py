@@ -5191,8 +5191,8 @@ class TestAuditExtenderClassificationRunAll:
                 ("INPUT_DATA_MATCH", _qualname(MlodaTestingClassSecretCsvFG))
             ]
         else:
-            assert [(r["hook"], r["deny_reason"], r["reader_class"]) for r in denies] == [
-                ("RUN_START", "classification_above_clearance", None)
+            assert [(r["hook"], r["deny_reason"], r["reader_class"], r["classification"]) for r in denies] == [
+                ("RUN_START", "classification_above_clearance", None, "pii")
             ]
         if gate_readers and not parent_disabled:
             [served] = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
