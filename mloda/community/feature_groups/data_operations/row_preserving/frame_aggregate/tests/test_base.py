@@ -21,6 +21,7 @@ from mloda.community.feature_groups.data_operations.base import KeyColumnInputsM
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     _AGGREGATION_TYPES,
     FrameAggregateFeatureGroup,
+    _resolve_frame_agg_type,
 )
 from mloda.testing.feature_groups.data_operations.helpers import load_implementation, make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
@@ -121,15 +122,9 @@ class TestPatternParsing:
             pytest.param("sales__avg_" + "9" * 5000 + "_day_window", id="time_window"),
         ],
     )
-    def test_huge_digit_frame_size_parses_to_none(self, feature_name: str) -> None:
+    def test_huge_digit_frame_size_parses_to_none_and_resolves_no_agg_type(self, feature_name: str) -> None:
         assert FrameAggregateFeatureGroup._parse_frame_feature(feature_name) is None
-
-    def test_huge_digit_name_resolve_frame_agg_type_does_not_raise(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
-            _resolve_frame_agg_type,
-        )
-
-        assert _resolve_frame_agg_type("sales__sum_rolling_" + "9" * 5000, Options()) is None
+        assert _resolve_frame_agg_type(feature_name, Options()) is None
 
 
 class TestParseFrameFeatureMemoization:
