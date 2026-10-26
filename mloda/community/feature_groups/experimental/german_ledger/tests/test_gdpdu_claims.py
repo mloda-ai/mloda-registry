@@ -75,7 +75,7 @@ FIX = HERE / "fixtures"
 
 
 def test_collision_gate() -> None:
-    """Skr and Sources need a ledger source; the name gate keeps a claim-all reader off a part name, core off the chain."""
+    """The name gate keeps a claim-all reader off a part name; core keeps it off the chain name."""
     dossier = str(FIX / "dossier_a")
     with_source = DataAccessCollection(folders={dossier})
     no_ledger = DataAccessCollection(folders={str(FIX)})
@@ -106,9 +106,10 @@ def test_collision_gate() -> None:
 
     facts = run_isolated("collision")
     assert facts["gated"] == ["revenue~value"], facts
-    assert isinstance(facts["ungated"], str) and "PermissiveReader" in facts["ungated"], facts
-    assert facts["ungated"] != facts["gated"], facts
-    assert facts["chain"] == "45385.06", facts
+    assert facts["gated_owner"] == "SkrAccountFeatureGroup", facts
+    assert facts["ungated_owner"] == "PermissiveReader", facts
+    assert isinstance(facts["ungated"], str), facts
+    assert facts["gated_chain"] == facts["ungated_chain"] == "45385.06", facts
 
 
 def test_gate_records_only_its_own_rejection() -> None:
