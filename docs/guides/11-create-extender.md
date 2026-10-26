@@ -81,7 +81,7 @@ Extender failures are breaking by default, both for a single extender and in a c
 
 Only the extender's own failure is caught. An exception raised by the wrapped function always propagates, and the wrapped function is never run twice.
 
-An extender that refuses a call by raising (a gate) sets `never_fall_back = True`, so the refusal propagates whatever `raise_on_error` says; without it, a warning-only extender that raises before delegating is logged and the wrapped function runs anyway. Give a gate a `priority` strictly below every other extender on its hooks, so it runs outermost and no outer extender that catches errors from `func` can swallow the refusal; ties break deterministically: `never_fall_back` extenders first, then `priority`, then class module and qualified name. Core selects each hook's extender once per run, and `never_fall_back` gates hold even against a buggy plugin or extender. See core's [error handling](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/chapter1/extender.md#4-error-handling).
+An extender that refuses a call by raising (a gate) sets `never_fall_back = True`, so the refusal propagates whatever `raise_on_error` says; without it, a warning-only extender that raises before delegating is logged and the wrapped function runs anyway. Give a gate a `priority` strictly below every other extender on its hooks, so it runs outermost and no outer extender that catches errors from `func` can swallow the refusal; ties break deterministically: `never_fall_back` extenders first, then `priority`, then class module and qualified name. Core selects each hook's extender once per run, and `never_fall_back` gates hold even against a buggy plugin or extender. See core's [error handling](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/chapter1/extender.md#4-error-handling).
 
 ## Pickle Compatibility
 
@@ -178,7 +178,7 @@ with context.activate():
     FactsExtender()(lambda: "result")
 ```
 
-See core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext) for the full field semantics.
+See core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext) for the full field semantics.
 
 ## Hook context for data loads
 
@@ -194,7 +194,7 @@ Feature names are published as given wherever they become dataset names: declare
 
 ## Reader match hook
 
-`INPUT_DATA_MATCH` fires at planning once per probe of a candidate source group (a pointed group per feature, the global `DataAccessCollection`, a filter column), before the group's `find_sources` and column checks run, which may read a file header or a catalog. Its `HookContext` names the group, not the source: `reader_class` is the source group class, `data_access_format` is the group name (`"CsvFG"`), `declared_attributes` is the group's `declared_attributes(None)` (`None` when that raises), plus the probed `feature_names`, `plan_id` and the planning identity; the run and feature-group fields stay `None`. Full field list: core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext).
+`INPUT_DATA_MATCH` fires at planning once per probe of a candidate source group (a pointed group per feature, the global `DataAccessCollection`, a filter column), before the group's `find_sources` and column checks run, which may read a file header or a catalog. Its `HookContext` names the group, not the source: `reader_class` is the source group class, `data_access_format` is the group name (`"CsvFG"`), `declared_attributes` is the group's `declared_attributes(None)` (`None` when that raises), plus the probed `feature_names`, `plan_id` and the planning identity; the run and feature-group fields stay `None`. Full field list: core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext).
 
 - **Refusal**: an exception from a `never_fall_back` gate or a breaking extender refuses that group only. Its probe never runs and it is skipped like a group that did not match, so a sibling group can still serve the feature; planning fails with `FeatureResolutionError` when no candidate is left, carrying the refused groups' exceptions on `refusals` (see [Verified run context](#verified-run-context) for the catch pattern), and a refused filter column drops the filter. A refusal of a group the user pointed at aborts instead of declining (deferrable, like other pointed aborts). Core logs each refusal (INFO when a `never_fall_back` gate wraps the hook, WARNING otherwise). An exception from the probe itself propagates unchanged.
 - **Access control**: only a `never_fall_back` gate is one. An extender with `raise_on_error = False` falls back to running the probe. A gate that raises after calling `func` still refuses the group, but the probe's I/O has happened. Treat `declared_attributes` of `None` as a refusal.
@@ -243,7 +243,7 @@ The calculate job of `FraudScore` (START and terminal events) then carries `"own
 
 Use `mloda.steward.verified_context()` around the run call when an extender needs server-verified tenant, project, or principal identity. These values populate `tenant_id`, `project_id`, and `principal` on every `HookContext` created for that run and cannot be overridden through feature `Options`.
 
-`FEATURE_GROUP_MATCHED` and `INPUT_DATA_MATCH` read the scope active at plan time (`prepare`, `explain`, `diagnose`, the planning half of `run_all`); every other hook reads the scope active at run-call time. For a session prepared under one scope and run under another, core refuses (`GateBypassError`) a run whose identity (`tenant_id`, `project_id`, `principal`) differs from the plan identity when a `never_fall_back` match-hook gate does not override `on_run_start`; a gate that does override it must check the run identity there (see core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext)).
+`FEATURE_GROUP_MATCHED` and `INPUT_DATA_MATCH` read the scope active at plan time (`prepare`, `explain`, `diagnose`, the planning half of `run_all`); every other hook reads the scope active at run-call time. For a session prepared under one scope and run under another, core refuses (`GateBypassError`) a run whose identity (`tenant_id`, `project_id`, `principal`) differs from the plan identity when a `never_fall_back` match-hook gate does not override `on_run_start`; a gate that does override it must check the run identity there (see core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext)).
 
 ```python
 from mloda.steward import verified_context

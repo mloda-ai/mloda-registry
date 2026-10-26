@@ -104,7 +104,7 @@ class ValueSource(DataCreatorFeatureGroup):
 
 `FeatureChainParserMixin` (Pattern 3) is what makes the group match `value__doubled`; `OperationFeatureGroup` alone does not.
 
-Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)):
+Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)):
 
 ```py
 from mloda.provider import Implementation
@@ -247,7 +247,7 @@ With Pandas and PyArrow both enabled, a sum runs on PyArrow with the reason `pre
 Feature("price__sum_total", implementation="PandasColumnTotal")
 ```
 
-The pinned step records `pinned; runs a version that differs: skips NaN in sum`. The pin is part of the feature's identity and is not passed to input features. An unknown or ambiguous name, a disabled implementation, a conflict with `compute_framework=` or a wrong entry count raises `ImplementationPinError` (a `ValueError`). A steward disables one implementation with `PluginCollector.add_disabled_implementation_classes`. See core's [Operation Groups](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/compute-framework-integration.md#operation-groups-one-group-one-implementation-per-framework).
+The pinned step records `pinned; runs a version that differs: skips NaN in sum`. The pin is part of the feature's identity and is not passed to input features. An unknown or ambiguous name, a disabled implementation, a conflict with `compute_framework=` or a wrong entry count raises `ImplementationPinError` (a `ValueError`). A steward disables one implementation with `PluginCollector.add_disabled_implementation_classes`. See core's [Operation Groups](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/compute-framework-integration.md#operation-groups-one-group-one-implementation-per-framework).
 
 ## Test
 
@@ -326,9 +326,9 @@ class PandasOnlyGroup(FeatureGroup):
 | [row_preserving/offset/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/offset/base.py) | `OffsetFeatureGroup`, shared `offset` loop, `SUBTYPES` with parametric families |
 | [row_preserving/percentile/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/percentile/base.py) | `PercentileFeatureGroup`, shared `percentile` loop |
 | [string/sqlite_string.py](../../../mloda/community/feature_groups/data_operations/string/sqlite_string.py) | `SqliteStringOps`, with `supported` |
-| [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
-| [core aggregated_feature_group/pandas.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pandas.py) | Core's Pandas Implementation |
-| [core aggregated_feature_group/pyarrow.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pyarrow.py) | Core's PyArrow Implementation |
+| [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
+| [core aggregated_feature_group/pandas.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pandas.py) | Core's Pandas Implementation |
+| [core aggregated_feature_group/pyarrow.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pyarrow.py) | Core's PyArrow Implementation |
 
 ## Combines With
 

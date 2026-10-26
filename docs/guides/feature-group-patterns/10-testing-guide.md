@@ -267,7 +267,7 @@ def test_result_differs_from_the_reference_exactly_when_declared(implementation,
     assert differs == (op in implementation.divergent)
 ```
 
-Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
+Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.18.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
 
 ## Locking a Shipped Plan
 

@@ -54,7 +54,7 @@ feature = Feature(
 | With `propagate_context_keys` | Listed keys are passed to the feature's direct input features (one hop) |
 | With `cascade_context_keys` | Listed keys are passed to every input down the chain (since mloda 0.16.0) |
 
-The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.16.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
+The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
 
@@ -177,7 +177,7 @@ assert result[0]["guide11_price__shift_1"].tolist()[1:] == [1, 2]
 - `_resolve_operation` and `value_for` still return the captured text
 - Keep the converter pure and cheap, as it runs on every resolution
 
-See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.17.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
+See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
 
 ### Annotate with ClassVar
 
