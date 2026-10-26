@@ -215,12 +215,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")
 
     # PREFIX_PATTERN is the rolling member; FRAME_PATTERNS is the full matching set the mixin uses.
-    FRAME_PATTERNS: tuple[str, ...] = (
-        _ROLLING_PATTERN.pattern,
-        _TIME_WINDOW_PATTERN.pattern,
-        _CUMULATIVE_PATTERN.pattern,
-        _EXPANDING_PATTERN.pattern,
-    )
+    FRAME_PATTERNS: tuple[str, ...] = tuple(pattern.pattern for _, pattern in _FRAME_SHAPES)
     PREFIX_PATTERN = _ROLLING_PATTERN.pattern
 
     SUPPORTED_FRAME_TYPES: set[str] = {"rolling", "time", "cumulative", "expanding"}

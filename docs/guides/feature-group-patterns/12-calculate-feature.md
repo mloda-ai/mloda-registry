@@ -45,7 +45,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 ### The Same Name Can Arrive Twice
 
-A feature requested directly and also as another requested feature's input reaches your group twice in one FeatureSet: same name, different options (the input copy carries forwarded options), so the set keeps both. Assignment like `data[name] = ...` just overwrites, but an append-style API (`pa.Table.append_column`, a new SQL column) fails with `Field "<name>" exists 2 times in schema`. Write each name once:
+A feature requested directly and also as another requested feature's input reaches your group twice in one FeatureSet: same name, different options (the input copy carries forwarded options), so the set keeps both. Assignment like `data[name] = ...` just overwrites, but an append-style API adds a second column of that name, and the later lookup by name fails (PyArrow: `KeyError: 'Field "<name>" exists 2 times in schema'`). Write each name once:
 
 ```py
 @classmethod

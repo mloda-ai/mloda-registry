@@ -161,9 +161,12 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
     def _extract_percentile(cls, feature: Feature) -> float:
         """Extract percentile float from feature (name first, then options)."""
         feature_name = feature.name
-        result = cls.resolve_feature_name(feature_name).bindings.get(cls.PERCENTILE)
+        resolution = cls.resolve_feature_name(feature_name)
+        result = resolution.bindings.get(cls.PERCENTILE)
         if result is not None:
             return float(result)
+        if resolution.owned:
+            raise ValueError(f"Could not extract percentile for {feature_name}")
         percentile = _unit_percentile(feature.options.get(cls.PERCENTILE))
         if percentile is None:
             raise ValueError(f"Could not extract percentile for {feature_name}")

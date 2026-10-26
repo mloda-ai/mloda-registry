@@ -671,6 +671,37 @@ class TestListUtf8InputColumn:
         assert out.type == make_type(pa.string())
         assert out.to_pylist() == rows
 
+    def test_chunked_input_keeps_chunk_layout(self) -> None:
+        chunks = [[["a"], None], [[], ["b", None]]]
+        list_type = pa.list_(pa.string())
+        in_col = pa.chunked_array([pa.array(c, type=list_type) for c in chunks], type=list_type)
+        table = pa.table({"col_a": in_col})
+        result = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        out = result.column("col_a_hash")
+        flat = ["a", "b", None]
+        assert self._flat(out.to_pylist()) == compute_expected_hash_column({"col_a": flat}, ["col_a"], None)
+        assert [None if r is None else len(r) for r in out.to_pylist()] == [1, None, 0, 2]
+        assert out.num_chunks == in_col.num_chunks
+        assert [len(c) for c in out.chunks] == [len(c) for c in in_col.chunks]
+
+    @pytest.mark.parametrize("make_type", [pa.list_, pa.large_list], ids=["list", "large_list"])
+    def test_large_string_elements_give_large_string_utf8_output(self, make_type: Any) -> None:
+        rows = [["a", "b"], None, [], ["c"]]
+        table = pa.table({"col_a": pa.array(rows, type=make_type(pa.large_string()))})
+        result = EchoUtf8Model.run_binary_model(table, ["col_a"], "echo", {}, {"echo": "col_a_echo"})
+        out = result.column("col_a_echo")
+        assert out.type == make_type(pa.large_string())
+        assert out.to_pylist() == rows
+
+    def test_binary_unavailable_precedes_usage_error_for_non_empty_list(self, tmp_path: Path) -> None:
+        class _MissingPathModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = "whatever"
+            BINARY_COMMAND_OVERRIDE = str(tmp_path / "does-not-exist")
+
+        table = pa.table({"col_a": pa.array([["a"], ["b"]], type=pa.list_(pa.string()))})
+        with pytest.raises(BinaryUnavailableError):
+            _MissingPathModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a"})
+
     def test_no_elements_still_raises_usage_error(self) -> None:
         table = pa.table({"col_a": pa.array([[], None], type=pa.list_(pa.string()))})
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)

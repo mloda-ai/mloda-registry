@@ -193,10 +193,20 @@ class TestPatternParsing:
         resolution = PercentileFeatureGroup.resolve_feature_name(f"value_int__{token}_percentile")
         assert "percentile" not in resolution.bindings
         assert resolution.rejected_bindings == {"percentile": token}
-
-    def test_huge_digit_percentile_raises_contained_error(self) -> None:
         with pytest.raises(ValueError, match="Could not extract percentile value"):
-            PercentileFeatureGroup.get_percentile_value("value_int__p" + "9" * 5000 + "_percentile")
+            PercentileFeatureGroup.get_percentile_value(f"value_int__{token}_percentile")
+
+    @pytest.mark.parametrize(
+        "token",
+        [pytest.param("p150", id="p150"), pytest.param("p" + "9" * 5000, id="huge_digits")],
+    )
+    def test_extract_percentile_rejected_name_does_not_fall_back_to_options(self, token: str) -> None:
+        feature = Feature(
+            f"value_int__{token}_percentile",
+            options=Options(context={"percentile": 0.5, "partition_by": ["region"]}),
+        )
+        with pytest.raises(ValueError, match="Could not extract percentile"):
+            PercentileFeatureGroup._extract_percentile(feature)
 
     def test_parse_source_feature(self) -> None:
         feature = Feature(
