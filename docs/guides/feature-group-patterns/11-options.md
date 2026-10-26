@@ -235,6 +235,75 @@ Required-key **presence** holds even when the class overrides `match_feature_gro
 
 Before mloda 0.11.0, required-key presence was checked on the configuration path only, so a chained name missing a required option could match and fail later inside `calculate_feature`.
 
+## Secrets and Paths: Pass an Environment Variable Name
+
+Options are hashed, forwarded and shown in explain output, so a key, a path or any secret must never be an option value. Pass the **name** of an environment variable instead:
+
+- The option holds the variable name only and is a context key (`property_spec`'s default); declare `default=None` when it is optional. Keep it non-strict and unguarded so no validator echoes a mistaken value
+- Resolve it in `calculate_feature`, not at match time
+- An unset or empty variable fails; it never falls back to silent defaults
+- Errors name the option key, never the variable's value
+
+```python
+import hashlib
+import os
+from unittest.mock import patch
+
+import pytest
+from mloda.user import Feature, Options
+
+
+class Guide11Salted(FeatureChainParserMixin, FeatureGroup):
+    SALT_ENV = "salt_env"
+    PREFIX_PATTERN = r".*__salted$"
+    RECOGNITION_ONLY_PATTERN = True
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+    PROPERTY_MAPPING: ClassVar = {
+        SALT_ENV: property_spec("Name of the environment variable holding the salt"),
+        DefaultOptionKeys.in_features: property_spec("Source feature"),
+    }
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        result = {}
+        for feature in features.get_sorted_features():
+            salt = cls._read_env(feature.options.get(cls.SALT_ENV))
+            source = cls._extract_source_features(feature)[0]
+            result[feature.name] = [hashlib.sha256(f"{salt}{v}".encode()).hexdigest() for v in data[source]]
+        return result
+
+    @classmethod
+    def _read_env(cls, env_name: object) -> str:
+        value = os.environ.get(env_name, "").strip() if isinstance(env_name, str) and env_name else ""
+        if not value:
+            raise ValueError(f"{cls.SALT_ENV} must name a set, non-empty environment variable")
+        return value
+
+
+def _run_salted() -> Any:
+    feature = Feature("guide11_price__salted", Options(context={Guide11Salted.SALT_ENV: "GUIDE11_SALT"}))
+    return mloda.run_all(
+        [feature],
+        compute_frameworks=["PandasDataFrame"],
+        plugin_collector=PluginCollector.enabled_feature_groups({Guide11Prices, Guide11Salted}),
+    )
+
+
+def test_salt_is_read_from_the_named_variable() -> None:
+    with patch.dict(os.environ, {"GUIDE11_SALT": "s3cret"}):
+        assert len(_run_salted()[0]["guide11_price__salted"]) == 3
+
+
+def test_empty_variable_fails_naming_the_option() -> None:
+    with patch.dict(os.environ, {"GUIDE11_SALT": ""}):
+        with pytest.raises(Exception) as excinfo:
+            _run_salted()
+    assert Guide11Salted.SALT_ENV in str(excinfo.value)
+```
+
+In a pytest suite, set the variable with `monkeypatch.setenv`. When the group also rejects a malformed value (a key of the wrong length, say), assert the error text does not contain that value. Reference implementation: [`AnonymizerFeatureGroup`](../../../mloda/enterprise/feature_groups/anonymizer/anonymizer_feature_group.py) (`pii_key_env`).
+
 ## Full Documentation
 
 See [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) for detailed patterns and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the full spec reference.
