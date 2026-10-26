@@ -90,9 +90,9 @@ assert set(result) == {"emb~0", "emb~1"}
 
 | File | Description |
 |------|-------------|
-| [sklearn/encoding/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
-| [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output, overrides `output_parts()` from the name |
-| [forecasting/base.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/experimental/forecasting/base.py) | Forecast output, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
+| [sklearn/encoding/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
+| [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output, overrides `output_parts()` from the name |
+| [forecasting/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/forecasting/base.py) | Forecast output, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
 
 ## Consuming Sub-Columns
 

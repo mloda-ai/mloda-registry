@@ -46,7 +46,7 @@ assert any(list(df["sales_total"]) == [3, 3, 5] for df in result if "sales_total
 | `keep_index` | boolean | No | Return the key columns (`index`, else the group's `index_columns()`) next to the feature; with neither, the run fails |
 | `index` | array | No | The feature's key columns, non-empty and distinct; also the join-side binding |
 
-`keep_index` and `index` are top-level only; a nested `in_features` dict rejects them. Pair them, since the MCP/service request schema requires `index` when `keep_index` is true:
+`keep_index` and `index` are top-level only: a nested `in_features` dict supports only `name`, `options`, `in_features` and `feature_group`. Pair them, since the MCP/service request schema requires `index` when `keep_index` is true:
 
 ```json
 { "name": "daily_sales", "keep_index": true, "index": ["customer_id"] }

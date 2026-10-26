@@ -162,7 +162,7 @@ features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/
 
 `SourceMatch.source` is the credential-free label (equality and hash use it, never `access`). Several sources found for one name in one group abort, so keep `source` unique per access. A per-framework fast path is an `Implementation[UbaAirFG]` from `mloda.provider`, defined at module level; without one `load_neutral` runs and a transformer converts.
 
-`neutral_type` names the type `load_neutral` returns (default `None`). A run without `compute_frameworks` then prefers a framework that takes it as is (here `PythonDictFramework`), and the plan step says `loads natively`. Without it the first framework by class name is used, and its conversion can fail on mixed or nested cells. Runs that pass `compute_frameworks` are unaffected. `ApiDataFG` reports its own value type but returns `None` once a subclass overrides `load_neutral` or `api_values`, so such a subclass declares `neutral_type` itself.
+`neutral_type` names the type `load_neutral` returns (default `None`). A run without `compute_frameworks` then prefers a framework that takes it as is (here `PythonDictFramework`), and the plan step says `loads natively`. Without it the first framework in default order is used, and its conversion can fail on mixed or nested cells. Runs that pass `compute_frameworks` are unaffected. `ApiDataFG` reports its own value type but returns `None` once a subclass overrides `load_neutral` or `api_values`, so such a subclass declares `neutral_type` itself.
 
 ### Audit Identity
 
@@ -206,7 +206,7 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-Core's contract mixins for source groups ([tests/mixins/reader_feature_groups/](https://github.com/mloda-ai/mloda/tree/0.17.0/tests/mixins/reader_feature_groups) in the mloda repository) are not shipped in the wheel and cannot be imported; read them for what a group must keep. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
+Core's contract mixins for source groups ([tests/mixins/reader_feature_groups/](https://github.com/mloda-ai/mloda/tree/0.18.0/tests/mixins/reader_feature_groups) in the mloda repository) are not shipped in the wheel and cannot be imported; read them for what a group must keep. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 
 ```python
 from mloda.steward import resolve_feature
@@ -221,17 +221,17 @@ def test_pointer_reaches_the_group() -> None:
     assert result.feature_group is UbaAirFG, result.error
 ```
 
-A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.17.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
+A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.18.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
 
 ## Real Implementations
 
 | File | Description |
 |------|-------------|
-| [source_feature_group.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/source_feature_group.py) | `SourceFeatureGroup`: claim routes, `find_sources`, `load_neutral`, `gated_probe` |
-| [claim_route.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/claim_route.py) | `ClaimRoute`, `NamePolicy`, `SourceMatch` |
-| [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG`: `suffixes`, `column_names` |
-| [read_db_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda/core/abstract_plugins/components/input_data/read_db_fg.py) | `ReadDBFG`: credentials, catalogs, optional query route |
-| [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.17.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
+| [source_feature_group.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/components/input_data/source_feature_group.py) | `SourceFeatureGroup`: claim routes, `find_sources`, `load_neutral`, `gated_probe` |
+| [claim_route.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/components/input_data/claim_route.py) | `ClaimRoute`, `NamePolicy`, `SourceMatch` |
+| [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG`: `suffixes`, `column_names` |
+| [read_db_fg.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda/core/abstract_plugins/components/input_data/read_db_fg.py) | `ReadDBFG`: credentials, catalogs, optional query route |
+| [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
 
 ## Combines With
 
