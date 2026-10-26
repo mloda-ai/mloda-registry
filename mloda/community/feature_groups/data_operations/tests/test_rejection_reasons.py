@@ -224,37 +224,3 @@ class TestReleasedLeafImportCompat:
         from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 
         assert issubclass(AggregationFeatureGroupBase, FeatureGroup)
-
-    def test_released_leaf_shape_with_name_only_match_mixin_still_name_only(self) -> None:
-        """A 0.11.0-shaped leaf (``NameOnlyMatchMixin`` in its bases) claims by name and declines the config path."""
-        from mloda.provider import FeatureChainParserMixin, OperationFeatureGroup
-
-        from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin, NameOnlyMatchMixin
-
-        class _ReleasedLeafEma(
-            KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, OperationFeatureGroup
-        ):
-            KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
-            PREFIX_PATTERN = EmaFeatureGroup.PREFIX_PATTERN
-            MIN_IN_FEATURES = EmaFeatureGroup.MIN_IN_FEATURES
-            MAX_IN_FEATURES = EmaFeatureGroup.MAX_IN_FEATURES
-            PROPERTY_MAPPING = EmaFeatureGroup.PROPERTY_MAPPING
-
-        name_options = Options(context={"order_by": "ts"})
-        assert _ReleasedLeafEma.match_feature_group_criteria("price__ema_20", name_options, None) is True
-
-        config_options = Options(context={"in_features": "price", "order_by": "ts"})
-        assert _ReleasedLeafEma.match_feature_group_criteria("my_result", config_options, None) is False
-        assert _ReleasedLeafEma._strict_validation_rejection_reason("my_result", config_options) is None
-
-    def test_validate_hand_parsed_bindings_module_function_still_works(self) -> None:
-        from mloda.community.feature_groups.data_operations.base import validate_hand_parsed_bindings
-        from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
-
-        with pytest.raises(ValueError, match=r"option 'n_bins' is int 10"):
-            validate_hand_parsed_bindings(
-                BinningFeatureGroup, "value_int__bin_5", {"n_bins": "5"}, Options(context={"n_bins": 10})
-            )
-        validate_hand_parsed_bindings(
-            BinningFeatureGroup, "value_int__bin_5", {"n_bins": "5"}, Options(context={"n_bins": 5})
-        )

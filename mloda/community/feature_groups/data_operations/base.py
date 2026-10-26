@@ -357,22 +357,9 @@ def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
     return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
 
 
-# Deprecated alias: released leaves still import this name.
-def validate_hand_parsed_bindings(cls: Any, feature_name: Any, bindings: dict[str, str], options: Any) -> None:
-    """Delegate to core's validate_hand_parsed_bindings."""
-    cls.validate_hand_parsed_bindings(feature_name, bindings, options)
-
-
 def is_own_option(options: Any, key: str) -> bool:
     """True if the option is set and is the feature's own, not purely forwarded."""
     return options.get(key) is not None and bool(options.is_own(key))
-
-
-class NameOnlyMatchMixin:
-    """Claims a feature only by a prefix-pattern name match; a config-path feature is declined."""
-
-    # Deprecated alias: released leaves still import this name.
-    NAME_ONLY_MATCH = True
 
 
 # Deprecated alias: released leaves still import this name.
