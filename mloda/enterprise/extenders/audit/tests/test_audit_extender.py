@@ -304,8 +304,8 @@ def _qualname(cls: type) -> str:
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
-def _declare_csv_level(monkeypatch: pytest.MonkeyPatch, level: str) -> None:
-    monkeypatch.setattr(CsvFG, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: level}))
+def _declare_csv_level(monkeypatch: pytest.MonkeyPatch, level: str, group: type[CsvFG] = CsvFG) -> None:
+    monkeypatch.setattr(group, "declared_attributes", classmethod(lambda cls, features: {CLASSIFICATION_KEY: level}))
 
 
 def _reader_probe(**overrides: Any) -> HookContext:
@@ -341,6 +341,18 @@ class _CsvFGSubclass(CsvFG):
     @classmethod
     @abstractmethod
     def _never_discovered(cls) -> None: ...
+
+
+class MlodaTestingClassSecretCsvFG(CsvFG):
+    """Concrete so core discovers it; its narrow suffix keeps it off other tests' files. Tests set its level."""
+
+    @classmethod
+    def suffixes(cls) -> tuple[str, ...]:
+        return (".mloda_testing_class_secret.csv",)
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, str | int | float | bool]:
+        return {}
 
 
 def _classified(
@@ -5134,6 +5146,62 @@ class TestAuditExtenderClassificationRunAll:
             ]
         )
         assert sorted(((r["hook"], r["reader_class"], r["feature_names"]) for r in denies), key=repr) == expected
+
+    @pytest.mark.parametrize(
+        ("gate_readers", "parent_disabled"),
+        [(True, False), (False, False), (True, True)],
+        ids=["parent_serves", "gate_readers_off", "parent_disabled"],
+    )
+    def test_a_refusal_binds_only_the_refused_class_so_an_undeclared_parent_serves_a_searched_source(
+        self, gate_readers: bool, parent_disabled: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _declare_csv_level(monkeypatch, "pii", MlodaTestingClassSecretCsvFG)
+        path = tmp_path / ("data" + MlodaTestingClassSecretCsvFG.suffixes()[0])
+        path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+        sink = InMemoryAuditSink()
+        policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", gate_readers=gate_readers)
+        collector = PluginCollector.enabled_feature_groups({CsvFG, MlodaTestingClassSecretCsvFG})
+        if parent_disabled:
+            collector.add_disabled_feature_group_classes({CsvFG})
+
+        def run() -> Any:
+            return mloda.run_all(
+                ["alpha"],
+                compute_frameworks=[PyArrowTable],
+                plugin_collector=collector,
+                data_access_collection=DataAccessCollection(files={str(path)}),
+                function_extender={_classified(sink, classification=policy)},
+                parallelization_modes={ParallelizationMode.SYNC},
+            )
+
+        with verified_context(tenant_id="t", principal="svc"):
+            if parent_disabled:
+                with pytest.raises(FeatureResolutionError) as excinfo:
+                    run()
+                assert [type(refusal) for refusal in excinfo.value.refusals] == [ClassificationDeniedError]
+                assert excinfo.value.__cause__ is excinfo.value.refusals[0]
+            elif not gate_readers:
+                with pytest.raises(ClassificationDeniedError):
+                    run()
+            else:
+                assert run()[0].column("alpha").to_pylist() == [1, 3]
+
+        denies = [r for r in sink.records if r["decision"] == "deny"]
+        if gate_readers:
+            assert [(r["hook"], r["reader_class"]) for r in denies] == [
+                ("INPUT_DATA_MATCH", _qualname(MlodaTestingClassSecretCsvFG))
+            ]
+        else:
+            assert [(r["hook"], r["deny_reason"], r["reader_class"]) for r in denies] == [
+                ("RUN_START", "classification_above_clearance", None)
+            ]
+        if gate_readers and not parent_disabled:
+            [served] = [r for r in sink.records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+            assert (served["decision"], served["feature_group_class"], served["classification"]) == (
+                "allow",
+                _qualname(CsvFG),
+                "public",
+            )
 
     @pytest.mark.parametrize(
         ("gate_readers", "exempt_readers", "allowed"),
