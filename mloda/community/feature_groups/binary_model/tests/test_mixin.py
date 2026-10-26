@@ -255,6 +255,11 @@ class TestColumnTypeVocabulary:
         with pytest.raises(UnsupportedError):
             StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
 
+    def test_list_utf8_input_column_with_a_second_input_column_raises_unsupported(self) -> None:
+        table = pa.table({"col_a": pa.array([["a"], ["b"]], type=pa.list_(pa.string())), "col_b": ["x", "y"]})
+        with pytest.raises(UnsupportedError):
+            StubModel.run_binary_model(table, ["col_a", "col_b"], "hash", {}, {"result": "out"})
+
     def test_dictionary_encoded_input_column_raises_unsupported(self) -> None:
         dict_array = pa.array(["x", "y", "x"]).dictionary_encode()
         table = pa.table({"col_a": dict_array})
@@ -616,6 +621,61 @@ class TestHappyPaths:
             tracemalloc.stop()
         assert result.num_rows == table.num_rows
         assert peak < table.nbytes // 4, f"traced peak {peak} bytes for a {table.nbytes} byte table"
+
+
+class TestListUtf8InputColumn:
+    """A single list<utf8-family> input column is flattened, hashed, and re-nested to the input shape."""
+
+    ROWS: ClassVar[list[list[str | None] | None]] = [["a", "b"], None, [], ["c", None]]
+
+    @staticmethod
+    def _flat(rows: list[Any]) -> list[Any]:
+        return [v for row in rows if row for v in row]
+
+    @pytest.mark.parametrize(
+        "list_type",
+        [
+            pytest.param(pa.list_(pa.string()), id="list_string"),
+            pytest.param(pa.list_(pa.large_string()), id="list_large_string"),
+            pytest.param(pa.large_list(pa.large_string()), id="large_list_large_string"),
+            pytest.param(pa.large_list(pa.string()), id="large_list_string"),
+        ],
+    )
+    def test_output_has_input_shape_and_flattened_values_match_reference(self, list_type: pa.DataType) -> None:
+        table = pa.table({"col_a": pa.array(self.ROWS, type=list_type)})
+        result = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        out = result.column("col_a_hash")
+        expected_kind = pa.types.is_large_list if pa.types.is_large_list(list_type) else pa.types.is_list
+        assert expected_kind(out.type)
+        assert out.type.value_type == pa.int64()
+        assert [None if r is None else len(r) for r in out.to_pylist()] == [2, None, 0, 2]
+        expected = compute_expected_hash_column({"col_a": self._flat(self.ROWS)}, ["col_a"], None)
+        assert self._flat(out.to_pylist()) == expected
+
+    @pytest.mark.parametrize(
+        "rows",
+        [
+            pytest.param([], id="zero_rows"),
+            pytest.param([None, None], id="all_null"),
+            pytest.param([[], []], id="all_empty"),
+            pytest.param([None, [], None], id="null_and_empty"),
+        ],
+    )
+    @pytest.mark.parametrize("make_type", [pa.list_, pa.large_list], ids=["list", "large_list"])
+    def test_no_elements_never_starts_the_binary(self, rows: list[Any], make_type: Any) -> None:
+        list_type = make_type(pa.large_string())
+        table = pa.table({"col_a": pa.array(rows, type=list_type)})
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        out = result.column("col_a_hash")
+        assert out.type == make_type(pa.string())
+        assert out.to_pylist() == rows
+
+    def test_no_elements_still_raises_usage_error(self) -> None:
+        table = pa.table({"col_a": pa.array([[], None], type=pa.list_(pa.string()))})
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a"})
 
 
 # -------------------------------------------------------------------------------------------

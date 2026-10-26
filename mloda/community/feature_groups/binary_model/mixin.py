@@ -250,6 +250,43 @@ def _finalize_output(result: pa.Table, original_table: pa.Table) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=pa.schema(fields))
 
 
+def _assert_usage(
+    table: pa.Table, input_columns: Sequence[str], parameters: Any, output_columns: Mapping[str, str]
+) -> None:
+    _assert_parameters_mapping(parameters)
+    _assert_output_columns_shape(output_columns)
+    _assert_no_duplicate_table_columns(table)
+    _assert_input_columns(input_columns, table)
+    _assert_output_columns(output_columns, table)
+
+
+def _list_input_column(table: pa.Table, input_columns: Any) -> str | None:
+    """Name of the first ``list``/``large_list`` input column, or ``None`` (also for malformed arguments,
+    which the usage checks report)."""
+    if isinstance(input_columns, (str, bytes)) or not isinstance(input_columns, Sequence):
+        return None
+    for field in table.schema:
+        if field.name in input_columns and (pa.types.is_list(field.type) or pa.types.is_large_list(field.type)):
+            return str(field.name)
+    return None
+
+
+def _nest_outputs(flat_result: pa.Table, source: pa.Array) -> pa.Table:
+    """Re-nest each flat output column to the shape of the list array ``source`` (null rows and empty
+    lists kept)."""
+    large = pa.types.is_large_list(source.type)
+    offset_type = pa.int64() if large else pa.int32()
+    lengths = pc.fill_null(pc.list_value_length(source), 0).cast(offset_type)
+    offsets = pa.concat_arrays([pa.array([0], type=offset_type), pc.cumulative_sum(lengths)])
+    mask = source.is_null()
+    list_array = pa.LargeListArray if large else pa.ListArray
+    columns = {
+        field.name: list_array.from_arrays(offsets, flat_result.column(field.name).combine_chunks(), mask=mask)
+        for field in flat_result.schema
+    }
+    return pa.table(columns)
+
+
 class BinaryModelMixin:
     """Mixed into a FeatureGroup to run an external binary as a model over Arrow IPC (contract:
     Invocation, Capabilities, Data, Configuration, License, Data handling, Errors)."""
@@ -312,13 +349,43 @@ class BinaryModelMixin:
         output_columns: Mapping[str, str],
     ) -> pa.Table:
         """Run ``operation`` on ``table`` through the resolved binary, returning a table of only the
-        output columns, row-aligned to ``table`` (contract: Data, Configuration, Errors)."""
+        output columns, row-aligned to ``table`` (contract: Data, Configuration, Errors). A single
+        ``list``/``large_list`` utf8 column is flattened, sent, and each output re-nested."""
+        list_name = _list_input_column(table, input_columns)
+        if list_name is None:
+            resolved = cls.resolved_binary()
+            _assert_usage(table, input_columns, parameters, output_columns)
+            return cls._run_flat(resolved, table, input_columns, operation, parameters, output_columns, table)
+        _assert_usage(table, input_columns, parameters, output_columns)
+        column = table.column(list_name)
+        if len(input_columns) != 1 or classify_column_type(column.type.value_type) != "utf8":
+            raise UnsupportedError(
+                f"list column {list_name!r} must be the only input column and hold utf8 values, "
+                f"got input_columns {list(input_columns)} and type {column.type!r}"
+            )
+        combined = column.combine_chunks()
+        flat = combined.flatten()
+        if len(flat) == 0:
+            return _nest_outputs(
+                pa.table({name: pa.array([], type=pa.string()) for name in output_columns.values()}),
+                combined,
+            )
         resolved = cls.resolved_binary()
-        _assert_parameters_mapping(parameters)
-        _assert_output_columns_shape(output_columns)
-        _assert_no_duplicate_table_columns(table)
-        _assert_input_columns(input_columns, table)
-        _assert_output_columns(output_columns, table)
+        flat_table = pa.table({list_name: flat})
+        result = cls._run_flat(resolved, flat_table, input_columns, operation, parameters, output_columns, table)
+        return _nest_outputs(result, combined)
+
+    @classmethod
+    def _run_flat(
+        cls,
+        resolved: ResolvedBinary,
+        table: pa.Table,
+        input_columns: Sequence[str],
+        operation: str,
+        parameters: Mapping[str, Any],
+        output_columns: Mapping[str, str],
+        original_table: pa.Table,
+    ) -> pa.Table:
         if operation not in resolved.capabilities.operations:
             raise UnsupportedError(
                 f"binary {resolved.capabilities.plugin_id!r} does not support operation {operation!r}"
@@ -363,4 +430,4 @@ class BinaryModelMixin:
 
         result = read_output_stream(output_bytes)
         verify_output_contract(result, output_columns, table.num_rows, resolved.capabilities.column_types)
-        return _finalize_output(result, table)
+        return _finalize_output(result, original_table)

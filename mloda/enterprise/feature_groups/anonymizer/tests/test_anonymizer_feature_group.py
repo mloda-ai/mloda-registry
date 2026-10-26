@@ -226,6 +226,18 @@ class TestCalculateFeature:
         expected = compute_expected_hmac_sha256_column(rows, KNOWN_ANSWER_KEY)
         assert result.column("email__hmac_sha256_pseudonymized").to_pylist() == expected
 
+    def test_list_utf8_source_is_pseudonymized_element_wise(self, key_env: str) -> None:
+        rows: list[list[str | None] | None] = [["alpha", "beta"], None, [], ["gamma", None]]
+        table = pa.table({"email": pa.array(rows, type=pa.list_(pa.string()))})
+        result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
+        out = result.column("pseudonymized_email")
+        assert pa.types.is_list(out.type)
+        values = out.to_pylist()
+        assert [None if r is None else len(r) for r in values] == [2, None, 0, 2]
+        flat_in = [v for row in rows if row for v in row]
+        flat_out = [v for row in values if row for v in row]
+        assert flat_out == compute_expected_hmac_sha256_column(flat_in, KNOWN_ANSWER_KEY)
+
     def test_key_with_surrounding_whitespace_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(KEY_ENV, KNOWN_ANSWER_KEY + "\n")
         table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
@@ -350,6 +362,20 @@ class TestIntegration:
         )
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "pseudonymized_email") == expected
+
+    def test_list_utf8_source_end_to_end(self, key_env: str) -> None:
+        rows: dict[str, list[Any]] = {"email": [["alpha", "beta"], None, [], ["gamma"]]}
+        results = mloda.run_all(
+            [_config_feature("pseudonymized_email")],
+            compute_frameworks=[PyArrowTable],
+            api_data={"AnonymizerData": rows},
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+        )
+        out = _result_column(results, "pseudonymized_email")
+        assert [None if r is None else len(r) for r in out] == [2, None, 0, 1]
+        flat_out = [v for row in out if row for v in row]
+        expected = compute_expected_hmac_sha256_column(["alpha", "beta", "gamma"], KNOWN_ANSWER_KEY)
+        assert flat_out == expected
 
     def test_string_form_end_to_end(self, key_env: str) -> None:
         rows: dict[str, list[Any]] = {"email": ["alpha", "beta"]}
