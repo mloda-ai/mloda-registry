@@ -210,9 +210,9 @@ def run_joined_features(
     raise AssertionError(f"No result table with {column_name} found")
 
 
-def write_csv(directory: Path) -> Path:
-    """Write the small `alpha,beta` CSV fixture to `directory/data.csv`; return its path."""
-    path = directory / "data.csv"
+def write_csv(directory: Path, name: str = "data.csv") -> Path:
+    """Write the small `alpha,beta` CSV fixture to `directory/name`; return its path."""
+    path = directory / name
     path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
     return path
 

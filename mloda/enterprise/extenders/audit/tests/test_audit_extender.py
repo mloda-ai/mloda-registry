@@ -5156,8 +5156,7 @@ class TestAuditExtenderClassificationRunAll:
         self, gate_readers: bool, parent_disabled: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _declare_csv_level(monkeypatch, "pii", MlodaTestingClassSecretCsvFG)
-        path = tmp_path / ("data" + MlodaTestingClassSecretCsvFG.suffixes()[0])
-        path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+        path = write_csv(tmp_path, "data" + MlodaTestingClassSecretCsvFG.suffixes()[0])
         sink = InMemoryAuditSink()
         policy = ClassificationPolicy(clearance=_clear_internal, undeclared="public", gate_readers=gate_readers)
         collector = PluginCollector.enabled_feature_groups({CsvFG, MlodaTestingClassSecretCsvFG})
