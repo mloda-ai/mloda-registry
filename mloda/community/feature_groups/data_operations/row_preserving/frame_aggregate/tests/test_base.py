@@ -155,6 +155,7 @@ class TestPatternMatching:
             pytest.param("sales__avg_7_banana_window", False, id="invalid_time_unit"),
             pytest.param("plain_feature", False, id="plain_feature_without_config"),
             pytest.param("sales__sum_rolling_3\n", False, id="trailing_newline"),
+            pytest.param("sales__sum_rolling_" + "9" * 5000, False, id="huge_digits"),
         ],
     )
     def test_match_by_name(self, feature_name: str, expected: bool) -> None:
@@ -575,11 +576,6 @@ class TestHostileInFeatures:
 class TestFrameNameAgreement:
     """A frame option (forwarded or own) that contradicts the name must raise, never be silently overridden."""
 
-    def test_name_agreement_runs_before_match_guards(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_size": 0})
-        with pytest.raises(ValueError, match=r"option 'frame_size' is int 0, but the feature name encodes '3'"):
-            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
-
     def test_forwarded_aggregation_type_mismatch_raises(self) -> None:
         consumer = Options(group={"aggregation_type": "max"})
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
@@ -628,6 +624,7 @@ class TestFrameNameAgreement:
         ("feature_name", "key", "value", "binding", "type_name"),
         [
             ("sales__sum_rolling_3", "frame_size", 5, "3", "int"),
+            ("sales__sum_rolling_3", "frame_size", 0, "3", "int"),
             ("sales__sum_rolling_3", "frame_type", "time", "rolling", "str"),
             ("sales__avg_7_day_window", "frame_size", 5, "7", "int"),
             ("sales__avg_7_day_window", "frame_unit", "hour", "day", "str"),
@@ -822,17 +819,25 @@ class TestFrameShapeParity:
         )
         assert by_config is False, f"Config path should reject: {malformed_config}"
 
-    def test_unknown_aggregation_name_records_the_rejected_binding(self) -> None:
+    @pytest.mark.parametrize(
+        ("feature_name", "key", "token"),
+        [
+            ("sales__banana_rolling_3", "aggregation_type", "banana"),
+            ("sales__banana_7_day_window", "aggregation_type", "banana"),
+            ("sales__cumbanana", "aggregation_type", "banana"),
+            ("sales__expanding_banana", "aggregation_type", "banana"),
+            ("sales__sum_3_fortnight_window", "frame_unit", "fortnight"),
+        ],
+    )
+    def test_unsupported_name_token_records_the_rejected_binding(self, feature_name: str, key: str, token: str) -> None:
         with collect_match_rejections() as reasons:
             assert (
-                FrameAggregateFeatureGroup.match_feature_group_criteria(
-                    "sales__banana_rolling_3", self._pattern_options(), None
-                )
+                FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, self._pattern_options(), None)
                 is False
             )
         reason = reasons[FrameAggregateFeatureGroup.get_class_name()].reason
-        assert "'banana'" in reason
-        assert "aggregation_type" in reason
+        assert f"'{token}'" in reason
+        assert key in reason
 
 
 class TestExtractParams:

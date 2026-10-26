@@ -146,6 +146,7 @@ class TestPatternMatching:
             pytest.param("value_int__bucket_3", id="wrong_suffix"),
             pytest.param("value_int__bin", id="no_number"),
             pytest.param("bin_3", id="no_source_column"),
+            pytest.param("value_int__bin_" + "9" * 5000, id="huge_digits"),
         ],
     )
     def test_no_match(self, feature_name: str) -> None:
@@ -315,19 +316,15 @@ class TestNBinsNameAgreement:
 
     @pytest.mark.parametrize("feature_name", ["value_int__bin_5", "value_int__qbin_5"])
     @pytest.mark.parametrize("placement", ["group", "context"])
-    def test_own_contradictory_n_bins_raises(self, placement: str, feature_name: str) -> None:
-        options = Options(group={"n_bins": 10}) if placement == "group" else Options(context={"n_bins": 10})
+    @pytest.mark.parametrize("value", [10, 0], ids=["contradicts", "guard_invalid_checked_first"])
+    def test_own_contradictory_n_bins_raises(self, placement: str, feature_name: str, value: int) -> None:
+        options = Options(group={"n_bins": value}) if placement == "group" else Options(context={"n_bins": value})
 
         with pytest.raises(
-            ValueError, match=r"option 'n_bins' is int 10, but the feature name encodes '5'\. The name is authoritative"
+            ValueError,
+            match=rf"option 'n_bins' is int {value}, but the feature name encodes '5'\. The name is authoritative",
         ):
             BinningFeatureGroup.match_feature_group_criteria(feature_name, options, None)
-
-    def test_name_agreement_runs_before_match_guards(self) -> None:
-        options = Options(context={"n_bins": 0})
-
-        with pytest.raises(ValueError, match=r"option 'n_bins' is int 0, but the feature name encodes '5'"):
-            BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", options, None)
 
     @pytest.mark.parametrize("n_bins", [5, (5,)])
     def test_own_matching_n_bins_is_accepted(self, n_bins: Any) -> None:
