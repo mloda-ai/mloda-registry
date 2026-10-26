@@ -26,8 +26,9 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from mloda.core.abstract_plugins.components.failed_rows import collect_failed_rows  # no public equivalent yet
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import FeatureSet
+from mloda.provider import FailedRows, FeatureSet, report_failed_rows
 from mloda.steward import (
     AsOfJoinConfig,
     CompositeExtender,
@@ -1963,6 +1964,16 @@ class _Target:
         HookContext.publish_result_attributes({"rows_checked": 3})
         raise RuntimeError("inner boom")
 
+    @classmethod
+    def reporting_calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        report_failed_rows("price", [101, 202], "no_match")
+        return "calculated"
+
+    @classmethod
+    def reporting_failing_calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        report_failed_rows("price", [101, 202], "no_match")
+        raise RuntimeError("inner boom")
+
 
 _DECLARED_ATTRIBUTES_CHAINS = ["direct", "otel-inner", "otel-outer", "no-self-wrapper"]
 
@@ -2256,18 +2267,20 @@ class TestOtelExtenderResultAttributes:
 
         assert _declared_span_attrs(exporter, "mloda.result") == {}
 
+    @pytest.mark.parametrize("recorder", ["_set_result_attributes", "_set_failed_rows_attributes"])
     def test_recording_failure_never_masks_the_wrapped_call_error(
         self,
         otel_capture: tuple[TracerProvider, InMemorySpanExporter],
         caplog: pytest.LogCaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
+        recorder: str,
     ) -> None:
         provider, exporter = otel_capture
 
         def broken(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("recording boom")
 
-        monkeypatch.setattr(otel_extender_module, "_set_result_attributes", broken)
+        monkeypatch.setattr(otel_extender_module, recorder, broken)
         otel = OtelExtender(tracer_provider=provider)
         context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
 
@@ -2302,18 +2315,20 @@ class TestOtelExtenderResultAttributes:
         assert "hunter2" not in recorded
         assert recorded == scrub_credentials(original)[: otel_extender_module._CONTENT_PREVIEW_MAX_LEN]
 
+    @pytest.mark.parametrize("recorder", ["_set_result_attributes", "_set_failed_rows_attributes"])
     def test_recording_failure_never_masks_a_successful_call(
         self,
         otel_capture: tuple[TracerProvider, InMemorySpanExporter],
         caplog: pytest.LogCaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
+        recorder: str,
     ) -> None:
         provider, exporter = otel_capture
 
         def broken(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("recording boom")
 
-        monkeypatch.setattr(otel_extender_module, "_set_result_attributes", broken)
+        monkeypatch.setattr(otel_extender_module, recorder, broken)
         otel = OtelExtender(tracer_provider=provider)
         context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
 
@@ -2327,12 +2342,235 @@ class TestOtelExtenderResultAttributes:
         assert exporter.get_finished_spans()[0].status.status_code != StatusCode.ERROR
 
 
+_FG = "mloda.testing.DummyFeatureGroup"
+_PRICE_TWO_ROWS = {
+    "mloda.failed_rows.count": 2,
+    "mloda.failed_rows.columns.price.count": 2,
+    "mloda.failed_rows.columns.price.reasons": ("no_match",),
+}
+
+
+class TestOtelExtenderFailedRowsAttributes:
+    """mloda.failed_rows.* attributes from HookContext.failed_rows, read after the wrapped call."""
+
+    def test_failed_rows_attributes_set_on_calculate_span(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(FailedRows(_FG, "price", (101, 202, 303), "no_match"),),
+        )
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == {
+            "mloda.failed_rows.count": 3,
+            "mloda.failed_rows.columns.price.count": 3,
+            "mloda.failed_rows.columns.price.reasons": ("no_match",),
+        }
+        positions = (101, 202, 303)
+        for value in single_span_attributes(exporter).values():
+            assert value not in positions
+            if isinstance(value, tuple):
+                assert not any(element in positions for element in value)
+            if isinstance(value, str):
+                assert not any(str(position) in value for position in positions)
+
+    def test_failed_rows_count_distinct_positions_per_column_and_across_columns(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(
+                FailedRows(_FG, "price", (101, 202), "no_match"),
+                FailedRows(_FG, "price", (202, 303), "parse_error"),
+                FailedRows(_FG, "qty", (101,), "null_input"),
+            ),
+        )
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == {
+            "mloda.failed_rows.count": 3,
+            "mloda.failed_rows.columns.price.count": 3,
+            "mloda.failed_rows.columns.price.reasons": ("no_match", "parse_error"),
+            "mloda.failed_rows.columns.qty.count": 1,
+            "mloda.failed_rows.columns.qty.reasons": ("null_input",),
+        }
+
+    def test_failed_rows_reported_during_the_wrapped_call_are_recorded(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        with collect_failed_rows(_FG):
+            with context.activate():
+                otel(instrument(context, _Target.reporting_calculate_feature), None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == _PRICE_TWO_ROWS
+
+    def test_failed_rows_recorded_even_when_the_wrapped_call_raises(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        with collect_failed_rows(_FG):
+            with context.activate():
+                with pytest.raises(RuntimeError, match="inner boom"):
+                    otel(instrument(context, _Target.reporting_failing_calculate_feature), None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == _PRICE_TWO_ROWS
+
+    @pytest.mark.parametrize(
+        ("broken", "surviving_key", "surviving_value"),
+        [
+            ("_set_result_attributes", "mloda.failed_rows.count", 1),
+            ("_set_failed_rows_attributes", "mloda.result.rows_checked", 3),
+        ],
+    )
+    def test_a_broken_recorder_does_not_skip_the_other(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        broken: str,
+        surviving_key: str,
+        surviving_value: int,
+    ) -> None:
+        provider, exporter = otel_capture
+
+        def broken_recorder(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("recording boom")
+
+        monkeypatch.setattr(otel_extender_module, broken, broken_recorder)
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(FailedRows(_FG, "price", (101,), "no_match"),),
+        )
+
+        with context.activate():
+            with caplog.at_level(logging.WARNING):
+                otel(_Target.publishing_calculate_feature, None, FeatureSet())
+
+        assert single_span_attributes(exporter)[surviving_key] == surviving_value
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("post-call instrumentation failed" in m for m in warnings), warnings
+
+    def test_stale_failed_rows_are_not_recorded(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(FailedRows(_FG, "price", (101,), "no_match"),),
+        )
+
+        with context.activate():
+            otel(instrument(context, _Target.calculate_feature), None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == {}
+
+    def test_failed_rows_attributes_absent_when_nothing_was_reported(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == {}
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            ExtenderHook.VALIDATE_INPUT_FEATURE,
+            ExtenderHook.VALIDATE_OUTPUT_FEATURE,
+            ExtenderHook.INPUT_DATA_LOAD,
+            ExtenderHook.JOIN,
+        ],
+    )
+    def test_failed_rows_attributes_absent_on_non_calculate_spans(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        failed_rows = (FailedRows(_FG, "price", (101,), "no_match"),)
+        if hook == ExtenderHook.JOIN:
+            context = _join_context(failed_rows=failed_rows)
+        else:
+            context = make_hook_context(hook=hook, failed_rows=failed_rows)
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == {}
+
+    def test_failed_rows_per_column_keys_are_capped_at_fifteen_columns(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=tuple(FailedRows(_FG, f"c{i:02d}", (100 + i,), "r") for i in reversed(range(16))),
+        )
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        attrs = _declared_span_attrs(exporter, "mloda.failed_rows")
+        assert attrs["mloda.failed_rows.count"] == 16
+        expected_keys = {"mloda.failed_rows.count"}
+        for i in range(15):
+            expected_keys |= {
+                f"mloda.failed_rows.columns.c{i:02d}.count",
+                f"mloda.failed_rows.columns.c{i:02d}.reasons",
+            }
+        assert set(attrs) == expected_keys
+        assert not any("c15" in key for key in attrs)
+
+    def test_failed_rows_reason_codes_per_column_are_capped_at_fifteen(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=tuple(FailedRows(_FG, "price", (101,), f"r{i:02d}") for i in reversed(range(16))),
+        )
+
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
+
+        assert _declared_span_attrs(exporter, "mloda.failed_rows") == {
+            "mloda.failed_rows.count": 1,
+            "mloda.failed_rows.columns.price.count": 1,
+            "mloda.failed_rows.columns.price.reasons": tuple(f"r{i:02d}" for i in range(15)),
+        }
+
+
 def _declaring_feature_group(
     declaration: Callable[[Any, FeatureSet | None], Any],
     publish: Mapping[str, Any] | None = None,
+    report: tuple[tuple[int, ...], str] | None = None,
 ) -> type[MlodaTestingFailingFeatureGroup]:
     """Build a fresh succeeding feature group whose declared_attributes classmethod is declaration.
-    A non-None publish mapping is published as result attributes during calculate_feature."""
+    A non-None publish mapping is published as result attributes during calculate_feature; report is
+    reported as failed rows."""
 
     class _Declaring(MlodaTestingFailingFeatureGroup):
         feature_name = f"declared_{uuid.uuid4().hex}"
@@ -2341,6 +2579,8 @@ def _declaring_feature_group(
         def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
             if publish is not None:
                 HookContext.publish_result_attributes(publish)
+            if report is not None:
+                report_failed_rows(cls.feature_name, *report)
             return {cls.feature_name: [1, 2, 3]}
 
         @classmethod
@@ -2390,6 +2630,22 @@ class TestOtelExtenderRunAll:
         calculate = [span for span in exporter.get_finished_spans() if span.name.startswith("calculate ")]
         assert len(calculate) == 1
         assert (calculate[0].attributes or {}).get("mloda.result.rows_checked") == 3
+
+    def test_run_all_sets_failed_rows_attributes_on_the_calculate_span(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        group = _declaring_feature_group(_declare_orders, report=((0, 2), "no_match"))
+
+        results = run_feature(group, OtelExtender(tracer_provider=provider))
+
+        assert results[0].to_pydict()[group.feature_name] == [1, 2, 3]
+        calculate = [span for span in exporter.get_finished_spans() if span.name.startswith("calculate ")]
+        assert len(calculate) == 1
+        attrs = calculate[0].attributes or {}
+        assert attrs.get("mloda.failed_rows.count") == 2
+        assert attrs.get(f"mloda.failed_rows.columns.{group.feature_name}.count") == 2
+        assert attrs.get(f"mloda.failed_rows.columns.{group.feature_name}.reasons") == ("no_match",)
 
     @pytest.mark.parametrize("declaration", [_declare_raises, _declare_non_mapping])
     def test_run_all_with_a_bad_declaration_succeeds_without_declared_attributes(

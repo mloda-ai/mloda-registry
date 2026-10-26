@@ -20,6 +20,7 @@ _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist", "
 # exact module too, so a name that merely matches one of these (imported from some other
 # mloda.core module) is not silently exempt. A pair nothing imports fails the guard.
 _ALLOWED_INTERNAL_IMPORTS = {
+    ("mloda.core.abstract_plugins.components.failed_rows", "collect_failed_rows"),
     ("mloda.core.abstract_plugins.hook_context", "instrument"),
     ("mloda.core.abstract_plugins.implementation", "accessible_implementations"),
     ("mloda.core.abstract_plugins.implementation", "current_implementations"),
