@@ -55,9 +55,6 @@ class TestClassAttributes:
     def test_max_in_features_is_one(self) -> None:
         assert SessionizationFeatureGroup.MAX_IN_FEATURES == 1
 
-    def test_name_only_match_is_declared(self) -> None:
-        assert SessionizationFeatureGroup.NAME_ONLY_MATCH is True
-
 
 class TestPatternMatching:
     @pytest.mark.parametrize("unit", ["minute", "hour", "day", "week"])
@@ -334,6 +331,10 @@ class TestSessionizationOperationGroup(OperationGroupTestBase):
     @classmethod
     def mixins(cls) -> tuple[type, ...]:
         return (FeatureChainParserMixin,)
+
+    @classmethod
+    def name_only_match(cls) -> bool | None:
+        return True
 
     @classmethod
     def name_probes(cls) -> list[tuple[str, str]]:

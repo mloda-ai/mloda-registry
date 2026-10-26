@@ -241,7 +241,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    # Aliases of the shared keys, so the literals stay defined once in data_operations/base.py and above.
+    # Aliases: the aggregation key is defined above in this file, the frame keys in data_operations/base.py.
     AGGREGATION_TYPE = _AGGREGATION_TYPE_KEY
     FRAME_TYPE = _FRAME_TYPE_KEY
     FRAME_SIZE = _FRAME_SIZE_KEY

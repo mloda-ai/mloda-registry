@@ -357,7 +357,7 @@ def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
     return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
 
 
-# Deprecated shim: released leaves still import this name.
+# Deprecated alias: released leaves still import this name.
 def validate_hand_parsed_bindings(cls: Any, feature_name: Any, bindings: dict[str, str], options: Any) -> None:
     """Delegate to core's validate_hand_parsed_bindings."""
     cls.validate_hand_parsed_bindings(feature_name, bindings, options)

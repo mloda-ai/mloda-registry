@@ -156,11 +156,12 @@ class TestFfillOperationGroup(OperationGroupTestBase):
         return (KeyColumnInputsMixin, FeatureChainParserMixin)
 
     @classmethod
+    def name_only_match(cls) -> bool | None:
+        return True
+
+    @classmethod
     def name_probes(cls) -> list[tuple[str, str]]:
         return []
-
-    def test_name_only_match_is_declared(self) -> None:
-        assert FfillFeatureGroup.NAME_ONLY_MATCH is True
 
     @classmethod
     def option_probes(cls) -> list[tuple[str, Options, str]]:

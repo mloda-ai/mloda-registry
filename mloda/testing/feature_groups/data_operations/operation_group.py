@@ -114,6 +114,11 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         """The mixins directly after the group, followed by OperationFeatureGroup and then FeatureGroup. Default: skip."""
         return None
 
+    @classmethod
+    def name_only_match(cls) -> bool | None:
+        """The expected ``NAME_ONLY_MATCH``. Default: not pinned."""
+        return None
+
     # -- Plumbing ---------------------------------------------------------------
 
     _case_fixtures: ClassVar[dict[str, str]] = {"impl_id": "implementation_ids"}
@@ -163,6 +168,12 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
             pytest.skip("no mixins declared")
         mro = self.group_class().__mro__
         assert mro[1 : len(mixins) + 3] == (*mixins, OperationFeatureGroup, FeatureGroup)
+
+    def test_group_declares_name_only_match(self) -> None:
+        expected = self.name_only_match()
+        if expected is None:
+            pytest.skip("name_only_match not pinned")
+        assert self.group_class().NAME_ONLY_MATCH is expected
 
     def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
         assert callable(getattr(self.group_class(), self.loop_method()))
