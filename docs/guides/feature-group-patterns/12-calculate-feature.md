@@ -43,6 +43,22 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
+### The Same Name Can Arrive Twice
+
+A feature requested directly and also as another requested feature's input reaches your group twice in one FeatureSet: same name, different options (the input copy carries forwarded options), so the set keeps both. Assignment like `data[name] = ...` just overwrites, but an append-style API (`pa.Table.append_column`, a new SQL column) fails with `Field "<name>" exists 2 times in schema`. Write each name once:
+
+```py
+@classmethod
+def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
+    written: set[str] = set()
+    for feature in features.features:
+        if feature.name in written:
+            continue
+        written.add(feature.name)
+        data = data.append_column(feature.name, compute(data, feature))
+    return data
+```
+
 ## Return Contract
 
 The framework's `transform()` accepts two shapes, and which one you return decides whether you **replace** the frame or **append** a column:
