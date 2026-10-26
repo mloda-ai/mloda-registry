@@ -173,6 +173,23 @@ class TestPatternParsing:
         result = PercentileFeatureGroup.get_percentile_value(feature_name)
         assert result == expected
 
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__p50_percentile", 0.5, id="p50"),
+            pytest.param("value_int__p0_percentile", 0.0, id="p0"),
+            pytest.param("value_int__p100_percentile", 1.0, id="p100"),
+        ],
+    )
+    def test_resolve_feature_name_binds_converted_percentile(self, feature_name: str, expected: float) -> None:
+        resolution = PercentileFeatureGroup.resolve_feature_name(feature_name)
+        assert resolution.bindings == {"percentile": expected}
+
+    def test_resolve_feature_name_out_of_range_percentile_is_rejected_binding(self) -> None:
+        resolution = PercentileFeatureGroup.resolve_feature_name("value_int__p150_percentile")
+        assert "percentile" not in resolution.bindings
+        assert resolution.rejected_bindings == {"percentile": "p150"}
+
     def test_parse_source_feature(self) -> None:
         feature = Feature(
             "value_int__p50_percentile",
@@ -353,7 +370,7 @@ class TestPercentileNameAgreement:
 
         with pytest.raises(
             ValueError,
-            match=r"option 'percentile' is float 0\.75, but the feature name encodes '0\.5'\. The name is authoritative",
+            match=r"option 'percentile' is float 0\.75, but the feature name encodes 'p50'\. The name is authoritative",
         ):
             PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
 

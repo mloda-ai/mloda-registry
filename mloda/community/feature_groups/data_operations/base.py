@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.provider import FeatureChainParserMixin, NameResolution
+from mloda.provider import FeatureChainParserMixin
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -357,11 +357,10 @@ def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
     return any(re.match(pattern, str(feature_name)) for pattern in cls._get_prefix_patterns())
 
 
+# Deprecated shim: released leaves still import this name.
 def validate_hand_parsed_bindings(cls: Any, feature_name: Any, bindings: dict[str, str], options: Any) -> None:
-    """Run core's name-mismatch and name-agreement checks on hand-parsed bindings (no captured raw text)."""
-    resolution = NameResolution.miss()
-    cls._validate_forwarded_name_mismatch(feature_name, bindings, options, resolution)
-    cls._validate_name_agreement(feature_name, bindings, None, options, resolution)
+    """Delegate to core's validate_hand_parsed_bindings."""
+    cls.validate_hand_parsed_bindings(feature_name, bindings, options)
 
 
 def is_own_option(options: Any, key: str) -> bool:
@@ -372,28 +371,8 @@ def is_own_option(options: Any, key: str) -> bool:
 class NameOnlyMatchMixin:
     """Claims a feature only by a prefix-pattern name match; a config-path feature is declined."""
 
-    @classmethod
-    def _name_matches_prefix(cls, feature_name: Any) -> bool:
-        return name_matches_prefix(cls, feature_name)
-
-    @classmethod
-    def match_feature_group_criteria(
-        cls,
-        feature_name: Any,
-        options: Any,
-        _data_access_collection: Any = None,
-    ) -> bool:
-        """Decline a name that does not match a prefix pattern, else delegate."""
-        if not cls._name_matches_prefix(feature_name):
-            return False
-        return super().match_feature_group_criteria(feature_name, options, _data_access_collection)  # type: ignore[misc, no-any-return]
-
-    @classmethod
-    def _strict_validation_rejection_reason(cls, feature_name: Any, options: Any) -> str | None:
-        """Report nothing for a name this group never claims, else delegate."""
-        if not cls._name_matches_prefix(feature_name):
-            return None
-        return super()._strict_validation_rejection_reason(feature_name, options)  # type: ignore[misc, no-any-return]
+    # Deprecated alias: released leaves still import this name.
+    NAME_ONLY_MATCH = True
 
 
 # Deprecated alias: released leaves still import this name.

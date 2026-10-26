@@ -18,7 +18,7 @@ pd = pytest.importorskip("pandas")
 from mloda.provider import FeatureChainParserMixin, FeatureSet
 from mloda.user import Feature, Options
 
-from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin, NameOnlyMatchMixin
+from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
@@ -136,11 +136,14 @@ class TestEmaOperationGroup(OperationGroupTestBase):
 
     @classmethod
     def mixins(cls) -> tuple[type, ...]:
-        return (KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin)
+        return (KeyColumnInputsMixin, FeatureChainParserMixin)
 
     @classmethod
     def name_probes(cls) -> list[tuple[str, str]]:
         return []
+
+    def test_name_only_match_is_declared(self) -> None:
+        assert EmaFeatureGroup.NAME_ONLY_MATCH is True
 
     @classmethod
     def option_probes(cls) -> list[tuple[str, Options, str]]:

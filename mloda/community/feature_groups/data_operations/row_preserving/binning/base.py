@@ -24,7 +24,6 @@ from mloda.community.feature_groups.data_operations.base import (
     is_positive_int,
     op_token_value,
     positive_int_value,
-    validate_hand_parsed_bindings,
 )
 
 BINNING_OPS = {
@@ -46,13 +45,13 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     feature_name, source_col, op, n_bins)`` to the group; it returns the input with the new column appended.
     """
 
-    PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
+    BINNING_OP = "binning_op"
+    N_BINS = "n_bins"
+
+    PREFIX_PATTERN = rf".*__(?P<{BINNING_OP}>bin|qbin)_(?P<{N_BINS}>[1-9]\d*)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
-
-    BINNING_OP = "binning_op"
-    N_BINS = "n_bins"
 
     SUBTYPES = SubtypeDeclaration(key=BINNING_OP)
 
@@ -64,43 +63,16 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
             match_guard=is_op_token,
             expected=OP_TOKEN_EXPECTED,
         ),
-        # deferred_binding stays True: see _validate_n_bins_name_agreement for why.
         N_BINS: property_spec(
             "Number of bins (positive integer)",
             match_guard=is_positive_int,
             expected=POSITIVE_INT_EXPECTED,
-            deferred_binding=True,
+            name_converter=int,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source numeric column",
         ),
     }
-
-    @classmethod
-    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        return operation_config in BINNING_OPS
-
-    @classmethod
-    def match_feature_group_criteria(
-        cls,
-        feature_name: Any,
-        options: Any,
-        _data_access_collection: Any = None,
-    ) -> bool:
-        if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
-            return False
-        cls._validate_n_bins_name_agreement(feature_name, options)
-        return True
-
-    @classmethod
-    def _validate_n_bins_name_agreement(cls, feature_name: Any, options: Any) -> None:
-        """Run core's name-agreement checks on the hand-parsed suffix, which its capture bindings never see."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(str(feature_name), prefix_patterns)
-        if operation_config is None or source_feature is None:
-            return
-        bindings = {cls.N_BINS: str(cls._name_n_bins(str(feature_name)))}
-        validate_hand_parsed_bindings(cls, feature_name, bindings, options)
 
     @staticmethod
     def _name_n_bins(feature_name: str) -> int:

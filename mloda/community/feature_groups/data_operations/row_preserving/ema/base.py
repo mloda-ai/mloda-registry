@@ -56,7 +56,6 @@ from mloda.user import Feature
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     KeyColumnInputsMixin,
-    NameOnlyMatchMixin,
     always_required,
     assert_key_columns_present,
     assert_source_columns_present,
@@ -65,12 +64,13 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 
-class EmaFeatureGroup(KeyColumnInputsMixin, NameOnlyMatchMixin, FeatureChainParserMixin, OperationFeatureGroup):
+class EmaFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     PREFIX_PATTERN = r".*__ema_(\d+)$"
+    NAME_ONLY_MATCH = True
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1

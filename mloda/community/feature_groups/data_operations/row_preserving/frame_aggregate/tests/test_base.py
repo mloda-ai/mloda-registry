@@ -8,7 +8,13 @@ import re
 from typing import Any
 
 import pytest
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, is_match_abort
+from mloda.provider import (
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    collect_match_rejections,
+    is_match_abort,
+)
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import KeyColumnInputsMixin, always_required
@@ -27,6 +33,18 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
 
 class TestPatternParsing:
     """Tests for _parse_frame_feature pattern matching."""
+
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            ("sales__sum_rolling_3", {"aggregation_type": "sum", "frame_size": 3}),
+            ("sales__avg_7_day_window", {"aggregation_type": "avg", "frame_size": 7, "frame_unit": "day"}),
+            ("sales__cumsum", {"aggregation_type": "sum"}),
+            ("sales__expanding_avg", {"aggregation_type": "avg"}),
+        ],
+    )
+    def test_resolve_feature_name_bindings(self, feature_name: str, expected: dict[str, Any]) -> None:
+        assert FrameAggregateFeatureGroup.resolve_feature_name(feature_name).bindings == expected
 
     def test_rolling_pattern(self) -> None:
         result = FrameAggregateFeatureGroup._parse_frame_feature("sales__sum_rolling_3")
@@ -557,6 +575,11 @@ class TestHostileInFeatures:
 class TestFrameNameAgreement:
     """A frame option (forwarded or own) that contradicts the name must raise, never be silently overridden."""
 
+    def test_name_agreement_runs_before_match_guards(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_size": 0})
+        with pytest.raises(ValueError, match=r"option 'frame_size' is int 0, but the feature name encodes '3'"):
+            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+
     def test_forwarded_aggregation_type_mismatch_raises(self) -> None:
         consumer = Options(group={"aggregation_type": "max"})
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
@@ -798,6 +821,18 @@ class TestFrameShapeParity:
             "my_result", self._config_options(malformed_config), None
         )
         assert by_config is False, f"Config path should reject: {malformed_config}"
+
+    def test_unknown_aggregation_name_records_the_rejected_binding(self) -> None:
+        with collect_match_rejections() as reasons:
+            assert (
+                FrameAggregateFeatureGroup.match_feature_group_criteria(
+                    "sales__banana_rolling_3", self._pattern_options(), None
+                )
+                is False
+            )
+        reason = reasons[FrameAggregateFeatureGroup.get_class_name()].reason
+        assert "'banana'" in reason
+        assert "aggregation_type" in reason
 
 
 class TestExtractParams:

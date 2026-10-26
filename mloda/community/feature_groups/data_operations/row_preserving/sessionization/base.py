@@ -61,7 +61,6 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
-    NameOnlyMatchMixin,
     assert_key_columns_present,
     column_ref_value,
     is_column_ref,
@@ -116,12 +115,13 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(NameOnlyMatchMixin, FeatureChainParserMixin, OperationFeatureGroup):
+class SessionizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     PREFIX_PATTERN = r".*__(sessionize_\d+_(?:minute|hour|day|week))$"
+    NAME_ONLY_MATCH = True
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1

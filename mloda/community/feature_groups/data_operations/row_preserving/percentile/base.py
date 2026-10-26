@@ -22,7 +22,6 @@ from mloda.community.feature_groups.data_operations.base import (
     assert_source_columns_present,
     is_scalar_number,
     scalar_number_value,
-    validate_hand_parsed_bindings,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
@@ -40,6 +39,14 @@ def _unit_percentile(value: object) -> float | None:
     if number < 0.0 or number > 1.0:
         return None
     return float(number)
+
+
+def _percent_token_to_unit(token: str) -> float | None:
+    """The 0.0-1.0 fraction of a ``pN`` name token with N in 0-100, else None."""
+    n = int(token[1:])
+    if 0 <= n <= 100:
+        return n / 100.0
+    return None
 
 
 def _is_unit_interval_element(value: object) -> bool:
@@ -84,23 +91,22 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
 
     KEY_COLUMN_OPTIONS = ("partition_by", "mask")
 
-    PREFIX_PATTERN = r".*__(p\d+)_percentile$"
+    PERCENTILE = "percentile"
+    PARTITION_BY = "partition_by"
+
+    PREFIX_PATTERN = rf".*__(?P<{PERCENTILE}>p\d+)_percentile$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    PERCENTILE = "percentile"
-    PARTITION_BY = "partition_by"
-
     PROPERTY_MAPPING = {
-        # deferred_binding stays True: name has a pN percent token, option is a 0.0-1.0 fraction; binding is by hand.
         PERCENTILE: property_spec(
             "Percentile value (float between 0.0 and 1.0)",
             strict=True,
             element_validator=_is_unit_interval_element,
             match_guard=is_scalar_number,
             expected=SCALAR_NUMBER_EXPECTED,
-            deferred_binding=True,
+            name_converter=_percent_token_to_unit,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for percentile computation",
@@ -120,15 +126,7 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
     @classmethod
     def _parse_percentile_from_config(cls, operation_config: str) -> float | None:
         """Parse a pN operation config into a float 0.0-1.0, or None if invalid."""
-        n = int(operation_config[1:])
-        if 0 <= n <= 100:
-            return n / 100.0
-        return None
-
-    @classmethod
-    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        """Validate that the parsed percentile value is in the range 0-100."""
-        return cls._parse_percentile_from_config(operation_config) is not None
+        return _percent_token_to_unit(operation_config)
 
     @classmethod
     def match_feature_group_criteria(
@@ -137,28 +135,9 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend mixin matching with name-agreement protection and partition_by validation.
-
-        The mixin handles:
-        - Pattern and config matching via PROPERTY_MAPPING
-        - List-valued options (partition_by) via tuple conversion
-        - MIN/MAX_IN_FEATURES enforcement
-
-        We add:
-        - own/forwarded value vs. name-parsed value agreement for ``percentile``
-        - percentile range validation for config-based features (0.0-1.0)
-        - partition_by type validation (must be a list of strings)
-        """
+        """Extend mixin matching with partition_by validation (must be a non-empty list of strings)."""
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
-
-        # None covers both halves: unresolvable, and resolved but outside 0.0-1.0.
-        resolved_percentile, name_matched = cls._resolve_percentile(feature_name, options)
-        if resolved_percentile is None:
-            return False
-
-        if name_matched:
-            cls._validate_percentile_name_agreement(feature_name, options, resolved_percentile)
 
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):
@@ -169,32 +148,6 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
             return False
 
         return True
-
-    @classmethod
-    def _validate_percentile_name_agreement(cls, feature_name: Any, options: Any, resolved_percentile: float) -> None:
-        """Reject an own or forwarded ``percentile`` that contradicts the name.
-
-        Typed pre-check: the binding below is a ``str``, so core compares as text only; a declared numeric
-        percentile such as 0.5 must first be matched numerically against the name's resolved value.
-        """
-        declared = options.get(cls.PERCENTILE)
-        if declared is None or _unit_percentile(declared) == resolved_percentile:
-            return
-        bindings = {cls.PERCENTILE: str(resolved_percentile)}
-        validate_hand_parsed_bindings(cls, feature_name, bindings, options)
-
-    @classmethod
-    def _resolve_percentile(cls, feature_name: Any, options: Any) -> tuple[float | None, bool]:
-        """Extract percentile as a float in 0.0-1.0 from feature name or options; None if there is none.
-
-        Second element is True when the name identified the group.
-        """
-        name = str(feature_name)
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(name, prefix_patterns)
-        if operation_config is not None:
-            return cls._parse_percentile_from_config(operation_config), True
-        return _unit_percentile(options.get(cls.PERCENTILE)), False
 
     @classmethod
     def get_percentile_value(cls, feature_name: str) -> float:

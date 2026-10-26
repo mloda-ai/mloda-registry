@@ -136,7 +136,7 @@ class TestPercentileIntegration(
         )
 
         with pytest.raises(
-            ValueError, match=r"option 'percentile' is float 0\.75, but the feature name encodes '0\.5'"
+            ValueError, match=r"option 'percentile' is float 0\.75, but the feature name encodes 'p50'"
         ) as exc:
             mloda.run_all(
                 [feature],

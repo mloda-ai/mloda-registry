@@ -178,6 +178,15 @@ class TestPatternParsing:
         assert op == "qbin"
         assert n_bins == 10
 
+    @pytest.mark.parametrize(
+        ("feature_name", "expected_op", "expected_n_bins"),
+        [("value_int__bin_5", "bin", 5), ("value_int__qbin_10", "qbin", 10)],
+    )
+    def test_resolve_feature_name_bindings(self, feature_name: str, expected_op: str, expected_n_bins: int) -> None:
+        resolution = BinningFeatureGroup.resolve_feature_name(feature_name)
+        assert resolution.bindings == {"binning_op": expected_op, "n_bins": expected_n_bins}
+        assert isinstance(resolution.bindings["n_bins"], int)
+
     def test_n_bins_zero_raises(self) -> None:
         # bin_0 no longer matches the prefix pattern (n_bins must be >= 1), so the
         # parameters cannot be extracted at all.
@@ -313,6 +322,12 @@ class TestNBinsNameAgreement:
             ValueError, match=r"option 'n_bins' is int 10, but the feature name encodes '5'\. The name is authoritative"
         ):
             BinningFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+
+    def test_name_agreement_runs_before_match_guards(self) -> None:
+        options = Options(context={"n_bins": 0})
+
+        with pytest.raises(ValueError, match=r"option 'n_bins' is int 0, but the feature name encodes '5'"):
+            BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", options, None)
 
     @pytest.mark.parametrize("n_bins", [5, (5,)])
     def test_own_matching_n_bins_is_accepted(self, n_bins: Any) -> None:

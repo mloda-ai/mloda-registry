@@ -37,7 +37,6 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
     positive_int_value,
-    validate_hand_parsed_bindings,
 )
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,
@@ -50,18 +49,23 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
-# Patterns for string-based feature names; group 1 is the aggregation token, matching what
-# core's FeatureChainParser.parse_feature_name returns as the operation:
+_AGGREGATION_TYPE_KEY = "aggregation_type"
+
+# Patterns for string-based feature names; the groups are named after their PROPERTY_MAPPING keys,
+# and group 1 is the aggregation token, matching what core's FeatureChainParser.parse_feature_name
+# returns as the operation:
 #   {col}__sum_rolling_3         -> rolling N rows
 #   {col}__avg_5_day_window      -> time-interval window
 #   {col}__cumsum                -> cumulative sum
 #   {col}__expanding_avg         -> expanding window
 # The size group is [1-9]\d*, not \d+: a zero-sized or zero-padded frame is not a window, and the
 # string path must reject it in the pattern itself, exactly as the config path rejects frame_size=0.
-_ROLLING_PATTERN = re.compile(r"^.+__(\w+)_rolling_([1-9]\d*)$")
-_TIME_WINDOW_PATTERN = re.compile(r"^.+__(\w+)_([1-9]\d*)_(\w+)_window$")
-_CUMULATIVE_PATTERN = re.compile(r"^.+__cum(\w+)$")
-_EXPANDING_PATTERN = re.compile(r"^.+__expanding_(\w+)$")
+_ROLLING_PATTERN = re.compile(rf"^.+__(?P<{_AGGREGATION_TYPE_KEY}>\w+)_rolling_(?P<{_FRAME_SIZE_KEY}>[1-9]\d*)$")
+_TIME_WINDOW_PATTERN = re.compile(
+    rf"^.+__(?P<{_AGGREGATION_TYPE_KEY}>\w+)_(?P<{_FRAME_SIZE_KEY}>[1-9]\d*)_(?P<{_FRAME_UNIT_KEY}>\w+)_window$"
+)
+_CUMULATIVE_PATTERN = re.compile(rf"^.+__cum(?P<{_AGGREGATION_TYPE_KEY}>\w+)$")
+_EXPANDING_PATTERN = re.compile(rf"^.+__expanding_(?P<{_AGGREGATION_TYPE_KEY}>\w+)$")
 
 # Frame aggregation supports the order-independent subset of the canonical
 # aggregation-type table (no mode/nunique/first/last, no ddof-variant spellings).
@@ -150,7 +154,7 @@ def _resolve_frame_agg_type(feature_name: str, options: Options) -> str | None:
     parsed = _parse_frame_feature_cached(feature_name)
     if parsed is not None:
         return str(parsed["agg_type"])
-    agg_type = options.get("aggregation_type")
+    agg_type = options.get(_AGGREGATION_TYPE_KEY)
     return None if agg_type is None else op_token_value(agg_type)
 
 
@@ -237,8 +241,8 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    AGGREGATION_TYPE = "aggregation_type"
-    # Aliases of the shared keys, so the literals stay defined once in data_operations/base.py.
+    # Aliases of the shared keys, so the literals stay defined once in data_operations/base.py and above.
+    AGGREGATION_TYPE = _AGGREGATION_TYPE_KEY
     FRAME_TYPE = _FRAME_TYPE_KEY
     FRAME_SIZE = _FRAME_SIZE_KEY
     FRAME_UNIT = _FRAME_UNIT_KEY
@@ -271,6 +275,7 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, 
             "Window size (rows for rolling, integer for time)",
             match_guard=is_positive_int,
             expected=POSITIVE_INT_EXPECTED,
+            name_converter=int,
             # Optional by declaration: conditional requiredness (rolling/time only) is hand-enforced
             # in match_feature_group_criteria's config-path branch, not via required_when. A
             # required_when predicate here would also fire on the name path through core's
@@ -409,23 +414,15 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, 
 
     @classmethod
     def _validate_frame_name_agreement(cls, feature_name: Any, options: Any, parsed: dict[str, Any]) -> None:
-        """Reject an own or forwarded frame_type/frame_size/frame_unit that contradicts the name."""
-        bindings = {
-            key: str(parsed[field])
-            for key, field in (
-                (cls.FRAME_TYPE, "frame_type"),
-                (cls.FRAME_SIZE, "frame_size"),
-                (cls.FRAME_UNIT, "frame_unit"),
-            )
-            if parsed[field] is not None
-        }
+        """Reject an own or forwarded frame_type that contradicts the name (the named captures cover the rest)."""
+        bindings = {cls.FRAME_TYPE: str(parsed["frame_type"])}
         name_type = parsed["frame_type"]
         if name_type in ("cumulative", "expanding"):
             declared = _option_token(options, cls.FRAME_TYPE)
             # Aliases: either agrees with either name.
             if declared in ("cumulative", "expanding"):
                 bindings[cls.FRAME_TYPE] = declared
-        validate_hand_parsed_bindings(cls, feature_name, bindings, options)
+        cls.validate_hand_parsed_bindings(feature_name, bindings, options)
         cls._reject_unused_frame_options(feature_name, options, str(name_type))
 
     @classmethod
