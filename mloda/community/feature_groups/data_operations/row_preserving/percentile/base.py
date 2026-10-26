@@ -7,7 +7,6 @@ from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
-    FeatureChainParser,
     FeatureChainParserMixin,
     FeatureSet,
     OperationFeatureGroup,
@@ -124,11 +123,6 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
     }
 
     @classmethod
-    def _parse_percentile_from_config(cls, operation_config: str) -> float | None:
-        """Parse a pN operation config into a float 0.0-1.0, or None if invalid."""
-        return _percent_token_to_unit(operation_config)
-
-    @classmethod
     def match_feature_group_criteria(
         cls,
         feature_name: Any,
@@ -158,24 +152,18 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
 
         Raises ValueError if the feature name does not match.
         """
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            result = cls._parse_percentile_from_config(operation_config)
-            if result is not None:
-                return result
+        result = cls.resolve_feature_name(feature_name).bindings.get(cls.PERCENTILE)
+        if result is not None:
+            return float(result)
         raise ValueError(f"Could not extract percentile value from feature name: {feature_name}")
 
     @classmethod
     def _extract_percentile(cls, feature: Feature) -> float:
         """Extract percentile float from feature (name first, then options)."""
         feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            result = cls._parse_percentile_from_config(operation_config)
-            if result is not None:
-                return result
+        result = cls.resolve_feature_name(feature_name).bindings.get(cls.PERCENTILE)
+        if result is not None:
+            return float(result)
         percentile = _unit_percentile(feature.options.get(cls.PERCENTILE))
         if percentile is None:
             raise ValueError(f"Could not extract percentile for {feature_name}")

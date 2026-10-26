@@ -7,7 +7,6 @@ from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
-    FeatureChainParser,
     FeatureChainParserMixin,
     FeatureSet,
     OperationFeatureGroup,
@@ -74,11 +73,6 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
         ),
     }
 
-    @staticmethod
-    def _name_n_bins(feature_name: str) -> int:
-        """The digit suffix PREFIX_PATTERN anchors on, e.g. 5 in ``value__bin_5``."""
-        return int(feature_name.rsplit("_", 1)[-1])
-
     @classmethod
     def _validate_n_bins(cls, n_bins: int, feature_name: str) -> None:
         if n_bins < 1:
@@ -86,23 +80,23 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     @classmethod
     def get_binning_params(cls, feature_name: str) -> tuple[str, int]:
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None and source_feature is not None:
-            n_bins = cls._name_n_bins(feature_name)
+        bindings = cls.resolve_feature_name(feature_name).bindings
+        op, n_bins = bindings.get(cls.BINNING_OP), bindings.get(cls.N_BINS)
+        if op is not None and n_bins is not None:
             cls._validate_n_bins(n_bins, feature_name)
-            return operation_config, n_bins
+            return op, n_bins
         raise ValueError(f"Could not extract binning parameters from feature name: {feature_name}")
 
     @classmethod
     def _extract_binning_params(cls, feature: Feature) -> tuple[str, int]:
         feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            n_bins = cls._name_n_bins(feature_name)
-            cls._validate_n_bins(n_bins, feature_name)
-            return operation_config, n_bins
+        resolution = cls.resolve_feature_name(feature_name)
+        if resolution.owned:
+            name_op, name_n_bins = resolution.bindings.get(cls.BINNING_OP), resolution.bindings.get(cls.N_BINS)
+            if name_op is None or name_n_bins is None:
+                raise ValueError(f"Could not extract binning parameters for {feature_name}")
+            cls._validate_n_bins(name_n_bins, feature_name)
+            return name_op, name_n_bins
         op = feature.options.get(cls.BINNING_OP)
         n = feature.options.get(cls.N_BINS)
         if op is None or n is None:

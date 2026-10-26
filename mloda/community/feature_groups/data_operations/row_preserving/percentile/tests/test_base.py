@@ -194,6 +194,10 @@ class TestPatternParsing:
         assert "percentile" not in resolution.bindings
         assert resolution.rejected_bindings == {"percentile": token}
 
+    def test_huge_digit_percentile_raises_contained_error(self) -> None:
+        with pytest.raises(ValueError, match="Could not extract percentile value"):
+            PercentileFeatureGroup.get_percentile_value("value_int__p" + "9" * 5000 + "_percentile")
+
     def test_parse_source_feature(self) -> None:
         feature = Feature(
             "value_int__p50_percentile",

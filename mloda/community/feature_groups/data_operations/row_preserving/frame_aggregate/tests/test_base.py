@@ -114,6 +114,23 @@ class TestPatternParsing:
         with pytest.raises(ValueError, match="allows at most 1 in_feature"):
             FrameAggregateFeatureGroup._extract_single_source_feature(Feature("a&b__sum_rolling_3"))
 
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("sales__sum_rolling_" + "9" * 5000, id="rolling"),
+            pytest.param("sales__avg_" + "9" * 5000 + "_day_window", id="time_window"),
+        ],
+    )
+    def test_huge_digit_frame_size_parses_to_none(self, feature_name: str) -> None:
+        assert FrameAggregateFeatureGroup._parse_frame_feature(feature_name) is None
+
+    def test_huge_digit_name_resolve_frame_agg_type_does_not_raise(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+            _resolve_frame_agg_type,
+        )
+
+        assert _resolve_frame_agg_type("sales__sum_rolling_" + "9" * 5000, Options()) is None
+
 
 class TestParseFrameFeatureMemoization:
     """_parse_frame_feature must hand back fresh, independent dicts so callers cannot leak mutations.
@@ -1132,6 +1149,10 @@ class TestImplementationAccepts:
         assert impl.accepts("value__sum_1_week_window", _ROLLING_OPTIONS)
         assert impl.accepts("value_time_frame", time_frame_options("day"))
         assert impl.accepts("value_time_frame", time_frame_options("week"))
+
+    def test_huge_digit_rolling_name_is_unresolved_and_accepted(self) -> None:
+        name = "sales__sum_rolling_" + "9" * 5000
+        assert FrameAggregateFeatureGroup.frame_accepts(name, Options()) is True
 
     @pytest.mark.parametrize("agg_type", ["std", "var", "median"])
     @pytest.mark.parametrize("frame_type", ["cumulative", "expanding"])

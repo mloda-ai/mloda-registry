@@ -52,8 +52,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, 
 _AGGREGATION_TYPE_KEY = "aggregation_type"
 
 # Patterns for string-based feature names; the groups are named after their PROPERTY_MAPPING keys,
-# and group 1 is the aggregation token, matching what core's FeatureChainParser.parse_feature_name
-# returns as the operation:
+# so core binds them and compute time reads the values from resolve_feature_name(...).bindings:
 #   {col}__sum_rolling_3         -> rolling N rows
 #   {col}__avg_5_day_window      -> time-interval window
 #   {col}__cumsum                -> cumulative sum
@@ -66,6 +65,13 @@ _TIME_WINDOW_PATTERN = re.compile(
 )
 _CUMULATIVE_PATTERN = re.compile(rf"^.+__cum(?P<{_AGGREGATION_TYPE_KEY}>\w+)$")
 _EXPANDING_PATTERN = re.compile(rf"^.+__expanding_(?P<{_AGGREGATION_TYPE_KEY}>\w+)$")
+# (frame_type, pattern) in core's first-match order over FRAME_PATTERNS.
+_FRAME_SHAPES = (
+    ("rolling", _ROLLING_PATTERN),
+    ("time", _TIME_WINDOW_PATTERN),
+    ("cumulative", _CUMULATIVE_PATTERN),
+    ("expanding", _EXPANDING_PATTERN),
+)
 
 # Frame aggregation supports the order-independent subset of the canonical
 # aggregation-type table (no mode/nunique/first/last, no ddof-variant spellings).
@@ -100,53 +106,35 @@ def _needs_frame_unit(options: Options) -> bool:
 
 @functools.lru_cache(maxsize=1024)
 def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
-    """Regex-parse a frame feature name; cached on the name since the regexes are module constants."""
+    """Parse a frame feature name; cached on the name since the patterns are module constants."""
     # Same split core uses, so the parsed source column cannot drift from the routed one.
     source_col = feature_name.rsplit("__", 1)[0]
     if not source_col:
         return None
 
-    m = _ROLLING_PATTERN.fullmatch(feature_name)
-    if m:
-        return {
-            "source_col": source_col,
-            "agg_type": m.group(1),
-            "frame_type": "rolling",
-            "frame_size": int(m.group(2)),
-            "frame_unit": None,
-        }
+    # frame_type is deferred_binding, so the matched shape supplies it; the values come from the bindings.
+    frame_type = next((ft for ft, pattern in _FRAME_SHAPES if pattern.fullmatch(feature_name)), None)
+    if frame_type is None:
+        return None
 
-    m = _TIME_WINDOW_PATTERN.fullmatch(feature_name)
-    if m:
-        return {
-            "source_col": source_col,
-            "agg_type": m.group(1),
-            "frame_type": "time",
-            "frame_size": int(m.group(2)),
-            "frame_unit": m.group(3),
-        }
-
-    m = _CUMULATIVE_PATTERN.fullmatch(feature_name)
-    if m:
-        return {
-            "source_col": source_col,
-            "agg_type": m.group(1),
-            "frame_type": "cumulative",
-            "frame_size": None,
-            "frame_unit": None,
-        }
-
-    m = _EXPANDING_PATTERN.fullmatch(feature_name)
-    if m:
-        return {
-            "source_col": source_col,
-            "agg_type": m.group(1),
-            "frame_type": "expanding",
-            "frame_size": None,
-            "frame_unit": None,
-        }
-
-    return None
+    bindings = FrameAggregateFeatureGroup.resolve_feature_name(feature_name).bindings
+    agg_type = bindings.get(_AGGREGATION_TYPE_KEY)
+    frame_size = bindings.get(_FRAME_SIZE_KEY)
+    frame_unit = bindings.get(_FRAME_UNIT_KEY)
+    # A key the matched shape captures but the bindings lack was rejected (e.g. int digit limit).
+    if agg_type is None:
+        return None
+    if frame_type in ("rolling", "time") and frame_size is None:
+        return None
+    if frame_type == "time" and frame_unit is None:
+        return None
+    return {
+        "source_col": source_col,
+        "agg_type": agg_type,
+        "frame_type": frame_type,
+        "frame_size": frame_size if frame_type in ("rolling", "time") else None,
+        "frame_unit": frame_unit if frame_type == "time" else None,
+    }
 
 
 def _resolve_frame_agg_type(feature_name: str, options: Options) -> str | None:
