@@ -610,7 +610,7 @@ The full audit covered all twelve data operations: `binning`, `datetime`, `frame
 | frame_aggregate | Pandas, Polars lazy, DuckDB, SQLite | No |
 | offset | Pandas, Polars lazy, DuckDB, SQLite | No |
 | percentile | Pandas, Polars lazy, DuckDB | No (float tolerance already accepted) |
-| point_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | Yes — SQLite divide-by-zero returns NULL instead of inf/nan (documented as accepted divergence above) |
+| point_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | Yes: SQLite divide-by-zero returns NULL instead of inf/nan (documented as accepted divergence above) |
 | rank | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
 | scalar_aggregate | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No |
 | scalar_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (PyArrow int÷int truncation mitigated by explicit float cast) |

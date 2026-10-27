@@ -110,7 +110,7 @@ Compatibility is checked in one of two modes, selected per run via `strict_type_
 | Mode | Flag | Rule |
 |------|------|------|
 | Lenient (default) | `strict_type_enforcement=False` | Any numeric type (`INT32`, `INT64`, `FLOAT`, `DOUBLE`) is interchangeable with any other numeric type; any timestamp type is interchangeable with any other timestamp type; every other type must match exactly. |
-| Strict | `strict_type_enforcement=True` | Only safe widening is allowed — a declared type accepts a narrower actual type: declared `INT64` accepts actual `INT32`; declared `DOUBLE` accepts actual `INT32`/`INT64`/`FLOAT`; declared `TIMESTAMP_MICROS` accepts actual `TIMESTAMP_MILLIS`. Every other pairing, including narrowing, must match exactly. |
+| Strict | `strict_type_enforcement=True` | Only safe widening is allowed. A declared type accepts a narrower actual type: declared `INT64` accepts actual `INT32`; declared `DOUBLE` accepts actual `INT32`/`INT64`/`FLOAT`; declared `TIMESTAMP_MICROS` accepts actual `TIMESTAMP_MILLIS`. Every other pairing, including narrowing, must match exactly. |
 
 ### Worked Example
 

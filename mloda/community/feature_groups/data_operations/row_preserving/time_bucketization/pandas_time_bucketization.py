@@ -28,7 +28,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 # (Monday start) we use ``W-SUN`` (week ending Sunday), so a Sunday rolls
 # into the *previous* week's Monday and a Monday is its own start. The
 # ``W-MON`` alias would instead mean weeks ending Monday, which floors a
-# Sunday to the following Tuesday's preceding Monday — not what ISO wants.
+# Sunday to the following Tuesday's preceding Monday, not what ISO wants.
 _PERIOD_FREQ: dict[str, str] = {
     "week": "W-SUN",
     "month": "M",

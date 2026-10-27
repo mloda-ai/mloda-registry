@@ -5,7 +5,7 @@ Consume results incrementally as each feature group completes, rather than waiti
 **What**: `stream_all` yields each feature group's result as soon as it finishes.
 **When**: You request multiple feature groups and want to process results as they arrive.
 **Why**: Start processing early, reduce peak memory, display partial results sooner.
-**Where**: Dashboards, pipelines, reports — anywhere you consume multiple independent features.
+**Where**: Dashboards, pipelines, reports (anywhere you consume multiple independent features).
 **How**: Replace `mloda.run_all(...)` with `for result in mloda.stream_all(...)`.
 
 ## Basic Usage
@@ -32,9 +32,9 @@ for result in mloda.stream_all([Feature("feature_a"), Feature("feature_b")], api
 
 ## When to Use Which
 
-- **`mloda.run_all`** — You need all results before proceeding, or you request a single feature group.
-- **`mloda.stream_all`** — You request many independent feature groups and want to process results as they arrive.
-- **`session.stream_run()`** — Combines streaming with [realtime execution](24-realtime.md): reuse a prepared plan and yield results incrementally. Use when you need both plan reuse and per-group delivery.
+- **`mloda.run_all`**: You need all results before proceeding, or you request a single feature group.
+- **`mloda.stream_all`**: You request many independent feature groups and want to process results as they arrive.
+- **`session.stream_run()`**: Combines streaming with [realtime execution](24-realtime.md): reuse a prepared plan and yield results incrementally. Use when you need both plan reuse and per-group delivery.
 
 If you only request one feature group, `mloda.stream_all` behaves identically to `mloda.run_all` since there is only one result to yield.
 
@@ -53,9 +53,9 @@ for result in session.stream_run(api_data={"MyKey": {"feature_a": [1, 2], "featu
 
 ## What Streaming Does NOT Do
 
-- **Row-by-row streaming** — individual rows are not yielded as they are computed.
-- **Partial results** — you cannot observe a feature group's output before it has fully completed.
-- **Chunked input** — a single feature group's computation is not split into smaller streaming chunks.
+- **Row-by-row streaming**: individual rows are not yielded as they are computed.
+- **Partial results**: you cannot observe a feature group's output before it has fully completed.
+- **Chunked input**: a single feature group's computation is not split into smaller streaming chunks.
 
 Each yielded value is a **complete** result for one feature group (e.g. a `pa.Table`).
 

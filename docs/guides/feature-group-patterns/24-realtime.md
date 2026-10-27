@@ -4,7 +4,7 @@ Build the execution plan once at startup and reuse it for repeated calls with fr
 
 **What**: `mloda.prepare()` builds an execution plan; `session.run()` executes it with new data.
 **When**: You serve the same features repeatedly with different input data.
-**Why**: Avoid rebuilding the plan on every call — `prepare` pays the cost once.
+**Why**: Avoid rebuilding the plan on every call: `prepare` pays the cost once.
 **Where**: ML inference endpoints, event-driven pipelines, interactive dashboards.
 **How**: Replace `mloda.run_all(...)` with `mloda.prepare(...)` + `session.run(...)`.
 
@@ -42,8 +42,8 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 
 ## When to Use Which
 
-- **`run_all`** — One-off computation or infrequent calls where plan-building cost is negligible.
-- **`prepare` + `run`** — Repeated execution of the same features with different data (serving, streaming, interactive).
+- **`run_all`**: One-off computation or infrequent calls where plan-building cost is negligible.
+- **`prepare` + `run`**: Repeated execution of the same features with different data (serving, streaming, interactive).
 
 ## Composability
 

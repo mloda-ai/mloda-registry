@@ -75,7 +75,7 @@ def input_features(self, options, feature_name):
 ### Test Isolation
 
 ```python
-# In test code — all children inherit "Test" and use mock implementations
+# In test code: all children inherit "Test" and use mock implementations
 Feature("ProcessPayment", domain="Test")
 ```
 

@@ -5,7 +5,7 @@
 mloda-registry is a workspace of community and enterprise plugins under active
 development. Security fixes are applied to the latest state of the `main`
 branch and the most recent published packages. We do not backport fixes to
-older releases — please upgrade to the latest version before reporting.
+older releases. Please upgrade to the latest version before reporting.
 
 | Version        | Supported          |
 | -------------- | ------------------ |
@@ -20,11 +20,11 @@ prepared.
 
 Instead, use one of these private channels:
 
-1. **GitHub Private Vulnerability Reporting** (preferred) — open the
+1. **GitHub Private Vulnerability Reporting** (preferred): open the
    [Security tab](https://github.com/mloda-ai/mloda-registry/security/advisories/new)
    and click **Report a vulnerability**. This keeps the report, discussion, and
    coordinated disclosure in one place.
-2. **Email** — write to **security@mloda.ai**.
+2. **Email**: write to **security@mloda.ai**.
 
 Please include as much of the following as you can:
 

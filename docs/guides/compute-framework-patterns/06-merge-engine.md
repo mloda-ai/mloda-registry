@@ -22,7 +22,7 @@ The merge engine handles join operations between datasets.
 
 `merge_asof()` is opt-in: like every method above, the base implementation raises
 `ValueError` until overridden, so implement it only for frameworks that need
-point-in-time joins. Its signature differs from the others — it takes an extra
+point-in-time joins. Its signature differs from the others: it takes an extra
 `asof_config: AsOfJoinConfig` (`left_time_column`, `right_time_column`, `direction`,
 `tolerance`, `allow_exact_matches`):
 
