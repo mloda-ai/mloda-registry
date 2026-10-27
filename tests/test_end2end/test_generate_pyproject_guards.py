@@ -431,6 +431,48 @@ def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("exclude_path", "expected"),
+    [
+        pytest.param(
+            "mloda/parent/child",
+            ["mloda.parent", "mloda.parent.child_extra", "mloda.parent.sibling"],
+            id="child",
+        ),
+        pytest.param(
+            "mloda/parent/child/grandchild",
+            [
+                "mloda.parent",
+                "mloda.parent.child",
+                "mloda.parent.child.grandchild_extra",
+                "mloda.parent.child_extra",
+                "mloda.parent.sibling",
+            ],
+            id="grandchild",
+        ),
+    ],
+)
+def test_discover_packages_excludes_configured_subtrees_at_path_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exclude_path: str, expected: list[str]
+) -> None:
+    """Separate package paths exclude their descendants while preserving neighboring packages."""
+    monkeypatch.chdir(tmp_path)
+    for relative in (
+        "",
+        "child",
+        "child/grandchild",
+        "child/grandchild/leaf",
+        "child/grandchild_extra",
+        "child_extra",
+        "sibling",
+    ):
+        package = tmp_path / "mloda" / "parent" / relative
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+
+    assert gen.discover_packages("mloda/parent", exclude_paths=[exclude_path]) == expected
+
+
 def test_dependency_closure_follows_dependencies_only() -> None:
     packages = {
         "a": {"dependencies": ["b>=1"], "optional_dependencies": {"x": ["d"]}},

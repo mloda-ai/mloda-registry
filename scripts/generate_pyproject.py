@@ -573,7 +573,7 @@ def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> 
     # Walk directory tree looking for __init__.py files
     for init_file in base_path.rglob("__init__.py"):
         pkg_dir = init_file.parent
-        pkg_dir_str = str(pkg_dir)
+        pkg_dir_str = pkg_dir.as_posix()
         # Skip excluded directories (exact match)
         if any(excluded in pkg_dir.parts for excluded in exclude_dirs):
             continue

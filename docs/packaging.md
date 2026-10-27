@@ -149,6 +149,10 @@ The generator rejects a config that breaks ownership:
   so an unowned package nested under one it owns through `dependencies` still ships in the
   bundle wheel
 
+Package discovery uses `/` separators when matching configured paths, preventing Windows
+backslashes from bypassing nested-package exclusions and placing a separately packaged child
+in its parent's wheel.
+
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
 ## Package hierarchy
