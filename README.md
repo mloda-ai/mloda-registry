@@ -31,7 +31,7 @@ print(result[0])
 # 1         BOB             3
 ```
 
-Every plugin is requested by feature name (usually `{column}__{operation}`) and runs on PyArrow, Pandas, Polars lazy, DuckDB, and SQLite, each backend checked against the PyArrow reference; per-plugin coverage is in the [framework support matrix](docs/guides/data-operation-patterns/framework-support-matrix.md). Swap `compute_frameworks` between `PyArrowTable`, `PandasDataFrame`, and `PolarsLazyDataFrame` as-is; `DuckDBFramework` and `SqliteFramework` also need a connection passed via `data_access_collection` ([stateful connections](docs/guides/compute-framework-patterns/03-stateful-connection.md)). See [Use an existing plugin](docs/guides/01-use-existing-plugin.md) for streaming, realtime, and column ordering.
+Every plugin is requested by feature name (usually `{column}__{operation}`) and runs on PyArrow, Pandas, Polars lazy, DuckDB, and SQLite, each backend checked against a shared reference: PyArrow for most operations, a pure Python reference for the aggregating ones; per-plugin coverage is in the [framework support matrix](docs/guides/data-operation-patterns/framework-support-matrix.md). Swap `compute_frameworks` between `PyArrowTable`, `PandasDataFrame`, and `PolarsLazyDataFrame` as-is; `DuckDBFramework` and `SqliteFramework` also need a connection passed via `data_access_collection` ([stateful connections](docs/guides/compute-framework-patterns/03-stateful-connection.md)). See [Use an existing plugin](docs/guides/01-use-existing-plugin.md) for streaming, realtime, and column ordering.
 
 ## Upgrading
 

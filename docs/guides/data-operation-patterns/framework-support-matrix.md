@@ -314,5 +314,5 @@ To promote a ✗ to ✓:
 
 - [Supported ops per framework](04-supported-ops.md) - the mechanism (`Implementation.supported` / `accepts` and the test-side `supported_*()` sets) that backs every cell in this matrix.
 - [Known divergences](known-divergences.md) - the divergence-by-divergence rationale behind every ✗ in the detail tables.
-- [Reference implementation pattern](03-reference-implementation.md) - why PyArrow is the reference for each ✓ in the matrix.
+- [Reference implementation pattern](03-reference-implementation.md) - which reference each ✓ in the matrix uses (PyArrow or pure Python).
 - [Adding a new data operation](10-adding-new-operation.md) - how to add a new row to this matrix from scratch.
