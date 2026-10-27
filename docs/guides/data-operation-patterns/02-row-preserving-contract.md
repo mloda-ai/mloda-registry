@@ -109,6 +109,6 @@ Aggregations under `data_operations/aggregation/` are **not** row-preserving. Th
 
 ## Related
 
-- [Reference implementation pattern](03-reference-implementation.md) - Why PyArrow is the source of truth.
+- [Reference implementation pattern](03-reference-implementation.md) - Which reference each operation uses (PyArrow or pure Python).
 - [Binning](05-binning.md) - Concrete walkthrough of the DuckDB workaround.
 - [Adding a new data operation](10-adding-new-operation.md) - How to wire up the tests that enforce this contract.
