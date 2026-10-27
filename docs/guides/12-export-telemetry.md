@@ -45,7 +45,7 @@ if __name__ == "__main__":
 
 ## Metrics
 
-`OtelMetricsExtender` records four metrics through the OTel metrics API, independent of `OtelExtender`. Add a meter provider next to the tracer provider in `telemetry.py`:
+`OtelMetricsExtender` records four metrics by default through the OTel metrics API, independent of `OtelExtender`. Add a meter provider next to the tracer provider in `telemetry.py`:
 
 ```python
 from opentelemetry import metrics
@@ -67,13 +67,15 @@ def install_meter_provider() -> None:
 | `mloda.step.duration` | Histogram, `s` | `mloda.operation.name`, `mloda.feature_group.name`, `mloda.compute_framework.name`, `error.type` (failed steps), `mloda.cancel.type` (cancelled steps) |
 | `mloda.step.rows.in` | Counter, `{row}` | `mloda.operation.name`, `mloda.feature_group.name`, `mloda.compute_framework.name` |
 | `mloda.step.rows.out` | Counter, `{row}` | same as `mloda.step.rows.in` |
+| `mloda.step.result` (opt-in) | Counter, `1` | same as `mloda.step.rows.in`, plus `mloda.result.key` |
 
 - **Outcomes:** no separate counters; a histogram's count is the outcome counter, split by `mloda.run.status`, `error.type` or `mloda.cancel.type`. Calls without a hook context are not counted.
 - **`error.type`:** `module.qualname` on runs and steps (as on spans), so a builtin reads `builtins.ValueError`. Before mloda 0.16.0, runs carried the bare class name.
 - **Cancelled:** an interrupt (a `BaseException` that is not an `Exception`, such as `SystemExit` from SIGTERM or `KeyboardInterrupt`) is not a failure: it sets `mloda.cancel.type` (`builtins.SystemExit`) instead of `error.type`, so `error_type!=""` queries leave out runs and steps a rollout or eviction stopped.
 - **Rows:** counted on success only, for calculate (in and out) and load (out). Validate steps record no rows.
+- **Result counts (opt-in):** `OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)` adds non-negative integer `HookContext.result_attributes` values after successful calculate calls. Floats, strings, bools and negative integers are ignored; other hooks and failed or cancelled calculations add nothing. Like span attributes, only the first 32 validated scalar keys per call are considered; non-count scalars still occupy slots. Counts share one instrument with `mloda.result.key` as a dimension, independent of trace sampling. Use stable keys: this is a per-call cap, not a bound on distinct time series across calls.
 - **Durations:** a step duration includes inner extenders (with default priorities `OtelExtender` wraps outside `OtelMetricsExtender`, which wraps outside `OpenLineageExtender`, so it includes OpenLineage emission) and a calculate duration includes a nested load, so do not sum durations across operations.
-- **Attributes:** only those in the table; unset ones (for example the feature group on a join) are omitted. Never recorded on metrics: feature names, run, plan and step ids, worker index, data-access identity and format, join keys and type, declared attributes, result attributes, plugin versions, tenant, project, principal.
+- **Attributes:** only those in the table; unset ones (for example the feature group on a join) are omitted. Never recorded on metrics: feature names, run, plan and step ids, worker index, data-access identity and format, join keys and type, declared attributes, plugin versions, tenant, project, principal. Opt-in result values are measurements, never attribute values.
 - **Failures:** recording is best effort; a post-call recording error is logged once at WARNING with its type only and never changes the step's result or exception. A failure resolving the meter follows `raise_on_error` like any extender.
 
 Prometheus names after OTLP translation, p95 step duration per feature group and the share of failed steps:
@@ -112,7 +114,7 @@ service:
       processors: [transform/mloda_merge, delta_to_cumulative, batch]
 ```
 
-- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-process values are gone and point times are the Collector's arrival times. Only counters and histograms (all four mloda metrics) merge correctly; keep gauges and up-down counters under another service.
+- Give the pipeline a `service.name` (`OTEL_SERVICE_NAME`) no other process uses: every process with that name is merged, so per-process values are gone and point times are the Collector's arrival times. Only counters and histograms merge correctly; keep gauges and up-down counters under another service.
 - `keep_keys` drops every attribute it does not list; deleting only `service.instance.id` is not enough on Kubernetes, where per-run pod, job and node names keep runs apart and the exporter overwrites them on one series. The `prometheus` exporter labels series only by `service.namespace`, `service.name` and `service.instance.id`, so separate pipelines you must not merge (dev and prod) by those; another kept attribute becomes a label only with the exporter's `resource_to_telemetry_conversion` enabled. If `k8sattributes` supplies a kept attribute, run it before the transform, in the first tier when a `loadbalancing` exporter is in front.
 - The restamp stops most out-of-order drops between concurrent processes; the Collector's own `deltatocumulative` datapoints counter, with an `error` attribute, counts the rest.
 - One Collector instance must receive all of the pipeline's metrics: a central gateway, not a sidecar per pod (with several replicas, put a `loadbalancing` exporter with `routing_key: service` in front). Its state is in memory: after a restart, or once a series is idle longer than `max_stale`, the series restarts from the next delta, and Prometheus sees a reset only if the value drops, so totals across it can be wrong. Keep `max_stale`, and the `prometheus` exporter's `metric_expiration`, above the longest gap between runs. `delta_to_cumulative` is alpha.

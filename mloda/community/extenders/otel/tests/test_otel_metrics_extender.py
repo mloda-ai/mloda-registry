@@ -22,6 +22,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -62,6 +63,8 @@ _RUN_DURATION = "mloda.run.duration"
 _STEP_DURATION = "mloda.step.duration"
 _ROWS_IN = "mloda.step.rows.in"
 _ROWS_OUT = "mloda.step.rows.out"
+_RESULT = "mloda.step.result"
+_RESULT_KEY = "mloda.result.key"
 _STEP_ATTRIBUTES = {"mloda.operation.name", "mloda.feature_group.name", "mloda.compute_framework.name"}
 _METRIC_ATTRIBUTE_ALLOWLIST = _STEP_ATTRIBUTES | {"error.type", "mloda.cancel.type", "mloda.run.status"}
 _DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600)
@@ -214,6 +217,23 @@ class TestOtelMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTe
         assert _STEP_DURATION in metric_names(reader.get_metrics_data())
 
 
+class TestOtelMetricsResultAttributesContract(TestOtelMetricsExtenderContract):
+    """The result-counter option preserves the shared execution and worker contract."""
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> OtelMetricsExtender:
+        provider, _ = make_metric_capture()
+        return OtelMetricsExtender(
+            meter_provider=provider,
+            raise_on_error=False if raise_on_error is None else raise_on_error,
+            record_result_attributes=True,
+        )
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "otel_real_worker_metrics.txt"
+        provider = RebuildingMetricCaptureProvider(marker_path=marker_path)
+        return OtelMetricsExtender(meter_provider=provider, record_result_attributes=True), marker_path
+
+
 class TestOtelMetricsExtenderModule:
     """Both extender modules read shared constants from _constants; the metrics module never imports otel_extender."""
 
@@ -269,7 +289,13 @@ class TestOtelMetricsExtenderConstructorOptions:
 
     def test_constructor_parameters(self) -> None:
         parameters = list(inspect.signature(OtelMetricsExtender.__init__).parameters)
-        assert parameters == ["self", "raise_on_error", "meter_provider", "use_sdk_defaults"]
+        assert parameters == [
+            "self",
+            "raise_on_error",
+            "meter_provider",
+            "use_sdk_defaults",
+            "record_result_attributes",
+        ]
 
     def test_defaults_match_otel_extender_priority_and_close_timeout(self) -> None:
         otel = OtelMetricsExtender()
@@ -277,9 +303,18 @@ class TestOtelMetricsExtenderConstructorOptions:
         assert otel.close_timeout == CLOSE_TIMEOUT
         assert otel.raise_on_error is False
         assert otel.use_sdk_defaults is False
+        assert otel.record_result_attributes is False
 
 
 class TestOtelMetricsExtenderPickling:
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_result_attribute_option_survives_pickling(self, enabled: bool) -> None:
+        otel = OtelMetricsExtender(meter_provider=metrics.NoOpMeterProvider(), record_result_attributes=enabled)
+
+        copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        assert copy.record_result_attributes is enabled
+
     def test_unpicklable_meter_provider_is_dropped_with_the_documented_warning(
         self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -805,6 +840,219 @@ class TestOtelMetricsExtenderMetrics:
             _complete_run(otel, "r", started_at=datetime.datetime.now(datetime.timezone.utc))
 
         assert len(proxy._meters) - before <= 1
+
+
+class TestOtelMetricsResultAttributes:
+    def test_result_attributes_are_not_recorded_by_default(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        _call_once(OtelMetricsExtender(meter_provider=provider), make_hook_context(result_attributes={"documents": 3}))
+
+        assert _points(reader, _RESULT) == []
+        assert _single_point(reader, _STEP_DURATION).count == 1
+
+    def test_counts_read_the_final_attributes_published_during_calculation(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        otel = OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)
+        context = make_hook_context(rows_in=3)
+
+        def calculate() -> list[int]:
+            HookContext.publish_result_attributes({"documents": 2})
+            HookContext.publish_result_attributes({"documents": 5, "empty": 0})
+            assert _points(reader, _RESULT) == []
+            return [1, 2]
+
+        with context.activate():
+            assert otel(instrument(context, calculate)) == [1, 2]
+
+        collected = _collected(reader)
+        assert set(collected) == {_RESULT, _STEP_DURATION, _ROWS_IN, _ROWS_OUT}
+        metric = collected[_RESULT]
+        assert isinstance(metric.data, Sum)
+        assert metric.data.is_monotonic
+        assert metric.unit == "1"
+        points = {}
+        for point in metric.data.data_points:
+            assert point.attributes is not None
+            points[point.attributes[_RESULT_KEY]] = point
+        assert {key: point.value for key, point in points.items()} == {"documents": 5, "empty": 0}
+        for key, point in points.items():
+            assert point.attributes is not None
+            assert dict(point.attributes) == {
+                "mloda.operation.name": "calculate",
+                "mloda.feature_group.name": "mloda.testing.DummyFeatureGroup",
+                "mloda.compute_framework.name": "PyArrowTable",
+                _RESULT_KEY: key,
+            }
+        assert context.result_attributes == {"documents": 5, "empty": 0}
+        assert _single_point(reader, _ROWS_IN).value == 3
+        assert _single_point(reader, _ROWS_OUT).value == 2
+
+    def test_counts_accumulate_without_enabling_other_instances_sharing_the_provider(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        enabled = OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)
+        disabled = OtelMetricsExtender(meter_provider=provider)
+
+        for extender, value in ((disabled, 100), (enabled, 2), (disabled, 100), (enabled, 3)):
+            _call_once(extender, make_hook_context(result_attributes={"documents": value}))
+
+        assert _single_point(reader, _RESULT).value == 5
+        assert _single_point(reader, _STEP_DURATION).count == 4
+
+    def test_business_keys_and_feature_groups_remain_separate_series(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        otel = OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)
+
+        for group, key, value in (("GroupA", "person", 2), ("GroupA", "place", 3), ("GroupB", "person", 4)):
+            _call_once(otel, make_hook_context(feature_group_class=group, result_attributes={key: value}))
+
+        points = _points(reader, _RESULT)
+        assert {(p.attributes["mloda.feature_group.name"], p.attributes[_RESULT_KEY]): p.value for p in points} == {
+            ("GroupA", "person"): 2,
+            ("GroupA", "place"): 3,
+            ("GroupB", "person"): 4,
+        }
+        assert set(_collected(reader)) == {_RESULT, _STEP_DURATION}
+
+    def test_only_nonnegative_integers_are_counts(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider, reader = metric_capture
+        context = make_hook_context(
+            result_attributes={
+                "count": 7,
+                "zero": 0,
+                "negative": -1,
+                "true": True,
+                "false": False,
+                "fraction": 1.5,
+                "integral_float": 2.0,
+                "text": "3",
+            }
+        )
+
+        with caplog.at_level(logging.WARNING):
+            _call_once(OtelMetricsExtender(meter_provider=provider, record_result_attributes=True), context)
+
+        assert {p.attributes[_RESULT_KEY]: p.value for p in _points(reader, _RESULT)} == {"count": 7, "zero": 0}
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            ExtenderHook.INPUT_DATA_LOAD,
+            ExtenderHook.VALIDATE_INPUT_FEATURE,
+            ExtenderHook.VALIDATE_OUTPUT_FEATURE,
+            ExtenderHook.JOIN,
+        ],
+    )
+    def test_non_calculate_hooks_do_not_record_result_counts(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], hook: ExtenderHook
+    ) -> None:
+        provider, reader = metric_capture
+
+        _call_once(
+            OtelMetricsExtender(meter_provider=provider, record_result_attributes=True),
+            make_hook_context(hook=hook, result_attributes={"documents": 3}),
+        )
+
+        assert _points(reader, _RESULT) == []
+        assert _single_point(reader, _STEP_DURATION).count == 1
+
+    @pytest.mark.parametrize("error_type", [_StepBoom, _Halt])
+    def test_failed_or_cancelled_calculations_do_not_record_published_counts(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], error_type: type[BaseException]
+    ) -> None:
+        provider, reader = metric_capture
+        otel = OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)
+        context = make_hook_context()
+        error = error_type("failed after publishing")
+
+        def calculate() -> None:
+            HookContext.publish_result_attributes({"documents": 3})
+            raise error
+
+        with context.activate(), pytest.raises(error_type) as caught:
+            otel(instrument(context, calculate))
+
+        assert caught.value is error
+        assert _points(reader, _RESULT) == []
+        assert _single_point(reader, _STEP_DURATION).count == 1
+
+    def test_no_hook_context_records_no_result_counts(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+
+        assert OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)(lambda: 42) == 42
+
+        assert _collected(reader) == {}
+
+    @pytest.mark.parametrize("attributes", [None, {}])
+    def test_absent_results_do_not_use_declared_attributes(
+        self,
+        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
+        attributes: dict[str, str | int | float | bool] | None,
+    ) -> None:
+        provider, reader = metric_capture
+
+        _call_once(
+            OtelMetricsExtender(meter_provider=provider, record_result_attributes=True),
+            make_hook_context(result_attributes=attributes, declared_attributes={"documents": 3}),
+        )
+
+        assert _points(reader, _RESULT) == []
+
+    def test_first_32_portable_scalars_limit_each_calculation_before_count_filtering(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        otel = OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)
+        values: dict[str, str | int | float | bool] = {
+            "out_of_range": 2**63,
+            "nonfinite": float("inf"),
+            "fraction": 1.5,
+            "text": "ignored",
+            "boolean": True,
+            "negative": -1,
+        }
+        values.update({f"count_{i}": i for i in range(32)})
+
+        _call_once(otel, make_hook_context(result_attributes=values))
+
+        assert {p.attributes[_RESULT_KEY]: p.value for p in _points(reader, _RESULT)} == {
+            f"count_{i}": i for i in range(28)
+        }
+        _call_once(otel, make_hook_context(result_attributes={"next_calculation": 9}))
+        assert {p.attributes[_RESULT_KEY]: p.value for p in _points(reader, _RESULT)} == {
+            **{f"count_{i}": i for i in range(28)},
+            "next_calculation": 9,
+        }
+
+    def test_reused_instrumented_context_does_not_recount_old_results(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        otel = OtelMetricsExtender(meter_provider=provider, record_result_attributes=True)
+        context = make_hook_context(result_attributes={"stale": 100})
+
+        def calculate() -> None:
+            HookContext.publish_result_attributes({"documents": 3})
+
+        with context.activate():
+            otel(instrument(context, calculate))
+            otel(instrument(context, lambda: None))
+
+        assert {p.attributes[_RESULT_KEY]: p.value for p in _points(reader, _RESULT)} == {"documents": 3}
+        assert _single_point(reader, _STEP_DURATION).count == 2
 
 
 class _SpanProbingMeterProvider(MeterProvider):

@@ -8,6 +8,7 @@ import time
 import weakref
 from collections.abc import Callable
 from datetime import datetime, timezone
+from itertools import islice
 from typing import Any
 
 from mloda.steward import (
@@ -23,11 +24,13 @@ from opentelemetry.metrics import Counter, Histogram, MeterProvider
 
 from mloda.community.extenders.otel._constants import (
     DECLARABLE_HOOKS,
+    MAX_DECLARED_KEYS,
     OPERATION_NAMES,
     TRACER_NAME,
     exception_attribute,
     outcome_attribute_key,
 )
+from mloda.community.extenders.shared.declared import declared_scalars
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
 
@@ -66,6 +69,7 @@ class Instruments:
         )
         self.rows_in: Counter = meter.create_counter("mloda.step.rows.in", unit="{row}")
         self.rows_out: Counter = meter.create_counter("mloda.step.rows.out", unit="{row}")
+        self.result: Counter = meter.create_counter("mloda.step.result", unit="1")
 
 
 # One meter and instrument set per provider object for the whole process (the API proxy provider
@@ -90,8 +94,9 @@ def record_step(
     context: HookContext,
     seconds: float,
     exc: BaseException | None,
+    record_result_attributes: bool = False,
 ) -> None:
-    """Step duration always; rows in/out only for calculate and load on success."""
+    """Step duration always; successful rows and optional calculate result counts."""
     attributes: dict[str, str] = {"mloda.operation.name": OPERATION_NAMES.get(context.hook, "unknown")}
     if context.feature_group_class is not None:
         attributes["mloda.feature_group.name"] = context.feature_group_class
@@ -107,6 +112,10 @@ def record_step(
             instruments.rows_in.add(context.rows_in, attributes)
         if context.rows_out is not None:
             instruments.rows_out.add(context.rows_out, attributes)
+        if record_result_attributes and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+            for key, value in islice(declared_scalars(context.result_attributes).items(), MAX_DECLARED_KEYS):
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    instruments.result.add(value, {**attributes, "mloda.result.key": key})
 
 
 def record_run(instruments: Instruments, run: RunContext, outcome: LifecycleOutcome) -> None:
@@ -126,6 +135,7 @@ class OtelMetricsExtender(Extender):
     """Records run and step durations and step row counts for wrapped hooks.
 
     Uses the injected meter_provider, else the global one with use_sdk_defaults, else is inert (warns once).
+    record_result_attributes opts into counters for non-negative integer result attributes from calculate hooks.
     close() flushes the provider and never calls shutdown(). Chains inside OtelExtender by default."""
 
     close_timeout: float = CLOSE_TIMEOUT
@@ -135,10 +145,12 @@ class OtelMetricsExtender(Extender):
         raise_on_error: bool = False,
         meter_provider: MeterProvider | None = None,
         use_sdk_defaults: bool = False,
+        record_result_attributes: bool = False,
     ) -> None:
         self.raise_on_error = raise_on_error
         self._meter_provider = meter_provider
         self.use_sdk_defaults = use_sdk_defaults
+        self.record_result_attributes = record_result_attributes
         self._inert_warning = WarnOncePerInstance()  # shared by the inert and no-SDK warnings
         self._pickle_drop_warning = WarnOncePerInstance()
         self._failure_warning = WarnOncePerInstance()
@@ -196,7 +208,12 @@ class OtelMetricsExtender(Extender):
             self._record(instruments, lambda i: record_step(i, context, seconds, exc=error))
             raise
         seconds = time.perf_counter() - started
-        self._record(instruments, lambda i: record_step(i, context, seconds, exc=None))
+        self._record(
+            instruments,
+            lambda i: record_step(
+                i, context, seconds, exc=None, record_result_attributes=self.record_result_attributes
+            ),
+        )
         return result
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.

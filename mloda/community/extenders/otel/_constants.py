@@ -7,6 +7,8 @@ from mloda.steward import ExtenderHook
 from mloda.community.extenders.shared.exception_type import qualified_type_name
 
 TRACER_NAME = "mloda_community_otel"
+# Cap keys per declared/result mapping so span attributes leave room for core attributes.
+MAX_DECLARED_KEYS = 32
 
 OPERATION_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "calculate",

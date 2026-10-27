@@ -45,6 +45,9 @@ from mloda.community.extenders.otel._constants import (
     exception_attribute,
     outcome_attribute_key,
 )
+from mloda.community.extenders.otel._constants import (
+    MAX_DECLARED_KEYS as _MAX_DECLARED_KEYS,
+)
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.declared import declared_scalars
@@ -264,9 +267,6 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
     ExtenderHook.JOIN: "join",
 }
-
-# Caps keys per prefix (declared and result) so the SDK's attribute limit can't evict core attributes.
-_MAX_DECLARED_KEYS = 32
 
 _PREFLIGHT_ORIGINS = ("explain", "diagnose")
 
