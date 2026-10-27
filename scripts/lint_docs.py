@@ -34,6 +34,9 @@ INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
 MD_LINK_RE = re.compile(r"\[.*?\]\((?!https?://|mailto:)([^)#\s]+\.md)(?:#([^)\s]+))?\)")
 
+# Relative links to non-markdown files, e.g. source files cited by a guide.
+FILE_LINK_RE = re.compile(r"\[.*?\]\((?!https?://|mailto:|#)([^)#\s]+)(?:#[^)\s]*)?\)")
+
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
@@ -137,6 +140,24 @@ def check_relative_links_and_anchors(md_file: Path, content: str) -> list[str]:
             slug = _slugify_heading(anchor)
             if slug not in _heading_slugs(target):
                 errors.append(f"{md_file}:{line_num}: broken anchor -> {rel_path}#{anchor}")
+    return errors
+
+
+def check_relative_file_links(md_file: Path, content: str) -> list[str]:
+    """Validate relative links to non-markdown files, ignoring fenced examples."""
+    errors = []
+    fenced = _fenced_ranges(content)
+    for match in FILE_LINK_RE.finditer(content):
+        start = match.start()
+        if any(lo <= start < hi for lo, hi in fenced):
+            continue
+        rel_path = match.group(1)
+        if rel_path.endswith(".md"):
+            continue
+        target = (md_file.parent / rel_path).resolve()
+        if not target.exists():
+            line_num = content[:start].count("\n") + 1
+            errors.append(f"{md_file}:{line_num}: broken file link -> {rel_path}")
     return errors
 
 
@@ -421,6 +442,7 @@ def main() -> int:
         contents[resolved] = content
         file_link_errors = check_relative_links_and_anchors(md_file, content)
         link_errors.extend(file_link_errors)
+        link_errors.extend(check_relative_file_links(md_file, content))
         if resolved.is_relative_to(guides_root):
             guides_link_errors.extend(file_link_errors)
         all_errors.extend(check_internal_imports(md_file, content))
@@ -433,6 +455,7 @@ def main() -> int:
     for md_file in sorted(REPO_ROOT.glob("*.md")):
         content = md_file.read_text(encoding="utf-8")
         link_errors.extend(check_relative_links_and_anchors(md_file, content))
+        link_errors.extend(check_relative_file_links(md_file, content))
         all_errors.extend(check_bare_fence_openers(md_file, content))
 
     for py_file in sorted(PLUGIN_SOURCE_DIR.rglob("*.py")):

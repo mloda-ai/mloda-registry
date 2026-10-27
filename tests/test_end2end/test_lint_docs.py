@@ -975,3 +975,34 @@ def test_main_reports_missing_plugin_source_dir(
     out = capsys.readouterr().out
     assert rc == 1
     assert "Plugin source directory not found" in out
+
+
+def test_broken_non_markdown_link_is_flagged(tmp_path: Path) -> None:
+    guide = tmp_path / "guide.md"
+    _write(guide, "# Guide\n\n[Source](../../mloda/missing.py)\n")
+    errors = lint_docs.check_relative_file_links(guide, guide.read_text(encoding="utf-8"))
+    assert len(errors) == 1
+    assert "missing.py" in errors[0]
+
+
+def test_existing_non_markdown_link_is_allowed(tmp_path: Path) -> None:
+    source = tmp_path / "source.py"
+    _write(source, "value = 1\n")
+    guide = tmp_path / "guide.md"
+    _write(guide, "# Guide\n\n[Source](source.py)\n")
+    assert lint_docs.check_relative_file_links(guide, guide.read_text(encoding="utf-8")) == []
+
+
+def test_non_markdown_link_inside_a_code_fence_is_ignored(tmp_path: Path) -> None:
+    guide = tmp_path / "guide.md"
+    _write(guide, "# Guide\n\n```markdown\n[Source](missing.py)\n```\n")
+    assert lint_docs.check_relative_file_links(guide, guide.read_text(encoding="utf-8")) == []
+
+
+def test_external_and_anchor_only_non_markdown_links_are_ignored(tmp_path: Path) -> None:
+    guide = tmp_path / "guide.md"
+    _write(
+        guide,
+        "# Guide\n\n[Web](https://example.com/source.py) [Mail](mailto:a@b.test) [Here](#guide)\n",
+    )
+    assert lint_docs.check_relative_file_links(guide, guide.read_text(encoding="utf-8")) == []
