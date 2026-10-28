@@ -87,6 +87,24 @@ acme = "acme.feature_groups.manifest:FEATURE_GROUPS"
 
 Without the template, add the same pair per group. The entry name is a label only; classes still register under their `module:qualname` key.
 
+### Embedded Applications and Strict Mode
+
+Installing entry points does not populate the runtime plugin registry: their classes are registered when `PluginLoader.all()` or `PluginLoader().load_entry_points()` loads them. Selecting feature groups with `PluginCollector.enabled_feature_groups(...)` or supplying extender instances also does not register their classes.
+
+An embedded application that skips the loader should explicitly register its plugin classes needed for resolution before using `strict`. After importing its feature-group and extender classes:
+
+```py
+from mloda.user import PluginCollector, register_plugin
+
+register_plugin(MyFeatureGroup)
+register_plugin(MyExtender)
+
+collector = PluginCollector.enabled_feature_groups({MyFeatureGroup})
+collector.set_strict_mode("strict")
+```
+
+Pass this same collector as `plugin_collector` to the run call. `register_plugin` accepts a class and returns its `module:qualname` key; call it directly, not as a decorator. Alternatively, `off` and `warn` both allow unregistered plugins, with `warn` logging a warning. Choose either with `collector.set_strict_mode(...)` or `MLODA_PLUGIN_REGISTRY_STRICT`; the explicit setter takes precedence. See [Create an Extender](11-create-extender.md) for extender-specific strict-mode behavior.
+
 ### Optional Backends
 
 A manifest that raises `ImportError` is skipped only when the missing module is an optional root; otherwise `PluginLoader.all()` raises. Without a declaration the loader uses core's built-in roots (pandas, polars, duckdb, ...). For any other backend, add a companion `mloda.optional_dependencies` entry (mloda >= 0.13) named like the entry it protects. It replaces the built-in roots for that entry, so also list any built-in root that manifest imports:
