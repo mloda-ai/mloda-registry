@@ -134,8 +134,7 @@ skips = [
 
 [tool.uv]
 exclude-newer = "7 days"
-# certifi cutoff is temporary (CA fix 2026.10.19); remove from 2026-10-28 and relock.
-exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = false, mloda-anonymizer-binary = false, certifi = "2026-10-21T00:00:00Z" }
+exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = false, mloda-anonymizer-binary = false }
 
 # AUTO-GENERATED workspace members from config/packages.toml
 # Do not edit manually - run: python scripts/generate_pyproject.py
