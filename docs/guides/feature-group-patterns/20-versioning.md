@@ -62,11 +62,11 @@ class MyFeatureGroup(FeatureGroup):
 
 ## Side Stores
 
-A store a feature group keeps beside its features (for example a SQLite file whose path comes from a context option) is shared by every installed release pointed at it, and `version()` does not cover it. Adding a column with `ALTER TABLE ... ADD COLUMN` breaks an older release that inserts positionally, and only at run time. In SQLite or any similar store:
+A store a feature group keeps beside its features (for example a SQLite file whose path comes from a context option) is shared by every installed release pointed at it, and `version()` does not cover it. Adding a column with `ALTER TABLE ... ADD COLUMN` breaks an older release that inserts positionally, and only at run time. In any such store:
 
 - Add tables, not columns.
 - Never rename or drop a table or column an older release reads or writes.
-- Name the columns in every insert: `INSERT INTO t (a, b) VALUES (?, ?)`.
+- Name the columns in every insert and select: `INSERT INTO t (a, b) VALUES (?, ?)`, not `SELECT *`.
 
 ## Description Method
 

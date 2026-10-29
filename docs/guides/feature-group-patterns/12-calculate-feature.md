@@ -68,7 +68,7 @@ One call receives the requested features of your group that agree on:
 - the data source the group matched, and for API input data the API source
 - the variant of a source class their inputs read from
 
-Since mloda 0.18.0, features that differ only in data type share a call, unless the group has an artifact or two of them share a name. Earlier releases split them by data type. A feature that needs another feature of the same group runs in a later call. A cache scoped to one call therefore shares work only within that call: to compute siblings once, make them [declared parts](05-multi-output-features.md#declaring-output-parts) of one feature (users then request `scan~label`), or cache beyond the call, keyed by the inputs.
+Since mloda 0.18.0, features that differ only in data type share a call when they carry the same filters, unless the group has an artifact or two of them share a name. Earlier releases split them by data type. A feature that needs another feature of the same group runs in a later call. A cache scoped to one call therefore shares work only within that call: to compute siblings once, make them [declared parts](05-multi-output-features.md#declaring-output-parts) of one feature (users then request `scan~label`; parts requested with differing data types still split, since they share the base name), or cache beyond the call, keyed by the inputs.
 
 ```python
 from typing import Any
