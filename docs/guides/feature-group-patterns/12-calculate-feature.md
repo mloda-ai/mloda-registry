@@ -59,6 +59,55 @@ def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
     return data
 ```
 
+## Which Features Share a Call
+
+One call receives the requested features of your group that agree on:
+
+- group options (context does not split, except a key a feature received from its consumer through `inherit_context_keys`, `propagate_context_keys` or `cascade_context_keys`, which splits all of the group's features by value)
+- the compute framework they run on
+- the data source the group matched, and for API input data the API source
+- the variant of a source class their inputs read from
+
+Since mloda 0.18.0, features that differ only in data type share a call when they carry the same filters, unless the group has an artifact or two of them share a name. Earlier releases split them by data type. A feature that needs another feature of the same group runs in a later call. A cache scoped to one call therefore shares work only within that call: to compute siblings once, make them [declared parts](05-multi-output-features.md#declaring-output-parts) of one feature (users then request `scan~label`; parts requested with differing data types still split, since they share the base name), or cache beyond the call, keyed by the inputs.
+
+```python
+from typing import Any
+
+from mloda.provider import DataCreatorFeatureGroup, FeatureSet
+from mloda.user import Feature, PluginCollector, PluginLoader, mloda
+
+PluginLoader.all()
+
+calls: list[set[str]] = []
+
+
+class Guide12Scan(DataCreatorFeatureGroup):
+    """Serves a label and two counts, recording the features each call receives."""
+
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide12_label", "guide12_rows", "guide12_cols"}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        names = {str(f.name) for f in features.features}
+        calls.append(names)
+        values = {"guide12_label": ["x"], "guide12_rows": [3], "guide12_cols": [2]}
+        return {name: values[name] for name in names}
+
+
+mloda.run_all(
+    [
+        Feature.str_of("guide12_label"),
+        Feature.int64_of("guide12_rows"),
+        Feature.int64_of("guide12_cols", {"guide12_scope": "b"}),
+    ],
+    compute_frameworks=["PandasDataFrame"],
+    plugin_collector=PluginCollector.enabled_feature_groups({Guide12Scan}),
+)
+assert sorted(sorted(c) for c in calls) == [["guide12_cols"], ["guide12_label", "guide12_rows"]]
+```
+
 ## Return Contract
 
 The framework's `transform()` accepts two shapes, and which one you return decides whether you **replace** the frame or **append** a column:
