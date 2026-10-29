@@ -249,7 +249,7 @@ Without `OUTPUT_PARTS`, every requested part reaches `calculate_feature()` as it
 |---|---|
 | The group's matcher accepts a trailing `~N` | A matcher that rejects `~` never receives a `name~N` top-level request. A group that refuses an unknown part should say why: see [Reporting Why a Match Declined](14-feature-matching.md#reporting-why-a-match-declined). |
 | `feature_names_supported()` doesn't list the base name | `FeatureGroup.set_feature_name()` rewrites `base~N` back to `base` when `base` is in `feature_names_supported()`, collapsing the parts into one Feature before `calculate_feature()` runs. |
-| The parts share options, compute framework and data type | These form the grouping hash that batches features into one `FeatureSet`; the name itself is not part of it. |
+| The parts share options, compute framework and data type | These form the grouping hash that batches features into one `FeatureSet`; the name itself is not part of it. Full list: [Which Features Share a Call](12-calculate-feature.md#which-features-share-a-call). |
 
 The group must write only the requested part's column in each, so it recomputes per part unless it caches per base.
 

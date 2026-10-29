@@ -60,6 +60,14 @@ class MyFeatureGroup(FeatureGroup):
         return "1.0.0"  # Custom version logic
 ```
 
+## Side Stores
+
+A store a feature group keeps beside its features (for example a SQLite file whose path comes from a context option) is shared by every installed release pointed at it, and `version()` does not cover it. Adding a column with `ALTER TABLE ... ADD COLUMN` breaks an older release that inserts positionally, and only at run time. In SQLite or any similar store:
+
+- Add tables, not columns.
+- Never rename or drop a table or column an older release reads or writes.
+- Name the columns in every insert: `INSERT INTO t (a, b) VALUES (?, ?)`.
+
 ## Description Method
 
 FeatureGroups also have a `description()` method that returns the class docstring or class name if no docstring is provided.
