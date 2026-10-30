@@ -14,6 +14,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 
 _ACCESSOR_OPS = ("year", "month", "day", "hour", "minute", "second", "dayofweek", "quarter")
 
+# pandas 3.1 renamed Series.dt.dayofweek to day_of_week; the old name warns. The
+# feature name stays dayofweek, only the accessor moves.
+_OP_ACCESSOR = {"dayofweek": "day_of_week"}
+
 
 class PandasDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
     feature_group = DateTimeFeatureGroup
@@ -37,9 +41,9 @@ class PandasDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         col = pd.to_datetime(data[source_col])
 
         if op == "is_weekend":
-            data[feature_name] = (col.dt.dayofweek.astype("Int64") >= 5).astype("Int64")
+            data[feature_name] = (col.dt.day_of_week.astype("Int64") >= 5).astype("Int64")
         elif op in _ACCESSOR_OPS:
-            data[feature_name] = getattr(col.dt, op).astype("Int64")
+            data[feature_name] = getattr(col.dt, _OP_ACCESSOR.get(op, op)).astype("Int64")
         else:
             raise ValueError(f"Unsupported datetime operation: {op}")
 
