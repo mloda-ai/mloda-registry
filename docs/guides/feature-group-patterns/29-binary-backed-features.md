@@ -154,6 +154,8 @@ class StubExample(BinaryExampleFeatureGroup):
     LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
 ```
 
+Other license states come from the same module: `expired_license_token`, `in_grace_license_token` and `expiring_license_token(plugins, left=timedelta(hours=6))`, which signs `exp = now + left` for testing a pre-expiry notice.
+
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks=[PyArrowTable]` and `PluginCollector.enabled_feature_groups({StubExample, ApiDataFG})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
 
 For `AnonymizerFeatureGroup` subclasses, `mloda-testing[binary-model]` also ships an `hmac_sha256` fake; `--plugin-id` makes it answer as `anonymizer_binary` (an argument, not an env var: the mixin passes the binary a minimal environment):

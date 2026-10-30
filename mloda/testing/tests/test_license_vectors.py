@@ -6,7 +6,7 @@ spec: Keys, kid, rotation)."""
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -30,6 +30,7 @@ from mloda.testing.binary_model.license_vectors import (
     WRONG_PLUGIN_TOKEN,
     compact_timestamp_license_token,
     expired_license_token,
+    expiring_license_token,
     float_schema_version_license_token,
     in_grace_license_token,
     missing_plugins_claim_token,
@@ -170,7 +171,7 @@ class TestVerification:
             verify_license_token(text, keys=TEST_PUBLIC_KEYS, plugin_id=PLUGIN_ID, now=NOW_2026)
 
     def test_in_grace_builder_verifies_in_grace_at_current_time(self) -> None:
-        """The one time-relative state a constant cannot express: exp in the near past, inside
+        """A time-relative state a constant cannot express: exp in the near past, inside
         ``grace_days`` (spec: Test vectors)."""
         token = in_grace_license_token([PLUGIN_ID])
         result = verify_license_token(token, keys=TEST_PUBLIC_KEYS, plugin_id=PLUGIN_ID)
@@ -180,6 +181,12 @@ class TestVerification:
         token = in_grace_license_token([PLUGIN_ID], now=NOW_2026)
         result = verify_license_token(token, keys=TEST_PUBLIC_KEYS, plugin_id=PLUGIN_ID, now=NOW_2026)
         assert result.in_grace is True
+
+    def test_expiring_builder_accepted_outside_grace_with_exp_from_left(self) -> None:
+        token = expiring_license_token([PLUGIN_ID], left=timedelta(hours=6), now=NOW_2026)
+        result = verify_license_token(token, keys=TEST_PUBLIC_KEYS, plugin_id=PLUGIN_ID, now=NOW_2026)
+        assert result.in_grace is False
+        assert datetime.fromisoformat(result.claims["exp"]) == NOW_2026 + timedelta(hours=6)
 
     def test_wrong_plugin_token_accepted_for_its_own_plugin(self) -> None:
         """WRONG_PLUGIN_TOKEN is only wrong relative to ``example_binary``; it is a perfectly valid
