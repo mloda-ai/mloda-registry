@@ -57,11 +57,13 @@ The dependency is implicit, so each `_compute_arithmetic` carries a comment stat
 
 DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows in that order, not in input order. PyArrow's rank-based `qbin` assigns labels by index and preserves the original sequence. To make the two match, DuckDB wraps the window in `preserve_row_order` (in `mloda/community/feature_groups/data_operations/duckdb_helpers.py`), which tags each input row with a row-number column, runs the callback, re-sorts on the tag to restore the original sequence, and drops it.
 
-The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. From `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
+The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. Inside the callback, `rel.columns` already holds the tag, so helper picks against it cannot collide. Paraphrased from `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
 
 ```py
 # PyArrow parity: results come back in original row order.
 def compute(rel, rn):
+    qbin_part = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
+    qbin_ntile = pick_helper_column_name(taken=set(rel.columns) | {feature_name, qbin_part})
     rel = rel.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
     rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
     # project out the helper columns and add the bin label
@@ -97,7 +99,7 @@ class TestDuckdbBinning(DuckdbTestMixin, BinningTestBase):
         return DuckdbBinning
 ```
 
-If your framework reorders, you will see row-count assertions pass but value comparisons fail with "row 0: 3 != reference 0". That means order is wrong, not math. Add the row-number workaround and try again.
+If your framework reorders, you will see row-count assertions pass but value comparisons fail with "row 0: 3 != reference 0". That means order is wrong, not math. Add the row-number workaround (on DuckDB, wrap the reordering step in `preserve_row_order`) and try again.
 
 ---
 

@@ -58,10 +58,10 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
             offset_expr = f"{quoted_source} - LAG({quoted_source}, {offset_n})"
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
+
             # The LAG window is referenced multiple times inside the CASE, so it
             # cannot be a single window func. Precompute LAG into a helper column,
             # then project the CASE referencing that helper (no OVER).
-
             def compute_pct(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
                 prev = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
                 qprev = quote_ident(prev)
