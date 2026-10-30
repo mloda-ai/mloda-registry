@@ -14,6 +14,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import preserve_row_order
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -39,8 +40,6 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         order_by: str,
         offset_type: str,
     ) -> DuckdbRelation:
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-
         quoted_source = quote_ident(source_col)
         order_spec = [OrderBy(order_by, nulls="last")]
 
@@ -62,25 +61,24 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
             # The LAG window is referenced multiple times inside the CASE, so it
             # cannot be a single window func. Precompute LAG into a helper column,
             # then project the CASE referencing that helper (no OVER).
-            prev = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
-            qprev = quote_ident(prev)
-            # PyArrow parity: tag original physical order before windowing so it
-            # can be restored after DuckDB reorders rows.
-            rel = data.with_row_number(rn)
-            rel = rel.window(
-                f"LAG({quoted_source}, {offset_n})",
-                prev,
-                partition_by=partition_by,
-                order_by=order_spec,
-            )
-            case_expr = (
-                f"CASE WHEN {qprev} IS NOT NULL AND {qprev} != 0 "
-                f"THEN ({quoted_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
-            )
-            rel = rel.project(f"*, {case_expr} AS {quote_ident(feature_name)}")
-            rel = rel.order(quote_ident(rn))
-            keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (rn, prev))
-            return rel.project(keep)
+
+            def compute_pct(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
+                prev = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
+                qprev = quote_ident(prev)
+                rel = rel.window(
+                    f"LAG({quoted_source}, {offset_n})",
+                    prev,
+                    partition_by=partition_by,
+                    order_by=order_spec,
+                )
+                case_expr = (
+                    f"CASE WHEN {qprev} IS NOT NULL AND {qprev} != 0 "
+                    f"THEN ({quoted_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
+                )
+                keep = ", ".join(quote_ident(c) for c in rel.columns if c != prev)
+                return rel.project(f"{keep}, {case_expr} AS {quote_ident(feature_name)}")
+
+            return preserve_row_order(data, feature_name, compute_pct)
         elif offset_type == "first_value":
             offset_expr = f"FIRST_VALUE({quoted_source} IGNORE NULLS)"
             # PyArrow parity: the reference scans the entire partition for
@@ -95,17 +93,11 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         else:
             raise ValueError(f"Unsupported offset type for DuckDB: {offset_type}")
 
-        # PyArrow parity: the reference returns results in original row order.
-        # DuckDB window functions with ORDER BY reorder rows; tag positions with
-        # ROW_NUMBER() and restore the original order afterwards.
-        rel = data.with_row_number(rn)
-        rel = rel.window(
-            offset_expr,
+        # PyArrow parity: results come back in original row order.
+        return preserve_row_order(
+            data,
             feature_name,
-            partition_by=partition_by,
-            order_by=order_spec,
-            frame=frame,
+            lambda rel, rn: rel.window(
+                offset_expr, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame
+            ),
         )
-        rel = rel.order(quote_ident(rn))
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
-        return rel.project(keep)

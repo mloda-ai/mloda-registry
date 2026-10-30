@@ -55,20 +55,20 @@ The dependency is implicit, so each `_compute_arithmetic` carries a comment stat
 
 ## The DuckDB NTILE workaround
 
-DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows in that order, not in input order. PyArrow's rank-based `qbin` assigns labels by index and preserves the original sequence. To make the two match, DuckDB tags each input row with a row-number column before the window runs, then re-sorts on that column to restore the original sequence.
+DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows in that order, not in input order. PyArrow's rank-based `qbin` assigns labels by index and preserves the original sequence. To make the two match, DuckDB wraps the window in `preserve_row_order` (in `mloda/community/feature_groups/data_operations/duckdb_helpers.py`), which tags each input row with a row-number column, runs the callback, re-sorts on the tag to restore the original sequence, and drops it.
 
 The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. From `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
 
 ```py
-# PyArrow parity: PyArrow _quantile_bin() assigns bins via index
-# mapping and naturally preserves row order. DuckDB NTILE()
-# reorders rows via ORDER BY; tag positions with a row-number
-# column and restore via .order() to match PyArrow output.
-rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-tagged = data.with_row_number(rn)
-with_qbin = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
-sorted_rel = with_qbin.order(quote_ident(rn))
-# drop the helper columns from the final projection
+# PyArrow parity: results come back in original row order.
+def compute(rel, rn):
+    rel = rel.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
+    rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+    # project out the helper columns and add the bin label
+    return rel.project(f"{keep}, {expr} AS {quoted_feature}")
+
+
+return preserve_row_order(data, feature_name, compute)
 ```
 
 This pattern generalizes. Any time a framework's native operator reorders rows, the implementation must record positions before the operator runs and restore them afterward.

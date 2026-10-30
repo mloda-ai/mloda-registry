@@ -7,7 +7,7 @@ from typing import Any
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
     OrderBy,
@@ -16,7 +16,11 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql, nan_policy_window
+from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    nan_policy_agg_sql,
+    nan_policy_window,
+    preserve_row_order,
+)
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
@@ -66,8 +70,6 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(
@@ -117,31 +119,22 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 framework="DuckDB",
             )
 
-        # PyArrow parity: the reference preserves input row order. DuckDB
-        # ORDER BY in the window frame reorders rows; tag with a row-number
-        # column, compute, then .order() to restore original order.
-        # Step 1: tag rows with original position
-        rel = data.with_row_number(rn)
-
-        # Step 2: compute window function with frame
-        rel = nan_policy_window(
-            rel,
-            source_col,
-            source_sql,
-            agg_type,
-            agg_func,
+        # PyArrow parity: the reference preserves input row order.
+        return preserve_row_order(
+            data,
             feature_name,
-            partition_by=partition_by,
-            order_by=order_spec,
-            frame=frame,
+            lambda rel, rn: nan_policy_window(
+                rel,
+                source_col,
+                source_sql,
+                agg_type,
+                agg_func,
+                feature_name,
+                partition_by=partition_by,
+                order_by=order_spec,
+                frame=frame,
+            ),
         )
-
-        # Step 3: restore original order, drop helper
-        rel = rel.order(quote_ident(rn))
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
-        rel = rel.project(keep)
-
-        return rel
 
     @classmethod
     def _compute_time_frame(
@@ -161,8 +154,8 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         whose ``order_by`` equals the current row's ``order_by``, even peers
         that come later in physical position. The reference uses
         ``rows[:pos+1]`` after a stable sort, excluding later peers. To match
-        the reference, this method tags rows with a ``with_row_number`` column
-        and uses that tag as a tiebreaker in a correlated subquery.
+        the reference, the input-order tag from ``preserve_row_order`` is the
+        tiebreaker in a correlated subquery.
 
         When the outer row's ``order_by`` is NULL, the reference returns just
         the row's own source value (see reference.py:115-116). The NULL branch
@@ -170,11 +163,6 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         """
         size = int(frame_size) if frame_size is not None else 1
         unit = str(frame_unit or "day").upper()
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        qrn = quote_ident(rn)
-
-        # Step 1: tag rows with original position; this is also the tiebreaker.
-        tagged = data.with_row_number(rn)
 
         if partition_by:
             partition_eq = " AND ".join(
@@ -186,26 +174,30 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             partition_eq = "1=1"
 
         quoted_feature = quote_ident(feature_name)
-        keep = ", ".join(quote_ident(c) for c in data.columns)
 
-        # Safety: identifiers via quote_ident(); agg_sql built from a whitelisted
-        # SQL function name; size/unit are sanitized integer/whitelisted-string values.
-        sql = " ".join(  # nosec
-            [
-                f"SELECT {keep},",
-                f"(SELECT {agg_sql}",
-                "FROM tagged s",
-                f"WHERE {partition_eq}",
-                "AND (",
-                f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
-                f"AND s.{quoted_order} >= t.{quoted_order} - INTERVAL '{size}' {unit}",
-                f"AND (s.{quoted_order} < t.{quoted_order}",
-                f"OR (s.{quoted_order} = t.{quoted_order} AND s.{qrn} <= t.{qrn})))",
-                f"OR (t.{quoted_order} IS NULL AND s.{qrn} = t.{qrn})",
-                ")",
-                f") AS {quoted_feature}",
-                "FROM tagged t",
-                f"ORDER BY t.{qrn}",
-            ]
-        )
-        return tagged.query("tagged", sql)
+        def compute(tagged: DuckdbRelation, rn: str) -> DuckdbRelation:
+            qrn = quote_ident(rn)
+            keep = ", ".join(quote_ident(c) for c in tagged.columns)
+
+            # Safety: identifiers via quote_ident(); agg_sql built from a whitelisted
+            # SQL function name; size/unit are sanitized integer/whitelisted-string values.
+            sql = " ".join(  # nosec
+                [
+                    f"SELECT {keep},",
+                    f"(SELECT {agg_sql}",
+                    "FROM tagged s",
+                    f"WHERE {partition_eq}",
+                    "AND (",
+                    f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
+                    f"AND s.{quoted_order} >= t.{quoted_order} - INTERVAL '{size}' {unit}",
+                    f"AND (s.{quoted_order} < t.{quoted_order}",
+                    f"OR (s.{quoted_order} = t.{quoted_order} AND s.{qrn} <= t.{qrn})))",
+                    f"OR (t.{quoted_order} IS NULL AND s.{qrn} = t.{qrn})",
+                    ")",
+                    f") AS {quoted_feature}",
+                    "FROM tagged t",
+                ]
+            )
+            return tagged.query("tagged", sql)
+
+        return preserve_row_order(data, feature_name, compute)

@@ -7,7 +7,7 @@ from typing import Any
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
     OrderBy,
@@ -15,6 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import preserve_row_order
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
@@ -37,9 +38,6 @@ class DuckdbFfill(Implementation[FfillFeatureGroup]):
         partition_by: list[str],
         order_by: str,
     ) -> DuckdbRelation:
-        original_cols = list(data.columns)
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-
         quoted_source = quote_ident(source_col)
 
         # ffill = last non-null value seen so far in the ordered partition.
@@ -51,16 +49,9 @@ class DuckdbFfill(Implementation[FfillFeatureGroup]):
         order_spec: list[OrderBy] = [OrderBy(order_by)]
         frame = WindowFrame("rows", Unbounded(), CurrentRow())
 
-        # PyArrow parity: preserve original input row order. Tag rows, compute the
-        # window, then restore the tag order and drop the helper column.
-        rel = data.with_row_number(rn)
-        rel = rel.window(
-            func,
+        # PyArrow parity: preserve original input row order.
+        return preserve_row_order(
+            data,
             feature_name,
-            partition_by=partition_by,
-            order_by=order_spec,
-            frame=frame,
+            lambda rel, rn: rel.window(func, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame),
         )
-        rel = rel.order(quote_ident(rn))
-        keep = ", ".join(quote_ident(c) for c in (*original_cols, feature_name))
-        return rel.project(keep)
