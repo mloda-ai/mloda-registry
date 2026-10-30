@@ -52,3 +52,20 @@ class TestPandasDateTimeOutputDtype:
         assert str(result[col].dtype) == "Int64"
         if values[1] is None:
             assert result[col].iloc[1] is pd.NA
+
+
+class TestPandasDateTimeNoDeprecatedAccessor:
+    """dayofweek and is_weekend must not call Series.dt.dayofweek (deprecated in pandas 3.1)."""
+
+    @pytest.mark.parametrize("op", ["dayofweek", "is_weekend"])
+    def test_no_pandas4_warning(self, op: str) -> None:
+        import warnings
+
+        pandas4_warning = getattr(pd.errors, "Pandas4Warning", None)
+        if pandas4_warning is None:
+            pytest.skip("pandas without Pandas4Warning")
+        df = pd.DataFrame({"ts": [datetime(2023, 5, 6)]})
+        col = f"ts__{op}"
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", pandas4_warning)
+            PandasDateTimeExtraction._compute_datetime(df, col, "ts", op)
