@@ -12,7 +12,8 @@ helper columns are made collision-free at runtime, so a user column of any name
   a real collision regression for row-preserving ops. It is opt-in: it runs only
   when ``reserved_columns_helper_names`` returns a non-empty set (default empty
   skips), so ops that reduce rows are unaffected; ops that need extra options set
-  ``reserved_columns_extra_context``.
+  ``reserved_columns_extra_context``. Extra feature names also run and must match
+  the reference.
 
 Each feature-group test base mixes this in and overrides the abstract
 configuration methods to adapt the generic tests to its specific semantics
@@ -150,7 +151,8 @@ class ReservedColumnsTestMixin:
         original values in input row order. The exercised helper names come from
         ``reserved_columns_helper_names``; an empty set skips this op. All names
         are injected at once so whichever backend runs sees its own helper among
-        them.
+        them. Each ``reserved_columns_extra_feature_names`` feature also runs on
+        fresh data and must match the reference.
         """
         helper_names = self.reserved_columns_helper_names()
         if not helper_names:
@@ -163,7 +165,6 @@ class ReservedColumnsTestMixin:
         colliding_table = base_table
         for name, values in expected.items():
             colliding_table = colliding_table.append_column(name, pa.array(values, type=pa.int64()))
-        data = self.create_test_data(colliding_table)  # type: ignore[attr-defined]
         extra_names = self.reserved_columns_extra_feature_names()
         for feature_name in (self.reserved_columns_feature_name(), *extra_names):
             fs = make_feature_set(
@@ -172,7 +173,11 @@ class ReservedColumnsTestMixin:
                 order_by=self.reserved_columns_order_by(),
                 **self.reserved_columns_extra_context(),
             )
-            result = calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
+            result = calculate_with(
+                self.implementation_class(),  # type: ignore[attr-defined]
+                self.create_test_data(colliding_table),  # type: ignore[attr-defined]
+                fs,
+            )
             assert self.get_row_count(result) == n, feature_name  # type: ignore[attr-defined]
             for name, values in expected.items():
                 survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]

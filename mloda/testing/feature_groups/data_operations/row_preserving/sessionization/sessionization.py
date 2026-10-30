@@ -191,6 +191,10 @@ class SessionizationTestBase(
         return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_rn1__"}
 
     @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        return ("ts__sessionize_1_hour",)
+
+    @classmethod
     def reference_implementation_class(cls) -> Any:
         # Lazy import so this testing module imports cleanly even before the
         # production code exists (Red phase). The per-backend test files import
