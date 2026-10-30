@@ -64,23 +64,23 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 
 ## The DuckDB row-order workaround
 
-`NTILE` requires `ORDER BY col`, which produces rows sorted by `col`, not by original input order. The row-preserving contract requires input order. The fix uses the typed `with_row_number` / `window` API and a collision-free helper name from `pick_helper_column_name`:
+`NTILE` requires `ORDER BY col`, which produces rows sorted by `col`, not by original input order. The row-preserving contract requires input order. The fix wraps the reordering step in `preserve_row_order` from `duckdb_helpers.py`, which tags each input row, restores input order afterwards and drops the tag:
 
 ```py
 # Paraphrased from duckdb_binning.py
-rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-tagged = data.with_row_number(rn)
-# partition key is a CASE expression, so project it into a column first
-tagged = tagged.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
-with_qbin = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
-sorted_rel = with_qbin.order(quote_ident(rn))
-# project out the helper columns in the final projection
+def compute(rel, rn):
+    # partition key is a CASE expression, so project it into a column first
+    rel = rel.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
+    rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+    # project out the helper columns and add the bin label
+    return rel.project(f"{keep}, {expr} AS {quoted_feature}")
+
+
+return preserve_row_order(data, feature_name, compute)
 ```
 
-1. Tag each input row with a `with_row_number` column before the window runs.
-2. Apply the NTILE window, then the bin-label expression.
-3. Re-sort by the tagged row number to restore input order.
-4. Drop the temporary helper columns from the projection.
+1. `preserve_row_order` tags rows, restores input order and drops the tag.
+2. The callback projects the partition key, applies the NTILE window, then the bin-label expression.
 
 Any framework whose native operation reorders will need an analogous workaround. Pandas and PyArrow do not, because both assign by index directly. See [the row-preserving contract](02-row-preserving-contract.md) for the general rule.
 
