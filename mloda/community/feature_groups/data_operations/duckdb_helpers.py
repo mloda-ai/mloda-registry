@@ -8,9 +8,10 @@ float-only NaN-to-null wrap shared by aggregation feature groups.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 
 if TYPE_CHECKING:
     from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
@@ -90,17 +91,27 @@ _FLOAT_VAR_COVAR: dict[str, str] = {"var": "COVAR_POP", "var_pop": "COVAR_POP", 
 _FLOAT_STD_TO_VAR: dict[str, str] = {"std": "var_pop", "std_pop": "var_pop", "std_samp": "var_samp"}
 
 
-def nan_policy_agg_sql(data: "DuckdbRelation", source_col: str, source_sql: str, agg_type: str, agg_func: str) -> str:
+def nan_policy_agg_sql(
+    data: "DuckdbRelation",
+    source_col: str,
+    source_sql: str,
+    agg_type: str,
+    agg_func: str,
+    order_sql: str | None = None,
+) -> str:
     """Full aggregate call for ``agg_type``, applying the NaN policy natively.
 
-    ``mode`` returns a struct, so callers must extract ``.v``. Float ``max`` becomes
-    ``-MIN(-x)``: DuckDB sorts NaN highest, so MIN skips it and an all-NaN input stays NaN.
+    ``mode`` returns a struct, so callers must extract ``.v``. It also needs ``order_sql``
+    (a row-position order), because DuckDB's ``MODE`` breaks ties by the largest value.
+    Float ``max`` becomes ``-MIN(-x)``: DuckDB sorts NaN highest, so MIN skips it and an all-NaN input stays NaN.
     Float std/var become ``COVAR_POP``/``COVAR_SAMP``, which propagate NaN instead of raising.
     Callers using ``window()`` must go through ``nan_policy_window`` instead: float std here
     returns ``SQRT(...)``, which cannot take an ``OVER`` clause.
     """
     if agg_type == "mode":
-        return f"MODE(CASE WHEN {source_sql} IS NOT NULL THEN struct_pack(v := {source_sql}) END)"
+        if order_sql is None:
+            raise ValueError("DuckDB mode needs a row-position order for first-occurrence ties")
+        return f"MODE(CASE WHEN {source_sql} IS NOT NULL THEN struct_pack(v := {source_sql}) END ORDER BY {order_sql})"
 
     is_float = _is_float(data, source_col)
 
@@ -122,6 +133,7 @@ def nan_policy_window(
     agg_type: str,
     agg_func: str,
     feature_name: str,
+    order_sql: str | None = None,
     **window_kwargs: Any,
 ) -> "DuckdbRelation":
     """``data.window(...)`` applying the NaN policy.
@@ -130,7 +142,7 @@ def nan_policy_window(
     wraps the resulting column in ``SQRT`` afterward.
     """
     var_type = _FLOAT_STD_TO_VAR.get(agg_type) if _is_float(data, source_col) else None
-    agg_call = nan_policy_agg_sql(data, source_col, source_sql, var_type or agg_type, agg_func)
+    agg_call = nan_policy_agg_sql(data, source_col, source_sql, var_type or agg_type, agg_func, order_sql)
     result = data.window(agg_call, feature_name, **window_kwargs)
 
     if var_type is None:
@@ -141,3 +153,12 @@ def nan_policy_window(
         f"SQRT({quoted_feature}) AS {quoted_feature}" if c == feature_name else quote_ident(c) for c in result.columns
     )
     return result.project(keep)
+
+
+def preserve_row_order(
+    data: "DuckdbRelation", feature_name: str, compute: Callable[["DuckdbRelation", str], "DuckdbRelation"]
+) -> "DuckdbRelation":
+    """Tag rows, run ``compute(tagged, rn)``, then restore input order and drop the tag."""
+    rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+    result = compute(data.with_row_number(rn), rn).order(quote_ident(rn))
+    return result.project(", ".join(quote_ident(c) for c in result.columns if c != rn))

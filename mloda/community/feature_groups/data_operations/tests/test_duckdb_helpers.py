@@ -139,9 +139,14 @@ class TestNanPolicyAggSql:
         self, run: Callable[[DuckdbRelation, str], Any], values: list[Any], expected: float
     ) -> None:
         rel = _relation(self.conn, values)
-        agg_sql = nan_policy_agg_sql(rel, "v", '"v"', "mode", "MODE") + ".v"
+        agg_sql = nan_policy_agg_sql(rel, "v", '"v"', "mode", "MODE", order_sql='"o"') + ".v"
         result = run(rel, agg_sql)
         if math.isnan(expected):
             assert result is not None and math.isnan(result)
         else:
             assert result == expected
+
+    def test_mode_requires_order_sql(self) -> None:
+        rel = _relation(self.conn, [1.0, 2.0])
+        with pytest.raises(ValueError, match="order"):
+            nan_policy_agg_sql(rel, "v", '"v"', "mode", "MODE")

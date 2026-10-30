@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("duckdb")
+duckdb = pytest.importorskip("duckdb")
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.duckdb_lookup import (
     DuckdbLookup,
@@ -29,13 +29,14 @@ class TestDuckdbLookup(DuckdbTestMixin, LookupTestBase):
         return DuckdbLookup
 
     @classmethod
-    def untyped_null_source_becomes_int(cls) -> bool:
-        return True
-
-    @classmethod
     def hook_group_class(cls) -> Any:
         return _HookLookup
 
     @classmethod
     def invalid_hook_group_class(cls) -> Any:
         return _EmptyMappingHookLookup
+
+    @classmethod
+    def untyped_null_source_becomes_int(cls) -> bool:
+        # DuckDB 1.x turns an Arrow null column into INTEGER; 2.x keeps the NULL type.
+        return int(duckdb.__version__.split(".")[0]) < 2
