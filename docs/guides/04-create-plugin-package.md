@@ -133,6 +133,53 @@ Two rules:
 
 See [Plugin Loader: Entry Points](https://mloda-ai.github.io/mloda/in_depth/plugin-loader/#entry-points) for validation, collision, and skip-logging behavior.
 
+### Artifacts Installed from a URL
+
+Some backends need an artifact published only as a URL, such as a spaCy model wheel from Explosion's GitHub releases. It is never a dependency: PyPI rejects uploads whose metadata carries a direct URL requirement, and installing the same name from an index invites dependency confusion. Declare the backend library as an extra per [Optional Backends](#optional-backends), document the artifact's install command pinned to the backend's version, and take its name (or a local path) as configuration:
+
+```bash
+M=https://github.com/explosion/spacy-models/releases/download
+pip install "acme[ner]" "$M/de_core_news_md-3.8.0/de_core_news_md-3.8.0-py3-none-any.whl"
+```
+
+Never list the artifact under `mloda.optional_dependencies` or import it in a manifest: a missing model would then skip the entry point instead of failing closed. Check it inside the call, as [Binary-Backed Features](feature-group-patterns/29-binary-backed-features.md) does for a wheel from an index, and before the backend loads it, since some backends download a missing artifact on load (Presidio's `SpacyNlpEngine` runs `spacy download`):
+
+- **Check** the distribution's metadata (`importlib.metadata`, which `spacy.util.is_package` wraps) or an existing path. This proves the artifact is present, not that it is valid.
+- **Fail closed** with a `ValueError` subclass that names the install URL. Wrap the backend's load in the same error, `from exc`, for an installed package that is no model or may not match the backend's version.
+- **Keep paths out**: name what the artifact is for (the language), never the configured value, which may be a user path, and raise `from None` where the caught error would echo it. A `from exc` cause keeps its own detail for debugging, so a traceback can still show the path.
+
+```python
+from importlib.metadata import PackageNotFoundError, distribution
+from pathlib import Path
+
+import pytest
+
+MODELS_URL = "https://github.com/explosion/spacy-models/releases"
+
+
+class ModelNotInstalledError(ValueError):
+    pass
+
+
+def require_installed(lang: str, model: str) -> None:
+    """Refuse before the backend loads (and so downloads) a missing model."""
+    if model and Path(model).exists():  # Path("") is the working directory
+        return
+    try:
+        distribution(model)
+    except (PackageNotFoundError, ValueError):  # ValueError: an empty name
+        raise ModelNotInstalledError(
+            f"The model for {lang!r} is not installed; install its wheel from {MODELS_URL}."
+        ) from None  # the caught error echoes the configured value
+
+
+def test_missing_model_fails_closed_without_the_path() -> None:
+    with pytest.raises(ModelNotInstalledError, match="spacy-models/releases") as info:
+        require_installed("de", "/home/alice/models/de_core_news_md")
+    assert "alice" not in str(info.value)
+    assert info.value.__suppress_context__
+```
+
 ## Install Locally
 
 ```bash
