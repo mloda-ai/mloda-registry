@@ -101,9 +101,9 @@ def nan_policy_agg_sql(
 ) -> str:
     """Full aggregate call for ``agg_type``, applying the NaN policy natively.
 
-    ``mode`` returns a struct, so callers must extract ``.v``, and needs ``order_sql``
-    (a row-position order) because DuckDB's ``MODE`` breaks ties by the largest value. Float ``max`` becomes
-    ``-MIN(-x)``: DuckDB sorts NaN highest, so MIN skips it and an all-NaN input stays NaN.
+    ``mode`` returns a struct, so callers must extract ``.v``. It also needs ``order_sql``
+    (a row-position order), because DuckDB's ``MODE`` breaks ties by the largest value.
+    Float ``max`` becomes ``-MIN(-x)``: DuckDB sorts NaN highest, so MIN skips it and an all-NaN input stays NaN.
     Float std/var become ``COVAR_POP``/``COVAR_SAMP``, which propagate NaN instead of raising.
     Callers using ``window()`` must go through ``nan_policy_window`` instead: float std here
     returns ``SQRT(...)``, which cannot take an ``OVER`` clause.

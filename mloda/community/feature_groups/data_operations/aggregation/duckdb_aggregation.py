@@ -57,7 +57,7 @@ class DuckdbAggregation(Implementation[AggregationFeatureGroup]):
 
         partition_cols = ", ".join(quote_ident(col) for col in partition_by)
 
-        # mode/first/last need input order; DuckDB 2 does not guarantee it without a row tag.
+        # mode/first/last need input order, which DuckDB 2 only guarantees via a row tag.
         qrn: str | None = None
         if any(spec.agg_type in ("mode", "first", "last") for spec in specs):
             rn = pick_helper_column_name(taken=set(data.columns) | {spec.feature_name for spec in specs})
