@@ -37,9 +37,10 @@ class PandasDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         col = pd.to_datetime(data[source_col])
 
         if op == "is_weekend":
-            data[feature_name] = (col.dt.dayofweek.astype("Int64") >= 5).astype("Int64")
+            data[feature_name] = (col.dt.day_of_week.astype("Int64") >= 5).astype("Int64")
         elif op in _ACCESSOR_OPS:
-            data[feature_name] = getattr(col.dt, op).astype("Int64")
+            accessor = "day_of_week" if op == "dayofweek" else op
+            data[feature_name] = getattr(col.dt, accessor).astype("Int64")
         else:
             raise ValueError(f"Unsupported datetime operation: {op}")
 
