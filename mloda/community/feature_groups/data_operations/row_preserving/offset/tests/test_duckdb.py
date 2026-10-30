@@ -17,3 +17,7 @@ class TestDuckdbOffset(DuckdbTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbOffset
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        return ("value_int__pct_change_1_offset",)

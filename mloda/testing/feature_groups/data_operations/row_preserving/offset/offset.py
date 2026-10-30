@@ -127,9 +127,9 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def reserved_columns_helper_names(cls) -> set[str]:
         # The backends pick different row helpers via unique_helper_name:
         # pandas uses "__mloda_null_sort", polars uses "__mloda_orig_idx".
-        # The DuckDB/SQLite backends pick "__mloda_rn" via pick_helper_column_name.
+        # The DuckDB/SQLite backends pick "__mloda_rn0__", "__mloda_rn1__", ... via pick_helper_column_name.
         # A user column of any of these names must survive.
-        return {"__mloda_null_sort", "__mloda_orig_idx", "__mloda_rn"}
+        return {"__mloda_null_sort", "__mloda_orig_idx", "__mloda_rn", "__mloda_rn0__", "__mloda_rn1__"}
 
     ALL_OFFSET_TYPES = {"lag", "lead", "diff", "pct_change", "first_value", "last_value"}
 
