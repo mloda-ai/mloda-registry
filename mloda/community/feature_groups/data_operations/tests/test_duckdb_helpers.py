@@ -148,5 +148,5 @@ class TestNanPolicyAggSql:
 
     def test_mode_requires_order_sql(self) -> None:
         rel = _relation(self.conn, [1.0, 2.0])
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="order"):
             nan_policy_agg_sql(rel, "v", '"v"', "mode", "MODE")

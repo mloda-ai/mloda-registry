@@ -72,13 +72,14 @@ class DuckdbAggregation(Implementation[AggregationFeatureGroup]):
 
             if spec.agg_type == "nunique":
                 agg_expr = f"COUNT(DISTINCT {source_sql})"
+            elif spec.agg_type in ("first", "last"):
+                agg_func = _DUCKDB_AGG_FUNCS[spec.agg_type]
+                agg_expr = f"{agg_func}({source_sql} ORDER BY {qrn}) FILTER (WHERE {source_sql} IS NOT NULL)"
             else:
                 agg_func = _DUCKDB_AGG_FUNCS[spec.agg_type]
                 agg_expr = nan_policy_agg_sql(data, spec.source_col, source_sql, spec.agg_type, agg_func, qrn)
                 if spec.agg_type == "mode":
                     agg_expr += ".v"
-                if spec.agg_type in ("first", "last"):
-                    agg_expr = f"{agg_func}({source_sql} ORDER BY {qrn}) FILTER (WHERE {source_sql} IS NOT NULL)"
             agg_parts.append(f"{agg_expr} AS {quote_ident(spec.feature_name)}")
 
         # Use lazy relation methods (aggregate + order) instead of eager query()

@@ -94,7 +94,7 @@ regression_test:
 - **Reference behavior**: `aggregation_helpers.mode` (shared by the aggregation, window_aggregation, frame_aggregate and scalar_aggregate references) breaks ties by first occurrence in the input ordering. This is the reference's own convention, not `pc.mode`'s, which returns the smallest value among ties (see [When PyArrow has no kernel](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)). For NaN the policy follows `pc.mode`, which counts NaN as one value, as the reference, Polars, and PythonDict all do (`[1.0, nan, nan]` gives `nan`); see `DataOpsTestBase.nan_policy_table` for the NaN-mixed fixture (Pandas diverges here, see the entry below).
 - **Native framework behavior**: Polars' `.mode()` and Pandas' `.mode()` break ties differently (sorted order / multiple returned values / unspecified).
 - **Mitigation kind**: Implementation fix.
-- **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer. DuckDB's `MODE` picks the largest tied value, so the DuckDB backends pass a row-number `ORDER BY` (`nan_policy_agg_sql` in `duckdb_helpers.py`).
+- **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer. DuckDB 2's `MODE` picks the largest tied value (1.x picked the first occurrence), so the DuckDB backends pass a row-number `ORDER BY` (`nan_policy_agg_sql` in `duckdb_helpers.py`).
 - **Regression signal**: The canonical fixture has values that tie; `test_cross_framework_agg[mode]` and `test_cross_framework[mode]` compare against the reference via `_compare_with_reference`.
 
 ### SQLite divide-by-zero returns NULL instead of IEEE-754 inf/nan
@@ -450,6 +450,25 @@ regression_test:
 - **Mitigation kind**: Accepted divergence.
 - **How**: A float64 source whose non-null values are all finite, integral and within int64 counts as int keys; ints beyond float64 precision are not exact. Fractional values and inf are rejected. An all-null float64 source, or an object column with no non-null values, is untyped: it skips the key-family check and yields all nulls.
 - **Regression signal**: The listed tests (four `TestPandasDivergences` plus the inherited `test_untyped_all_null_source` for the object column) pin each branch; widening or narrowing the int classification fails them.
+
+### DuckDB 1.x reads a null-typed lookup source as INTEGER
+
+<!-- machine-checked
+operation: lookup
+framework: duckdb
+condition: on DuckDB < 2 a null-typed arrow column arrives as INTEGER, so str keys raise the key-type ValueError and int keys yield nulls, unlike PyArrow's all-null output
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/duckdb_lookup.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_duckdb.py::TestDuckdbLookup::test_untyped_all_null_source
+-->
+
+- **Operations**: `lookup`.
+- **Reference behavior**: A null-typed source has no key type and yields an all-null output under every policy.
+- **Native DuckDB behavior**: On DuckDB 1.x a null-typed arrow column arrives as `INTEGER`. DuckDB 2 keeps the `NULL` type and follows the all-null rule.
+- **Mitigation kind**: Accepted divergence.
+- **How**: On DuckDB 1.x, str keys on such a column raise the key-type `ValueError`; int keys yield nulls.
+- **Regression signal**: On DuckDB < 2, `test_untyped_all_null_source` pins both branches through `untyped_null_source_becomes_int()`.
 
 ### Pandas treats a typed all-null int source as untyped
 

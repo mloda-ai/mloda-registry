@@ -58,9 +58,10 @@ class DuckdbLookup(Implementation[LookupFeatureGroup]):
         reasons: Mapping[Any, str],
     ) -> DuckdbRelation:
         source_type = column_types(data)[source_col]
+        # DuckDB 2 reports an Arrow null column as the quoted type "NULL" (1.x reads it as INTEGER).
         # An untyped all-null column matches any key family, as in PyArrow/SQLite.
-        if str(source_type).strip('"').upper() != "NULL":
-            assert_key_family(feature_name, source_col, mapping, _source_family(source_type), str(source_type))
+        if source_type.strip('"').upper() != "NULL":
+            assert_key_family(feature_name, source_col, mapping, _source_family(source_type), source_type)
 
         original_cols = list(data.columns)
         taken = set(original_cols) | {feature_name}
