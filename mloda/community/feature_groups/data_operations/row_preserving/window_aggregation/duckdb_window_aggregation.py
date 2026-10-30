@@ -7,10 +7,10 @@ from typing import Any
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import Unbounded, WindowFrame
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_window
+from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_window, preserve_row_order
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -74,10 +74,11 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, quoted_source)
 
         if agg_type == "nunique":
-            result: DuckdbRelation = data.window(
-                f"COUNT(DISTINCT {source_sql})", feature_name, partition_by=partition_by
+            return preserve_row_order(
+                data,
+                feature_name,
+                lambda rel, rn: rel.window(f"COUNT(DISTINCT {source_sql})", feature_name, partition_by=partition_by),
             )
-            return result
 
         if agg_type in ("first", "last"):
             return cls._compute_first_last(data, feature_name, source_sql, partition_by, agg_type, order_by)
@@ -85,8 +86,19 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-        result = nan_policy_window(
-            data, source_col, source_sql, agg_type, agg_func, feature_name, partition_by=partition_by
+        result = preserve_row_order(
+            data,
+            feature_name,
+            lambda rel, rn: nan_policy_window(
+                rel,
+                source_col,
+                source_sql,
+                agg_type,
+                agg_func,
+                feature_name,
+                order_sql=quote_ident(rn),
+                partition_by=partition_by,
+            ),
         )
         if agg_type == "mode":
             # MODE returns a struct; extract .v with one projection that keeps column order.
@@ -112,26 +124,17 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, which makes
         LAST_VALUE return the current row instead of the partition-wide
         last. Explicit UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING restores
-        full-partition visibility to match PyArrow group_by().aggregate()."""
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        qrn = quote_ident(rn)
+        full-partition visibility to match PyArrow group_by().aggregate().
+        Ties in order_by break by input order."""
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
-
-        # Step 1: tag rows with their original position
-        rel = data.with_row_number(rn)
-
-        # Step 2: compute with full frame and ORDER BY for deterministic results
-        rel = rel.window(
-            f"{agg_func}({source_sql} IGNORE NULLS)",
+        return preserve_row_order(
+            data,
             feature_name,
-            partition_by=partition_by,
-            order_by=([order_by] if order_by else ()),
-            frame=WindowFrame("rows", Unbounded(), Unbounded()),
+            lambda rel, rn: rel.window(
+                f"{agg_func}({source_sql} IGNORE NULLS)",
+                feature_name,
+                partition_by=partition_by,
+                order_by=[order_by, rn] if order_by else [rn],
+                frame=WindowFrame("rows", Unbounded(), Unbounded()),
+            ),
         )
-
-        # Step 3: restore original row order, drop helper column
-        rel = rel.order(qrn)
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
-        rel = rel.project(keep)
-
-        return rel

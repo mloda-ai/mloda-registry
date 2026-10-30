@@ -6,7 +6,7 @@ Row-preserving operations must return an output whose row count and row order ma
 **When**: Applies to every feature group or operation group under `data_operations/row_preserving/`: binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime.
 **Why**: Row-preserving ops broadcast a computed value back onto each row. If the framework reorders rows (some SQL window functions do), downstream joins on index position break silently.
 **Where**: The contract is enforced by cross-framework tests. Row count and row order are both asserted in `DataOpsTestBase._compare_with_reference`.
-**How**: Each framework implementation must return rows in the same order they came in. If the native operator reorders (DuckDB `NTILE`), the implementation records original positions and restores them.
+**How**: Each framework implementation must return rows in the same order they came in. If the native operator reorders (DuckDB `NTILE` and, in DuckDB 2, partitioned windows), the implementation records original positions and restores them.
 
 ---
 
@@ -41,7 +41,7 @@ Two assertions, one invariant:
 | Pandas | Index-aligned assignments (`df[col] = ...`) preserve order | No, as long as you avoid `groupby(...).apply()` patterns that reset index |
 | Polars (lazy) | `pl.when/then/otherwise` and `over(...)` preserve order | No |
 | SQLite | SQL result order is undefined unless `ORDER BY` is specified, but the implementations re-select columns rather than applying `ORDER BY` | No, but see the positional-append note below |
-| DuckDB | Most operators preserve order. `NTILE()` reorders by its `ORDER BY` clause | Yes, see below |
+| DuckDB | Most operators preserve order. `NTILE()` reorders by its `ORDER BY` clause, and partitioned windows reorder too (DuckDB 2), restored the same way | Yes, see below |
 
 ---
 

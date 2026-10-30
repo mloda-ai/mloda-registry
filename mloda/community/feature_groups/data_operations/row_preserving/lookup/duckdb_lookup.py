@@ -58,7 +58,9 @@ class DuckdbLookup(Implementation[LookupFeatureGroup]):
         reasons: Mapping[Any, str],
     ) -> DuckdbRelation:
         source_type = column_types(data)[source_col]
-        assert_key_family(feature_name, source_col, mapping, _source_family(source_type), str(source_type))
+        # An untyped all-null column matches any key family, as in PyArrow/SQLite.
+        if str(source_type).strip('"').upper() != "NULL":
+            assert_key_family(feature_name, source_col, mapping, _source_family(source_type), str(source_type))
 
         original_cols = list(data.columns)
         taken = set(original_cols) | {feature_name}
