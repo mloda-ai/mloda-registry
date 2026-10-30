@@ -41,6 +41,7 @@ from mloda.testing.binary_model.conformance import (
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import (
     expired_license_token,
+    expiring_license_token,
     in_grace_license_token,
     valid_license_token,
 )
@@ -82,6 +83,10 @@ class StubModel(BinaryModelMixin):
     BINARY_PLUGIN_ID = PLUGIN_ID
     BINARY_COMMAND_OVERRIDE = STUB_CMD
     LICENSE_KEY_OVERRIDE = valid_license_token([PLUGIN_ID])
+
+
+class _ExpiringStubModel(StubModel):
+    LICENSE_KEY_OVERRIDE = expiring_license_token([PLUGIN_ID], left=datetime.timedelta(hours=6))
 
 
 class _NoLicenseStubModel(BinaryModelMixin):
@@ -871,9 +876,10 @@ class TestLogging:
             f"secret leaked into logs: {messages!r}"
         )
 
-    def test_successful_run_logs_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+    @pytest.mark.parametrize("model", [StubModel, _ExpiringStubModel], ids=["valid_token", "expiring_outside_grace"])
+    def test_successful_run_logs_no_warning(self, caplog: pytest.LogCaptureFixture, model: type[StubModel]) -> None:
         with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
-            StubModel.run_binary_model(pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"})
+            model.run_binary_model(pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
     def test_stderr_of_a_successful_run_is_logged_at_warning(self, caplog: pytest.LogCaptureFixture) -> None:

@@ -63,13 +63,24 @@ def expired_license_token(plugins: list[str]) -> str:
     return _signed(claims)
 
 
-def in_grace_license_token(plugins: list[str], *, now: datetime | None = None) -> str:
-    """The one time-relative state a constant cannot express: ``exp`` one day before ``now``,
-    inside 7 grace days (spec: Test vectors; spec: Verification step 6)."""
+def _exp_from(now: datetime | None, delta: timedelta) -> str:
     moment = now if now is not None else datetime.now(timezone.utc)
+    return (moment.astimezone(timezone.utc) + delta).isoformat()
+
+
+def in_grace_license_token(plugins: list[str], *, now: datetime | None = None) -> str:
+    """A time-relative state a constant cannot express: ``exp`` one day before ``now``,
+    inside 7 grace days (spec: Test vectors; spec: Verification step 6)."""
     claims = _base_claims(plugins)
-    claims["exp"] = (moment.astimezone(timezone.utc) - timedelta(days=1)).isoformat()
+    claims["exp"] = _exp_from(now, -timedelta(days=1))
     claims["grace_days"] = 7
+    return _signed(claims)
+
+
+def expiring_license_token(plugins: list[str], *, left: timedelta, now: datetime | None = None) -> str:
+    """A token whose ``exp`` is ``now + left``, for testing a pre-expiry notice (spec: Test vectors)."""
+    claims = _base_claims(plugins)
+    claims["exp"] = _exp_from(now, left)
     return _signed(claims)
 
 
