@@ -18,7 +18,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.duck
     DuckdbDateTimeExtraction,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin, duckdb_test_connection
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
@@ -26,11 +26,6 @@ from mloda.testing.feature_groups.data_operations.row_preserving.datetime.dateti
 
 class TestDuckdbDateTimeExtraction(DuckdbTestMixin, DateTimeTestBase):
     """Standard tests inherited from the base class."""
-
-    def setup_method(self) -> None:
-        self.conn = duckdb.connect()
-        self.conn.execute("SET timezone = 'UTC'")
-        super(DuckdbTestMixin, self).setup_method()
 
     @classmethod
     def implementation_class(cls) -> Any:
@@ -47,8 +42,7 @@ class TestDuckdbTimezoneBoundary:
     """
 
     def setup_method(self) -> None:
-        self.conn = duckdb.connect()
-        self.conn.execute("SET timezone = 'UTC'")
+        self.conn = duckdb_test_connection()
 
     def teardown_method(self) -> None:
         self.conn.close()

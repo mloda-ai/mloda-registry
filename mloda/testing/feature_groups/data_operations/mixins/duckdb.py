@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import atexit
+import functools
 from typing import Any
 
 import pyarrow as pa
@@ -18,20 +20,34 @@ def pin_connection_utc_via_core(con: Any) -> None:
     framework.set_framework_connection_object(con)
 
 
+@functools.cache
+def _shared_database() -> Any:
+    import duckdb
+
+    conn = duckdb.connect()
+    atexit.register(conn.close)
+    return conn
+
+
+def duckdb_test_connection() -> Any:
+    """Return a UTC-pinned cursor on the per-process shared in-memory database."""
+    cursor = _shared_database().cursor()
+    pin_connection_utc_via_core(cursor)
+    return cursor
+
+
 class DuckdbTestMixin:
     """Mixin implementing adapter methods for DuckDB.
 
     Requires ``duckdb`` to be importable. Concrete test modules should guard
     with ``duckdb = pytest.importorskip("duckdb")``.
 
-    Creates ``self.conn`` in ``setup_method`` before delegating to the parent.
+    ``self.conn`` is a cursor on a shared in-memory database. Session settings and TEMP objects are per test,
+    but non-temp tables/macros and ``SET GLOBAL`` are database-wide: use a private ``duckdb.connect()`` for those.
     """
 
     def setup_method(self) -> None:
-        import duckdb
-
-        self.conn = duckdb.connect()
-        pin_connection_utc_via_core(self.conn)
+        self.conn = duckdb_test_connection()
         super().setup_method()  # type: ignore[misc]
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:

@@ -43,14 +43,15 @@ class TestAggregationComputeRejection:
             )
 
     def test_duckdb_rejects_unknown_type_at_compute(self) -> None:
-        duckdb = pytest.importorskip("duckdb")
+        pytest.importorskip("duckdb")
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
         from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
             DuckdbAggregation,
         )
+        from mloda.testing.feature_groups.data_operations.mixins.duckdb import duckdb_test_connection
 
-        conn = duckdb.connect()
+        conn = duckdb_test_connection()
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         rel = conn.from_arrow(arrow_table)
         data = DuckdbRelation(conn, rel)
