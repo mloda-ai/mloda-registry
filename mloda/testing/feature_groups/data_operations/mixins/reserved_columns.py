@@ -12,8 +12,8 @@ helper columns are made collision-free at runtime, so a user column of any name
   a real collision regression for row-preserving ops. It is opt-in: it runs only
   when ``reserved_columns_helper_names`` returns a non-empty set (default empty
   skips), so ops that reduce rows are unaffected; ops that need extra options set
-  ``reserved_columns_extra_context``. Extra feature names also run and must match
-  the reference.
+  ``reserved_columns_extra_context``. Extra feature names (or ``(name, context)``
+  pairs, e.g. masked) also run and must match the reference.
 
 Each feature-group test base mixes this in and overrides the abstract
 configuration methods to adapt the generic tests to its specific semantics
@@ -100,14 +100,14 @@ class ReservedColumnsTestMixin:
         FeatureSet is buildable from ``feature_name`` + ``partition_by`` +
         ``order_by`` plus ``reserved_columns_extra_context``; ops that reduce rows
         must leave this empty. Override to enable it, e.g.
-        ``{"__mloda_rn0__"}`` (ffill / ema / sessionization / frame_aggregate). The
+        ``{"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_rn1__"}`` (ffill). The
         SQL backends pick ``__mloda_rn0__``, ``__mloda_rn1__``, ... (lowest not taken).
         """
         return set()
 
     @classmethod
-    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
-        """Extra feature names run with the same context, whose paths pick more helpers (default: none)."""
+    def reserved_columns_extra_feature_names(cls) -> tuple[str | tuple[str, dict[str, Any]], ...]:
+        """Extra feature names or ``(name, context)`` pairs run with the shared context, picking more helpers."""
         return ()
 
     # -- Concrete test method --------------------------------------------------
@@ -151,8 +151,8 @@ class ReservedColumnsTestMixin:
         original values in input row order. The exercised helper names come from
         ``reserved_columns_helper_names``; an empty set skips this op. All names
         are injected at once so whichever backend runs sees its own helper among
-        them. Each ``reserved_columns_extra_feature_names`` feature also runs on
-        fresh data and must match the reference.
+        them. Each ``reserved_columns_extra_feature_names`` entry (name or
+        ``(name, context)`` pair) also runs on fresh data and must match the reference.
         """
         helper_names = self.reserved_columns_helper_names()
         if not helper_names:
@@ -165,29 +165,32 @@ class ReservedColumnsTestMixin:
         colliding_table = base_table
         for name, values in expected.items():
             colliding_table = colliding_table.append_column(name, pa.array(values, type=pa.int64()))
-        extra_names = self.reserved_columns_extra_feature_names()
-        for feature_name in (self.reserved_columns_feature_name(), *extra_names):
-            fs = make_feature_set(
-                feature_name,
-                partition_by=self.reserved_columns_partition_by(),
-                order_by=self.reserved_columns_order_by(),
+        runs: list[tuple[str, dict[str, Any], bool]] = [(self.reserved_columns_feature_name(), {}, False)]
+        for entry in self.reserved_columns_extra_feature_names():
+            extra_name, extra_ctx = (entry, {}) if isinstance(entry, str) else entry
+            runs.append((extra_name, extra_ctx, True))
+        for feature_name, pair_ctx, is_extra in runs:
+            kwargs: dict[str, Any] = {
+                "partition_by": self.reserved_columns_partition_by(),
+                "order_by": self.reserved_columns_order_by(),
                 **self.reserved_columns_extra_context(),
-            )
+                **pair_ctx,
+            }
+            label = f"{feature_name} {pair_ctx}" if pair_ctx else feature_name
+            fs = make_feature_set(feature_name, **kwargs)
             result = calculate_with(
                 self.implementation_class(),  # type: ignore[attr-defined]
                 self.create_test_data(colliding_table),  # type: ignore[attr-defined]
                 fs,
             )
-            assert self.get_row_count(result) == n, feature_name  # type: ignore[attr-defined]
+            assert self.get_row_count(result) == n, label  # type: ignore[attr-defined]
             for name, values in expected.items():
                 survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]
-                assert survived == values, f"{feature_name}: user column {name} changed: {survived!r}"
-            if feature_name in extra_names:
+                assert survived == values, f"{label}: user column {name} changed: {survived!r}"
+            if is_extra:
                 self._compare_with_reference(  # type: ignore[attr-defined]
                     feature_name,
-                    partition_by=self.reserved_columns_partition_by(),
-                    order_by=self.reserved_columns_order_by(),
                     use_approx=True,
                     data=self.create_test_data(colliding_table),  # type: ignore[attr-defined]
-                    **self.reserved_columns_extra_context(),
+                    **kwargs,
                 )

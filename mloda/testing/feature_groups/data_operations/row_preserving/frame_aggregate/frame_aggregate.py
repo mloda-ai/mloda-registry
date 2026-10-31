@@ -334,7 +334,24 @@ class FrameAggregateTestBase(
 
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
-        return {"__mloda_rn__", "__mloda_rn"}
+        # pandas / polars use "__mloda_rn__" via unique_helper_name; the SQL backends pick
+        # "__mloda_rn0__" via pick_helper_column_name. The mask helper runs on masked features only.
+        # The polars "__mloda_synth_ts__" time-frame helper is covered in test_cross_framework_time_window_day
+        # (the canonical timestamp has a null, which pandas / polars time windows reject).
+        return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_masked_src__"}
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str | tuple[str, dict[str, Any]], ...]:
+        return (
+            (
+                cls.mask_feature_name(),
+                {
+                    "partition_by": cls.mask_partition_by(),
+                    "order_by": cls.mask_order_by(),
+                    "mask": ("category", "equal", "X"),
+                },
+            ),
+        )
 
     # -- MaskTestMixin configuration -------------------------------------------
 
@@ -774,6 +791,7 @@ class FrameAggregateTestBase(
 
         Regions interleave (A/B/A/B/A) so partition_by=[] is not indistinguishable
         from partition_by=["region"]: the global window can span both regions.
+        A user column named like the polars time-frame helper must come back unchanged.
         """
         table = pa.table(
             {
@@ -786,6 +804,7 @@ class FrameAggregateTestBase(
                     datetime(2023, 1, 10, tzinfo=timezone.utc),
                 ],
                 "value": [10, 20, 30, 40, 50],
+                "__mloda_synth_ts__": [1000, 1001, 1002, 1003, 1004],
             }
         )
         data = self.create_test_data(table)
@@ -804,6 +823,7 @@ class FrameAggregateTestBase(
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
+        assert [int(v) for v in self.extract_column(result, "__mloda_synth_ts__")] == [1000, 1001, 1002, 1003, 1004]
 
     def test_cross_framework_time_window_week(self) -> None:
         """A 1-week time window must match the reference on integer sums."""

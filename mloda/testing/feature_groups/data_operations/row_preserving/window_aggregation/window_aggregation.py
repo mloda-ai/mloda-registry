@@ -182,11 +182,37 @@ class WindowAggregationTestBase(
 
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
-        # Backends pick different row helpers: pyarrow uses "__mloda_wa_idx__"
-        # (unique_helper_name); duckdb / sqlite use "__mloda_rn"
-        # (pick_helper_column_name default). pandas / polars use no row helper for
-        # the windowed sum. A user column of any of these names must survive.
-        return {"__mloda_wa_idx__", "__mloda_rn"}
+        # Row helpers differ per backend: pyarrow "__mloda_wa_idx__", duckdb / sqlite
+        # "__mloda_rn0__", none for pandas / polars. The mask and mode helpers only run
+        # on the extra (masked / mode) features; the mode extra covers the polars mode helpers.
+        # The pandas mode helpers are picked on a key / source-only projection, so a user column can only
+        # collide as a partition key, which window_aggregation/tests/test_pandas.py covers directly.
+        # A user column of any of these names must survive.
+        return {
+            "__mloda_wa_idx__",
+            "__mloda_rn",
+            "__mloda_rn0__",
+            "__mloda_masked_src__",
+            "__mloda_mode_idx__",
+            "__mloda_mode_cnt__",
+            "__mloda_mode_first__",
+        }
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str | tuple[str, dict[str, Any]], ...]:
+        names: list[str | tuple[str, dict[str, Any]]] = [
+            (
+                cls.mask_feature_name(),
+                {
+                    "partition_by": cls.mask_partition_by(),
+                    "order_by": cls.mask_order_by(),
+                    "mask": ("category", "equal", "X"),
+                },
+            )
+        ]
+        if "mode" in cls.supported_agg_types():
+            names.append("value_int__mode_window")
+        return tuple(names)
 
     ALL_AGG_TYPES = {
         "sum",

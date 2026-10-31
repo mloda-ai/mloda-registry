@@ -28,3 +28,11 @@ class TestSqliteBinning(ReservedColumnsTestMixin, SqliteTestMixin, BinningTestBa
     @classmethod
     def reserved_columns_partition_by(cls) -> list[str] | None:
         return None
+
+    @classmethod
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn0__", "__mloda_rn1__", "__mloda_rn2__"}
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        return ("value_int__qbin_3",)
