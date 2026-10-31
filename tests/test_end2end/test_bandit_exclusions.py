@@ -18,6 +18,7 @@ from bandit.core import constants as b_constants
 from bandit.core import manager as b_manager
 
 from tests.toml_loader import loads_toml
+from tests.tox_ini import split_factor_condition
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
@@ -74,7 +75,9 @@ def _gate_cli_excludes() -> str:
     parser = configparser.ConfigParser(interpolation=None)
     parser.read(_TOX_INI)
     for line in parser["testenv"]["commands"].splitlines():
-        tokens = shlex.split(line)
+        # The gate's lint lines carry a tox factor condition ("!tests: bandit ...") so the CI split can skip them.
+        _, command = split_factor_condition(line)
+        tokens = shlex.split(command)
         if not tokens or tokens[0] != "bandit":
             continue
         if "-x" in tokens[:-1]:
