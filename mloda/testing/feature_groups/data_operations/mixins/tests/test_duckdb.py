@@ -51,7 +51,7 @@ class TestDuckdbTestConnection:
             finally:
                 fresh.close()
         finally:
-            admin.execute("SET GLOBAL TimeZone='UTC'")
+            admin.execute("RESET GLOBAL TimeZone")
             admin.close()
 
 
@@ -65,8 +65,10 @@ class TestDuckdbTestMixinLifecycle:
     def test_teardown_closes_cursor_and_database_stays_usable(self) -> None:
         probe = _MixinProbe()
         probe.setup_method()
-        assert _timezone(probe.conn) == "UTC"
-        probe.teardown_method()
+        try:
+            assert _timezone(probe.conn) == "UTC"
+        finally:
+            probe.teardown_method()
         with pytest.raises(duckdb.Error):
             probe.conn.execute("SELECT 1")
 

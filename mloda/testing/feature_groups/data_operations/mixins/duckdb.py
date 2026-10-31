@@ -42,8 +42,9 @@ class DuckdbTestMixin:
     Requires ``duckdb`` to be importable. Concrete test modules should guard
     with ``duckdb = pytest.importorskip("duckdb")``.
 
-    ``self.conn`` is a cursor on a shared in-memory database. Session settings and TEMP objects are per test,
-    but non-temp tables/macros and ``SET GLOBAL`` are database-wide: use a private ``duckdb.connect()`` for those.
+    ``self.conn`` is a cursor on a shared in-memory database. Session settings and TEMP objects are per test, but
+    non-temp tables/macros and global-scope settings (``threads``, ``memory_limit``) are database-wide; a test that
+    needs them should open a private ``duckdb.connect()``.
     """
 
     def setup_method(self) -> None:
