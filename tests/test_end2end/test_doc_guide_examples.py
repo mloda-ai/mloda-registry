@@ -535,7 +535,7 @@ import sys
 from pathlib import Path
 import mktestdocs
 
-_MARKER_PREFIX = "@@mloda-doc-runner-7f3a@@ "
+_MARKER_PREFIX = __MARKER_PREFIX__
 
 
 def _marker_line(kind, text):
