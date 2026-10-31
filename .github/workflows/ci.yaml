@@ -16,6 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # toxenv must stay a real axis: an include entry only adds python-version to the matching toxenv.
+        toxenv: [python311, python312, python313, python314]
+        # Each gate env runs as two parallel jobs: pytest alone, and the four lint steps alone.
+        part: [tests, lint]
         include:
           - python-version: "3.11"
             toxenv: python311
@@ -39,8 +43,8 @@ jobs:
         python -m pip install "uv>=0.13.4,<0.14"
         uv tool install tox --with tox-uv
     - name: Run tox
-      run: tox -e ${{ matrix.toxenv }}
-      # The slowest env has taken a little over 6 minutes for this step, so this leaves headroom.
+      run: tox -e ${{ matrix.toxenv }}-${{ matrix.part }}
+      # The slowest env took a little over 6 minutes running all five steps; the tests part is the longer half, so this leaves headroom.
       timeout-minutes: 10
       env:
         PYTEST_WORKERS: "4"
