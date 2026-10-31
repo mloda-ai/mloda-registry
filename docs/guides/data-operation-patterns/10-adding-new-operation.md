@@ -3,7 +3,7 @@
 End-to-end recipe for introducing a new data operation: one `OperationFeatureGroup`, one `Implementation` per framework, test base, test mixins, and how to wire everything so the cross-framework comparison works.
 
 **What**: The concrete steps to add a new operation category (or a new op inside an existing category) and have it tested across every supported framework.
-**When**: You want a declarative transform that behaves identically on PyArrow, Pandas, Polars, DuckDB, and SQLite.
+**When**: You want a declarative transform that behaves identically on every supported framework.
 **Why**: The existing pattern enforces the row-preserving contract, reference-implementation comparison, and supported-ops skipping for free. Following it gets you coverage without reinventing test harnesses.
 **Where**: Code in `mloda/community/feature_groups/data_operations/{row_preserving|row_changing}/{your_category}/`, test bases in the same layout under `mloda/testing/feature_groups/data_operations/`.
 **How**: Follow the seven steps below in order; every existing category was built the same way. They live under `mloda/community/feature_groups/data_operations/`, split by row-count preservation:
@@ -93,7 +93,7 @@ class YourOpFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
         for feature in features.features:
             source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
-            op = cls._extract_op(feature)
+            op = cls._extract_op(feature)  # your helper, modeled on _extract_string_op in string/base.py
             table = compute_your_op(table, feature.name, source_col, op)
         return table
 ```

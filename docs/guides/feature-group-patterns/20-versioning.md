@@ -28,11 +28,11 @@ Code reached only at runtime (registries, reflection, `importlib`) and data or c
 ## Usage
 
 ```python
-from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import PyArrowAggregation
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 
 # Get version of any FeatureGroup
-version = PyArrowAggregation.version()
-# e.g., "0.17.0-mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation-5f61d8cf..."
+version = AggregationFeatureGroup.version()
+# "<mloda version>-mloda.community.feature_groups.data_operations.aggregation.base-<hash>"
 ```
 
 ## Third-Party Dependencies

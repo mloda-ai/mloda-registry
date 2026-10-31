@@ -59,7 +59,7 @@ def merge_engine(cls) -> type[BaseMergeEngine]:
 PyArrow as interchange format:
 
 ```py
-def transform(self, data: Any, feature_names: set[str]) -> Any:
+def transform(self, data: Any, feature_names: Sequence[str]) -> Any:
     if isinstance(data, dict):
         return pa.Table.from_pydict(data)  # PyArrow interchange
     if isinstance(data, (IcebergTable, pa.Table)):

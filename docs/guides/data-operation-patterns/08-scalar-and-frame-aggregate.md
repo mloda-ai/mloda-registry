@@ -25,7 +25,7 @@ PluginLoader.all()
 feature = Feature("value_int__max_scalar")
 ```
 
-Scalar and frame aggregate are each one group with one `Implementation` per framework (`PandasScalarAggregate`, `PolarsLazyFrameAggregate`, ...). Supported aggregations are `sum`, `min`, `max`, `avg`/`mean`, `count`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, and `median`. `mode`, `nunique`, `first`, and `last` are not supported on scalar aggregate, only on [window aggregation](06-window-aggregation.md); they need ordering or group structure that a single global scalar does not provide.
+Scalar and frame aggregate are each one group with one `Implementation` per framework (`PandasScalarAggregate`, `PolarsLazyFrameAggregate`, ...). Supported aggregations are `sum`, `min`, `max`, `avg`/`mean`, `count`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, and `median`. `mode`, `nunique`, `first`, and `last` are not supported on scalar aggregate, only on aggregation (`{col}__{agg}_agg`) and [window aggregation](06-window-aggregation.md); they need ordering or group structure that a single global scalar does not provide.
 
 Scalar aggregate accepts the `mask` option. Masked rows have their source value replaced with NULL before the aggregate computes; the output still has the same row count.
 
@@ -54,7 +54,7 @@ The source column must be numeric; passing a string or boolean column raises `Va
 
 Type semantics across backends:
 
-- `add`, `subtract`, `multiply`: source dtype is preserved. `int + int` stays int on all five backends.
+- `add`, `subtract`, `multiply`: source dtype is preserved. `int + int` stays int on all six backends.
 - `divide`: result is always `float64`. PyArrow casts the source via `pc.cast`, DuckDB and SQLite wrap the source in `CAST(... AS DOUBLE/REAL)`, and Pandas / Polars rely on Python's `/` semantics. This is the [cross-backend type-drift mitigation](known-divergences.md) for integer division.
 
 Scalar arithmetic does **not** accept the `mask` option in this initial cut; the source column is passed through unfiltered.
@@ -63,7 +63,7 @@ Scalar arithmetic does **not** accept the `mask` option in this initial cut; the
 
 ## Point arithmetic
 
-Pattern: `{col_a}&{col_b}__{op}_point` (regex `r".*__([\w]+)_point$"`).
+Pattern: `{col_a}&{col_b}__{op}_point` (regex `r".*&.*__([\w]+)_point$"`).
 
 Each row gets `col_a {op} col_b`. Null in either source propagates to the result. Exactly two source columns (`MIN_IN_FEATURES = MAX_IN_FEATURES = 2`); the `&` between column names is mloda's standard `INPUT_SEPARATOR` for multi-source feature names (the same one used by chained patterns like `point1&point2__haversine_distance`).
 
@@ -122,15 +122,15 @@ Feature(
 
 ### Time window
 
-`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Units `second`, `minute`, `hour`, `day`, `week` are supported on every framework. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days) and are only available on Polars-lazy and DuckDB; the Pandas and SQLite Implementations reject those units through `accepts`, because neither engine has a native calendar-anchored window primitive that matches the reference. See [Known divergences: SQLite + Pandas reject month/year time windows](known-divergences.md#sqlite--pandas-reject-monthyear-time-windows) and the [framework support matrix](framework-support-matrix.md). The `order_by` column must be a timestamp.
+`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Units `second`, `minute`, `hour`, `day`, `week` are supported on every framework. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days) and are only available on Polars-lazy, DuckDB and Python dict; the Pandas and SQLite Implementations reject those units through `accepts`, because neither engine has a native calendar-anchored window primitive that matches the reference. See [Known divergences: SQLite + Pandas reject month/year time windows](known-divergences.md#sqlite--pandas-reject-monthyear-time-windows) and the [framework support matrix](framework-support-matrix.md). The `order_by` column must be a timestamp.
 
 ### Cumulative
 
-`value__cumsum` is the running sum from the start of the partition to the current row. Cumulative variants: `cumsum`, `cummin`, `cummax`, `cumcount`.
+`value__cumsum` is the running sum from the start of the partition to the current row. Cumulative variants: `cum{agg}` for any frame aggregation type (`sum`, `avg`, `count`, `min`, `max`, `std`, `var`, `median`); Polars lazy rejects `cumstd`, `cumvar` and `cummedian`.
 
 ### Expanding
 
-`value__expanding_avg` is the aggregate of all rows from the start of the partition up to and including the current row. Any supported aggregation works.
+`value__expanding_avg` is the aggregate of all rows from the start of the partition up to and including the current row. Any frame aggregation type works; Polars lazy rejects `std`, `var` and `median`, as for cumulative.
 
 ---
 

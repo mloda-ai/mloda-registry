@@ -60,6 +60,7 @@ The all-null `sum` cell is the one place backends disagree by default (pandas �
 | Pandas | `dt.floor` → `groupby([*partition, bucket], dropna=False).agg(...)` (`sum` with `min_count=1`). |
 | Polars (lazy) | floor via `dt.truncate` → `group_by(maintain_order=True)` with an all-null `sum` guard. |
 | DuckDB | epoch-anchored floor (not the native `time_bucket` 2000-01-03 anchor) → `GROUP BY`. |
+| Python dict | epoch-anchored floor (shared with time bucketization) → row indices grouped by `(*partition_by, bucket_start)` in first-occurrence order, each group reduced skipping nulls. |
 | SQLite | not implemented in v1. |
 
 ---

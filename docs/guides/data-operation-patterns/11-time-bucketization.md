@@ -4,7 +4,7 @@ Time bucketization maps a timestamp column onto coarser interval boundaries. Thr
 
 **What**: `TimeBucketizationFeatureGroup` accepts feature names of the form `{src}__{op}_{n}_{unit}`, where `op` is `floor` / `ceil` / `round`, `n` is a positive integer bucket size, and `unit` is one of `minute` / `hour` / `day` / `week` / `month` / `year`.
 **When**: You need to align timestamps to a common interval for grouping, sessionization, or feature engineering (e.g. "events per hour", "first of the month", "ISO week").
-**Why**: Doing this consistently across PyArrow, Pandas, Polars, DuckDB, and SQLite is harder than it looks: tie-breaking, week-start convention, calendar-unit ceil semantics, and timestamp-type fidelity all diverge by default.
+**Why**: Doing this consistently across every supported framework is harder than it looks: tie-breaking, week-start convention, calendar-unit ceil semantics, and timestamp-type fidelity all diverge by default.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/`.
 **How**: Feature name encodes the op, bucket size, and unit; the framework implementation computes the bucket-aligned timestamp per row and preserves input order, tz, and resolution.
 
@@ -43,9 +43,9 @@ timestamp__floor_1_week
 | Unit | Supported `n` |
 |---|---|
 | `minute`, `hour`, `day` | Any positive integer |
-| `week`, `month`, `year` | Only `n=1` (other values raise `ValueError`) |
+| `week`, `month`, `year` | Only `n=1` (other values do not match) |
 
-`n > 1` is rejected for calendar units because their length is not uniform (months have 28-31 days; years differ by leap day). A non-aligned multi-week / multi-month / multi-year bucket would be epoch-anchored, which is rarely what users intend. The constraint is enforced in `_parse_bucket_op` and surfaces at compute time.
+`n > 1` is rejected for calendar units because their length is not uniform (months have 28-31 days; years differ by leap day). A non-aligned multi-week / multi-month / multi-year bucket would be epoch-anchored, which is rarely what users intend. The constraint is enforced through `_parse_bucket_op` at match time: such a name (or `bucket_op` option) does not match, so the feature fails resolution unless another feature group matches it.
 
 ---
 

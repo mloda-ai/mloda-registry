@@ -56,7 +56,7 @@ Three families were exceptions where a *selected* feature could still reach a ra
 - **resample.** `PREFIX_PATTERN` used `\d+`, so `value__resample_0_hour_mean` matched and `_parse_resample_op` then raised on `n <= 0`; `resample_op` was not a `PROPERTY_MAPPING` key. Fixed at the time by tightening the pattern and adding a `match_guard`. Now uses `FeatureChainParser.parse_feature_name` with a capturing `PREFIX_PATTERN` (`[a-z]+`, not `\w+`, to avoid regex backtracking) plus a `_validate_string_match` override that rejects bad tokens via `_parse_resample_op`, mirroring `time_bucketization`. A selected resample feature still always has `n >= 1`, a known unit/agg, and a parseable token.
 - **frame_aggregate.** The config match branch validated the aggregation and frame options but not `in_features`, so a config feature with no source column was selected and the rule's `_extract_params` then raised from `get_in_features()`. Fixed by requiring `in_features` on the config match branch (name-based features are unaffected, since they encode the source in the name). A selected config frame_aggregate feature now always has a source column.
 
-With those three fixes in place, removing all eleven catches keeps the fail-fast contract intact: matched features do not raise, and genuinely broken code does.
+With those three fixes in place, removing every catch keeps the fail-fast contract intact: matched features do not raise, and genuinely broken code does.
 
 ## Guarding against silent regressions
 
@@ -70,7 +70,7 @@ Removing the runtime catch does not weaken observability of the "hidden bug" cas
 
 - **#244** analyzed the duplicated broad catch and initially recorded "keep the catch, add completeness + invariant guards, and defer removal until mloda core owns a never-raises wrapper" (that wrapper was tracked as core issue #485).
 - **mloda core #485 / PR #493.** While implementing the core wrapper, the review established that the rule runs post-selection, so a raise is a committed-component bug that should surface. Core therefore **kept its existing fail-fast behavior and added no wrapper**; #485 was resolved by that different approach, with no core change required. The docs for the rule's `DataType | None` contract were split into a separate merged docs PR.
-- **#265 (this change).** With core confirmed fail-fast, the registry removed the ten per-rule `except Exception: return None` catches and fixed the binning/resample matching misalignments the audit surfaced, so no selected feature can make a rule raise. No core dependency.
+- **#265 (this change).** With core confirmed fail-fast, the registry removed the per-rule `except Exception: return None` catches (ten base classes then; the lookup rule came later without one) and fixed the binning/resample matching misalignments the audit surfaced, so no selected feature can make a rule raise. No core dependency.
 
 ## Regression signals
 

@@ -66,6 +66,7 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 | Polars lazy | `col.str.to_uppercase()`, `.to_lowercase()`, `.strip_chars()`, `.len_chars()`, `.reverse()` |
 | DuckDB | `UPPER`, `LOWER`, `TRIM`, `LENGTH`, `REVERSE` |
 | SQLite | `TRIM`, `LENGTH` only |
+| Python dict | per-character `.upper()` / `.lower()` with override tables that reproduce PyArrow's simple case mapping, `.strip()`, `len()`, `[::-1]` |
 
 The group is not offered on SQLite for `upper`, `lower`, and `reverse` (rejected at match time). `UPPER`/`LOWER` are ASCII-only in SQLite and would diverge from the PyArrow reference on non-ASCII input; `REVERSE` has no native function. Rather than silently producing divergent results or emulating in SQL, the `SqliteStringOps` Implementation excludes all three through `supported`:
 

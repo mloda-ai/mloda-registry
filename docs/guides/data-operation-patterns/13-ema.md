@@ -44,17 +44,18 @@ This is exactly: pandas `series.ewm(span=SPAN, adjust=False, ignore_na=True).mea
 
 ---
 
-## Backend support: pandas and polars only
+## Backend support: pandas, polars and python dict
 
 | Backend | Behavior |
 |---|---|
 | Pandas | native `ewm(span=..., adjust=False, ignore_na=True)`, null-masked. |
 | Polars (lazy) | native `ewm_mean(span=..., adjust=False, ignore_nulls=True)` over the partition. |
+| Python dict | groups rows per partition, stable-sorts each by `order_by` (nulls last), runs the recurrence in that order and scatters results back to the original row positions. |
 | PyArrow | not implemented (no backend). PyArrow compute has no exponential-weighted primitive. |
 | DuckDB | not implemented (no backend). No native EWM. |
 | SQLite | not implemented (no backend). No native EWM. |
 
-PyArrow, DuckDB, and SQLite ship no EMA backend rather than emulating the recurrence row-by-row in Python, following the project's CFW backend rule and the same absence convention other data operations use (for example resample has no SQLite backend). A request that resolves only to one of these frameworks fails with `FeatureResolutionError` at resolution; where pandas or polars-lazy is available, EMA resolves there.
+A Python loop is the native execution model of the dict-of-lists framework, so `PythonDictEma` is not a fallback. PyArrow, DuckDB, and SQLite ship no EMA backend rather than emulating the recurrence row-by-row in Python inside a columnar or SQL backend, following the project's CFW backend rule and the same absence convention other data operations use (for example resample has no SQLite backend). A request that resolves only to one of these frameworks fails with `FeatureResolutionError` at resolution; where pandas, polars-lazy or python dict is available, EMA resolves there.
 
 ---
 

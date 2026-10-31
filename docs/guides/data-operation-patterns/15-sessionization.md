@@ -53,7 +53,7 @@ Example with a 30-minute threshold for one user whose events are at `10:00, 10:2
 
 ---
 
-## Backend support: all five native
+## Backend support: all six native
 
 | Backend | Behavior |
 |---|---|
@@ -61,6 +61,7 @@ Example with a 30-minute threshold for one user whose events are at `10:00, 10:2
 | Pandas | native `groupby(partition_by)[ts].diff()` + `cumsum`. |
 | Polars (lazy) | native `diff().over(partition_by)` + `cum_sum`. |
 | DuckDB | native SQL: `LAG` + `date_diff('second', ...)` over a window, then a running `SUM`. |
+| Python dict | stable-sorts row indices by `[*partition_by, order_by]` (nulls last), walks them comparing each row with the previous one for a partition change or a gap over the threshold, then scatters session ids back to the original row positions. |
 | SQLite | native SQL window functions: `LAG` + `ROUND((julianday(b) - julianday(a)) * 86400.0)` for the gap, then a running `SUM`. |
 
 The gap-diff plus cumulative-sum is expressible natively on every backend, so none rejects the operation. The SQLite backend rounds the `julianday` gap to whole seconds so floating-point noise cannot push an exact-threshold gap over the boundary.

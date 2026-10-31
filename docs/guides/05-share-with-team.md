@@ -24,12 +24,6 @@ Team members can install directly from the private repo:
 pip install git+ssh://git@github.com/mycompany/acme-plugins.git
 ```
 
-For a specific subdirectory/feature group:
-
-```bash
-pip install "acme-scoring @ git+ssh://git@github.com/mycompany/acme-plugins.git#subdirectory=acme/feature_groups/scoring"
-```
-
 Then use in code:
 
 ```py

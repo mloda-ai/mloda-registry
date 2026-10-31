@@ -119,7 +119,7 @@ class OrderFeatures(FeatureGroup):
 
 
 # Both sides must define index_columns()
-link = Link.left_on(UserFeatures, OrderFeatures)
+link = Link.left_on(UserFeatures, OrderFeatures, right_index=1)  # user_id on both sides
 
 # Select specific index positions: user_id (index 0) on the left, user_id (index 1) on the right
 link = Link.inner_on(UserFeatures, OrderFeatures, left_index=0, right_index=1)

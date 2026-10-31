@@ -54,7 +54,7 @@ If your framework produces NaN where the reference produces NULL, the comparison
 
 ## Canonical test data
 
-Row-preserving and aggregation tests share a canonical input: 12 rows with columns `region`, `category`, `value_int`, `value_float`, `ts`, `name`. Each operation's test base asserts specific expected values against this fixture. When you subclass the test base for a new framework, you do not redefine the data or the expected values. You only implement the adapter methods that convert between PyArrow and your framework's native type.
+Row-preserving and aggregation tests share a canonical input: 12 rows defined in `mloda/testing/data_creator/base.py` (`region`, `category`, `timestamp`, `value_int`, `value_float`, `name` and more). Each operation's test base asserts specific expected values against this fixture. When you subclass the test base for a new framework, you do not redefine the data or the expected values. You only implement the adapter methods that convert between PyArrow and your framework's native type.
 
 ---
 
