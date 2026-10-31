@@ -183,10 +183,10 @@ class WindowAggregationTestBase(
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
         # Backends pick different row helpers: pyarrow uses "__mloda_wa_idx__"
-        # (unique_helper_name); duckdb / sqlite use "__mloda_rn"
-        # (pick_helper_column_name default). pandas / polars use no row helper for
+        # (unique_helper_name); duckdb / sqlite pick "__mloda_rn0__"
+        # (pick_helper_column_name). pandas / polars use no row helper for
         # the windowed sum. A user column of any of these names must survive.
-        return {"__mloda_wa_idx__", "__mloda_rn"}
+        return {"__mloda_wa_idx__", "__mloda_rn", "__mloda_rn0__"}
 
     ALL_AGG_TYPES = {
         "sum",

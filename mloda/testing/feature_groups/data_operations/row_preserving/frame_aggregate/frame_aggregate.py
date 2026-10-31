@@ -334,7 +334,9 @@ class FrameAggregateTestBase(
 
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
-        return {"__mloda_rn__", "__mloda_rn"}
+        # pandas / polars use "__mloda_rn__" via unique_helper_name; the SQL backends pick
+        # "__mloda_rn0__" via pick_helper_column_name.
+        return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__"}
 
     # -- MaskTestMixin configuration -------------------------------------------
 

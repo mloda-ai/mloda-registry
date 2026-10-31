@@ -100,7 +100,7 @@ class ReservedColumnsTestMixin:
         FeatureSet is buildable from ``feature_name`` + ``partition_by`` +
         ``order_by`` plus ``reserved_columns_extra_context``; ops that reduce rows
         must leave this empty. Override to enable it, e.g.
-        ``{"__mloda_rn0__"}`` (ffill / ema / sessionization / frame_aggregate). The
+        ``{"__mloda_rn__", "__mloda_rn", "__mloda_rn0__"}`` (frame_aggregate). The
         SQL backends pick ``__mloda_rn0__``, ``__mloda_rn1__``, ... (lowest not taken).
         """
         return set()
