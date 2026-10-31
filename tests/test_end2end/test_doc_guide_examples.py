@@ -741,15 +741,15 @@ def test_doc_cannot_pass_by_exiting_early(tmp_path: Path) -> None:
     assert str(excinfo.value).startswith(f"{doc}: "), str(excinfo.value)
 
 
-@pytest.mark.parametrize("load_plugins", [None, False], ids=["default", "opt-out"])
-def test_doc_runner_loads_plugins_unless_opted_out(tmp_path: Path, load_plugins: bool | None) -> None:
-    expected = load_plugins is not False
+@pytest.mark.parametrize(
+    ("kwargs", "expected"), [({}, True), ({"load_plugins": False}, False)], ids=["default", "opt-out"]
+)
+def test_doc_runner_loads_plugins_unless_opted_out(tmp_path: Path, kwargs: dict[str, bool], expected: bool) -> None:
     doc = tmp_path / "plugins.md"
     doc.write_text(
         f'```python\nimport sys\nassert any(m.startswith("mloda.community.") for m in sys.modules) is {expected}\n```\n',
         encoding="utf-8",
     )
-    kwargs: dict[str, bool] = {} if load_plugins is None else {"load_plugins": load_plugins}
     run_md_files_isolated([doc], cwd=tmp_path, **kwargs)
 
 
