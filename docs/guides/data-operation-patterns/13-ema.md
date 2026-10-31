@@ -23,7 +23,7 @@ value__ema_3
 | `partition_by` | no (default `[]`) | Columns that scope the EMA. Each partition has an independent recurrence. |
 | `in_features` | no | Must name the source in the `{col}__ema_{span}` name when given. |
 
-`span` maps to the smoothing factor `alpha = 2 / (span + 1)`. The span is passed straight to the underlying library so pandas and polars apply the identical mapping.
+`span` maps to the smoothing factor `alpha = 2 / (span + 1)`. The span is passed straight to the underlying library so every backend applies the identical mapping.
 
 ---
 

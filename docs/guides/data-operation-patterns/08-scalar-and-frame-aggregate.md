@@ -55,7 +55,7 @@ The source column must be numeric; passing a string or boolean column raises `Va
 Type semantics across backends:
 
 - `add`, `subtract`, `multiply`: source dtype is preserved. `int + int` stays int on all six backends.
-- `divide`: result is always `float64`. PyArrow casts the source via `pc.cast`, DuckDB and SQLite wrap the source in `CAST(... AS DOUBLE/REAL)`, and Pandas / Polars rely on Python's `/` semantics. This is the [cross-backend type-drift mitigation](known-divergences.md) for integer division.
+- `divide`: result is always `float64`. PyArrow casts the source via `pc.cast`, DuckDB and SQLite wrap the source in `CAST(... AS DOUBLE/REAL)`, and Pandas / Polars / Python dict rely on Python's `/` semantics. This is the [cross-backend type-drift mitigation](known-divergences.md) for integer division.
 
 Scalar arithmetic does **not** accept the `mask` option in this initial cut; the source column is passed through unfiltered.
 
@@ -126,11 +126,11 @@ Feature(
 
 ### Cumulative
 
-`value__cumsum` is the running sum from the start of the partition to the current row. Cumulative variants: `cum{agg}` for any frame aggregation type (`sum`, `avg`, `count`, `min`, `max`, `std`, `var`, `median`); Polars lazy rejects `cumstd`, `cumvar` and `cummedian`.
+`value__cumsum` is the running sum from the start of the partition to the current row. Cumulative variants: `cum{agg}` for any frame aggregation type (`sum`, `avg`, `count`, `min`, `max`, `std`, `var`, `median`); Polars lazy rejects `cumstd`, `cumvar` and `cummedian`, and SQLite rejects `std`, `var` and `median` on every frame type (see [Known divergences](known-divergences.md#sqlite--polars-reject-stdvarmedian-frame-aggregates-at-match-time)).
 
 ### Expanding
 
-`value__expanding_avg` is the aggregate of all rows from the start of the partition up to and including the current row. Any frame aggregation type works; Polars lazy rejects `std`, `var` and `median`, as for cumulative.
+`value__expanding_avg` is the aggregate of all rows from the start of the partition up to and including the current row. Any frame aggregation type works; Polars lazy and SQLite reject `std`, `var` and `median`, as for cumulative.
 
 ---
 

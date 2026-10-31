@@ -72,7 +72,7 @@ def test_my_eager_framework():
     assert MyEagerFramework.expected_data_framework() == ml.DataFrame
 
     framework = MyEagerFramework(...)
-    result = framework.transform({"col": [1, 2]}, {"col"})
+    result = framework.transform({"col": [1, 2]}, ["col"])
     assert isinstance(result, ml.DataFrame)
 ```
 

@@ -280,7 +280,7 @@ class TestMyFramework:
 
     def test_transform_dict(self):
         framework = MyFramework(...)
-        result = framework.transform({"col": [1, 2]}, {"col"})
+        result = framework.transform({"col": [1, 2]}, ["col"])
         assert isinstance(result, my_lib.DataFrame)
 ```
 
