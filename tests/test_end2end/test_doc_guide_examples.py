@@ -534,7 +534,6 @@ import inspect
 import sys
 from pathlib import Path
 import mktestdocs
-from mloda.user import PluginLoader
 
 _MARKER_PREFIX = "@@mloda-doc-runner-7f3a@@ "
 
@@ -571,8 +570,11 @@ def _reject(message):
 
 
 mktestdocs.register_executor("python", _run_python)
-PluginLoader.all()
-for path in sys.argv[1:]:
+if sys.argv[1] == "1":
+    from mloda.user import PluginLoader
+
+    PluginLoader.all()
+for path in sys.argv[2:]:
     print(_marker_line("CHECKING", path), flush=True)
     mktestdocs.check_md_file(fpath=Path(path), memory=True)
 print(_marker_line("DONE", ""), flush=True)
@@ -601,9 +603,9 @@ def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool]:
     return kind, text, checked, done
 
 
-def run_md_files_isolated(paths: Sequence[Path], cwd: Path) -> None:
+def run_md_files_isolated(paths: Sequence[Path], cwd: Path, *, load_plugins: bool = True) -> None:
     """Run the python blocks of *paths* in one fresh interpreter and call their test_* functions."""
-    cmd = [sys.executable, "-c", _DOC_CHECK_DRIVER, *map(str, paths)]
+    cmd = [sys.executable, "-c", _DOC_CHECK_DRIVER, "1" if load_plugins else "0", *map(str, paths)]
     try:
         result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300)  # nosec
     except subprocess.TimeoutExpired as exc:
@@ -665,7 +667,7 @@ def test_failing_python_block_names_the_file(tmp_path: Path) -> None:
         "```py\nraise RuntimeError('not run')\n```\n\n```python\nraise RuntimeError('boom')\n```\n", encoding="utf-8"
     )
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([good, bad], cwd=tmp_path)
+        run_md_files_isolated([good, bad], cwd=tmp_path, load_plugins=False)
     message = str(excinfo.value)
     assert message.startswith(str(bad)), message
     assert "boom" in message
@@ -679,7 +681,7 @@ def test_doc_test_functions_are_called(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: test_broken failed"), message
     assert "boom" in message
@@ -692,7 +694,7 @@ def test_imported_test_functions_are_not_called(tmp_path: Path) -> None:
         "```python\nimport sys\nsys.path.insert(0, '.')\nfrom helper import test_imported\n```\n",
         encoding="utf-8",
     )
-    run_md_files_isolated([doc], cwd=tmp_path)
+    run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
 
 
 @pytest.mark.parametrize(
@@ -712,7 +714,7 @@ def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, source: str, name: str
     doc = tmp_path / "uncallable.md"
     doc.write_text(f"```python\n{source}```\n", encoding="utf-8")
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: "), message
     assert name in message.splitlines()[0], message
@@ -722,7 +724,7 @@ def test_doc_output_cannot_fake_a_marker(tmp_path: Path) -> None:
     doc = tmp_path / "fake_marker.md"
     doc.write_text('```python\nprint("CALLING not_me")\nraise RuntimeError("boom")\n```\n', encoding="utf-8")
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: python block failed"), message
     assert "not_me" not in message.splitlines()[0], message
@@ -735,8 +737,20 @@ def test_doc_cannot_pass_by_exiting_early(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
     assert str(excinfo.value).startswith(f"{doc}: "), str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"), [({}, True), ({"load_plugins": False}, False)], ids=["default", "opt-out"]
+)
+def test_doc_runner_loads_plugins_unless_opted_out(tmp_path: Path, kwargs: dict[str, bool], expected: bool) -> None:
+    doc = tmp_path / "plugins.md"
+    doc.write_text(
+        f'```python\nimport sys\nassert any(m.startswith("mloda.community.") for m in sys.modules) is {expected}\n```\n',
+        encoding="utf-8",
+    )
+    run_md_files_isolated([doc], cwd=tmp_path, **kwargs)
 
 
 def test_timeout_in_a_doc_test_names_the_function(tmp_path: Path) -> None:
