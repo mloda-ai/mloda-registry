@@ -14,7 +14,7 @@ small, named, importable helpers so the regression tests below can feed the two 
 variants through the exact same validation logic used against the real guide, instead of
 re-implementing the check inline.
 
-It also runs every discovered doc's python blocks in its own interpreter and calls its ``test_*`` functions,
+It also runs every discovered doc's python blocks in its own process and calls its ``test_*`` functions,
 except the docs in ``SKIPPED_DOCS``.
 """
 
@@ -22,10 +22,13 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import pkgutil
 import re
+import signal
 import subprocess  # nosec
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -509,7 +512,7 @@ def _discover_docs() -> list[str]:
 
 DISCOVERED_DOCS = _discover_docs()
 
-# Each doc runs in its own interpreter and must also pass on every supported Python.
+# Each doc runs in its own process and must also pass on every supported Python.
 SKIPPED_DOCS: dict[str, str] = {
     "docs/guides/feature-group-patterns/29-binary-backed-features.md": (
         "needs a master.key; run by tests/test_end2end/test_binary_backed_features_guide.py"
@@ -529,7 +532,7 @@ def _marker_line(kind: str, text: str) -> str:
     return f"{_MARKER_PREFIX}{kind} {text}"
 
 
-_DOC_CHECK_DRIVER = """\
+_DOC_CHECK_BODY = """\
 import inspect
 import sys
 from pathlib import Path
@@ -574,11 +577,71 @@ if sys.argv[1] == "1":
     from mloda.user import PluginLoader
 
     PluginLoader.all()
-for path in sys.argv[2:]:
-    print(_marker_line("CHECKING", path), flush=True)
-    mktestdocs.check_md_file(fpath=Path(path), memory=True)
-print(_marker_line("DONE", ""), flush=True)
+
+
+def _check(paths):
+    for path in paths:
+        print(_marker_line("CHECKING", path), flush=True)
+        mktestdocs.check_md_file(fpath=Path(path), memory=True)
+    print(_marker_line("DONE", ""), flush=True)
 """.replace("__MARKER_PREFIX__", repr(_MARKER_PREFIX))
+
+_DOC_CHECK_DRIVER = _DOC_CHECK_BODY + "\n_check(sys.argv[2:])\n"
+
+# Warm parent: loads plugins once, then forks one child per request; the child always leaves via os._exit.
+_DOC_FORK_SERVER = (
+    _DOC_CHECK_BODY
+    + """
+import json
+import os
+import signal
+import traceback
+import warnings
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*fork.*")
+sys.stdout.flush()
+proto = os.dup(1)
+os.dup2(2, 1)
+os.write(proto, b"READY\\n")
+
+
+def _child(request):
+    os.close(proto)
+    os.chdir(request["cwd"])
+    os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+    os.dup2(os.open(request["stdout"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC), 1)
+    os.dup2(os.open(request["stderr"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC), 2)
+    sys.argv = ["-c", sys.argv[1], *request["paths"]]
+    signal.alarm(request["timeout"])
+    code = 0
+    try:
+        _check(request["paths"])
+    except SystemExit as exc:
+        if exc.code is None:
+            code = 0
+        elif isinstance(exc.code, int):
+            code = exc.code
+        else:
+            print(exc.code, file=sys.stderr)
+            code = 1
+    except BaseException:
+        traceback.print_exc()
+        code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # os._exit: interpreter shutdown can hang on native threads that do not survive fork
+    os._exit(code)
+
+
+for line in sys.stdin:
+    request = json.loads(line)
+    pid = os.fork()
+    if pid == 0:
+        _child(request)
+    _, status = os.waitpid(pid, 0)
+    os.write(proto, f"{os.waitstatus_to_exitcode(status)}\\n".encode())
+"""
+)
 
 
 def _display_path(path: str) -> str:
@@ -603,11 +666,59 @@ def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool]:
     return kind, text, checked, done
 
 
-def run_md_files_isolated(paths: Sequence[Path], cwd: Path, *, load_plugins: bool = True) -> None:
-    """Run the python blocks of *paths* in one fresh interpreter and call their test_* functions."""
-    cmd = [sys.executable, "-c", _DOC_CHECK_DRIVER, "1" if load_plugins else "0", *map(str, paths)]
+class _ForkServer:
+    def __init__(self, load_plugins: bool) -> None:
+        self.stderr = tempfile.TemporaryFile()  # noqa: SIM115
+        flag = "1" if load_plugins else "0"
+        self.cmd = [sys.executable, "-c", _DOC_FORK_SERVER, flag]
+        self.proc: subprocess.Popen[str] = subprocess.Popen(  # nosec
+            self.cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, text=True
+        )
+        assert self.proc.stdout is not None
+        if self.proc.stdout.readline() != "READY\n":
+            raise self._died("fork server failed to start")
+
+    def _died(self, message: str) -> RuntimeError:
+        _fork_server.cache_clear()
+        self.proc.kill()
+        self.stderr.seek(0)
+        return RuntimeError(f"{message}\nserver stderr:\n{self.stderr.read().decode(errors='replace')}")
+
+    def run(self, paths: Sequence[Path], cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
+        assert self.proc.stdin is not None and self.proc.stdout is not None
+        with tempfile.TemporaryDirectory() as out_dir:
+            out, err = Path(out_dir) / "stdout", Path(out_dir) / "stderr"
+            request = {"paths": [str(p) for p in paths], "cwd": str(cwd), "stdout": str(out), "stderr": str(err)}
+            self.proc.stdin.write(json.dumps({**request, "timeout": timeout}) + "\n")
+            self.proc.stdin.flush()
+            line = self.proc.stdout.readline()
+            if not line:
+                raise self._died("fork server died")
+            code = int(line)
+            stdout = out.read_bytes().decode(errors="replace") if out.exists() else ""
+            stderr = err.read_bytes().decode(errors="replace") if err.exists() else ""
+        if code == -signal.SIGALRM:
+            raise subprocess.TimeoutExpired(self.cmd, timeout, output=stdout)
+        return subprocess.CompletedProcess(self.cmd, code, stdout, stderr)
+
+
+@lru_cache(maxsize=None)
+def _fork_server(load_plugins: bool) -> _ForkServer:
+    return _ForkServer(load_plugins)
+
+
+def run_md_files_isolated(
+    paths: Sequence[Path], cwd: Path, *, load_plugins: bool = True, fork: bool | None = None, timeout: int = 300
+) -> None:
+    """Run the python blocks of *paths* in a fresh process (forked from a warm server unless fork is False)."""
+    if fork is None:
+        fork = hasattr(os, "fork") and os.environ.get("MLODA_DOC_RUNNER") != "subprocess"
     try:
-        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300)  # nosec
+        if fork:
+            result = _fork_server(load_plugins).run(paths, cwd, timeout)
+        else:
+            cmd = [sys.executable, "-c", _DOC_CHECK_DRIVER, "1" if load_plugins else "0", *map(str, paths)]
+            result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)  # nosec
     except subprocess.TimeoutExpired as exc:
         kind, text, where, _ = _parse_stdout(exc.stdout)
         who = f"{text} " if kind == "CALLING" else ""
@@ -659,7 +770,14 @@ def test_doc_python_blocks_do_not_write_to_fixed_tmp_paths() -> None:
     assert offenders == [], f"use a temp directory instead of a /tmp/ literal in: {sorted(set(offenders))}"
 
 
-def test_failing_python_block_names_the_file(tmp_path: Path) -> None:
+@pytest.fixture(params=[True, False], ids=["fork", "subprocess"])
+def fork(request: pytest.FixtureRequest) -> bool:
+    if request.param and not hasattr(os, "fork"):
+        pytest.skip("os.fork is unavailable")
+    return bool(request.param)
+
+
+def test_failing_python_block_names_the_file(tmp_path: Path, fork: bool) -> None:
     good = tmp_path / "good.md"
     bad = tmp_path / "bad.md"
     good.write_text("```python\nassert True\n```\n", encoding="utf-8")
@@ -667,34 +785,34 @@ def test_failing_python_block_names_the_file(tmp_path: Path) -> None:
         "```py\nraise RuntimeError('not run')\n```\n\n```python\nraise RuntimeError('boom')\n```\n", encoding="utf-8"
     )
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([good, bad], cwd=tmp_path, load_plugins=False)
+        run_md_files_isolated([good, bad], cwd=tmp_path, load_plugins=False, fork=fork)
     message = str(excinfo.value)
     assert message.startswith(str(bad)), message
     assert "boom" in message
     assert "not run" not in message
 
 
-def test_doc_test_functions_are_called(tmp_path: Path) -> None:
+def test_doc_test_functions_are_called(tmp_path: Path, fork: bool) -> None:
     doc = tmp_path / "broken_test.md"
     doc.write_text(
         "```python\ndef test_ok():\n    assert True\n\ndef test_broken():\n    raise RuntimeError('boom')\n```\n",
         encoding="utf-8",
     )
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: test_broken failed"), message
     assert "boom" in message
 
 
-def test_imported_test_functions_are_not_called(tmp_path: Path) -> None:
+def test_imported_test_functions_are_not_called(tmp_path: Path, fork: bool) -> None:
     (tmp_path / "helper.py").write_text("def test_imported():\n    raise RuntimeError('imported')\n", encoding="utf-8")
     doc = tmp_path / "imports_test.md"
     doc.write_text(
         "```python\nimport sys\nsys.path.insert(0, '.')\nfrom helper import test_imported\n```\n",
         encoding="utf-8",
     )
-    run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
+    run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
 
 
 @pytest.mark.parametrize(
@@ -710,47 +828,49 @@ def test_imported_test_functions_are_not_called(tmp_path: Path) -> None:
         ("def test_gen():\n    yield\n", "test_gen"),
     ],
 )
-def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, source: str, name: str) -> None:
+def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, fork: bool, source: str, name: str) -> None:
     doc = tmp_path / "uncallable.md"
     doc.write_text(f"```python\n{source}```\n", encoding="utf-8")
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: "), message
     assert name in message.splitlines()[0], message
 
 
-def test_doc_output_cannot_fake_a_marker(tmp_path: Path) -> None:
+def test_doc_output_cannot_fake_a_marker(tmp_path: Path, fork: bool) -> None:
     doc = tmp_path / "fake_marker.md"
     doc.write_text('```python\nprint("CALLING not_me")\nraise RuntimeError("boom")\n```\n', encoding="utf-8")
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: python block failed"), message
     assert "not_me" not in message.splitlines()[0], message
 
 
-def test_doc_cannot_pass_by_exiting_early(tmp_path: Path) -> None:
+def test_doc_cannot_pass_by_exiting_early(tmp_path: Path, fork: bool) -> None:
     doc = tmp_path / "early_exit.md"
     doc.write_text(
         '```python\nimport sys\ndef test_never():\n    raise RuntimeError("x")\nsys.exit(0)\n```\n',
         encoding="utf-8",
     )
     with pytest.raises(AssertionError) as excinfo:
-        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False)
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
     assert str(excinfo.value).startswith(f"{doc}: "), str(excinfo.value)
 
 
 @pytest.mark.parametrize(
     ("kwargs", "expected"), [({}, True), ({"load_plugins": False}, False)], ids=["default", "opt-out"]
 )
-def test_doc_runner_loads_plugins_unless_opted_out(tmp_path: Path, kwargs: dict[str, bool], expected: bool) -> None:
+def test_doc_runner_loads_plugins_unless_opted_out(
+    tmp_path: Path, fork: bool, kwargs: dict[str, bool], expected: bool
+) -> None:
     doc = tmp_path / "plugins.md"
     doc.write_text(
         f'```python\nimport sys\nassert any(m.startswith("mloda.community.") for m in sys.modules) is {expected}\n```\n',
         encoding="utf-8",
     )
-    run_md_files_isolated([doc], cwd=tmp_path, **kwargs)
+    run_md_files_isolated([doc], cwd=tmp_path, fork=fork, **kwargs)
 
 
 def test_timeout_in_a_doc_test_names_the_function(tmp_path: Path) -> None:
@@ -760,5 +880,36 @@ def test_timeout_in_a_doc_test_names_the_function(tmp_path: Path) -> None:
     expired = subprocess.TimeoutExpired(cmd="x", timeout=300, output=output)
     with patch("tests.test_end2end.test_doc_guide_examples.subprocess.run", side_effect=expired):
         with pytest.raises(AssertionError) as excinfo:
-            run_md_files_isolated([doc], cwd=tmp_path)
+            run_md_files_isolated([doc], cwd=tmp_path, fork=False)
     assert str(excinfo.value).startswith(f"{doc}: test_slow timed out"), str(excinfo.value)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="os.fork is unavailable")
+def test_fork_timeout_in_a_doc_test_names_the_function_and_server_survives(tmp_path: Path) -> None:
+    doc = tmp_path / "slow.md"
+    doc.write_text("```python\nimport time\ndef test_slow():\n    time.sleep(60)\n```\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=True, timeout=1)
+    assert str(excinfo.value).startswith(f"{doc}: test_slow timed out"), str(excinfo.value)
+    good = tmp_path / "good.md"
+    good.write_text("```python\nassert True\n```\n", encoding="utf-8")
+    run_md_files_isolated([good], cwd=tmp_path, load_plugins=False, fork=True)
+
+
+def test_doc_runs_do_not_leak_state_into_later_runs(tmp_path: Path, fork: bool) -> None:
+    leak = tmp_path / "leak.md"
+    leak.write_text(
+        "```python\nimport mloda.user\nfrom mloda.provider import FeatureGroup\n"
+        "mloda.user._doc_runner_leak = 1\nclass LeakedFeatureGroup(FeatureGroup):\n    pass\n```\n",
+        encoding="utf-8",
+    )
+    check = tmp_path / "check.md"
+    check.write_text(
+        "```python\nimport mloda.user\nfrom mloda.provider import FeatureGroup\n"
+        "from mloda.core.abstract_plugins.components.utils import get_all_subclasses\n"
+        'assert not hasattr(mloda.user, "_doc_runner_leak")\n'
+        'assert "LeakedFeatureGroup" not in {c.__name__ for c in get_all_subclasses(FeatureGroup)}\n```\n',
+        encoding="utf-8",
+    )
+    run_md_files_isolated([leak], cwd=tmp_path, load_plugins=False, fork=fork)
+    run_md_files_isolated([check], cwd=tmp_path, load_plugins=False, fork=fork)
