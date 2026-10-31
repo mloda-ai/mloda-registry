@@ -39,3 +39,11 @@ class TestDuckdbRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, DuckdbTe
     @classmethod
     def reserved_columns_order_by(cls) -> str | None:
         return "value_int"
+
+    @classmethod
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn0__", "__mloda_rn1__"}
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        return ("value_int__top_3_ranked", "value_int__bottom_2_ranked")

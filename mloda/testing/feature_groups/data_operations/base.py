@@ -187,18 +187,20 @@ class DataOpsTestBase(ABC):
         use_approx: bool = False,
         rel: float = 1e-6,
         passthrough_cols: tuple[str, ...] = (),
+        data: Any = None,
         **extra_context: Any,
     ) -> None:
         """Run a feature through this framework and the reference, assert results match.
 
         ``passthrough_cols`` are input columns that must also equal the reference's.
+        ``data`` replaces ``self.test_data`` for the framework run (the reference still uses ``_arrow_table``).
 
         ``extra_context`` is forwarded to ``make_feature_set`` as op-specific Options context.
         """
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by, **extra_context)
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        result = calculate_with(self.implementation_class(), self.test_data if data is None else data, fs)
         ref = self.reference_calculate(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)

@@ -35,6 +35,14 @@ class TestDuckdbBinning(ReservedColumnsTestMixin, DuckdbTestMixin, BinningTestBa
     def reserved_columns_partition_by(cls) -> list[str] | None:
         return None
 
+    @classmethod
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn0__", "__mloda_rn1__", "__mloda_rn2__"}
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        return ("value_int__qbin_3",)
+
     def test_reserved_prefixed_user_column_survives(self) -> None:
         """A user column matching the reserved ``__mloda_`` prefix is preserved intact.
 

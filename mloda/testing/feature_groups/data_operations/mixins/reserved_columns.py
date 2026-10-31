@@ -12,7 +12,8 @@ helper columns are made collision-free at runtime, so a user column of any name
   a real collision regression for row-preserving ops. It is opt-in: it runs only
   when ``reserved_columns_helper_names`` returns a non-empty set (default empty
   skips), so ops that reduce rows are unaffected; ops that need extra options set
-  ``reserved_columns_extra_context``.
+  ``reserved_columns_extra_context``. Extra feature names also run and must match
+  the reference.
 
 Each feature-group test base mixes this in and overrides the abstract
 configuration methods to adapt the generic tests to its specific semantics
@@ -45,6 +46,7 @@ class ReservedColumnsTestMixin:
     - ``implementation_class()``
     - ``_arrow_table`` attribute (set in setup_method)
     - ``create_test_data(arrow_table)``
+    - ``_compare_with_reference(...)`` (only for ``reserved_columns_extra_feature_names``)
     """
 
     # -- Configuration methods (override per feature group) --------------------
@@ -88,7 +90,7 @@ class ReservedColumnsTestMixin:
         backends of the same op may pick different helper bases (e.g. offset:
         pandas ``__mloda_null_sort`` vs polars ``__mloda_orig_idx``; window
         aggregation: pyarrow ``__mloda_wa_idx__`` vs the SQL backends'
-        ``__mloda_rn``). Listing all of them means that whichever backend the
+        ``__mloda_rn0__``). Listing all of them means that whichever backend the
         concrete test runs, that backend's own helper is among the injected
         columns and so is a real collision regression, while the others are
         harmless passthrough checks.
@@ -98,9 +100,15 @@ class ReservedColumnsTestMixin:
         FeatureSet is buildable from ``feature_name`` + ``partition_by`` +
         ``order_by`` plus ``reserved_columns_extra_context``; ops that reduce rows
         must leave this empty. Override to enable it, e.g.
-        ``{"__mloda_rn__"}`` (ffill / ema / sessionization / frame_aggregate).
+        ``{"__mloda_rn0__"}`` (ffill / ema / sessionization / frame_aggregate). The
+        SQL backends pick ``__mloda_rn0__``, ``__mloda_rn1__``, ... (lowest not taken).
         """
         return set()
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        """Extra feature names run with the same context, whose paths pick more helpers (default: none)."""
+        return ()
 
     # -- Concrete test method --------------------------------------------------
 
@@ -143,7 +151,8 @@ class ReservedColumnsTestMixin:
         original values in input row order. The exercised helper names come from
         ``reserved_columns_helper_names``; an empty set skips this op. All names
         are injected at once so whichever backend runs sees its own helper among
-        them.
+        them. Each ``reserved_columns_extra_feature_names`` feature also runs on
+        fresh data and must match the reference.
         """
         helper_names = self.reserved_columns_helper_names()
         if not helper_names:
@@ -156,15 +165,29 @@ class ReservedColumnsTestMixin:
         colliding_table = base_table
         for name, values in expected.items():
             colliding_table = colliding_table.append_column(name, pa.array(values, type=pa.int64()))
-        data = self.create_test_data(colliding_table)  # type: ignore[attr-defined]
-        fs = make_feature_set(
-            self.reserved_columns_feature_name(),
-            partition_by=self.reserved_columns_partition_by(),
-            order_by=self.reserved_columns_order_by(),
-            **self.reserved_columns_extra_context(),
-        )
-        result = calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == n  # type: ignore[attr-defined]
-        for name, values in expected.items():
-            survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]
-            assert survived == values, f"user column {name} changed: {survived!r}"
+        extra_names = self.reserved_columns_extra_feature_names()
+        for feature_name in (self.reserved_columns_feature_name(), *extra_names):
+            fs = make_feature_set(
+                feature_name,
+                partition_by=self.reserved_columns_partition_by(),
+                order_by=self.reserved_columns_order_by(),
+                **self.reserved_columns_extra_context(),
+            )
+            result = calculate_with(
+                self.implementation_class(),  # type: ignore[attr-defined]
+                self.create_test_data(colliding_table),  # type: ignore[attr-defined]
+                fs,
+            )
+            assert self.get_row_count(result) == n, feature_name  # type: ignore[attr-defined]
+            for name, values in expected.items():
+                survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]
+                assert survived == values, f"{feature_name}: user column {name} changed: {survived!r}"
+            if feature_name in extra_names:
+                self._compare_with_reference(  # type: ignore[attr-defined]
+                    feature_name,
+                    partition_by=self.reserved_columns_partition_by(),
+                    order_by=self.reserved_columns_order_by(),
+                    use_approx=True,
+                    data=self.create_test_data(colliding_table),  # type: ignore[attr-defined]
+                    **self.reserved_columns_extra_context(),
+                )

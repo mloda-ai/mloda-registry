@@ -188,7 +188,11 @@ class SessionizationTestBase(
 
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
-        return {"__mloda_rn__", "__mloda_rn"}
+        return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_rn1__"}
+
+    @classmethod
+    def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
+        return ("ts__sessionize_1_hour",)
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
