@@ -13,6 +13,7 @@ import pyarrow as pa
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
 from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql, nan_to_null_sql
+from mloda.testing.feature_groups.data_operations.mixins.duckdb import duckdb_test_connection
 
 
 class TestNanToNullSql:
@@ -73,7 +74,7 @@ class TestNanPolicyAggSql:
     """
 
     def setup_method(self) -> None:
-        self.conn = duckdb.connect()
+        self.conn = duckdb_test_connection()
 
     def teardown_method(self) -> None:
         self.conn.close()

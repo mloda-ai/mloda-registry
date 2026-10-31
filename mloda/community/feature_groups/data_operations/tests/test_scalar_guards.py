@@ -63,10 +63,12 @@ def _polars_lazy_data(columns: dict[str, list[int]] | None = None) -> Any:
 
 
 def _duckdb_data(columns: dict[str, list[int]] | None = None) -> Any:
-    duckdb = pytest.importorskip("duckdb")
+    pytest.importorskip("duckdb")
     from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
-    return DuckdbRelation.from_arrow(duckdb.connect(), pa.table(columns or _DEFAULT_COLUMNS))
+    from mloda.testing.feature_groups.data_operations.mixins.duckdb import duckdb_test_connection
+
+    return DuckdbRelation.from_arrow(duckdb_test_connection(), pa.table(columns or _DEFAULT_COLUMNS))
 
 
 def _sqlite_data(columns: dict[str, list[int]] | None = None) -> Any:

@@ -178,10 +178,11 @@ class TestBuildSqlCaseWhen:
     )
     def test_duckdb_comparison_excludes_nan(self, operator: str, threshold: float) -> None:
         """A NaN score never satisfies greater_than/greater_equal on DuckDB, so it stays masked out."""
-        duckdb = pytest.importorskip("duckdb")
+        pytest.importorskip("duckdb")
+        from mloda.testing.feature_groups.data_operations.mixins.duckdb import duckdb_test_connection
 
         arrow = pa.table({"score": pa.array([1.0, float("nan"), 3.0], type=pa.float64()), "value": [10, 20, 30]})
-        connection = duckdb.connect()
+        connection = duckdb_test_connection()
         try:
             relation = DuckdbRelation.from_arrow(connection, arrow)
             case_expr = build_sql_case_when(DuckDBMaskEngine, relation, [("score", operator, threshold)], '"value"')
