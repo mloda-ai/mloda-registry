@@ -20,11 +20,13 @@ except the docs in ``SKIPPED_DOCS``.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import os
 import pkgutil
 import re
+import select
 import signal
 import subprocess  # nosec
 import sys
@@ -526,6 +528,9 @@ SKIPPED_DOCS: dict[str, str] = {
 }
 
 _MARKER_PREFIX = "@@mloda-doc-runner-7f3a@@ "
+_FORK_SUPPORTED = sys.platform == "linux"
+_FORK_GRACE = 30  # seconds past the doc timeout before the parent kills an unresponsive server
+_FORK_STARTUP = 300  # seconds to wait for the server to load and report READY
 
 
 def _marker_line(kind: str, text: str) -> str:
@@ -590,31 +595,28 @@ _DOC_CHECK_DRIVER = _DOC_CHECK_BODY + "\n_check(sys.argv[2:])\n"
 
 # Warm parent: loads plugins once, then forks one child per request; the child always leaves via os._exit.
 _DOC_FORK_SERVER = (
-    _DOC_CHECK_BODY
+    "import os\nproto = os.dup(1)\nos.dup2(2, 1)\n"
+    + _DOC_CHECK_BODY
     + """
 import json
-import os
 import signal
 import traceback
 import warnings
 
-warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*fork.*")
 sys.stdout.flush()
-proto = os.dup(1)
-os.dup2(2, 1)
 os.write(proto, b"READY\\n")
 
 
 def _child(request):
-    os.close(proto)
-    os.chdir(request["cwd"])
-    os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
-    os.dup2(os.open(request["stdout"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC), 1)
-    os.dup2(os.open(request["stderr"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC), 2)
-    sys.argv = ["-c", sys.argv[1], *request["paths"]]
-    signal.alarm(request["timeout"])
     code = 0
     try:
+        os.close(proto)
+        os.chdir(request["cwd"])
+        os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+        os.dup2(os.open(request["stdout"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC), 1)
+        os.dup2(os.open(request["stderr"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC), 2)
+        sys.argv = ["-c", sys.argv[1], *request["paths"]]
+        signal.alarm(request["timeout"])
         _check(request["paths"])
     except SystemExit as exc:
         if exc.code is None:
@@ -635,7 +637,9 @@ def _child(request):
 
 for line in sys.stdin:
     request = json.loads(line)
-    pid = os.fork()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        pid = os.fork()
     if pid == 0:
         _child(request)
     _, status = os.waitpid(pid, 0)
@@ -666,21 +670,43 @@ def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool]:
     return kind, text, checked, done
 
 
+def _read_text(path: Path) -> str:
+    return path.read_bytes().decode(errors="replace") if path.exists() else ""
+
+
 class _ForkServer:
     def __init__(self, load_plugins: bool) -> None:
-        self.stderr = tempfile.TemporaryFile()  # noqa: SIM115
-        flag = "1" if load_plugins else "0"
-        self.cmd = [sys.executable, "-c", _DOC_FORK_SERVER, flag]
+        self.load_plugins = load_plugins
+        self.stderr = tempfile.TemporaryFile()
+        self.cwd = tempfile.TemporaryDirectory()
+        self.cmd = [sys.executable, "-c", _DOC_FORK_SERVER, "1" if load_plugins else "0"]
         self.proc: subprocess.Popen[str] = subprocess.Popen(  # nosec
-            self.cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, text=True
+            self.cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self.stderr,
+            text=True,
+            cwd=self.cwd.name,
+            start_new_session=True,
         )
         assert self.proc.stdout is not None
-        if self.proc.stdout.readline() != "READY\n":
+        if not select.select([self.proc.stdout], [], [], _FORK_STARTUP)[0] or self.proc.stdout.readline() != "READY\n":
             raise self._died("fork server failed to start")
 
+    def _kill(self) -> None:
+        if _FORK_SERVERS.get(self.load_plugins) is self:
+            del _FORK_SERVERS[self.load_plugins]
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(self.proc.pid, signal.SIGKILL)
+        self.proc.wait()
+        for pipe in (self.proc.stdin, self.proc.stdout):
+            with contextlib.suppress(OSError):
+                assert pipe is not None
+                pipe.close()
+        self.cwd.cleanup()
+
     def _died(self, message: str) -> RuntimeError:
-        _fork_server.cache_clear()
-        self.proc.kill()
+        self._kill()
         self.stderr.seek(0)
         return RuntimeError(f"{message}\nserver stderr:\n{self.stderr.read().decode(errors='replace')}")
 
@@ -689,22 +715,38 @@ class _ForkServer:
         with tempfile.TemporaryDirectory() as out_dir:
             out, err = Path(out_dir) / "stdout", Path(out_dir) / "stderr"
             request = {"paths": [str(p) for p in paths], "cwd": str(cwd), "stdout": str(out), "stderr": str(err)}
-            self.proc.stdin.write(json.dumps({**request, "timeout": timeout}) + "\n")
-            self.proc.stdin.flush()
-            line = self.proc.stdout.readline()
+            try:
+                self.proc.stdin.write(json.dumps({**request, "timeout": timeout}) + "\n")
+                self.proc.stdin.flush()
+                ready = select.select([self.proc.stdout], [], [], timeout + _FORK_GRACE)[0]
+                line = self.proc.stdout.readline() if ready else None
+            except BaseException:
+                self._kill()
+                raise
+            if line is None:
+                self._kill()
+                raise subprocess.TimeoutExpired(self.cmd, timeout, output=_read_text(out))
             if not line:
-                raise self._died("fork server died")
+                names = ", ".join(_display_path(str(p)) for p in paths)
+                raise self._died(f"{names}: fork server died")
             code = int(line)
-            stdout = out.read_bytes().decode(errors="replace") if out.exists() else ""
-            stderr = err.read_bytes().decode(errors="replace") if err.exists() else ""
+            stdout, stderr = _read_text(out), _read_text(err)
         if code == -signal.SIGALRM:
             raise subprocess.TimeoutExpired(self.cmd, timeout, output=stdout)
         return subprocess.CompletedProcess(self.cmd, code, stdout, stderr)
 
 
-@lru_cache(maxsize=None)
+_FORK_SERVERS: dict[bool, _ForkServer] = {}
+
+
 def _fork_server(load_plugins: bool) -> _ForkServer:
-    return _ForkServer(load_plugins)
+    server = _FORK_SERVERS.get(load_plugins)
+    if server is not None and server.proc.poll() is not None:
+        server._kill()
+        server = None
+    if server is None:
+        server = _FORK_SERVERS[load_plugins] = _ForkServer(load_plugins)
+    return server
 
 
 def run_md_files_isolated(
@@ -712,7 +754,7 @@ def run_md_files_isolated(
 ) -> None:
     """Run the python blocks of *paths* in a fresh process (forked from a warm server unless fork is False)."""
     if fork is None:
-        fork = hasattr(os, "fork") and os.environ.get("MLODA_DOC_RUNNER") != "subprocess"
+        fork = _FORK_SUPPORTED and os.environ.get("MLODA_DOC_RUNNER") != "subprocess"
     try:
         if fork:
             result = _fork_server(load_plugins).run(paths, cwd, timeout)
@@ -772,8 +814,8 @@ def test_doc_python_blocks_do_not_write_to_fixed_tmp_paths() -> None:
 
 @pytest.fixture(params=[True, False], ids=["fork", "subprocess"])
 def fork(request: pytest.FixtureRequest) -> bool:
-    if request.param and not hasattr(os, "fork"):
-        pytest.skip("os.fork is unavailable")
+    if request.param and not _FORK_SUPPORTED:
+        pytest.skip("the fork doc runner is linux only")
     return bool(request.param)
 
 
@@ -884,10 +926,38 @@ def test_timeout_in_a_doc_test_names_the_function(tmp_path: Path) -> None:
     assert str(excinfo.value).startswith(f"{doc}: test_slow timed out"), str(excinfo.value)
 
 
-@pytest.mark.skipif(not hasattr(os, "fork"), reason="os.fork is unavailable")
+@pytest.mark.skipif(not _FORK_SUPPORTED, reason="the fork doc runner is linux only")
 def test_fork_timeout_in_a_doc_test_names_the_function_and_server_survives(tmp_path: Path) -> None:
     doc = tmp_path / "slow.md"
     doc.write_text("```python\nimport time\ndef test_slow():\n    time.sleep(60)\n```\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=True, timeout=1)
+    assert str(excinfo.value).startswith(f"{doc}: test_slow timed out"), str(excinfo.value)
+    good = tmp_path / "good.md"
+    good.write_text("```python\nassert True\n```\n", encoding="utf-8")
+    run_md_files_isolated([good], cwd=tmp_path, load_plugins=False, fork=True)
+
+
+@pytest.mark.skipif(not _FORK_SUPPORTED, reason="the fork doc runner is linux only")
+def test_fork_server_is_replaced_after_it_dies(tmp_path: Path) -> None:
+    doc = tmp_path / "good.md"
+    doc.write_text("```python\nassert True\n```\n", encoding="utf-8")
+    run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=True)
+    server = _FORK_SERVERS[False]
+    server.proc.kill()
+    server.proc.wait()
+    run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=True)
+
+
+@pytest.mark.skipif(not _FORK_SUPPORTED, reason="the fork doc runner is linux only")
+def test_fork_timeout_is_enforced_when_the_doc_ignores_sigalrm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "_FORK_GRACE", 1)
+    doc = tmp_path / "stubborn.md"
+    doc.write_text(
+        "```python\nimport signal, time\n"
+        "def test_slow():\n    signal.signal(signal.SIGALRM, signal.SIG_IGN)\n    time.sleep(60)\n```\n",
+        encoding="utf-8",
+    )
     with pytest.raises(AssertionError) as excinfo:
         run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=True, timeout=1)
     assert str(excinfo.value).startswith(f"{doc}: test_slow timed out"), str(excinfo.value)
