@@ -100,40 +100,11 @@ class MyFilterEngine(BaseFilterEngine):
 
 ## Timezone Validation (Opt-In)
 
-Range/min/max filters with a native `datetime` bound (pandas `Timestamp` counts) can be guarded:
-bound and column timezone-awareness must match. Opt in via a class attribute, mirroring the
-merge-engine flag:
-
-```py
-class MyFilterEngine(BaseFilterEngine):
-    provides_column_semantics = True
-
-    @classmethod
-    def _column_semantics(cls, data, column) -> "ColumnSemantics": ...  # see 06-merge-engine
-```
-
-- Default `False`: guard skipped, hook never required.
-- Fires only when the bound is a `datetime` and the column is temporal; numeric and string
-  filters are unaffected.
-- Opted in without the hook: `NotImplementedError`.
-
-Hook contract and example: [06-merge-engine](06-merge-engine.md#timezone-validation-opt-in).
-Full model: upstream
-[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md).
+Range/min/max filters with a native `datetime` bound (pandas `Timestamp` counts) can check that bound and column agree on timezone-awareness. Opt in as for the [merge engine](06-merge-engine.md#timezone-validation-opt-in) (`provides_column_semantics = True`, same defaults), but implement `_column_semantics(cls, data, column)` as a classmethod. The guard fires only when the bound is a `datetime` and the column is temporal.
 
 ## FeatureGroup Override
 
-Individual FeatureGroups can override filter behavior per-class by defining `final_filters()` on the FeatureGroup itself. This takes precedence over the FilterEngine's `final_filters()` setting.
-
-| `FeatureGroup.final_filters()` | Effect |
-|------|--------|
-| `None` (default) | Defer to the FilterEngine's `final_filters()`. |
-| `False` | Skip row elimination for this FeatureGroup. |
-| `True` | Force row elimination, even if the FilterEngine returns `False`. |
-
-The framework checks `FeatureGroup.final_filters()` first. Only when it returns `None` does it fall back to `FilterEngine.final_filters()`.
-
-See [Filter Concepts](../feature-group-patterns/15-filter-concepts.md) for usage patterns.
+A FeatureGroup can override `final_filters()` (`None` defers to the engine, `False` skips row elimination, `True` forces it); see [Filter Concepts](../feature-group-patterns/15-filter-concepts.md#controlling-row-elimination-with-final_filters).
 
 ## Test
 

@@ -72,13 +72,7 @@ class DatabaseSourceFG(SourceFeatureGroup):
 
 ## Matching Priority
 
-```text
-1. Exact class name     → "MyFeature" == class MyFeature
-2. Prefix match         → "MyFeature_x".startswith("MyFeature_")
-3. Explicit names       → name in feature_names_supported()
-
-Source FeatureGroups claim through their own claim routes (`find_sources`), not these rules.
-```
+See [Feature Matching: Default Matching Priority](14-feature-matching.md#default-matching-priority).
 
 ## Folder-Based Matching
 

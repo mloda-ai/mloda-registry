@@ -7,14 +7,6 @@ How to define what feature names a FeatureGroup provides.
 **Why**: Users request features by name; mloda must know which FeatureGroup provides each name.
 **Where**: Class name, `feature_names_supported()`, or `PREFIX_PATTERN` with FeatureChainParserMixin.
 
-## Naming Mechanisms
-
-| Mechanism | Defines Names | Example |
-|-----------|---------------|---------|
-| Class name | Single name | `class IsHoliday` → `"IsHoliday"` |
-| `feature_names_supported()` | Explicit set | `{"is_holiday", "is_weekend"}` |
-| `PREFIX_PATTERN` | Regex pattern | `r"^.+__scaled$"` → `"price__scaled"` |
-
 ---
 
 ## 1. Class Name (Default)

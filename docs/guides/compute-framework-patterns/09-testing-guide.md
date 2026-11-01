@@ -127,8 +127,6 @@ class TestMyMaskEngine(MaskEngineTestMixin):
         return data[mask].to_dict("list")
 ```
 
-The mixin expects `mask_engine_class`, `sample_data`, `empty_data`, `null_data`,
-`decimal_sample_data`, `evaluate_mask`, `is_boolean_mask`, and `apply_mask`.
 For SQL engines that return condition strings, inherit from `SqlMaskEngineTestMixin`
 to add SQL condition-shape checks on top of the shared mask engine contract.
 
@@ -244,84 +242,9 @@ def dict_data() -> dict[str, list[int]]:
     return {"column1": [1, 2, 3], "column2": [4, 5, 6]}
 ```
 
-Framework-specific fixtures:
-
-```py
-# DuckDB conftest.py
-@pytest.fixture
-def connection():
-    conn = duckdb.connect()
-    yield conn
-    conn.close()
-
-
-# Spark conftest.py
-@pytest.fixture(scope="session")
-def spark_session():
-    spark = SparkSession.builder.getOrCreate()
-    yield spark
-    spark.stop()
-```
-
 ## Manual Test Examples
 
-When not using base classes:
-
-### Framework Tests
-
-```py
-@pytest.mark.skipif(my_lib is None, reason="my_lib not installed")
-class TestMyFramework:
-    def test_is_available(self):
-        assert MyFramework.is_available()
-
-    def test_expected_data_framework(self):
-        assert MyFramework.expected_data_framework() == my_lib.DataFrame
-
-    def test_transform_dict(self):
-        framework = MyFramework(...)
-        result = framework.transform({"col": [1, 2]}, ["col"])
-        assert isinstance(result, my_lib.DataFrame)
-```
-
-### Transformer Tests
-
-```py
-@pytest.mark.skipif(my_lib is None or pa is None, reason="deps not installed")
-class TestMyTransformer:
-    def test_roundtrip(self):
-        original = my_lib.DataFrame({"col": [1, 2]})
-        arrow = MyPyArrowTransformer.transform_fw_to_other_fw(original)
-        restored = MyPyArrowTransformer.transform_other_fw_to_fw(arrow)
-        assert restored.equals(original)
-```
-
-## Test Checklist
-
-### Framework
-- [ ] `is_available()` returns correct boolean
-- [ ] `expected_data_framework()` returns correct type
-- [ ] `result_framework()` names the framework of the returned frame type
-- [ ] `merge_engine()` returns BaseMergeEngine subclass
-- [ ] `filter_engine()` returns BaseFilterEngine subclass
-- [ ] `mask_engine()` returns BaseMaskEngine subclass
-- [ ] `extract_column_names()` returns the column names, called on the class
-- [ ] `transform()` handles dict input
-
-### Merge Engine (use MultiIndexMergeEngineTestBase)
-- [ ] INNER, LEFT, FULL OUTER, APPEND and UNION merges work with multi-column indexes
-- [ ] Connection passed correctly for stateful frameworks
-
-### Filter Engine (use FilterEngineTestMixin)
-- [ ] All filter types work (range, min, max, equal, regex, categorical), including null, NaN and decimal columns
-
-### Mask Engine (use MaskEngineTestMixin)
-- [ ] Mask comparisons, set membership, boolean combination, null handling, and decimal values work
-
-### Transformer
-- [ ] Conversion to PyArrow works
-- [ ] Conversion from PyArrow works
-- [ ] Roundtrip preserves data
+Without the base classes, start from the `Test` blocks in [Stateless eager](01-stateless-eager.md#test) and [Framework transformer](08-framework-transformer.md#test).
 
 ## Real Test Examples
 

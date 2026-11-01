@@ -2,12 +2,6 @@
 
 Add feature groups directly to your existing project without creating a separate package.
 
-## When to Use This
-
-- You want to keep plugins in your main project
-- You don't need to share the plugin as a separate package
-- Quick prototyping or project-specific features
-
 ## Step 1: Add Plugin Folder
 
 Create a folder structure in your project:
@@ -62,8 +56,6 @@ PluginLoader.all()
 
 result = mloda.run_all([Feature("CustomerScoring")])
 ```
-
-**Tip**: For incremental results when requesting multiple features, use [`stream_all`](feature-group-patterns/23-streaming.md) instead of `run_all`.
 
 ## Next Steps
 

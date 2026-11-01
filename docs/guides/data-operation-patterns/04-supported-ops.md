@@ -70,29 +70,7 @@ The test-side `supported_ops()` is only for test skipping. It does **not** by it
 
 Keep them consistent. If your implementation silently drops an op at runtime but the test class still claims to support it, the suite will fail. If the test class over-restricts, you lose coverage for something you actually implemented.
 
----
-
-## Adding a new framework for an existing op
-
-When you add, say, a Polars-lazy implementation for an operation, copy the test template:
-
-```py
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import RankTestBase
-
-
-class TestPolarsLazyRank(PolarsLazyTestMixin, RankTestBase):
-    @classmethod
-    def implementation_class(cls):
-        return PolarsLazyRank
-
-    @classmethod
-    def supported_rank_types(cls) -> set[str]:
-        return {"row_number", "rank", "dense_rank", "percent_rank"}
-        # ntile_N omitted if Polars version lacks a clean NTILE equivalent
-```
-
-Start by returning the full set the operation supports. Shrink it only as concrete limitations appear.
+For a new framework, start the `supported_*` set at the full set and shrink it only as concrete limitations appear; the test-class template is in [Adding a new data operation, Step 6](10-adding-new-operation.md#step-6-wire-up-the-framework-test-classes).
 
 ---
 

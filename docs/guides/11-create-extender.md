@@ -2,25 +2,6 @@
 
 Add cross-cutting concerns (logging, tracing, metrics) to mloda pipelines.
 
-## Decision Tree
-
-```text
-Q1: What do you want to wrap?
-    Feature calculation → FEATURE_GROUP_CALCULATE_FEATURE
-    Input validation   → VALIDATE_INPUT_FEATURE
-    Output validation  → VALIDATE_OUTPUT_FEATURE
-    Feature matched    → FEATURE_GROUP_MATCHED
-    Input data loads   → INPUT_DATA_LOAD
-    Source matching    → INPUT_DATA_MATCH
-    Data joins         → JOIN
-
-Q2: Need execution order control?
-    YES → Set custom priority (lower runs first, default 100)
-
-Q3: Need state with ParallelizationMode.MULTIPROCESSING?
-    YES → Use class-level storage (pickle-safe)
-```
-
 ## Required Methods
 
 | Method | Required | Description |
@@ -67,7 +48,7 @@ class MyExtender(Extender):
 
 ## Never Change Data
 
-An extender never changes data on any hook: it returns exactly what the wrapped function returned ([core decision](https://github.com/mloda-ai/mloda/issues/1529)). From mloda 0.14.0 on, core discards an extender's return value once it has called the wrapped function, so a returned replacement is ignored; an extender that never calls it still returns its own value. Core does not prevent mutating the loaded data or other shared arguments in place, so the rule stays on the extender. `OtelExtender`'s `mask` receives the calculate result itself (for the `capture_content` preview): return a masked copy, never mask in place. The preview is then passed through core's `scrub_credentials`, a backstop for DSNs, presigned URLs and bearer or Authorization tokens the mask misses (not a replacement for it); values under a secret-named or Authorization mapping key are redacted whole. `capture_content` defaults to `None`: the `MLODA_OTEL_TRACE_CONTENT` env var decides, and an explicit `False` wins over it. A mask is required: `capture_content=True` without one raises `ValueError` at construction, and when the env var enables capture on an extender without a mask, no preview is recorded and one WARNING is logged per instance (per copy after pickling). Under `MULTIPROCESSING` the mask must pickle (a module-level function, not a lambda).
+An extender never changes data on any hook: it returns exactly what the wrapped function returned ([core decision](https://github.com/mloda-ai/mloda/issues/1529)). Core discards an extender's return value once it has called the wrapped function, so a returned replacement is ignored; an extender that never calls it still returns its own value. Core does not prevent mutating the loaded data or other shared arguments in place, so the rule stays on the extender. `OtelExtender`'s `mask` receives the calculate result itself (for the `capture_content` preview): return a masked copy, never mask in place. The preview is then passed through core's `scrub_credentials`, a backstop for DSNs, presigned URLs and bearer or Authorization tokens the mask misses (not a replacement for it); values under a secret-named or Authorization mapping key are redacted whole. Previews are opt-in, see [Privacy defaults](12-export-telemetry.md#privacy-defaults); when the env var enables capture without a mask, one WARNING is logged per instance (per copy after pickling). Under `MULTIPROCESSING` the mask must pickle (a module-level function, not a lambda).
 
 ## Chaining and Error Handling
 
@@ -88,8 +69,6 @@ An extender that refuses a call by raising (a gate) sets `never_fall_back = True
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
 Both extenders trial-pickle an injected sink (`client` for `OpenLineageExtender`, `tracer_provider` for `OtelExtender`, `meter_provider` for `OtelMetricsExtender`) whenever a copy is made (worker processes under `MULTIPROCESSING`). A picklable sink is pickled as-is and survives into the worker. An unpicklable one is dropped instead: logged once per instance at WARNING, naming the sink and the underlying pickle exception's type, and the resulting copy is inert unless `use_sdk_defaults=True`. With `use_sdk_defaults=True`, `OtelExtender` resolves a provider installed in the worker via `child_bootstrap` passed to `run_all`, and `OpenLineageExtender` builds its own client lazily per worker. For your own extender with an injected sink, create a `WarnOncePerInstance` from `mloda.steward` in `__init__` and warn through it in `__getstate__` when `pickle_failure_reason` reports the sink unpicklable, as both extenders do.
-
-`AuditExtender` keeps its classification policy in a copy when the policy is picklable; otherwise the copy drops it and its `on_run_start` refuses every run as `classification_unresolved`.
 
 A self-built `OpenLineageExtender` client is closed by `close()`, when its extender is garbage collected (on the thread that drops the last reference, capped at `close_timeout` as read when the client is built), or at interpreter exit in the parent (up to 10s per extender). `MULTIPROCESSING` workers rely on core's `close()`. A transport's close is one-shot, so a close with no budget left (`close(0)`, or a spent worker deadline) does not close an injected client: it returns `False` and leaves the flush to a later closer with budget.
 
@@ -133,8 +112,8 @@ Extenders are session-level: pass them to `run_all` or when preparing the sessio
 
 `HookContext.current()` inside `__call__` returns the context of the hook being dispatched, or `None` outside a hook call (a direct call, a unit test without an activated context). It is set only on the dispatching thread, so capture it before handing work to another thread, or run that work under `contextvars.copy_context().run`.
 
-- Before `func` runs, on the calculate and validate hooks: `hook`, `feature_group_class` (`module.qualname`), `feature_group_version`, `plugin_version`, `feature_names`, `specialized_from`, `input_features`, `input_feature_edges`, `compute_framework_name`, `rows_in`, `run_id`, `plan_id`, `structure_hash` (the run's plan fingerprint, also on `JOIN` and `INPUT_DATA_LOAD`; since mloda 0.16.0), `step_uuid` (the step's `PlanStep.step_uuid`, also on `INPUT_DATA_LOAD`; stable across a session's runs), `carrier`, `worker_index`, and the verified `tenant_id`, `project_id` and `principal` (see [Verified run context](#verified-run-context)). `inject_carrier` and `extract_carrier` carry the W3C traceparent only, never baggage.
-- After `func`: `duration_seconds` and `status` (`"success"` or `"error"`, for the wrapped call only), also when it raises; on success, `rows_out` (calculate, data loads) and `output_schema` (calculate, validate-output). `result_attributes` holds what a feature group's `calculate_feature` or a source group's load published with `HookContext.publish_result_attributes({...})` (`HookContext` from `mloda.provider`; since mloda 0.16.0). Extenders may export these values, so never publish credentials or row data.
+- Before `func` runs, on the calculate and validate hooks: `hook`, `feature_group_class` (`module.qualname`), `feature_group_version`, `plugin_version`, `feature_names`, `specialized_from`, `input_features`, `input_feature_edges`, `compute_framework_name`, `rows_in`, `run_id`, `plan_id`, `structure_hash` (the run's plan fingerprint, also on `JOIN` and `INPUT_DATA_LOAD`), `step_uuid` (the step's `PlanStep.step_uuid`, also on `INPUT_DATA_LOAD`; stable across a session's runs), `carrier`, `worker_index`, and the verified `tenant_id`, `project_id` and `principal` (see [Verified run context](#verified-run-context)). `inject_carrier` and `extract_carrier` carry the W3C traceparent only, never baggage.
+- After `func`: `duration_seconds` and `status` (`"success"` or `"error"`, for the wrapped call only), also when it raises; on success, `rows_out` (calculate, data loads) and `output_schema` (calculate, validate-output). `result_attributes` holds what a feature group's `calculate_feature` or a source group's load published with `HookContext.publish_result_attributes({...})` (`HookContext` from `mloda.provider`). Extenders may export these values, so never publish credentials or row data.
 - Per hook: `INPUT_DATA_LOAD` inherits the calculation's identity fields and adds the data-access fields (see [Hook context for data loads](#hook-context-for-data-loads)). `JOIN` and `FEATURE_GROUP_MATCHED` carry no feature-group identity, only `run_id` (`plan_id` on the match hook), the verified identity and their own fields: `join_type`, `join_keys` and the link's declared `join_left_feature_group` / `join_right_feature_group` (`module.qualname`), or `feature_names` and the running `plan_feature_count`, `plan_node_count` and `plan_depth`; the match hook sets `feature_group_class` only after `func` returns. `feature_group_class`, `feature_group_version` and `compute_framework_name` are `str | None`: `None` on `JOIN` (class and version; it keeps `compute_framework_name`) and on the match hook (class until resolution, version and framework always), so a match-time audit refusal records all three as `null`. `FEATURE_GROUP_MATCHED` runs with `run_id=None` and `plan_id` set. Other fields: `declared_attributes`, `asof_config` (on `JOIN`), and `reader_class` and `data_access_identity_is_fallback` (on `INPUT_DATA_LOAD`; `reader_class` also on `INPUT_DATA_MATCH`, see [Reader match hook](#reader-match-hook)). Unfilled fields keep their defaults (`None`, `""` or `()`).
 
 ```python
@@ -188,9 +167,9 @@ Its `HookContext` inherits the enclosing calculation's feature-group and feature
 
 The `data_access_identity` that core supplies on the context comes from the source group's `data_access_identity(match)` classmethod (see `SourceFeatureGroup.data_access_identity`), whose default is the credential-free `match.source`; a group may override it to publish more, and then owns what it publishes.
 
-Record `context.data_access_identity` as given, never the raw data access (`args[0]` of the wrapped load call), which can carry credentials that core's identity leaves out. `AuditExtender`, `OpenLineageExtender`, `LineageFacetsExtender` and `OtelExtender` all do: it is the audit entry, the OpenLineage `dataSource` name, the source of the dataset name (and its dedupe key), and the `mloda.data_access.identity` span attribute. With core's default the identity is the group's `match.source`, which core's own groups keep credential-free (a file path; `SqliteFG` publishes `<absolute path>::<table>`). A group whose sources carry tokens or that needs a finer identity overrides `data_access_identity` (see [Audit Identity](feature-group-patterns/27-input-data-readers.md#audit-identity)). Identities recorded by earlier registry versions, which sanitized the raw data access, do not join to these. `data_access_identity`, `data_access_format`, `data_access_identity_is_fallback` and `data_access_declared_attributes` (one dict per entry, `{}` when the load declared none, `null` when core could not read the declaration) are index-aligned lists with one entry per distinct (identity, format, flag, declarations) the call attempted, in first-seen order: repeats collapse, a load without an identity is omitted, and `[]` means none. The flag is core's `data_access_identity_is_fallback`, recorded as given; True means the identity is a placeholder, not a dataset id: the data access object's type name (for a `SourceMatch`, the string `"SourceMatch"`) or its mapping key names. A source group's default identity, `match.source`, never trips it. `OtelExtender` sets it on the load span as `mloda.data_access.identity_is_fallback` (`true` or `false`, omitted when unset). `OpenLineageExtender` and `LineageFacetsExtender` mark an input dataset with an `mlodaDataAccess` facet (`identityIsFallback: true`) when any fallback load of that name occurs, instead of dropping it. An absent key means not recorded, since keys may be added within a `record_version`.
+Record `context.data_access_identity` as given, never the raw data access (`args[0]` of the wrapped load call), which can carry credentials that core's identity leaves out. `AuditExtender`, `OpenLineageExtender`, `LineageFacetsExtender` and `OtelExtender` all do: it is the audit entry, the OpenLineage `dataSource` name, the source of the dataset name (and its dedupe key), and the `mloda.data_access.identity` span attribute. With core's default the identity is the group's `match.source`, which core's own groups keep credential-free (a file path; `SqliteFG` publishes `<absolute path>::<table>`). A group whose sources carry tokens or that needs a finer identity overrides `data_access_identity` (see [Audit Identity](feature-group-patterns/27-input-data-readers.md#audit-identity)). `data_access_identity`, `data_access_format`, `data_access_identity_is_fallback` and `data_access_declared_attributes` (one dict per entry, `{}` when the load declared none, `null` when core could not read the declaration) are index-aligned lists with one entry per distinct (identity, format, flag, declarations) the call attempted, in first-seen order: repeats collapse, a load without an identity is omitted, and `[]` means none. The flag is core's `data_access_identity_is_fallback`, recorded as given; True means the identity is a placeholder, not a dataset id: the data access object's type name (for a `SourceMatch`, the string `"SourceMatch"`) or its mapping key names. A source group's default identity, `match.source`, never trips it. `OtelExtender` sets it on the load span as `mloda.data_access.identity_is_fallback` (`true` or `false`, omitted when unset). `OpenLineageExtender` and `LineageFacetsExtender` mark an input dataset with an `mlodaDataAccess` facet (`identityIsFallback: true`) when any fallback load of that name occurs, instead of dropping it. An absent key means not recorded, since keys may be added within a `record_version`.
 
-Feature names are published as given wherever they become dataset names: declared input features and outputs in `OpenLineageExtender`, and also column-lineage edges and validation datasets in `LineageFacetsExtender`. A consumer's input name then equals its producer's output name, which is what joins the lineage graph. A feature name is an author- or caller-chosen identifier, so never put a secret in one. OpenLineage load datasets follow the OpenLineage naming spec: `s3://bucket/key` and `gs://bucket/key` become namespace `s3://bucket` or `gs://bucket` with name `key`; `abfss://container@account.dfs.core.windows.net/path` becomes that namespace with name `path`; `file:///abs/path` and an absolute local path (mapped without an existence check) become namespace `file`. Only these forms map: a port, an empty bucket, key, container or path, another abfss host, `file://host/...`, a path containing `::` and `/` fall back. Every other identity (`jdbc:`, `http(s)`, `hdfs`, `s3a`, `wasbs`, a relative path, a type name, mapping key names, or one with a query, fragment or `@` outside the abfss container) keeps `dataset_namespace` and the identity as its name. The `dataSource` facet name stays the identity, the join key to audit records and the `mloda.data_access.identity` span attribute. A feature named like a load's data access is merged with that load's dataset only for an unmapped identity whose name equals the feature name. Upgrade note: load dataset names change, so catalogs see new dataset nodes.
+Feature names are published as given wherever they become dataset names: declared input features and outputs in `OpenLineageExtender`, and also column-lineage edges and validation datasets in `LineageFacetsExtender`. A consumer's input name then equals its producer's output name, which is what joins the lineage graph. A feature name is an author- or caller-chosen identifier, so never put a secret in one. OpenLineage load datasets follow the OpenLineage naming spec: `s3://bucket/key` and `gs://bucket/key` become namespace `s3://bucket` or `gs://bucket` with name `key`; `abfss://container@account.dfs.core.windows.net/path` becomes that namespace with name `path`; `file:///abs/path` and an absolute local path (mapped without an existence check) become namespace `file`. Only these forms map: a port, an empty bucket, key, container or path, another abfss host, `file://host/...`, a path containing `::` and `/` fall back. Every other identity (`jdbc:`, `http(s)`, `hdfs`, `s3a`, `wasbs`, a relative path, a type name, mapping key names, or one with a query, fragment or `@` outside the abfss container) keeps `dataset_namespace` and the identity as its name. The `dataSource` facet name stays the identity, the join key to audit records and the `mloda.data_access.identity` span attribute. A feature named like a load's data access is merged with that load's dataset only for an unmapped identity whose name equals the feature name.
 
 ## Reader match hook
 
@@ -280,7 +259,6 @@ except FeatureResolutionError as err:
     ...  # refused at plan time
 ```
 
-**Upgrading from mloda 0.16**: a `ClassificationPolicy` whose `exempt_readers` lists 0.16 reader classes (`CsvReader`, `SQLITEReader`, ...) fails construction; list the source group classes instead. `data_access_format` and `reader_class` values, and the OTel `mloda.data_access.format` attribute, now name source groups (`"CsvFG"` instead of `"CsvReader"`), so audit and telemetry records from 0.16 and 0.17 do not join on these fields; audit queries that filter on them need both values. A root load step is now the source group itself (`CsvFG`, ...) instead of `ReadFileFeature`, so the audit `feature_group_class` on load and calculate records changes the same way, the OTel calculate span name goes from `calculate ReadFileFeature` to `calculate CsvFG`, and OpenLineage job names for those steps change likewise; dashboards and alerts keyed on the old names need updating.
 
 Every record carries `policy_version`: the argument of that name (a non-blank string), else a 12 hex character fingerprint of the constructor-supplied gate (sorted `required_identity` plus `fail_closed`), which does not track code changes. The key is additive within a `record_version`.
 
@@ -288,7 +266,7 @@ Audit records are `record_version` 2. Beyond the identity fields they carry:
 
 - `decision` is the policy outcome (`allow` or `deny`); `enforced` is `true` only on a `fail_closed` refusal record (match, `INPUT_DATA_MATCH`, `RUN_START` or calculate), so a deny that merely records a missing identity is told apart from a refusal that stopped the run.
 - `compliant` is true only when no required identity is missing and the principal is non-blank. A default config without a `principal` in `required_identity` therefore records `compliant: false` whenever no principal is in scope.
-- `status` is `success`, `error` or `cancelled` (not core's `succeeded`/`failed`). An interrupted step (a `BaseException` that is not an `Exception`, e.g. `KeyboardInterrupt`) is `cancelled` with `cancel_type` (`module.qualname`) and a null `error_type`. Older logs record interrupts as `error`, and a record without the `cancel_type` key predates this change.
+- `status` is `success`, `error` or `cancelled` (not core's `succeeded`/`failed`). An interrupted step (a `BaseException` that is not an `Exception`, e.g. `KeyboardInterrupt`) is `cancelled` with `cancel_type` (`module.qualname`) and a null `error_type`.
 - `phase` is `"plan"` for the match hooks (`FEATURE_GROUP_MATCHED`, `INPUT_DATA_MATCH`) and `"run"` otherwise.
 - `input_feature_edges` (`{feature: sorted input names}`, or null) next to `input_features`.
 - `host` (the process hostname), `worker_index` and `start_time` (UTC ISO, taken before the wrapped call; equal to `event_time` on refusal and `RUN_START` records).
@@ -299,11 +277,7 @@ Audit records are `record_version` 2. Beyond the identity fields they carry:
 - `feature_group_declared_attributes`, the feature group's own declaration on calculate records: `{}` when nothing portable survives, null when unreadable and on match and `RUN_START` records (see Declared attributes).
 - `trace_id` and `span_id` (hex), best effort: the active OTel span when the audit call started, else the carrier's trace id with a null `span_id`, else null. They need `opentelemetry-api` and are null without it.
 
-Verification does not depend on the record version, so a v2 log seals and verifies like any other.
-
-`AuditExtender.close()` calls the sink's optional `flush()` on graceful `MULTIPROCESSING` worker exit (see [Pickle Compatibility](#pickle-compatibility)): `OtelLogAuditSink` flushes its logger provider, `TeeAuditSink` fans out to each child's own `flush()`, and a write-only sink such as `NdjsonAuditSink` needs none and is left alone.
-
-`TeeAuditSink(*sinks)` writes each record to every sink in order; the first failure propagates and later sinks are skipped, so put the durable `NdjsonAuditSink` first. It raises `ValueError` for no sinks or a sink without a callable `write`.
+`TeeAuditSink(*sinks)` writes each record to every sink in order; the first failure propagates and later sinks are skipped, so put the durable `NdjsonAuditSink` first. It raises `ValueError` for no sinks or a sink without a callable `write`. Its `flush()` fans out to each child's own.
 
 `OtelLogAuditSink()` (or `OtelLogAuditSink(user_hash_key=b"...")`, which adds `user.hash`, see below) emits one OpenTelemetry log record per audit record, so allow and deny decisions reach a Collector. It needs the extra `mloda-enterprise[otel]` (`opentelemetry-api>=1.37,<2`); the package loads without it and only constructing the sink raises `ImportError` naming the extra. Allow is INFO, deny is WARN, the body is the decision and the timestamp is `event_time`. Attributes: `mloda.audit.decision`, `mloda.audit.deny_reason`, `mloda.audit.policy_version`, `mloda.audit.hook`, `mloda.audit.reader_class`, `mloda.audit.phase`, `mloda.audit.enforced` (bool), `mloda.step.run_id`, `mloda.audit.classification`, `mloda.run.id`, `mloda.plan.id`, `mloda.plan.structure_hash`, `mloda.tenant.id`, `mloda.project.id`, `user.hash` (only with a key), `mloda.feature_group.name`, `mloda.feature.names`, `error.type`, `mloda.cancel.type`; blank or absent values are omitted. When the record has both `trace_id` and `span_id`, the log record carries that trace context, so it correlates with the `OtelExtender` spans.
 
@@ -321,6 +295,8 @@ extender = AuditExtender(sink, fail_closed=True)
 
 ### Sealing and anchoring
 
+- Each `run()` of a prepared session gets a fresh `run_id` and is sealed as its own run. Do not run one prepared auto-sealing session concurrently (a run sealed while another is still calculating leaves that run's later records outside the seal), and never reuse a `run_id` by hand: those records land outside the seal, count as a seal failure, and `verify_ndjson_log_coverage` keeps reporting them.
+- `rotate_manifest_key` records a key change; `quarantine_damaged_lines` repairs a torn log and `quarantine_from_rotation_entry` a wrongly appended rotation entry. `Ed25519Signer` (extra `mloda-enterprise[ed25519]`) makes seals non-repudiable and verifiable with the public key alone; the unchanged `ManifestSigner` protocol lets a KMS-backed signer plug in later (none ships yet).
 - `head_anchor` (a `HeadAnchor`, e.g. `NdjsonHeadAnchor`) receives each new manifest log head, and `anchored_heads` makes verification require every anchored head to be a line of the log. This detects truncation, rollback, deletion and substitution.
 - The anchor and the logs need append-only or WORM storage that the log writer cannot rewrite. Key custody stays a platform duty.
 - Only an anchor detects deletion or a restarted log. `log_id` only tells logs apart: a deleted log restarts with a fresh genesis and verifies.
@@ -336,14 +312,13 @@ extender = AuditExtender(sink, fail_closed=True)
 - Trade-off: a seal no longer re-verifies lines before the checkpoint, so run `verify_ndjson_log(..., anchored_heads=...)` on a schedule. An anchor lagging behind the checkpoint falls back to full verification.
 - Negative lookups trust the index's unsigned hint rows: whoever can write the index can make a sealed run look unsealed and cause a duplicate seal. Keep the index under the same write protection as the logs' writer and verify offline on a schedule.
 - `seal_index_path` requires the sealing config and must not alias the audit, manifest or anchor paths.
-- A line longer than 64 MiB fails verification and is refused on write; logs written by earlier releases with a seal line over 64 MiB no longer verify.
+- A line longer than 64 MiB fails verification and is refused on write.
 - Re-running a sealed run and manual sweeps stay full scans (retained archives are scanned too).
 - Rotate with `rotate_ndjson_segment(audit_path, manifest_path, signer=..., log_id=..., head_anchor=...)` on your own schedule; the `log_id` stays and the log needs a genesis. Pending and crashed runs are carried over, so sweep crashed runs first. Run it as the account that writes the logs (the new live files are created by the rotating process). Rotation and sealing check only the anchors written since the live segment's genesis (plus the predecessor head); pass the full anchor history to `verify_ndjson_segments`.
 - `segment_max_bytes=` / `segment_max_age=timedelta(...)` make an auto-sealing `AuditExtender` rotate after a seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not count) or the live segment reaches that age (needs `log_id`). Both are re-checked under the manifest lock, so concurrent sealers rotate once. A completion that finds an interrupted rotation finishes it (logged at WARNING) and retries its seal. The rotating run pays for verifying the whole outgoing segment; carried pending runs alone over the size make each completion re-read the audit file under the lock, so sweep crashed runs. A failure counts in `seal_failures` and follows `seal_failure_policy` (a callable policy then receives the rotation's own exception, the run already sealed).
 - Archives are `<path>.<NNNNNN>` pairs. Deleting the oldest pairs is detected only by anchors; runs sealed in deleted or moved archives stay refused by a targeted `seal_ndjson_runs` only until the next rotation rebuilds a seal index.
 - `verify_ndjson_segments(...)` verifies the retained history; `verify_ndjson_log` on one pair verifies a single segment. Online verification holds the manifest shared lock, so auto-seals wait for it.
 - An interrupted rotation blocks sealing until `rotate_ndjson_segment` runs again, unless auto-rotation is on. Safe only for `NdjsonAuditSink` writers (shared flock, needs fcntl). A hard crash can leave `.<name>.*` temp files beside the logs; delete them once no rotation runs.
-- Manifest logs written by earlier releases (version 1 lines) still verify; new lines appended to them are version 2.
 
 ```py
 import os
@@ -430,7 +405,7 @@ Validate-output assertions ride on input datasets of the `<feature group>.valida
 
 An option (`masking`, `lineage_source_column`) counts only when it is the step's own: declared in the feature's `context` before mloda starts resolving it (core's `Options.own_context_keys`). A key the step only received never counts, whether forwarded (`propagate_context_keys`, `inherit_context_keys`) or written by a feature group while matching. A `PROPERTY_MAPPING` default is filled in by core, so it never counts either; use the class attribute for a class-wide declaration. A key the step declares itself counts even when its consumer holds or forwards the same value. A consumer that hands its `Options` (or a copy) to an input feature declares its own keys on that input too, so build a new `Options` for inputs to keep them apart. When several consumers request the same feature, a key is own if any request declared it, so `declaredMasking` and `structureHash` do not depend on which consumer core kept.
 
-The `_schemaURL` of the `mloda` facet and of the community `mloda*` facets points at the facet's module in this repository at the installed release tag (`.../blob/<version>/...`), so a facet shape change between releases changes the URL; it is not a hosted JSON schema. An uninstalled source checkout names `main`, and an install built from unreleased code names the last release. Upgrade note: the URL changes on every release, so match on the module path and read the tag as the facet version.
+The `_schemaURL` of the `mloda` facet and of the community `mloda*` facets points at the facet's module in this repository at the installed release tag (`.../blob/<version>/...`), so a facet shape change between releases changes the URL; it is not a hosted JSON schema. An uninstalled source checkout names `main`, and an install built from unreleased code names the last release.
 
 ## Testing
 
@@ -442,7 +417,7 @@ The `_schemaURL` of the `mloda` facet and of the community `mloda*` facets point
 - `ProviderCloseTestMixin` (`mloda.testing.extenders.flush`, no OTel dependency), for extenders whose `close()` flushes one provider: it pins the bounded, never-raising close. `sink_noun()` must be non-None and equal the constructor kwarg name, and the extender needs a `close_timeout` attribute. Compose it with `ExtenderContractTestMixin` and add `ambient_provider_getter` (patch target of the ambient lookup) and `flushed_signal` (`"spans"` or `"metrics"`). A flush that returns `False` or outlasts the close budget must log exactly `<Owner> did not flush all <flushed_signal> within its close budget`, the text `flush_on_close` emits
 - `ProviderFlushTestMixin` (same module), the flush cases `ProviderCloseTestMixin` builds on, for anything else that flushes one provider through `flush_on_close`, such as a sink with a `flush()` method and a `close_timeout` attribute. Implement `make_flusher`, `flush`, `flush_noun` and `flushed_signal`; override `provider_in_effect` when the provider is resolved from the ambient lookup rather than injected, and `flush_logger_name` to count only that logger's warnings. Its cases keep their `test_close_*` names on every host
 
-The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and exception type, never the message, and the message never reaches a span or an event.
+The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and exception type, never the message, and the message never reaches a span or an event. Both mixins supply `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. They also set `supports_pickled_sink_capture()` to `True` and supply `injected_sink_capture`, exercising the picklable injected sink preservation.
 
 ### ExtenderContractTestMixin
 
@@ -454,7 +429,7 @@ For an extender with an external sink, override `ambient_sink_environment` plus 
 
 A host with `has_backend_sink() == True` must also implement `make_injected_and_sdk_defaults_extender` (an extender with an injected sink and `use_sdk_defaults=True`) and `make_extender_with_sink_probe` (an extender wired to a fresh, per-instance in-memory sink, plus a zero-arg callable returning what that exact sink captured; must be per-instance state, never shared/class-level, or the identity test below is vacuous). Real-worker `MULTIPROCESSING` coverage is opt-in, separate from `has_backend_sink`: override `supports_real_worker_sink` to `True` and implement `make_real_worker_extender_and_marker(tmp_path)` (an extender wired to a file-backed sink under `tmp_path`, plus the marker file a spawned worker's emission writes to) only on a host that actually wants this coverage; it spawns a real subprocess, so it is deliberately not inherited automatically the way `has_backend_sink` is, and a lightweight self-test host should leave it at the default `False`.
 
-The real-worker test needs `ParallelRunnerFlightServer`, which has no public re-export and cannot be imported anywhere under `mloda/` (this repo's internal-import guard forbids it). Its `flight_server` fixture instead lives in a `conftest.py` at the repo root, outside the guard's scan, and the contract test reaches it lazily via `request.getfixturevalue("flight_server")` rather than a parameter or an import. A downstream host outside this repo that opts into `supports_real_worker_sink()` must supply its own `flight_server` fixture: this repo's lives in its root `conftest.py`, but the published `mloda-testing` package does not ship one.
+A host outside this repo that opts into `supports_real_worker_sink()` must supply its own `flight_server` fixture; the published `mloda-testing` does not ship one.
 
 ```py
 from contextlib import AbstractContextManager
@@ -504,12 +479,12 @@ The mixin pins:
 - when `supports_unpicklable_sink_degrade()` is `True`: an unpicklable injected sink is dropped and warned about exactly once across repeated pickling, and the resulting copy still wraps a call
 - `run_all` round trips (one success, one wrapped failure)
 - a `run_all` round trip through a CSV load (`run_csv_feature`, fires `INPUT_DATA_LOAD`) returns the loaded column unchanged, so an extender that changes the loaded CSV data fails it
-- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration and emits into it, not merely looks it up (skipped when `ambient_sink_captured` returns `None`); an injected sink ignores ambient configuration entirely; a `run_all` under `SYNC` or `THREADING` (no real subprocess, so core never pickles the extender) reaches the exact injected sink object, with no drop-warning logged; a pickled `use_sdk_defaults=True` copy still resolves the sink from ambient configuration. Hosts for extenders with no external sink must explicitly return `False` from `has_backend_sink()` to skip these tests; omitting the declaration raises `NotImplementedError`, preventing accidental skipping of backend contract checks
+- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration and emits into it, not merely looks it up (skipped when `ambient_sink_captured` returns `None`); an injected sink ignores ambient configuration entirely; a `run_all` under `SYNC` or `THREADING` (no real subprocess, so core never pickles the extender) reaches the exact injected sink object, with no drop-warning logged; a pickled `use_sdk_defaults=True` copy still resolves the sink from ambient configuration. Hosts for extenders with no external sink must explicitly return `False` from `has_backend_sink()` to skip these tests; omitting the declaration raises `NotImplementedError`
 - when `supports_real_worker_sink()` is `True`: a real spawned `MULTIPROCESSING` worker reaches the exact injected sink (a marker file exists), with no drop-warning logged; if `supports_unpicklable_sink_degrade()` is also `True`, an unpicklable injected sink degrades gracefully there too (the run still completes, and a drop-warning is logged from the parent process, where core's own preflight pickle check runs before the worker is ever spawned)
 
 ### OtelExtenderTestMixin
 
-Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names`, `expected_span_name(context)` (per-context name, defaults to the `expected_span_names()` entry for the hook; override it when a name depends on the context, such as `calculate <FeatureGroup>`) and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising the picklable injected sink preservation.
+Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names`, `expected_span_name(context)` (per-context name, defaults to the `expected_span_names()` entry for the hook; override it when a name depends on the context, such as `calculate <FeatureGroup>`) and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test).
 
 `own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
@@ -556,74 +531,13 @@ There is no metrics counterpart of `OtelExtenderTestMixin`. A metrics extender h
 - `RebuildingMetricCaptureProvider`: picklable provider for `make_real_worker_extender_and_marker`, writes metric names to the marker file only on `force_flush()`, so `close()` must flush
 - `FileMetricExporter`: the marker-file exporter behind it
 
-```py
-from collections.abc import Callable
-from contextlib import AbstractContextManager
-from typing import Any
-from unittest.mock import patch
-
-from mloda.steward import Extender
-from opentelemetry.sdk.metrics import MeterProvider
-
-from mloda.testing.extenders.contract import ExtenderContractTestMixin
-from mloda.testing.extenders.flush import ProviderCloseTestMixin
-from mloda.testing.extenders.otel import make_metric_capture, meter_provider_resolution_spy, metric_names
-
-
-class TestMyMetricsExtenderContract(ExtenderContractTestMixin, ProviderCloseTestMixin):
-    @classmethod
-    def extender_class(cls) -> type[MyMetricsExtender]:
-        return MyMetricsExtender
-
-    def make_extender(self, *, raise_on_error: bool | None = None) -> MyMetricsExtender:
-        provider, _ = make_metric_capture()
-        if raise_on_error is None:
-            return MyMetricsExtender(meter_provider=provider)
-        return MyMetricsExtender(meter_provider=provider, raise_on_error=raise_on_error)
-
-    def own_failure(self) -> AbstractContextManager[Any]:
-        return patch.object(MeterProvider, "get_meter", side_effect=RuntimeError("boom"))
-
-    @classmethod
-    def raise_on_error_default(cls) -> bool:
-        return False
-
-    @classmethod
-    def has_backend_sink(cls) -> bool:
-        return True
-
-    def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
-        return meter_provider_resolution_spy()
-
-    def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
-        return [name for reader in spy for name in metric_names(reader.get_metrics_data())]
-
-    def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
-        provider, reader = make_metric_capture()
-        return MyMetricsExtender(meter_provider=provider), lambda: metric_names(reader.get_metrics_data())
-
-    def make_injected_and_sdk_defaults_extender(self) -> Extender:
-        provider, _ = make_metric_capture()
-        return MyMetricsExtender(meter_provider=provider, use_sdk_defaults=True)
-
-    @classmethod
-    def sink_noun(cls) -> str | None:
-        return "meter_provider"
-
-    @classmethod
-    def ambient_provider_getter(cls) -> str:
-        return "opentelemetry.metrics.get_meter_provider"
-
-    @classmethod
-    def flushed_signal(cls) -> str:
-        return "metrics"
-```
+Implement `extender_class`, `make_extender`, `own_failure`, `raise_on_error_default` (`False`), `has_backend_sink` (`True`), `sink_resolution_spy` (return `meter_provider_resolution_spy()`), `ambient_sink_captured`, `make_extender_with_sink_probe`, `make_injected_and_sdk_defaults_extender`, `sink_noun` (`"meter_provider"`), `ambient_provider_getter` (`"opentelemetry.metrics.get_meter_provider"`) and `flushed_signal` (`"metrics"`).
 
 Optional on top: `expected_hooks`, `sink_probe_expected_content` (metric names the probe and a real worker's marker must contain, such as `{"mloda.step.duration"}`), `supports_unpicklable_sink_degrade` with `make_unpicklable_sink_extender`, and `supports_real_worker_sink` with `make_real_worker_extender_and_marker` (needs a `flight_server` fixture, see above). [`TestOtelMetricsExtenderContract`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/tests/test_otel_metrics_extender.py) is the full host; its `ProviderWarningTestMixin` base is internal to this repo and not part of `mloda-testing`.
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising the picklable injected sink preservation. Optional: `calculate_run_events(events)` returns only the events of the calculate runs (the default drops the root-job parent run events); override it in a host that also emits other runs, such as nested validation runs, so the `run_all` tests that count COMPLETE events or inputs ignore them. A subclass of `OpenLineageExtender` can call `assert_openlineage_extender_seams(MyExtender, OpenLineageExtender)` to check that the subclass body keeps the declared seams and touches no other private base member (`MyExtender` must be constructible with no arguments).
+Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. Optional: `calculate_run_events(events)` returns only the events of the calculate runs (the default drops the root-job parent run events); override it in a host that also emits other runs, such as nested validation runs, so the `run_all` tests that count COMPLETE events or inputs ignore them. A subclass of `OpenLineageExtender` can call `assert_openlineage_extender_seams(MyExtender, OpenLineageExtender)` to check that the subclass body keeps the declared seams and touches no other private base member (`MyExtender` must be constructible with no arguments).
 
 ```py
 from openlineage.client.client import OpenLineageClient
@@ -665,8 +579,6 @@ Record the context's `data_access_identity`, not `args[0]`: a host that records 
 
 `RecordingTransport`, `LockHoldingTransport`, `FileTransport` (writes emitted event types to a marker file, for `make_real_worker_extender_and_marker`) and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 
-`make_hook_context` builds a `HookContext` for direct `__call__` tests.
-
 ### Asserting on warnings
 
 Count only the WARNING records of the logger that emits the warning under test, never every record in `caplog.records`. Core logs some warnings once per process (for example "not registered in the plugin registry" under `MLODA_PLUGIN_REGISTRY_STRICT=warn`), so under pytest-xdist such a record appears only if no earlier test in the worker triggered it. For your extender's own warnings, filter by its module's logger:
@@ -691,10 +603,10 @@ The warning-only fallback warning is logged by core's extender logger, not your 
 
 | File | Description |
 |------|-------------|
-| [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans for calculate, validate, load and join hooks, metadata-only by default; a `mloda.run` root span per run (`trace_scope="plan"` adds a `mloda.plan` parent) and `calculate <FeatureGroup>` step spans; a load span nests under its enclosing calculate span when one is active, else under the run root, the carrier or `run_id`; `classification_undeclared` adds the effective level to calculate spans; inert until a `tracer_provider` is injected or `use_sdk_defaults=True` with an SDK tracer provider configured (`mloda-community-otel`) |
+| [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans for calculate, validate, load and join hooks, metadata-only by default (`mloda-community-otel`) |
 | [otel_metrics_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_metrics_extender.py) | OpenTelemetry metrics (step and run durations, step row counts) for the same hooks as `OtelExtender`, as a separate extender; inert until a `meter_provider` is injected or `use_sdk_defaults=True` with an SDK meter provider configured (`mloda-community-otel`) |
-| [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, row-count (`outputStatistics`), data-source, declared-attribute (`mlodaDeclared`, on input and output datasets), step-version and Implementation (`mlodaStep`), mloda-version (`processingEngine`, root run), parent-run and `ownership` (job owner from a declared `mloda.owner`, dataset owners from `dataset_owners`) facets; `classification_undeclared` adds a `tags` facet to output datasets; inert until a `client` is injected or `use_sdk_defaults=True` (`mloda-community-openlineage`) |
-| [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run at `on_run_start` or match time, before any feature is calculated, and allows a complete run identity that differs from the plan's) that also lists the identity and format of each distinct data load the call attempted (core's `data_access_identity`, recorded as given), core's fallback flag and the declared attributes per load, plus the feature group's own in `feature_group_declared_attributes`; a sink failure after a successful calculation fails the run by default; every record is `record_version` 2 and carries a `policy_version`; `classification=ClassificationPolicy(...)` refuses a run requesting data above the caller's clearance (and, by default, a source group declared above it at plan time), with levels propagated through inputs and capped only by a declared masking group; `TeeAuditSink` writes a record to several sinks and `OtelLogAuditSink` (extra `mloda-enterprise[otel]`) emits it as an OpenTelemetry log record; constructed with `audit_path`, `manifest_path` and `signer`, `AuditExtender` seals each run itself from `on_run_complete`; each `run()` of a prepared session gets a fresh `run_id` and is audited and sealed as its own run; a `run_id` reused by hand writes records outside its seal, which `on_run_complete` counts as a seal failure and which `verify_ndjson_log_coverage` keeps reporting; do not run one prepared auto-sealing session concurrently, since a run sealed while another `run()` is still calculating leaves that run's later records outside the seal; a plan-time `fail_closed` refusal has no `run_id`, so its record is attributed to its `plan_id` (records carry a `plan_id` key); `on_plan_complete` seals it under its `plan_id` when the extender wrote a plan-time record for that plan, and a manual `seal_ndjson_runs` sweep seals it for an extender without a sealing config; auto-sealing can emit each new head to a `head_anchor` (`NdjsonHeadAnchor`), applies `seal_failure_policy` to a failed seal, and takes an opt-in `seal_index_path` seal index so a seal avoids re-reading the whole logs, and can rotate its segment after a seal past `segment_max_bytes` or `segment_max_age`; which otherwise seals a finished run manually into a signed, hash-chained manifest that `verify_ndjson_log` checks, `rotate_manifest_key` records a key change, `rotate_ndjson_segment` archives the logs into numbered segments and `verify_ndjson_segments` verifies them as one chain, `quarantine_damaged_lines` is the repair path for a torn log and `quarantine_from_rotation_entry` for a wrongly appended rotation entry; `Ed25519Signer` (extra `mloda-enterprise[ed25519]`) makes seals non-repudiable and verifiable with the public key alone, and the unchanged `ManifestSigner` protocol lets a KMS-backed signer plug in later (none ships yet) (`mloda-enterprise-audit`, license agreement for production use) |
+| [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, row-count, data-source, declared-attribute, step, ownership and parent-run facets (`mloda-community-openlineage`) |
+| [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit records with identity and classification gates, sealing, anchoring and rotation (`mloda-enterprise-audit`, license agreement for production use) |
 | [lineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/lineage/lineage_extender.py) | Used instead of `OpenLineageExtender`: adds column lineage, declared masking, validator-outcome assertions and a `mloda` run facet with a structure hash (`mloda-enterprise-lineage`, extra `mloda-enterprise[openlineage]`, license agreement for production use) |
 | [contract.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/extenders/contract.py) | Extender contract test mixin (mloda-testing) |
 | [test_composite_extender.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/extender/test_composite_extender.py) | Chaining tests |

@@ -19,7 +19,7 @@ Divergences fall into four kinds, each with its own mitigation.
 | Implementation fix | Polars `sum()` returns `0` for an all-null group; PyArrow returns `null`. | The framework implementation detects the edge case and returns the PyArrow-equivalent result. |
 | Excluded op | SQLite `UPPER`/`LOWER` are ASCII-only; `REVERSE` has no native function. | `SqliteStringOps.supported` makes the group refuse to resolve the feature; `supported_ops()` skips the corresponding tests. See [Supported ops](04-supported-ops.md). |
 | Accepted tolerance | Float accumulation order differs between columnar reductions and SQL window functions. | Cross-framework comparison uses `pytest.approx(rel=1e-6)` when the test flips `use_approx=True`. |
-| Collision-free helper naming | Row-preserving implementations tag rows with helper columns (to restore input order after a reordering window function). A user column with the same name would collide silently. | Every backend picks a collision-free helper name at runtime, so any user column name is accepted. The SQL backends (DuckDB, SQLite) use `pick_helper_column_name`; the pandas/polars/pyarrow backends use `unique_helper_name` (`helper_columns.py`). The old `__mloda_` reject-guard was removed in #221. |
+| Collision-free helper naming | Row-preserving implementations tag rows with helper columns (to restore input order after a reordering window function). A user column with the same name would collide silently. | Every backend picks a collision-free helper name at runtime, so any user column name is accepted. The SQL backends (DuckDB, SQLite) use `pick_helper_column_name`; the pandas/polars/pyarrow backends use `unique_helper_name` (`helper_columns.py`). |
 
 An entry is added here only after a cross-framework test or an explicit audit has confirmed the divergence.
 
@@ -158,7 +158,6 @@ regression_test:
 - **Mitigation kind**: Excluded op.
 - **How**: `SqliteStringOps.supported` is `frozenset(_SQLITE_STRING_EXPRS)` (trim, length). Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteFramework"]` is rejected at match time, so another enabled framework serves them or resolution fails. The test class mirrors the decision through `supported_ops()`.
 - **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and `supported_ops()` restricts the test suite to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
-- **Related**: Resolved from #146 via #147.
 
 ### Float accumulation order across SQL engines vs. columnar reductions
 
@@ -206,7 +205,6 @@ regression_test:
 - **Mitigation kind**: Excluded op (from the test suite and from routing, since no PyArrow Implementation exists).
 - **How**: Frame aggregate, offset, percentile and rank have no PyArrow test class, so the suite never compares against an implementation that does not exist. Aggregation and window aggregation do ship PyArrow Implementations but declare a reduced capability (`PyArrowAggregation.supported`, `PyArrowWindowAggregation.supported`), so `median` and `mode` are not offered there; their PyArrow test classes mirror it through `supported_agg_types()`. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
 - **Regression signal**: Restoring the op on PyArrow requires both providing a native implementation and re-expanding the supported set; no silent skip is possible.
-- **Related**: This is the "Category 1" case described in issue #146; listed here for completeness.
 
 ### Internal helper-column name collisions
 
@@ -228,26 +226,8 @@ regression_test:
 - **Reference behavior**: PyArrow's reference implementation does not need helper columns and is silent about column names starting with `__mloda_`.
 - **Native framework behavior**: An implementation that adds an internal helper column (for example to record original row order before a reordering window function) under a hardcoded name would overwrite user data or be dropped silently if the input already carried a column with that name.
 - **Mitigation kind**: Collision-free naming.
-- **How**: Before adding a helper, each backend requests a name that is provably absent from the current frame. `unique_helper_name(base, taken)` returns `base` if absent, else the lowest `base_N` (N>=1) not in `taken`; `pick_helper_column_name(taken=set(data.columns) | {feature_name})` does the equivalent for the SQL relations. There is no reserved namespace and no `__mloda_` reject-guard: the earlier `assert_no_reserved_columns()` / `RESERVED_PREFIX` mechanism was removed in #221, so user columns of any name (including `__mloda_`-prefixed) are accepted by every backend.
+- **How**: Before adding a helper, each backend requests a name that is provably absent from the current frame. `unique_helper_name(base, taken)` returns `base` if absent, else the lowest `base_N` (N>=1) not in `taken`; `pick_helper_column_name(taken=set(data.columns) | {feature_name})` does the equivalent for the SQL relations. There is no reserved namespace, so user columns of any name (including `__mloda_`-prefixed) are accepted by every backend.
 - **Regression signal**: `mloda/community/feature_groups/data_operations/tests/test_helper_columns.py` unit-tests `unique_helper_name`. The shared `ReservedColumnsTestMixin` runs per framework and asserts that a `__mloda_`-prefixed user column is accepted (the call returns a non-null result) on every backend. The mixin also checks that user columns named like the real helpers survive unchanged, and that `reserved_columns_extra_feature_names` features (names or `(name, context)` pairs, e.g. masked; paths with secondary helpers) match the reference.
-
-### SQLite lacks `percentile` and `reverse` (and the string ops above)
-
-<!-- machine-checked
-operation: percentile, string
-framework: sqlite
-condition: SQLite has no percentile implementation and no native reverse
-mitigation_location:
-- mloda/community/feature_groups/data_operations/string/sqlite_string.py
-regression_test:
-- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_unsupported_op_does_not_match
-- mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py::test_framework_support_matrix_is_in_sync
--->
-
-- **Operations**: `row_preserving/percentile` and `string`.
-- **Mitigation kind**: Excluded op.
-- **How**: SQLite has no `percentile` test class at all (`row_preserving/percentile/tests/` ships no `test_sqlite.py`), and `SqliteStringOps.supported` restricts SQLite string to `trim` and `length` (the test class mirrors it through `supported_ops()`). The missing percentile column is pinned by the framework-support-matrix drift check.
-- **Related**: Category 1 of issue #146.
 
 ### SQLite and DuckDB time-frame use correlated subqueries (O(N^2) per partition)
 
@@ -265,7 +245,6 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
 - **How**: Both backends issue a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND s.{ts} >= t.{ts} - delta AND (s.{ts} < t.{ts} OR (s.{ts}=t.{ts} AND s.{tiebreak}<=t.{tiebreak}))`. SQLite uses `julianday()` arithmetic (preserves sub-second precision; `datetime()` would truncate) with `rowid` as the peer tiebreaker. DuckDB uses `INTERVAL '{N}' {unit}` arithmetic with `ROW_NUMBER()` as the tiebreaker. The tiebreaker is required to match the reference's positional `rows[:pos+1]` semantics on same-ts peers; SQL `RANGE` windows and `BETWEEN` predicates without a tiebreaker include all peers (both earlier and later in physical position).
-- **Related**: parent #183, implementing #202.
 
 ### Polars time-frame adds 1ns-per-row offset to break same-ts peer ties
 
@@ -282,7 +261,6 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
 - **How**: Polars `rolling_*_by` with `closed="both"` is value-based and includes every row whose `by` value equals the current row's value, even peers that come later in physical position. The reference uses `rows[:pos+1]` after a stable sort, excluding later peers. `polars_lazy_frame_aggregate.py` casts the `order_by` column to `datetime[ns]` and adds `pl.duration(nanoseconds=row_index)` into a temporary `__mloda_synth_ts__` column, then runs `rolling_*_by` on the synthetic column. The window string is extended by `{N}ns` (where N is total row count) so a peer at the exact lower bound is not lost to the offset. The synthetic column is dropped before returning. See `polars_lazy_frame_aggregate.py`.
-- **Related**: parent #183, implementing #202.
 
 ### SQLite + Pandas reject month/year time windows
 
@@ -301,7 +279,6 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate` (only `time` frame type with `month`/`year` units).
 - **Mitigation kind**: Excluded unit.
 - **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the reference. Pandas `.rolling(window="...", on=ts)` only accepts fixed-frequency offsets and has no native calendar-anchored option. Rather than fall back to a Python loop (which would defeat the point of running inside the engine), both `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` and `PandasFrameAggregate.SUPPORTED_TIME_UNITS` exclude `month`/`year` and `accepts` reads them, so features like `value__sum_1_month_window` fail resolution on those frameworks. Both support `second`/`minute`/`hour`/`day`/`week`. Polars and DuckDB express month/year natively and remain ✓ for those units.
-- **Related**: parent #183, implementing #202.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
 
@@ -319,7 +296,6 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Excluded test + explicit runtime error.
 - **How**: `pandas.DataFrame.groupby(...).rolling(on=ts)` raises `"ts values must not have NaT"`; Polars `rolling_*_by` panics. Both `PandasFrameAggregate._compute_frame` and `PolarsLazyFrameAggregate._compute_frame` pre-check the `order_by` column for nulls when `frame_type == "time"` and raise a `ValueError` naming the framework and column, turning the cryptic native error into an explicit refusal. `FrameAggregateTestBase.supports_null_order_in_time_window()` defaults `True`; pandas + polars-lazy override to `False`, skipping `test_cross_framework_time_window_with_null_cutoff`. DuckDB and SQLite implement the reference behavior (window = `[self]`) and run the test.
-- **Related**: parent #183, implementing #202.
 
 ### Pandas frame_aggregate rejects min, max and median over a datetime or timedelta source
 
@@ -356,7 +332,6 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate` (aggregation-type axis of `supported` / `accepts`).
 - **Mitigation kind**: Excluded agg type.
 - **How**: SQLite has no native `STD`/`VAR`/`MEDIAN` window functions, so `SqliteFrameAggregate.supported` is `_SQLITE_AGG_FUNCS` (`sum`/`avg`/`count`/`min`/`max`), rejecting `std`/`var`/`median` for every frame type. Polars has no cumulative `cum_std`/`cum_var`/`cum_median`, so `PolarsLazyFrameAggregate.accepts` rejects those agg types for `cumulative`/`expanding` frames and accepts every agg type for `rolling`/`time`. The group checks `supported` and `accepts` when it checks the framework, so unsupported combinations fail resolution rather than failing later inside `_compute_frame`. Pandas and DuckDB declare no restriction and support all eight agg types. Core's `subtype_support_matrix()` reads only `supported`, so it lists every agg type for Polars; `DataOperationsCatalog` probes the real check and is exact.
-- **Related**: issue #296.
 
 ### PythonDict NaN partition keys merge into one group; min/max/median/percentile skip NaN
 
@@ -388,7 +363,7 @@ regression_test:
 - **Native PythonDict behavior (unmitigated)**: `float('nan')` never equals another NaN, so a raw `tuple(col[i] for col in partition_cols)` group key splits every NaN-valued row into its own singleton group. Python's builtin `min()`/`max()`, `statistics.median`, and `sorted()`-based percentile interpolation propagate NaN instead of skipping it.
 - **Mitigation kind**: Implementation fix.
 - **How**: Most PythonDict backends build their group key through `group_key_value`, which substitutes a shared sentinel for any NaN component so NaN-keyed rows land in one group; `reduce_agg`'s `min`/`max`/`median` branches and `_percentile_of` filter NaN out of the reduced value list before reducing, matching PyArrow's skip-NaN semantics, and `min`/`max` return NaN (not null) when every non-null value in the group is NaN. `python_dict_sessionization.py` is the exception: it never calls `group_key_value`. Instead it sorts raw partition-key values through `partition_sort_key` (which gives NaN and None each their own contiguous sort tier) and compares adjacent sorted rows with `values_equal` (NaN-safe equality), so two NaN-keyed rows still land in one contiguous, un-poisoned session without ever building a normalized key.
-- **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow-oracle comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it. `test_median_skips_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `1.0`, the flip from the median's previous position-dependent NaN handling. `test_min_all_nan_returns_nan`/`test_max_all_nan_returns_nan` pin an all-NaN group to NaN, not null.
+- **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow-oracle comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it. `test_median_skips_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `1.0`. `test_min_all_nan_returns_nan`/`test_max_all_nan_returns_nan` pin an all-NaN group to NaN, not null.
 
 ### Pandas and SQLite cannot tell NaN from null
 
@@ -595,30 +570,7 @@ regression_test:
 - **Cross-framework check**: PythonDict, pandas and SQLite give `[2, 2, 2, 1]` (None and NaN tied). Pandas ties because a float64 column cannot distinguish NaN from null; SQLite ties because the sqlite3 driver coerces NaN to NULL on ingest, so `RANK()` never sees a NaN. PythonDict is the only backend that can represent both and chooses to tie them. `PythonDictRank`, `PandasRank` and `SqliteRank` declare this as `divergent` for `rank`, `dense_rank` and `percent_rank` (`row_number`, `ntile`, `top` and `bottom` are not declared).
 - **Mitigation kind**: Accepted divergence (no mitigation attempted).
 - **How**: `nulls_last_sort_key` and `order_values_equal` fold NaN and `None` into one null-like tier (`is_null_like`) on purpose: this fixes a tie-run-splitting bug where a NaN row could sort between two None rows and break the run. Splitting them would trade agreement with pandas for agreement with PyArrow 25/DuckDB/Polars, a lateral move, and reopen that bug, so the divergence is documented instead of mitigated.
-- **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` returns `"rank" not in implementation_class().divergent`, so it is `False` exactly for the three divergent implementations. The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run. `reference_rank` previously compared ties with plain `==` and hung on NaN (`nan == nan` is `False`, so the tie loop never advanced); its local tiering fixed that.
-
----
-
-## Audit coverage (2026-05-28)
-
-The full audit covered all twelve data operations: `binning`, `datetime`, `frame_aggregate`, `offset`, `percentile`, `point_arithmetic`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `window_aggregation`, `aggregation`, `string`. Every implementation file and every `*TestBase` was read.
-
-| Operation | Frameworks audited | New divergence found? |
-|---|---|---|
-| aggregation | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
-| binning | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No |
-| datetime | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No |
-| frame_aggregate | Pandas, Polars lazy, DuckDB, SQLite | No |
-| offset | Pandas, Polars lazy, DuckDB, SQLite | No |
-| percentile | Pandas, Polars lazy, DuckDB | No (float tolerance already accepted) |
-| point_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | Yes: SQLite divide-by-zero returns NULL instead of inf/nan (documented as accepted divergence above) |
-| rank | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
-| scalar_aggregate | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No |
-| scalar_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (PyArrow int÷int truncation mitigated by explicit float cast) |
-| string | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (SQLite ASCII mitigated) |
-| window_aggregation | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
-
-One unmitigated divergence is documented above (SQLite `point_arithmetic` divide-by-zero), declared as `SqlitePointArithmetic.divergent` and read by the test hook `divide_zero_propagates_inf()`, so the cross-framework regression guard pins the expected behavior on each backend. The `expected_*()` hooks defined on `StringTestBase` (`expected_upper`, `expected_lower`, `expected_trim`, `expected_length`, `expected_reverse`) are present for future use but are not currently overridden by any framework: after #147, SQLite no longer matches the unicode-unsafe ops instead of returning a divergent result.
+- **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` returns `"rank" not in implementation_class().divergent`, so it is `False` exactly for the three divergent implementations. The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run.
 
 ---
 

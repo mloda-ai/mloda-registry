@@ -96,8 +96,8 @@ _ITEM_RE = re.compile(r"^-\s+(.+)$")
 def _entries_section(doc: str) -> str:
     """Return the text of the ``## Entries`` section, up to the next ``## `` heading.
 
-    Bounding on the next level-2 heading keeps the ``## Categories``,
-    ``## Audit coverage`` and ``## When to add`` sections out of the entry set:
+    Bounding on the next level-2 heading keeps the ``## Categories`` and
+    ``## When to add`` sections out of the entry set:
     only ``### `` headings between ``## Entries`` and the following ``## `` count
     as divergence entries.
     """

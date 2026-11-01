@@ -1,7 +1,5 @@
 # Pattern 2: Simple Derived Features
 
-Derived features transform existing features with a static name (no naming pattern).
-
 **What**: Features that transform one or more input features into a single output.
 **When**: You have a fixed transformation with a static output name (e.g., `TotalRevenue`).
 **Why**: Most business logic features are derived: combining, transforming, or enriching data.

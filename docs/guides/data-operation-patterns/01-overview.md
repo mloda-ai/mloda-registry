@@ -19,7 +19,7 @@ Data operations are feature groups that transform existing columns using declara
 | Row-changing | `row_changing/` | Output row count differs from input | resample (collapse events onto a regular time grid) |
 | String | `string/` | Row-preserving, element-wise on strings | upper, lower, trim, length, reverse |
 
-Row-preserving is the largest category because analytic transforms that broadcast a computed value back onto each row (ranks, running totals, bin labels) all share the same invariant.
+Row-preserving is the largest category because analytic transforms that broadcast a computed value back onto each row (ranks, running totals, bin labels) all share the same invariant. `row_preserving/` also holds `arithmetic`, a shared base rather than a category.
 
 ---
 
@@ -47,15 +47,7 @@ Every data operation encodes its parameters directly in the feature name. The pr
 | Resample | `{col}__resample_{n}_{unit}_{agg}` | `value__resample_1_hour_mean` (with `time_column` in Options) |
 | String | `{col}__{str_op}` | `name__upper`, `text__length` |
 
-The full pattern regex for each category lives in the corresponding `base.py`. For example:
-
-```python
-from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
-from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
-
-AggregationFeatureGroup.PREFIX_PATTERN  # r".*__([\w]+)_agg$"
-StringFeatureGroup.PREFIX_PATTERN  # r".+__(upper|lower|trim|length|reverse)$"
-```
+The full pattern regex for each category is `PREFIX_PATTERN` in the corresponding `base.py`.
 
 Aggregation is one `AggregationFeatureGroup` (an `OperationFeatureGroup`) with one `Implementation` per framework, named like `PandasAggregation`; pin one with `Feature(..., implementation=PandasAggregation)` (the class) or the qualified string `"module:Class"`. A bare name such as `"PandasAggregation"` works only when it is unique among loaded classes; core ships Implementations with the same names. Window, scalar and frame aggregate have the same shape (`WindowAggregationFeatureGroup`, `ScalarAggregateFeatureGroup`, `FrameAggregateFeatureGroup`, Implementations named like `PandasWindowAggregation`), and so do point and scalar arithmetic and lookup (`PointArithmeticFeatureGroup`, `ScalarArithmeticFeatureGroup`, `LookupFeatureGroup`, Implementations named like `PandasPointArithmetic` or `PandasLookup`), time bucketization, ffill, EMA, resample and sessionization (`TimeBucketizationFeatureGroup`, `FfillFeatureGroup`, `EmaFeatureGroup`, `ResampleFeatureGroup`, `SessionizationFeatureGroup`, Implementations such as `PandasFfill`), rank, offset and percentile (`RankFeatureGroup` with `PandasRank`, `OffsetFeatureGroup` with `PandasOffset`, `PercentileFeatureGroup` with `PandasPercentile`), and string, datetime and binning (`StringFeatureGroup` with `PyArrowStringOps`, `DateTimeFeatureGroup` with `DuckdbDateTimeExtraction`, `BinningFeatureGroup` with `PandasBinning`).
 
@@ -90,12 +82,3 @@ grouped_result = mloda.run_all(grouped, compute_frameworks=["PandasDataFrame"], 
 ```
 
 Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space. Aggregations with a different `partition_by` need separate `run_all` calls.
-
----
-
-## Where to go next
-
-- [Row-preserving contract](02-row-preserving-contract.md) explains the central invariant that shapes most of this section.
-- [Reference implementation pattern](03-reference-implementation.md) explains which reference each operation uses (PyArrow or pure Python).
-- [Known divergences](known-divergences.md) lists every audited case where a framework would otherwise produce a different result, and the mitigation for each.
-- [Adding a new data operation](10-adding-new-operation.md) is the end-to-end recipe if you want to extend this system.

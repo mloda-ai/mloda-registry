@@ -55,55 +55,11 @@ result = mloda.run_all(
 result = mloda.run_all([Feature("price"), Feature("quantity")], api_data=prices)
 ```
 
-| Option | Behavior |
-|--------|----------|
-| `"request_order"` | Columns match feature request sequence |
-| `"alphabetical"` | Columns sorted A-Z |
-| `None` (default) | No guaranteed ordering |
+## Streaming and Realtime
 
-## Streaming
+For incremental results use [`stream_all`](feature-group-patterns/23-streaming.md); to build the plan once and rerun it with fresh data use [`prepare` + `run`](feature-group-patterns/24-realtime.md).
 
-Process results incrementally as each feature group completes:
-
-```python
-from mloda.user import PluginLoader, stream_all, Feature
-
-PluginLoader.all()
-
-api_data = {"MyKey": {"feature_a": [1, 2], "feature_b": [3, 4]}}
-
-for result in stream_all([Feature("feature_a"), Feature("feature_b")], api_data=api_data):
-    print(result)
-```
-
-See [Streaming Results](feature-group-patterns/23-streaming.md) for details.
-
-## Realtime
-
-Build the execution plan once and reuse it for repeated calls with fresh data:
-
-```python
-from mloda.user import PluginLoader, mloda, Feature
-
-PluginLoader.all()
-
-session = mloda.prepare([Feature("col")], compute_frameworks=["PandasDataFrame"], api_data={"MyKey": {"col": [0]}})
-result = session.run(api_data={"MyKey": {"col": [1, 2]}})
-```
-
-`run()` needs the same set keys and column names as `prepare()`.
-
-See [Realtime Execution](feature-group-patterns/24-realtime.md) for details.
-
-## Direct Import
-
-You can also import plugin classes directly:
-
-```python
-from mloda.community.feature_groups.example import CommunityExampleFeatureGroup
-```
-
-### Names Claimed by an Installed Package
+## Names Claimed by an Installed Package
 
 The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` answers `revenue` and `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, only when a ledger source (a GDPdU dossier or DATEV batch folder) is in the data access collection or a reader option points at one, so a plain CSV `revenue` column resolves as usual. A request needs `feature_group=` only when the same collection also holds another source that answers the name; the example scopes the ledger's own group (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
 

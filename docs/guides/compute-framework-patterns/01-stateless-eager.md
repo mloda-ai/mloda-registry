@@ -8,15 +8,6 @@ Stateless eager frameworks execute operations immediately in-memory.
 **Where**: Pandas, PyArrow, Polars DataFrame.
 **How**: Implement `is_available()`, `expected_data_framework()`, `merge_engine()`, `extract_column_names()`, `transform()`.
 
-## Key Characteristic
-
-| Property | Stateless Eager |
-|----------|-----------------|
-| Connection | Not required |
-| Evaluation | Immediate |
-| Data Location | In-memory |
-| Examples | PandasDataFrame, PyArrowTable, PolarsDataFrame |
-
 ## Complete Example
 
 ```python

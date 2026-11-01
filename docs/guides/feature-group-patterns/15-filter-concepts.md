@@ -19,8 +19,6 @@ How to use filters when computing features.
 | `regex` | `FilterType.REGEX` | `{"value": "pattern"}` |
 | `categorical_inclusion` | `FilterType.CATEGORICAL_INCLUSION` | `{"values": [a, b, c]}` |
 
-> **Note:** `FilterType` enum members use UPPER_CASE names (`FilterType.EQUAL`, `FilterType.MIN`, etc.). The underlying string values are unchanged, so `add_filter("col", "range", ...)` still works. Using the enum is preferred for type safety.
-
 ---
 
 ## Basic Usage
@@ -37,16 +35,6 @@ features = [Feature.not_typed(name) for name in ("age", "region", "my_feature")]
 
 result = mloda.run_all(features, global_filter=global_filter, api_data=api_data)
 assert result[0]["age"] == [30]
-```
-
-You can also use the `FilterType` enum directly:
-
-```python
-from mloda.user import GlobalFilter, FilterType
-
-global_filter = GlobalFilter()
-global_filter.add_filter("age", FilterType.RANGE, {"min": 18, "max": 65})
-global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
 ```
 
 ### Missing Values and Value Types
@@ -71,26 +59,6 @@ global_filter.add_time_and_time_travel_filters(
     event_time_column="reference_time",
 )
 ```
-
----
-
-## Applying Filters in Data Sources
-
-Data sources (DB, API, files) should apply filters during loading. Access via `features.filters`:
-
-```py
-@classmethod
-def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-    query = "SELECT * FROM table WHERE 1=1"
-    for f in features.filters:
-        if f.filter_type == "equal":
-            query += f" AND {f.filter_feature.name} = {f.parameter.value}"
-        elif f.filter_type == "range":
-            query += f" AND {f.filter_feature.name} BETWEEN {f.parameter.min_value} AND {f.parameter.max_value}"
-    # Execute query...
-```
-
-When a data source reads filters inline (e.g. pushing predicates into a SQL WHERE clause), the framework may still attempt row elimination after calculation. Use `final_filters()` to control this behavior (see below).
 
 ---
 
@@ -134,26 +102,13 @@ class SqlDataSource(FeatureGroup):
         for f in features.filters:
             if f.filter_type == "equal":
                 query += f" AND {f.filter_feature.name} = {f.parameter.value}"
+            elif f.filter_type == "range":
+                query += f" AND {f.filter_feature.name} BETWEEN {f.parameter.min_value} AND {f.parameter.max_value}"
         # All filtering done in SQL
         return execute(query)
 ```
 
-**Pattern 2: Defer to framework (default)**
-
-The FeatureGroup does not override `final_filters()`. The FilterEngine decides whether to apply row elimination.
-
-```python
-class DerivedFeature(FeatureGroup):
-    # No final_filters() override, defaults to None (defer to FilterEngine)
-
-    @classmethod
-    def calculate_feature(cls, data, features):
-        for feature in features.features:
-            data[feature.name] = data["source"] * 2
-        return data
-```
-
-**Pattern 3: Force row elimination**
+**Pattern 2: Force row elimination**
 
 The FeatureGroup reads filters inline for conditional logic but still wants the framework to eliminate rows afterward.
 
@@ -179,12 +134,9 @@ class ConditionalFeature(FeatureGroup):
 
 When `final_filters()` returns `True` (or the FilterEngine applies row elimination), the framework validates that every filter column exists in the FeatureGroup's output data. If a filter references a column that is not present, the framework raises a `ValueError`.
 
-This means: if your FeatureGroup reads filters inline and also requests row elimination, the filter columns must be present in the output. The framework uses `BaseFilterEngine.applicable_filters()` to determine which filters apply (only those whose column name appears in the FeatureSet output), then `_validate_filter_columns()` confirms those columns exist in the actual data before applying them.
-
 **What to watch for:**
 - If you return `True` from `final_filters()`, make sure filter columns survive your calculation (do not drop them from the output).
 - If a filter column is not in your FeatureSet's output names, the filter is silently skipped (it does not apply to your FeatureGroup).
-- The validation protects against bugs where a FeatureGroup claims to produce a column but actually does not include it in the returned data.
 
 ---
 

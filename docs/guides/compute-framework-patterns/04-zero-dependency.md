@@ -8,15 +8,6 @@ Zero dependency frameworks use pure Python with no external libraries.
 **Where**: Serverless functions, embedded systems, educational use.
 **How**: Same as Category 1, but skip `is_available()` and use a columnar `dict[str, list[Any]]`.
 
-## Key Difference from Category 1
-
-| Aspect | Category 1 (Eager) | Category 4 (Zero Dep) |
-|--------|-------------------|----------------------|
-| Dependencies | External library | **None** |
-| `is_available()` | Check import | Not needed (always True) |
-| Data format | Library-specific | `dict[str, list[Any]]` (columnar) |
-| Column access | `data.columns` | `data.keys()` |
-
 ## Data Format
 
 ```python

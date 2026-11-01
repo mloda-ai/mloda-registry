@@ -8,15 +8,6 @@ Data lake frameworks work with catalog-based table formats for large-scale data.
 **Where**: Apache Iceberg, Delta Lake, Apache Hudi.
 **How**: Like Category 3, but accepts catalog OR table; uses PyArrow interchange.
 
-## Key Difference from Category 3
-
-| Aspect | Category 3 (Stateful) | Category 5 (Data Lake) |
-|--------|----------------------|------------------------|
-| Connection type | Single type | Catalog **or** Table |
-| Merge engine | Usually supported | Often **not supported** |
-| Data interchange | Library-specific | PyArrow |
-| Type validation | Strict | Relaxed (accepts PyArrow too) |
-
 ## What's Different
 
 Flexible connection - accepts catalog or table:

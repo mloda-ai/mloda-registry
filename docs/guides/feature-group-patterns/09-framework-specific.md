@@ -1,7 +1,5 @@
 # Pattern 9: Framework-Specific Features
 
-An operation that runs on several frameworks is one `OperationFeatureGroup` plus one `Implementation` per framework.
-
 **What**: One operation group (matching, inputs, shared loop) and one `Implementation` class per compute framework.
 **When**: The same operation must run natively on Pandas, PyArrow, Polars, DuckDB, SQLite or others.
 **Why**: One feature name and one set of options for every framework; the framework is a deployment choice, not a new feature group.
@@ -313,22 +311,12 @@ class PandasOnlyGroup(FeatureGroup):
 | [aggregation/pandas_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py) | `PandasAggregation`, with `divergent` |
 | [aggregation/pyarrow_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/pyarrow_aggregation.py) | `PyArrowAggregation`, with `supported` |
 | [aggregation/sqlite_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/sqlite_aggregation.py) | `SqliteAggregation`, with `supported` and `divergent` |
-| [aggregation/polars_lazy_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py) | `PolarsLazyAggregation` |
-| [aggregation/duckdb_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/duckdb_aggregation.py) | `DuckdbAggregation` |
-| [aggregation/python_dict_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/python_dict_aggregation.py) | `PythonDictAggregation` |
 | [window_aggregation/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/base.py) | `WindowAggregationFeatureGroup`, the group and its shared `aggregate` loop |
-| [scalar_aggregate/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/base.py) | `ScalarAggregateFeatureGroup`, the group and its shared `aggregate` loop |
-| [frame_aggregate/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/base.py) | `FrameAggregateFeatureGroup`, the group and its shared `aggregate` loop |
 | [point_arithmetic/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/base.py) | `PointArithmeticFeatureGroup`, shared loop with two keyword-only callables |
 | [point_arithmetic/sqlite_point_arithmetic.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py) | `SqlitePointArithmetic`, with `divergent` |
 | [row_preserving/rank/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/rank/base.py) | `RankFeatureGroup`, shared `rank` loop, `SUBTYPES` with parametric families |
-| [row_preserving/rank/pandas_rank.py](../../../mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py) | `PandasRank`, with `divergent` |
-| [row_preserving/offset/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/offset/base.py) | `OffsetFeatureGroup`, shared `offset` loop, `SUBTYPES` with parametric families |
-| [row_preserving/percentile/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/percentile/base.py) | `PercentileFeatureGroup`, shared `percentile` loop |
 | [string/sqlite_string.py](../../../mloda/community/feature_groups/data_operations/string/sqlite_string.py) | `SqliteStringOps`, with `supported` |
 | [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
-| [core aggregated_feature_group/pandas.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pandas.py) | Core's Pandas Implementation |
-| [core aggregated_feature_group/pyarrow.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/pyarrow.py) | Core's PyArrow Implementation |
 
 ## Combines With
 

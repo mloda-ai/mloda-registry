@@ -27,7 +27,7 @@ Submit your plugin to mloda-registry for others to use.
 
 ## After Merge
 
-Your plugin will be available via:
+Once merged, the plugin is official. It will be available via:
 
 ```bash
 pip install mloda-community

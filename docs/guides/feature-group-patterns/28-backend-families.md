@@ -213,20 +213,7 @@ Run both over every concrete sibling. A new backend that forgets to trim its sur
 
 ## Chaining a Family Member onto an Upstream Family
 
-A sibling that consumes another family's feature (graph RAG over a `knowledge_graph` source) takes the upstream's name as an option and forwards everything except its own keys:
-
-```python
-FAMILY_OPTION_KEYS = frozenset({"graph_backend", "graph_source", "query_text", "top_k"})
-
-
-def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-    source = options.get("graph_source")
-    if source is None:
-        return None
-    return {Feature(str(source), forward_group_exclude=FAMILY_OPTION_KEYS)}
-```
-
-The upstream then selects its own sibling from the forwarded discriminator (`kg_backend`). Context keys do not forward by default. See [Input-feature forwarding](26-input-feature-forwarding.md).
+A member that consumes another family's feature (graph RAG over a `knowledge_graph` source) takes the upstream's name as an option and forwards everything except its own keys (`Feature(str(source), forward_group_exclude=FAMILY_OPTION_KEYS)`), so the upstream selects its own sibling from the forwarded discriminator. Context keys do not forward by default. See [Input-feature forwarding](26-input-feature-forwarding.md#worked-example-a-connector-consuming-a-source-feature).
 
 ## Test
 
