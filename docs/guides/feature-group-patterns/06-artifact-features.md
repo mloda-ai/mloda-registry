@@ -1,7 +1,5 @@
 # Pattern 6: Artifact Features (BaseArtifact)
 
-Artifact features save and load fitted state (scalers, models) between runs.
-
 **What**: Features that persist computed state (fitted parameters, trained models, cached results, embeddings, categorical variables).
 **When**: Use when computation is expensive or state must be reused (training vs inference).
 **Why**: Avoid refitting scalers/models on each run; ensure consistency between train and predict.

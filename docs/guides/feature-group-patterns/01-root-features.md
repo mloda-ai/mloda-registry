@@ -1,7 +1,5 @@
 # Pattern 1: Root Features (Data Sources)
 
-Root features have no input dependencies - they are pipeline entry points.
-
 **What**: Features with no input dependencies that provide data to the pipeline.
 **When**: You need data from external sources OR generate data in-place.
 **Why**: Every feature pipeline starts with data; root features are the entry points.
@@ -53,31 +51,9 @@ def test_root_feature():
     assert result["order_id"] == [1, 2, 3]
 ```
 
-## CsvFG (File-Based Data)
-
-`CsvFG` is a stock source FeatureGroup: it claims a feature when a CSV file or folder entry in the `DataAccessCollection` has that column. No root group of your own is needed.
-
-```python
-from mloda.user import DataAccessCollection, Feature
-
-data_access = DataAccessCollection(folders={"/path/to/data/"})
-features = [Feature("customer_id"), Feature("name")]
-```
-
-The set form above auto-names each resource. When a collection holds multiple
-resources of the same kind, name them with a `dict[handle, value]` and pick one per
-feature via `Options(context={"data_access_handle": ...})`. See
-[Data Connection Matching](17-data-connection-matching.md#named-handles-and-multi-source-disambiguation).
-
-Database credentials live in the same collection. Wrap each slot in the typed
-`Credential` class (for example `DataAccessCollection(credentials=Credential(sqlite="/data/app.db"))`)
-so a single credential dict is never mistaken for a `{handle: value}` registry. See
-[Credentials](17-data-connection-matching.md#credentials).
-
 ## Several Sources, One Group Each
 
-There is one source group per format (`CsvFG`, `ParquetFG`, `SqliteFG`, ...), and a feature points at one with an option keyed by the group's class name (`Feature("x", options={"CsvFG": "data/a.csv"})`) or scopes with `feature_group=CsvFG`. See
-[Source FeatureGroups](27-input-data-readers.md).
+Stock source groups (`CsvFG`, `ParquetFG`, `SqliteFG`, ...) claim a feature when the `DataAccessCollection` holds a matching file, folder or credential, so no root group of your own is needed. Point a feature at one with an option keyed by the group's class name (`Feature("x", options={"CsvFG": "data/a.csv"})`) or `feature_group=CsvFG`, see [Source FeatureGroups](27-input-data-readers.md). Named handles and typed `Credential` slots: [Named Handles](17-data-connection-matching.md#named-handles-and-multi-source-disambiguation) and [Credentials](17-data-connection-matching.md#credentials).
 
 ## Real Implementations
 

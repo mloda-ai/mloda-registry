@@ -1,20 +1,10 @@
 # Pattern 4: Multi-Input Features (& Separator)
 
-Multi-input features combine two or more inputs using the `&` separator in the feature name.
-
 **What**: Features that combine multiple inputs into one output using `&` separator.
 **When**: Computing relationships between features (differences, ratios, distances).
 **Why**: Express multi-input operations clearly: `lat1&lon1&lat2&lon2__distance`.
 **Where**: Geographic distance, price differences, ratios, similarity scores.
 **How**: Parse `&`-separated inputs, return all as dependencies, combine in calculation.
-
-## Key Characteristic
-
-| Aspect | Behavior |
-|--------|----------|
-| Separator | `&` between input features |
-| `input_features()` | Parses both sides of `&` as dependencies |
-| Matching | By class name or custom `match_feature_group_criteria` |
 
 ## Complete Example
 

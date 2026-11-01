@@ -21,22 +21,7 @@ for result in mloda.stream_all([Feature("feature_a"), Feature("feature_b")], api
     print(result)
 ```
 
-## Comparison with `run_all`
-
-| | `run_all` | `stream_all` |
-|---|---|---|
-| **Return type** | `list` (all results at once) | Generator (one result at a time) |
-| **Blocking** | Waits for all groups to finish | Yields each group as it completes |
-| **Equivalence** | `mloda.run_all(...)` | `list(mloda.stream_all(...))` |
-| **Parameters** | All standard parameters | Same parameters as `run_all` |
-
-## When to Use Which
-
-- **`mloda.run_all`**: You need all results before proceeding, or you request a single feature group.
-- **`mloda.stream_all`**: You request many independent feature groups and want to process results as they arrive.
-- **`session.stream_run()`**: Combines streaming with [realtime execution](24-realtime.md): reuse a prepared plan and yield results incrementally. Use when you need both plan reuse and per-group delivery.
-
-If you only request one feature group, `mloda.stream_all` behaves identically to `mloda.run_all` since there is only one result to yield.
+`stream_all` takes the same parameters as `run_all`, and `list(mloda.stream_all(...))` equals `mloda.run_all(...)`. With a single feature group it behaves identically to `run_all`.
 
 ## Per-Group Streaming with `session.stream_run()`
 
@@ -53,32 +38,7 @@ for result in session.stream_run(api_data={"MyKey": {"feature_a": [1, 2], "featu
 
 ## What Streaming Does NOT Do
 
-- **Row-by-row streaming**: individual rows are not yielded as they are computed.
-- **Partial results**: you cannot observe a feature group's output before it has fully completed.
-- **Chunked input**: a single feature group's computation is not split into smaller streaming chunks.
-
-Each yielded value is a **complete** result for one feature group (e.g. a `pa.Table`).
-
-## Works With All `run_all` Parameters
-
-`stream_all` accepts the same parameters as `run_all`, including filters, compute frameworks, and links:
-
-```python
-from mloda.user import mloda, Feature, GlobalFilter, FilterType
-
-global_filter = GlobalFilter()
-global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
-
-api_data = {"MyKey": {"feature_a": [1, 2], "feature_b": [3, 4], "status": ["active", "inactive"]}}
-
-for result in mloda.stream_all(
-    [Feature("feature_a"), Feature("feature_b"), Feature("status")],
-    compute_frameworks=["PandasDataFrame"],
-    global_filter=global_filter,
-    api_data=api_data,
-):
-    print(result)
-```
+Each yielded value is a **complete** result for one feature group (e.g. a `pa.Table`): rows are not yielded as they are computed, and one group's computation is never split into chunks.
 
 ## Full Documentation
 

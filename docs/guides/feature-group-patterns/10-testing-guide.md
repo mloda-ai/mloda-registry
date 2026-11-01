@@ -1,7 +1,5 @@
 # Feature Group Testing Guide
 
-A 3-level approach to testing feature groups comprehensively.
-
 **What**: A structured testing strategy with unit, framework, and integration levels.
 **When**: Always test feature groups; use appropriate level for each concern.
 **Why**: Catch bugs early (unit), verify computation (framework), ensure end-to-end works (integration).
@@ -30,7 +28,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 class MyFeature(DataCreatorFeatureGroup):
     @classmethod
     def feature_names_supported(cls) -> set[str]:
-        return {"my_feature", "feature_a", "feature_b"}
+        return {"my_feature"}
 
     @classmethod
     def compute_framework_rule(cls) -> Any:
@@ -136,16 +134,7 @@ def test_empty_source_keeps_schema():
     assert result[0] == {"empty_feature": []}  # zero rows, schema intact
 ```
 
-**Tip**: Use `column_ordering="request_order"` for predictable test assertions:
-
-```python
-def test_multiple_features():
-    result = mloda.run_all([Feature("feature_a"), Feature("feature_b")], column_ordering="request_order")
-    # Columns guaranteed to be in request order
-    assert list(result[0]) == ["feature_a", "feature_b"]
-```
-
-Without `column_ordering`, column order is non-deterministic and tests comparing column lists may be flaky.
+**Tip**: pass `column_ordering="request_order"` when asserting on column lists; the default order is not guaranteed ([Column Ordering](../01-use-existing-plugin.md#column-ordering)).
 
 **Note**: You can also use `stream_all` for integration tests when testing streaming behavior. See [Streaming Results](23-streaming.md).
 

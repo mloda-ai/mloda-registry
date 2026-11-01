@@ -29,10 +29,7 @@ That is the signal to carve the key out with `forward_group_exclude`, an allowli
 
 ## Caveat: A Forwarded Source Pointer Reaches Every Input
 
-A class-name pointer such as `options={"CsvFG": path}` is a group option, so it forwards to the input features and binds them to that source (Pattern 27, "Pointing a feature at a group"). Two consequences:
-
-- A consumer whose inputs come from several sources must put each pointer on its own input feature (or use the `DataAccessCollection`). A forwarded pointer to a source without the column aborts with the missing-column error.
-- A chain-shaped consumer name (`value__rebased`) no longer collides with the source group of the pointer: a checked route claims only names that are columns of its source, and an open route steps aside for a derived name in favor of the group that computes it. A custom source group that claims by `NamePolicy.DECLARED` should keep `declared_names()` to names it really serves (Pattern 27, "Decline Names You Cannot Confirm").
+A class-name pointer such as `options={"CsvFG": path}` is a group option, so it forwards to the input features and binds them to that source (Pattern 27, "Pointing a feature at a group"). So a consumer whose inputs come from several sources must put each pointer on its own input feature (or use the `DataAccessCollection`). A forwarded pointer to a source without the column aborts with the missing-column error.
 
 To read a derived name straight from the source, scope with `feature_group=` (accepts the class or its name as a string; see [FeatureConfig Fields](22-feature-config.md#featureconfig-fields)).
 
@@ -43,15 +40,13 @@ Set these on the `Feature(...)` you return from `input_features()`:
 | Directive | Effect |
 |-----------|--------|
 | `forward_group=None` (default) | Inherit **all** consumer group keys. Leave children here unless you have a reason not to. |
-| `forward_group=True` | Same as the default. Do **not** stamp this on children (see below). |
+| `forward_group=True` | Same as the default. Do **not** stamp this on children: it destroys the `None` sentinel that tells "author said nothing" from "author made a choice". |
 | `forward_group=False` | Inherit **nothing**. Isolates the child from the consumer's group options. |
 | `forward_group={"a", "b"}` | Allowlist: inherit only these group keys. |
 | `forward_group_exclude={"top_k"}` | Forward everything **except** these keys. The fit for a consumer-local selector. |
 | `inherit_context_keys={"tenant"}` | Pull these **context** keys from the consumer into the child's context. |
 
 `forward_group=False` combined with a non-empty `forward_group_exclude` is contradictory and raises `ValueError`.
-
-`feature_chainer_parser_key` carries no special meaning here: a leftover key from an older integration forwards like any other group option and can trigger the rejection above if the upstream does not accept it.
 
 ## Worked Example: A Connector Consuming a Source Feature
 
@@ -100,10 +95,6 @@ Options(context={"tenant": "acme"}, propagate_context_keys=frozenset({"tenant"})
 ```
 
 `inherit_context_keys` (child pull) and `propagate_context_keys` (consumer push) are symmetric; use whichever side owns the decision. See [Options: Context Propagation](11-options.md#context-propagation).
-
-## Leave Children at the Default
-
-The engine forwards by default, so a child left at `forward_group=None` already inherits everything. **Do not** stamp `forward_group=True` on children to "enable" forwarding: it is redundant, and it destroys the `None` sentinel that distinguishes "author said nothing" from "author made a choice". Only set `forward_group` / `forward_group_exclude` when you are actively opting a key **out**.
 
 ## Conflicts Raise, Equal Values Are a No-Op
 

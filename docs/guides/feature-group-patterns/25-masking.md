@@ -99,34 +99,6 @@ result = mloda.run_all(
 assert sorted(result[0]["value_int__sum_agg"]) == [10, 50]
 ```
 
-Rows where `category != 'X'` have their `value_int` set to null before the SUM aggregation. The aggregation skips nulls, so the result contains only the sum of values matching the condition.
-
----
-
-## Multiple Conditions
-
-Combine conditions in a list. All conditions are AND-combined:
-
-```python
-from mloda.user import Feature, Options
-
-# Sum where category='X' AND value_int >= 10
-feature = Feature(
-    "value_int__sum_agg",
-    Options(
-        context={
-            "partition_by": ["region"],
-            "mask": [
-                ("category", "equal", "X"),
-                ("value_int", "greater_equal", 10),
-            ],
-        }
-    ),
-)
-```
-
-Only rows satisfying all conditions contribute to the aggregate.
-
 ---
 
 ## Supported Feature Groups
@@ -144,20 +116,9 @@ All of the following feature groups accept the `mask` key in their context optio
 | Frame Aggregate (expanding) | `{col}__expanding_{agg}` | `value_int__expanding_avg` | Preserves rows (expanding window) |
 | Percentile | `{col}__p{N}_percentile` | `value_int__p95_percentile` | Preserves rows (broadcasts per partition) |
 
-For all types, the mask is applied before the aggregation. Non-matching values become null, and the aggregation function skips nulls.
-
 ---
 
 ## Framework Behavior
-
-Users select a framework via `compute_frameworks` and do not interact with mask internals directly. Each framework applies masks using its native approach:
-
-| Framework | Mechanism |
-|---|---|
-| Pandas | Boolean Series via `.where(mask)` written to a temporary column; the source and the keys are unchanged |
-| PyArrow | Null replacement via `pc.if_else` on a boolean array |
-| Polars (lazy) | `pl.when(mask).then(col).otherwise(None)` with a temporary column |
-| DuckDB / SQLite | SQL `CASE WHEN condition THEN source END` expression |
 
 The framework selection does not affect the mask spec format. The same `("column", "operator", value)` tuples work across all frameworks.
 
@@ -165,56 +126,7 @@ The framework selection does not affect the mask spec format. The same `("column
 
 ## Testing with MaskTestMixin
 
-The testing library provides two mixins for verifying masking in custom feature groups:
-
-- `MaskTestMixin` provides unit-level test methods covering equal, multiple conditions, is_in, greater_than, fully masked, no-mask baseline, and missing-value (null and NaN) scenarios, and a missing mask column.
-- `MaskIntegrationTestMixin` provides 4 pipeline-level test methods that verify masking through the full `mloda.run_all` pipeline.
-
-Both mixins use overridable class methods for configuration:
-
-```python
-from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-
-
-class MyAggregationTestBase(MaskTestMixin, DataOpsTestBase):
-    @classmethod
-    def mask_feature_name(cls) -> str:
-        return "value_int__sum_agg"
-
-    @classmethod
-    def mask_partition_by(cls) -> list[str] | None:
-        return ["region"]
-
-    @classmethod
-    def mask_expected_row_count(cls) -> int:
-        return 4  # One row per partition (reducing)
-
-    @classmethod
-    def mask_is_reducing(cls) -> bool:
-        return True  # Aggregation reduces rows
-
-    @classmethod
-    def mask_equal_expected(cls) -> dict:
-        return {"A": 10, "B": 60, "C": 15, "D": -10}
-
-    # Override remaining methods: mask_multiple_conditions_expected,
-    # mask_is_in_expected, mask_greater_than_expected, mask_no_mask_expected
-```
-
-Concrete test classes then compose the test base with a framework mixin:
-
-```py
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
-
-
-class TestPandasMyAggregation(PandasTestMixin, MyAggregationTestBase):
-    @classmethod
-    def implementation_class(cls):
-        return PandasMyAggregation  # an Implementation of the aggregation group
-```
-
-This pattern ensures mask behavior is verified across all supported frameworks with consistent expected values.
+Compose `MaskTestMixin` (unit-level scenarios) with `DataOpsTestBase` and override its `mask_*` class methods, or `MaskIntegrationTestMixin` (pipeline-level, through `mloda.run_all`) with `DataOpsIntegrationTestBase` and override its `mask_integration_*` class methods; see [Adding a New Operation: Step 7](../data-operation-patterns/10-adding-new-operation.md#step-7-decide-if-it-needs-mask-support) and Step 6 for the framework test classes.
 
 ---
 

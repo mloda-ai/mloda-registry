@@ -14,11 +14,6 @@ Compute framework plugins expose their native column types to mloda through `_ex
 def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | None: ...
 ```
 
-`return_data_type_rule()` declares the expected feature output type, and mloda uses
-`_extract_column_data_type()` to validate that expectation against the actual framework result.
-Without this hook, strict `return_data_type_rule` checks cannot verify plugin-authored framework
-outputs end-to-end.
-
 ## When to Return a Type vs None
 
 Return a concrete `DataType` when the framework exposes enough precision to map the native type
@@ -77,20 +72,6 @@ def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | N
   declared type is reliable enough; otherwise return `None` so validation does not claim false
   precision.
 
-## Collapsed-Precision Example
-
-```py
-def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | None:
-    native_type = data.schema[column_name]
-
-    if native_type == "INTEGER":
-        return DataType.INT64  # Framework does not distinguish INT32 from INT64.
-    if native_type == "TIMESTAMP":
-        return DataType.TIMESTAMP_MICROS  # Chosen framework convention.
-
-    return None
-```
-
 ## Validation and Mismatches
 
 After a feature is computed, mloda's `DataTypeValidator` compares the feature's declared
@@ -123,10 +104,6 @@ result = mloda.run_all(
 )  # strict: declared INT32 widens to nothing → DataTypeMismatchError
 ```
 
-Because your hook is the only thing that reports the *actual* produced type, returning an accurate
-`DataType` is what makes strict end-to-end enforcement possible; returning `None` opts the column out
-of the check entirely.
-
 ## Real Implementations
 
 | File | Description |
@@ -134,6 +111,3 @@ of the check entirely.
 | [compute_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/compute_framework.py) | `_extract_column_data_type` hook + `run_validate_output_features` |
 | [datatype_validator.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/validators/datatype_validator.py) | `DataTypeValidator`, `DataTypeMismatchError`, strict/lenient rules |
 | [python_dict_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/python_dict/python_dict_framework.py) | Canonical minimal `_extract_column_data_type` override |
-
-See the companion core-docs ticket [mloda-ai/mloda#465](https://github.com/mloda-ai/mloda/issues/465)
-for the conceptual reference on the hook and `return_data_type_rule` enforcement.

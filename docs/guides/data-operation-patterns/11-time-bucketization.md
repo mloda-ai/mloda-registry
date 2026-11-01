@@ -12,15 +12,6 @@ Time bucketization maps a timestamp column onto coarser interval boundaries. Thr
 
 ## Three bucketization modes
 
-```python
-# mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/base.py
-TIME_BUCKETIZATION_OPS = {
-    "floor": "Round timestamp down to the start of the enclosing bucket",
-    "ceil": "Round timestamp up to the start of the next bucket (idempotent on aligned for fixed-freq)",
-    "round": "Round timestamp to the nearest bucket boundary (half rounds up)",
-}
-```
-
 | Mode | Semantics |
 |---|---|
 | `floor` | Snap to the start of the enclosing bucket. `floor(14:37, 5_minute) = 14:35`. |
@@ -31,14 +22,7 @@ TIME_BUCKETIZATION_OPS = {
 
 ## Pattern and bucket size
 
-Feature names follow `{src}__{op}_{n}_{unit}` with an explicit `n` (no implicit `_1_`). Examples:
-
-```text
-timestamp__floor_1_day
-timestamp__ceil_15_minute
-timestamp__round_1_hour
-timestamp__floor_1_week
-```
+Feature names follow `{src}__{op}_{n}_{unit}` with an explicit `n` (no implicit `_1_`).
 
 | Unit | Supported `n` |
 |---|---|
@@ -92,14 +76,7 @@ For the day case, the test fixture's day-aligned rows (00:00:00) return themselv
 
 ## NULL propagation
 
-A NULL timestamp produces NULL in the result. All backends propagate naturally:
-
-- PyArrow `*_temporal` functions return null on null input.
-- Pandas `dt.floor` / `dt.ceil` / `dt.round` preserve `NaT`.
-- Polars expressions propagate null through `dt.truncate` / `dt.round` / `dt.offset_by`.
-- DuckDB and SQLite use explicit `CASE WHEN col IS NULL THEN NULL ELSE ... END` guards in every CASE-based projection.
-
-The Pandas backend additionally `mask`s the result column to convert `NaT` to `None` after the half-up round computation, since the expression-based round emits `NaT` for null inputs and the test contract compares to `None`.
+A NULL timestamp yields NULL on every backend; DuckDB and SQLite guard each CASE projection with `col IS NULL`, and pandas masks `NaT` to `None` after the half-up round.
 
 ---
 

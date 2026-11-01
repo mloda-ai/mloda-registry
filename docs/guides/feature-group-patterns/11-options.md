@@ -48,12 +48,6 @@ feature = Feature(
 )
 ```
 
-| Behavior | Description |
-|----------|-------------|
-| Default (no propagation) | Context stays local to the feature where it's defined |
-| With `propagate_context_keys` | Listed keys are passed to the feature's direct input features (one hop) |
-| With `cascade_context_keys` | Listed keys are passed to every input down the chain (since mloda 0.16.0) |
-
 The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
@@ -82,7 +76,7 @@ Pass a mapping of value to one-line docstring, or a `list`, `tuple`, `set` or `f
 
 ### Builder: `property_spec`
 
-`property_spec` validates the spec invariants at construction (strict needs a non-empty `allowed_values` or an `element_validator`; an `element_validator` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set):
+`property_spec` validates the spec invariants at construction (strict needs a non-empty `allowed_values` or an `element_validator`; an `element_validator` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set and pass `element_validator`):
 
 ```python
 from mloda.provider import property_spec
@@ -103,10 +97,6 @@ PROPERTY_MAPPING = {
 `property_spec` also accepts `element_validator`, `required_when`, `match_guard`, `name_converter` (see [Converting a captured value](#converting-a-captured-value-name_converter)), `allow_explicit_none`, and `deferred_binding`. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
 
 Omitting `default` declares no default, so the key is required; `default=None` declares a default of `None`, which makes the key optional.
-
-### Strict defaults are checked at construction
-
-A spec validates itself when it is built, so a `strict=True` `default` outside the accepted set (or one the key's `element_validator` rejects) raises `ValueError` from the `property_spec(...)` call, not from the `FeatureGroup` class definition that reads the mapping. The message names the spec's explanation and the rejected default. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict=False`.
 
 ### Converting a captured value: name_converter
 
@@ -199,9 +189,7 @@ A bare `ClassVar` is enough: `mypy --strict` infers `dict[str, PropertySpec]` fr
 
 ### Captureless patterns: `RECOGNITION_ONLY_PATTERN`
 
-Available since mloda 0.11.0. Migrating an older `FeatureGroup` off the deprecated dict-form `PROPERTY_MAPPING` can surface a new `WARNING` log at class-definition time, if the class also declares a **captureless** `PREFIX_PATTERN`/`SUFFIX_PATTERN` (a pattern with no capture group). Captureless prefix/suffix patterns paired with option-driven (rather than name-captured) values are a common shape for these classes, so the warning tends to surface right after a migration, looking like an unrelated regression.
-
-A captureless pattern binds no key from the feature name. If a mapping key must come from the name, add a named capture group (`(?P<key>...)`); if the pattern is only a recognition predicate and every value is meant to come from `Options`, set `RECOGNITION_ONLY_PATTERN = True` to declare that intent and silence the warning:
+A captureless `PREFIX_PATTERN`/`SUFFIX_PATTERN` (no capture group) logs a `WARNING` at class definition: it binds no key from the feature name. If a mapping key must come from the name, add a named capture group (`(?P<key>...)`); if the pattern is only a recognition predicate and every value is meant to come from `Options`, set `RECOGNITION_ONLY_PATTERN = True` to declare that intent and silence the warning:
 
 ```python
 class FfillFeatureGroup(FeatureGroup):
@@ -217,23 +205,15 @@ See [`ffill/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda
 
 ## Validation and Conditional Requirements
 
-A `PROPERTY_MAPPING` declares validation rules and conditional requirements directly on option entries. Every `FeatureGroup` enforces them, with or without `FeatureChainParserMixin` (plain groups since mloda 0.15.0):
-
-- **`element_validator`**: Validate each parsed element with a callable (requires `strict=True`). A falsy return raises `ValueError`, which the matcher turns into a non-match plus a rejection reason in the resolution error.
-- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported unless the spec is strict or declares `expected` (a phrase completing "must be ...", such as `expected="a list of column names"`). Both echo the rejected value to the user (strict in full, `expected` shortened), so declare neither on a key that can carry a secret.
-- **`required_when`**: Make an option conditionally required based on a predicate callable.
-
-For `element_validator` and membership, the spec declares the arity: `list`, `tuple`, `set` and `frozenset` unpack element-wise and identically, a `str` stays a scalar, and a `dict` is one composite value. `match_guard` still sees the raw value with its original container type.
+A `PROPERTY_MAPPING` declares validation rules and conditional requirements directly on option entries. Every `FeatureGroup` enforces them, with or without `FeatureChainParserMixin`.
 
 See [Feature Matching: Key Differences](14-feature-matching.md#key-differences-from-element_validator) for the comparison table and [Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for `required_when`.
 
-**Since mloda 0.11.0, both match paths enforce this.** Required-key presence and strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) both run on the string/name-path match now, not just the configuration path. A `PROPERTY_MAPPING` key declaring no default at all (`NO_DEFAULT`; a declared `default=None` already exempts the key), without `required_when`, and without `deferred_binding=True`, must be present in the merged options on either path. `DefaultOptionKeys.in_features` is excluded from this presence check; its count is enforced separately via `MIN_IN_FEATURES`/`MAX_IN_FEATURES`. `deferred_binding` (above) is the one path-specific exemption: it skips only the name-path presence check, for a value the group parses itself from the name rather than through a `PROPERTY_MAPPING`-bound capture.
+**Both match paths enforce this.** Required-key presence and strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) both run on the string/name-path match now, not just the configuration path. A `PROPERTY_MAPPING` key declaring no default at all (`NO_DEFAULT`; a declared `default=None` already exempts the key), without `required_when`, and without `deferred_binding=True`, must be present in the merged options on either path. `DefaultOptionKeys.in_features` is excluded from this presence check; its count is enforced separately via `MIN_IN_FEATURES`/`MAX_IN_FEATURES`. `deferred_binding` (above) is the one path-specific exemption: it skips only the name-path presence check, for a value the group parses itself from the name rather than through a `PROPERTY_MAPPING`-bound capture.
 
-On a plain `FeatureGroup` (since mloda 0.15.0), the default matcher applies strict values and `match_guard` on every match. Required presence applies when the group declares no `PREFIX_PATTERN`/`SUFFIX_PATTERN`; a patterned group checks it only for names its pattern owns. A key without a default is required, so declare an optional key with `default=None`.
+On a plain `FeatureGroup`, the default matcher applies strict values and `match_guard` on every match. Required presence applies when the group declares no `PREFIX_PATTERN`/`SUFFIX_PATTERN`; a patterned group checks it only for names its pattern owns. A key without a default is required, so declare an optional key with `default=None`.
 
-Required-key **presence** holds even when the class overrides `match_feature_group_criteria()`, since the check is installed as a class-definition-time guard. **Strict-value validation and `match_guard` are not guarded**: they run inside the matcher an override replaces, so an override keeps them by delegating to `super().match_feature_group_criteria()`. That call also applies the parent's name rules, so it suits an override that narrows them; a widening override that skips `super()` keeps them with `cls.passes_option_declarations(options)` (since mloda 0.15.1), which checks `options` as passed, not values carried by the feature name. `cls.match_parser_criteria()` on a mixin group keeps strict values only, not `match_guard`.
-
-Before mloda 0.11.0, required-key presence was checked on the configuration path only, so a chained name missing a required option could match and fail later inside `calculate_feature`.
+Required-key **presence** holds even when the class overrides `match_feature_group_criteria()`, since the check is installed as a class-definition-time guard. **Strict-value validation and `match_guard` are not guarded**: they run inside the matcher an override replaces, so an override keeps them by delegating to `super().match_feature_group_criteria()`. That call also applies the parent's name rules, so it suits an override that narrows them; a widening override that skips `super()` keeps them with `cls.passes_option_declarations(options)`, which checks `options` as passed, not values carried by the feature name. `cls.match_parser_criteria()` on a mixin group keeps strict values only, not `match_guard`.
 
 ## Full Documentation
 

@@ -18,7 +18,6 @@ Location: `docs/guides/`
 | 05 | `05-share-with-team.md` | Distribute via private git repo |
 | 06 | `06-publish-to-community.md` | Submit to mloda-registry |
 | 07 | `07-contribute-to-official.md` | Improve existing plugins |
-| 08 | `08-become-official.md` | Get plugin merged into registry |
 | 09 | `09-create-feature-group.md` | Decision tree for choosing the right feature group pattern |
 | 10 | `10-create-compute-framework.md` | Decision tree for creating a compute framework plugin |
 | 11 | `11-create-extender.md` | Guide for creating extender plugins (logging, tracing, metrics) |

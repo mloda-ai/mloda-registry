@@ -25,7 +25,7 @@ The default `match_feature_group_criteria()` checks in order:
 
 Source FeatureGroups claim through their own `CLAIM_ROUTES`, not these rules. The first rule that returns `True` claims the name. If FeatureChainParserMixin is used, pattern matching is also applied.
 
-A claimed name must still pass the group's `PROPERTY_MAPPING`: since mloda 0.15.0 a plain group's default matcher runs the strict-value and `match_guard` checks, and the presence guard checks required keys (on a patterned group, only for names its pattern owns). Declare an optional key with `default=None`; see [Options: Validation](11-options.md#validation-and-conditional-requirements).
+A claimed name must still pass the group's `PROPERTY_MAPPING`: a plain group's default matcher runs the strict-value and `match_guard` checks, and the presence guard checks required keys (on a patterned group, only for names its pattern owns). Declare an optional key with `default=None`; see [Options: Validation](11-options.md#validation-and-conditional-requirements).
 
 ---
 
@@ -49,7 +49,7 @@ def match_feature_group_criteria(
 
 **Note:** For sibling backends that share one feature name and differ by a discriminator option, see [Backend Families](28-backend-families.md).
 
-**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) and `match_guard` are not guarded, though: they run inside the matcher itself, so an override keeps them by delegating to `super().match_feature_group_criteria()`, which also applies the parent's name rules, or, when widening them, with `cls.passes_option_declarations(options)` (since mloda 0.15.1), which checks `options` as passed, not values carried by the feature name. `cls.match_parser_criteria()` on a mixin group keeps strict values only, not `match_guard`.
+**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) and `match_guard` are not guarded, though: they run inside the matcher itself, so an override keeps them by delegating to `super().match_feature_group_criteria()`, which also applies the parent's name rules, or, when widening them, with `cls.passes_option_declarations(options)`, which checks `options` as passed, not values carried by the feature name. `cls.match_parser_criteria()` on a mixin group keeps strict values only, not `match_guard`.
 
 ---
 
@@ -157,62 +157,17 @@ Feature("input__algo_b_transformed")
 Feature("my_output", Options(context={"my_method": "algo_b", "in_features": "input"}))
 ```
 
-**Note:** Subclasses typically only override `compute_framework_rule()` to specify which framework they support (Pandas, Polars, etc.), not matching logic.
+**Note:** Subclasses typically only override `compute_framework_rule()` to specify which framework they support (Pandas, Polars, etc.), not matching logic. At compute time read the discriminator with `cls._resolve_operation(feature, cls.MY_METHOD)` (see [Chained Features](03-chained-features.md)).
 
 ### Named-Capture Form
 
-Named-capture binding to `PROPERTY_MAPPING` keys is available since mloda 0.11.0.
-
 The example above uses a legacy positional capture group: `bind_name_captures` only binds `MY_METHOD`'s value when it is already a member of `MY_METHODS` (`allowed_values`), so an unsupported token in the feature name just fails to bind rather than reaching `element_validator`. Name the capture group after the `PROPERTY_MAPPING` key instead, and the mixin binds it unconditionally, so `element_validator` and `match_guard` run against it like any explicit option and can reject it (see [What a Validator Receives](#what-a-validator-receives)):
 
-```python
-class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
-    # Named capture: the group name ("my_method") is itself the PROPERTY_MAPPING key, so a
-    # permissive regex still only matches supported values, via allowed_values / element_validator
-    # rather than the regex alternation.
-    PREFIX_PATTERN = r".*__(?P<my_method>[\w]+)_transformed$"
-
-    MY_METHOD = "my_method"
-    MY_METHODS = {
-        "algo_a": "Algorithm A description",
-        "algo_b": "Algorithm B description",
-    }
-
-    PROPERTY_MAPPING = {
-        MY_METHOD: property_spec(
-            "Transform algorithm",
-            strict=True,
-            allowed_values=MY_METHODS,
-        ),
-        DefaultOptionKeys.in_features: property_spec("Source feature"),
-    }
+```py
+PREFIX_PATTERN = r".*__(?P<my_method>[\w]+)_transformed$"  # rest of BaseMyTransform unchanged
 ```
 
 `Feature("input__algo_b_transformed")` matches and binds `my_method="algo_b"` under both forms. They diverge on an unsupported token like `input__algo_c_transformed`: against the positional pattern (loosened to `[\w]+` so the regex itself would accept it), `"algo_c"` never binds to `my_method` at all, since `bind_name_captures` only binds values already in `allowed_values`; against the named-capture pattern, `"algo_c"` binds and is then rejected by `allowed_values`/`element_validator` with a recorded reason. See `RankFeatureGroup.PREFIX_PATTERN` (`mloda/community/feature_groups/data_operations/row_preserving/rank/base.py`) for a production named-capture example with an `element_validator`.
-
-### Extracting the Discriminator at Compute Time
-
-At matching time, the mixin resolves string-based and config-based features automatically. At compute time (inside `calculate_feature`), use `_resolve_operation()` to extract the discriminator value without calling `FeatureChainParser` directly:
-
-```py
-@classmethod
-def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-    for feature in features.features:
-        # Resolves from PREFIX_PATTERN or options["my_method"]
-        method = cls._resolve_operation(feature, cls.MY_METHOD)
-        source = next(iter(feature.options.get_in_features())).name
-        data[feature.name] = apply_transform(data[source], method)
-    return data
-```
-
-With named captures, `_resolve_operation(feature, key)` returns the capture for any captured key, not just the discriminator; a positional pattern returns its first group whatever the key. See [Chained Features](03-chained-features.md) for the fallback rules.
-
-### Why Unique Keys?
-
-- **Semantic clarity**: `scaler_type` is clearer than generic `operation_type`
-- **No collisions**: Different feature group types can have overlapping method names
-- **Self-documenting**: The key name indicates which base class handles it
-- **Follows mloda patterns**: Consistent with AggregatedFeatureGroup, ScalingFeatureGroup, etc.
 
 ---
 
@@ -220,7 +175,7 @@ With named captures, `_resolve_operation(feature, key)` returns the capture for 
 
 Some PROPERTY_MAPPING entries should only be required under certain conditions. For example, an `order_by` column might only be needed when the aggregation type is `first` or `last`, but not for `sum` or `avg`.
 
-Use `required_when` to attach a predicate callable to a mapping entry. The predicate receives the effective `Options` object and returns `True` when the option is required.
+Use `required_when` to attach a predicate callable to a mapping entry. The predicate receives the effective `Options` object and returns `True` when the option is required. No `match_feature_group_criteria` override is needed.
 
 ```python
 from mloda.user import Options
@@ -253,38 +208,6 @@ PROPERTY_MAPPING = {
 2. After basic matching succeeds, `match_feature_group_criteria` evaluates each `required_when` predicate.
 3. For string-based features, the operation value parsed from the feature name (e.g., `first` from `source__first_aggr`) is merged into the effective options, so predicates see values from both the feature name and explicit options.
 4. If the predicate returns `True` and the option value is absent, matching returns `False`.
-
-### Before and After
-
-Without `required_when`, you must override `match_feature_group_criteria` to manually check conditions:
-
-```py
-# Before: manual override with boilerplate
-@classmethod
-def match_feature_group_criteria(cls, feature_name, options, _dac=None):
-    if not super().match_feature_group_criteria(feature_name, options, _dac):
-        return False
-    agg_type = cls._resolve_agg_type(feature_name, options)
-    if agg_type in {"first", "last"}:
-        order_by = options.get("order_by")
-        if not isinstance(order_by, str):
-            return False
-    return True
-```
-
-With `required_when`, the mixin handles this automatically:
-
-```py
-# After: declarative, no override needed
-PROPERTY_MAPPING = {
-    "aggregation_type": ...,
-    "order_by": property_spec(
-        "Column to order by",
-        required_when=_needs_order_by,
-    ),
-}
-# match_feature_group_criteria inherited from mixin, no override required
-```
 
 ### Predicate Contract
 
@@ -357,11 +280,6 @@ PROPERTY_MAPPING = {
         strict=True,
         element_validator=lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
     ),
-    "threshold": property_spec(
-        "Cutoff value for filtering",
-        strict=True,
-        element_validator=lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and 0.0 <= x <= 1.0,
-    ),
 }
 ```
 
@@ -377,53 +295,10 @@ The spec declares the arity, not the caller. For membership and `element_validat
 
 An `element_validator` that assumes it receives the whole option value (`isinstance(x, list) and all(...)`) is a mistake: elements unpack one at a time, so write a per-element rule, or move to `match_guard` for a genuine whole-value check.
 
-### When to Use Each Validation Approach
-
-| Approach | Use When | Example |
-|----------|----------|---------|
-| Enumerated values | Fixed set of valid string values | `"sum"`, `"avg"`, `"min"` |
-| `element_validator` | Per-element rules you cannot enumerate, `strict_validation` is `True` | positive integers, float ranges |
-| `match_guard` | Whole-value shape, no `strict_validation` needed | list of strings, nested dicts |
-| `required_when` | Option is conditionally required | `order_by` only when aggregation is `first` |
-
----
-
-## Matching vs Naming
-
-| Concept | Method | Purpose |
-|---------|--------|---------|
-| **Naming** | `feature_names_supported()`, class name | Define what names exist (discoverable) |
-| **Matching** | `match_feature_group_criteria()` | Check if a requested name is handled |
-
-See [Feature Naming](13-feature-naming.md) for defining names.
-
 ---
 
 ## Debugging Matching
 
-Use `resolve_feature()` to verify your FeatureGroup matches correctly:
-
-```python
-from mloda.user import PluginLoader
-from mloda.steward import resolve_feature
-
-PluginLoader.all()
-
-# Verify your pattern matches
-result = resolve_feature("price__standard_scaled")
-print(f"Resolved to: {result.feature_group.__name__}")
-print(f"Candidates: {[fg.__name__ for fg in result.candidates]}")
-
-# Debug a failing match
-result = resolve_feature("my_custom_feature")
-if result.error:
-    print(f"Failed: {result.error}")
-```
-
-This is especially useful when:
-
-- Your custom `match_feature_group_criteria()` isn't matching as expected
-- Multiple FeatureGroups compete for the same pattern
-- You want to verify subclass filtering works correctly
+Use `resolve_feature()` from `mloda.steward` to see which group a name resolves to and which candidates competed, for example when a custom matcher misfires or several groups claim one pattern.
 
 See [Discover Plugins](../02-discover-plugins.md#debugging-feature-resolution) for the full API reference.

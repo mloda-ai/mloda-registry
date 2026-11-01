@@ -12,14 +12,6 @@ Binning maps a numeric column onto integer bucket indices `0..n-1`. Two variants
 
 ## Two binning modes
 
-```python
-# mloda/community/feature_groups/data_operations/row_preserving/binning/base.py
-BINNING_OPS = {
-    "bin": "Equal-width binning (value range divided into n equal intervals)",
-    "qbin": "Quantile-based binning (rows divided into n roughly equal groups by rank)",
-}
-```
-
 | Mode | Semantics | Result shape |
 |---|---|---|
 | `bin` (equal-width) | Divide `[min, max]` into N intervals of equal width. Bin index = `floor((value - min) / width)`, clamped to `N-1`. | Bins may be unbalanced if the distribution is skewed. |
@@ -64,25 +56,7 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 
 ## The DuckDB row-order workaround
 
-`NTILE` requires `ORDER BY col`, which produces rows sorted by `col`, not by original input order. The row-preserving contract requires input order. The fix wraps the reordering step in `preserve_row_order` from `duckdb_helpers.py`, which tags each input row, restores input order afterwards and drops the tag:
-
-```py
-# Paraphrased from duckdb_binning.py
-def compute(rel, rn):
-    # partition key is a CASE expression, so project it into a column first
-    rel = rel.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
-    rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
-    # project out the helper columns and add the bin label
-    return rel.project(f"{keep}, {expr} AS {quoted_feature}")
-
-
-return preserve_row_order(data, feature_name, compute)
-```
-
-1. `preserve_row_order` tags rows, restores input order and drops the tag.
-2. The callback projects the partition key, applies the NTILE window, then the bin-label expression.
-
-Any framework whose native operation reorders will need an analogous workaround. Pandas and PyArrow do not, because both assign by index directly. See [the row-preserving contract](02-row-preserving-contract.md) for the general rule.
+`NTILE` requires `ORDER BY col`, so DuckDB wraps the window in `preserve_row_order`; the code is in [The DuckDB NTILE workaround](02-row-preserving-contract.md#the-duckdb-ntile-workaround). Pandas and PyArrow assign by index and need no workaround.
 
 ---
 

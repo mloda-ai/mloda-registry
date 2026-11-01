@@ -62,16 +62,6 @@ class SalesRevenueGroup(FeatureGroup):
         }
 ```
 
-### Shared Utilities
-
-```python
-def input_features(self, options, feature_name):
-    return {
-        "domain_specific_feature",  # Inherits parent domain
-        Feature("date_parser", domain="Common"),  # Always use Common
-    }
-```
-
 ### Test Isolation
 
 ```python

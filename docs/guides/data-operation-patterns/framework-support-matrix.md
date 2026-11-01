@@ -12,9 +12,6 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the da
 
 ## Reading the tables
 
-- The **summary** shows, per framework, whether an operation is fully supported (`full`), only partially supported (`partial (k/n)`), or absent (`--`).
-- The **per-operation detail** tables show every subtype the operation defines, with ✓ / ✗ per cell. `--` means no production implementation ships for this framework (the catalog has no entry for it).
-- A ✗ is not a bug. It is a deliberate exclusion declared by the production Implementation at match time and documented in [Known divergences](known-divergences.md). The framework test class mirrors the exclusion with a `supported_*()` override in `*/tests/test_{framework}.py`, kept honest by `tests/test_twin_catalog_consistency.py`. See the matching divergence entry before attempting to add support.
 - The matrix does not list every percentile quantile. Operations without a subtype axis (`percentile`, `ffill`, `lookup`, `ema`, `sessionization`, `resample`) render a single "(all)" row: the op either ships in full or does not ship at all. For `frame_aggregate` the per-frame-type detail breaks out time-window units (`time:second`, ..., `time:year`) so framework-specific unit gaps (e.g. SQLite/Pandas rejecting `time:month`) surface as ✗ rather than being hidden behind a single `time` row.
 - For `frame_aggregate` the matrix axis is frame types only; aggregation-type support (`std`/`var`/`median`) is enforced by the Implementations' `supported` and `accepts` (checked in the group's `supports_compute_framework`) rather than represented as a catalog subtype, because Polars' support is two-dimensional (it depends on the frame type: cumulative/expanding exclude `std`/`var`/`median` while rolling/time include them). See [Known divergences](known-divergences.md). The catalog deliberately stays single-axis: the Implementations' `supported` plus `accepts` own the (frame_type x agg_type) capability.
 
@@ -294,11 +291,7 @@ Cells reflect each operation group's Implementations, queryable via `DataOperati
 
 ## When a cell is ✗ or `--`
 
-The detail tables relate to the divergence kinds in [Known divergences](known-divergences.md) as follows:
-
-- **Excluded subtype → ✗** (SQLite `upper` / `lower` / `reverse`, PyArrow aggregation/window `median` / `mode`): the framework has a test class for this operation, but the implementation refuses to match at resolution time (through the Implementation's `supported` / `accepts`) and the test class's `supported_*()` override mirrors the refusal so inherited tests skip cleanly.
-- **Missing framework → `--`** (PyArrow `frame_aggregate`, `offset`, `percentile`, `rank`, `ema`; DuckDB `ema`; SQLite `percentile`, `ema`, `resample`): no production implementation exists, and the framework has no test class for the operation. The four PyArrow analytic operations require native rolling / LAG / percentile / rank that PyArrow does not provide, and their reference implementation lives in pure Python over PyArrow arrays. Adding any missing cell requires a real framework implementation, not just relaxing an exclusion.
-- **Tolerance constrained, not marked**: float-accumulation tolerance is not exposed as ✗ or `--`; it shows up as `use_approx=True` on the relevant cross-framework assertions. See the "Float accumulation order" entry in Known divergences.
+A ✗ is a match-time exclusion ([Supported ops](04-supported-ops.md)); a `--` means no implementation ships, so adding it needs a real implementation, not a relaxed exclusion. Float tolerance never shows as ✗ (see [Known divergences](known-divergences.md)).
 
 To promote a ✗ to ✓:
 

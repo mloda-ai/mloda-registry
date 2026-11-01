@@ -1,7 +1,5 @@
 # Pattern 5: Multi-Output Features (~ Separator)
 
-Multi-output features produce multiple columns using the `~` separator (e.g., `embedding~0`, `embedding~1`).
-
 **What**: Features that produce multiple output columns from a single computation.
 **When**: Operations naturally produce multiple values (embeddings, stats, one-hot encoding).
 **Why**: Keep related outputs together; compute once, output many columns.
@@ -96,28 +94,7 @@ assert set(result) == {"emb~0", "emb~1"}
 
 ## Consuming Sub-Columns
 
-Consumers can depend on all columns or specific sub-columns:
-
-| Dependency | Columns Available |
-|------------|-------------------|
-| `Feature("embedding")` | All: `embedding~0`, `embedding~1`, etc. |
-| `Feature("embedding~1")` | Only: `embedding~1` |
-
-### Example
-
-```python
-class SpecificSubColumnConsumer(FeatureGroup):
-    """Consume only embedding~1 from a multi-column feature."""
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        return {Feature("embedding~1")}  # Only this sub-column
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        embedding_values = data["embedding~1"]
-        feature_name = str(features.get_name_of_one_feature())
-        return {feature_name: embedding_values * 2}
-```
+Consumers depend on the whole base feature or on one sub-column (`Feature("embedding~1")` delivers only that column).
 
 ### How It Works
 

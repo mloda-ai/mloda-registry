@@ -40,7 +40,7 @@ ema[i] = null                                         # where x[i] is null
 - A null **input** produces a null **output**, and does not advance the recurrence: the next non-null value is combined with the last non-null EMA state, not with a null.
 - **Row-preserving**: same rows, same original order, one new column; the source column is unchanged.
 
-This is exactly: pandas `series.ewm(span=SPAN, adjust=False, ignore_na=True).mean().mask(series.isna())` ≡ polars `pl.col(c).ewm_mean(span=SPAN, adjust=False, ignore_nulls=True)`. The two were verified to agree element-wise (including null positions) before the spec was pinned.
+This is exactly: pandas `series.ewm(span=SPAN, adjust=False, ignore_na=True).mean().mask(series.isna())` ≡ polars `pl.col(c).ewm_mean(span=SPAN, adjust=False, ignore_nulls=True)`.
 
 ---
 
@@ -78,19 +78,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_dat
 
 ## Chained names
 
-A chained name writes the child inline: `price__ema_10__ema_5` builds `price__ema_10` as its own input feature. Context options stay local, so the child receives neither `order_by` nor `partition_by`: the missing `order_by` fails resolution with the key named in the error, while a missing `partition_by` silently computes the child unpartitioned and changes the result. List the keys in `propagate_context_keys` to push them to that child (one hop; for a longer chain use `cascade_context_keys` (mloda 0.16.0+) or group options; both split features into separate feature sets per value at every level, and group options also change feature hashing).
-
-```python
-Feature(
-    "price__ema_10__ema_5",
-    Options(
-        context={"order_by": "ts", "partition_by": ["symbol"]},
-        propagate_context_keys=frozenset({"order_by", "partition_by"}),
-    ),
-)
-```
-
-See [Context Propagation](../feature-group-patterns/11-options.md#context-propagation).
+A chained name such as `price__ema_10__ema_5` needs `propagate_context_keys` for `order_by` and `partition_by`, exactly as for [ffill](12-ffill-by-time.md#chained-names); without it the missing `partition_by` silently computes the child unpartitioned.
 
 ---
 

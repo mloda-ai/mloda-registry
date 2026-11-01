@@ -6,17 +6,7 @@ End-to-end recipe for introducing a new data operation: one `OperationFeatureGro
 **When**: You want a declarative transform that behaves identically on every supported framework.
 **Why**: The existing pattern enforces the row-preserving contract, reference-implementation comparison, and supported-ops skipping for free. Following it gets you coverage without reinventing test harnesses.
 **Where**: Code in `mloda/community/feature_groups/data_operations/{row_preserving|row_changing}/{your_category}/`, test bases in the same layout under `mloda/testing/feature_groups/data_operations/`.
-**How**: Follow the seven steps below in order; every existing category was built the same way. They live under `mloda/community/feature_groups/data_operations/`, split by row-count preservation:
-
-- `row_preserving/`: `binning`, `datetime`, `ema`, `ffill`, `frame_aggregate`, `lookup`, `offset`, `percentile`, `point_arithmetic`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `sessionization`, `time_bucketization`, `window_aggregation`, `arithmetic` (shared base, not a category)
-- `row_changing/`: `resample`
-- directly under `data_operations/`: `aggregation`, `string`
-
-Regenerate this list:
-
-```bash
-git ls-tree -r HEAD --name-only mloda/community/feature_groups/data_operations/ | grep -E '/base\.py$' | grep -v '^mloda/community/feature_groups/data_operations/base\.py$'
-```
+**How**: Follow the seven steps below in order (see [Overview](01-overview.md#the-operation-categories)).
 
 ---
 
@@ -147,7 +137,7 @@ class PyArrowYourOp(Implementation[YourOpFeatureGroup]):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
-Every family has this shape. The reference of aggregation, window, frame and scalar aggregate, rank, offset and percentile is a function (`reference_aggregation`, `reference_window_aggregation`, `reference_scalar_aggregate`, `reference_rank`, ...), the others' is their PyArrow Implementation (EMA pins literals). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergent`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
+Every family has this shape; the reference each family compares against is listed in [Reference implementation pattern](03-reference-implementation.md#how-the-comparison-works). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergent`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 
@@ -262,15 +252,7 @@ One file per framework, each an `Implementation[YourOpFeatureGroup]`, plus the m
 
 Each sets `feature_group` and `compute_framework`, makes `calculate` the one-liner through `group.apply_your_op`, and implements `_compute_your_op` with its native primitives. For row-preserving ops, respect the row-order invariant. If the native operation reorders (DuckDB `NTILE`), DuckDB implementations wrap the reordering step in `preserve_row_order` (see [the row-preserving contract](02-row-preserving-contract.md)).
 
-A framework that cannot run an op, or differs from the reference on one, says so on the Implementation:
-
-```py
-class SqliteYourOp(Implementation[YourOpFeatureGroup]):
-    feature_group = YourOpFeatureGroup
-    compute_framework = SqliteFramework
-    supported = frozenset({"op_a"})  # op_b: this framework is not offered
-    divergent = {"op_a": "returns NULL on divide by zero"}
-```
+A framework that cannot run an op, or differs from the reference on one, declares `supported` / `divergent` on its Implementation (see [Framework-Specific](../feature-group-patterns/09-framework-specific.md#complete-example)).
 
 Reject an op the framework cannot run natively through `supported`; do not compute it in Python inside the Implementation. Examples: `aggregation/sqlite_aggregation.py` (both), `point_arithmetic/sqlite_point_arithmetic.py` (`divergent` only).
 
@@ -348,23 +330,6 @@ A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mlo
 Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/output_contract.py`), which covers the result-type, row-count, and new-column checks that used to be hand-written per base. Override `output_contract_feature_set` (an instance method) to return the `FeatureSet` to exercise, and `output_contract_expected_row_count` when the op changes the row count (return the expected count for the test dataset).
 
 Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/input_validation.py`) and overrides `input_validation_cases()`, declaring each of `multi_column_in_features`, `missing_source_column`, `empty_partition_by`, `missing_partition_by_column`, and `missing_order_by_column` as an `InputValidationCase` (feature name, context, `match`, and optionally a `table` for fresh test data), a reason string (skips with that reason), or `None` (does not apply to this op). The `multi_column_in_features` case also drives the inherited `test_mixin_empty_in_features` zero-in_features check, so declare it as an `InputValidationCase` (config-based) or a reason string to skip.
-
----
-
-## Checklist
-
-- [ ] One `OperationFeatureGroup` (mixins first, `OperationFeatureGroup` last) with `PREFIX_PATTERN`, `SUBTYPES`, and a shared loop that takes the framework step as a keyword-only callable.
-- [ ] The loop calls `assert_source_columns_present(data, [...])` once per feature, before any per-backend dtype guard, and `assert_key_columns_present(data, ...)` for its partition, order and mask columns.
-- [ ] PyArrow Implementation first; it is the reference.
-- [ ] One `Implementation` per target framework (`feature_group`, `compute_framework`, one-line `calculate`), each respecting row-preserving if applicable; `supported` and `divergent` only where the framework genuinely cannot run or differs.
-- [ ] `manifest.py` lists the group and every Implementation.
-- [ ] Test base in `mloda/testing/.../{your_op}.py` with inherited test methods.
-- [ ] `tests/test_base.py` subclasses `OperationGroupTestBase` with one `ImplSpec` per Implementation.
-- [ ] One `tests/test_{framework}.py` per framework, importing the framework mixin.
-- [ ] `supported_ops()` overrides match the Implementation's `supported`.
-- [ ] Mask tests wired if the op consumes values that benefit from conditional inclusion.
-- [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden when the op changes the row count).
-- [ ] `InputValidationTestMixin` wired with `input_validation_cases()` covering every kind.
 
 ---
 

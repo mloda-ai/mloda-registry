@@ -19,7 +19,7 @@ See also: [Create a feature group](../09-create-feature-group.md)
 11. [Options](11-options.md) - Configurable feature group options and behaviors
 12. [calculate_feature](12-calculate-feature.md) - Calculation patterns for feature generation
 13. [Feature naming](13-feature-naming.md) - Naming conventions and organization rules
-14. [Feature matching](14-feature-matching.md) - Matching and alignment strategies for features
+14. [Feature matching](14-feature-matching.md) - How mloda finds the right FeatureGroup
 15. [Filter concepts](15-filter-concepts.md) - Feature filtering logic and concepts
 16. [Validators](16-validators.md) - Validation rules and feature integrity checks
 17. [Data connection matching](17-data-connection-matching.md) - Matching features with data connections
@@ -27,10 +27,10 @@ See also: [Create a feature group](../09-create-feature-group.md)
 19. [Domain](19-domain.md) - Using domains to organize and match features with specific FeatureGroups
 20. [Versioning](20-versioning.md) - Feature version management and compatibility
 21. [Experimental shortcuts](21-experimental-shortcuts.md) - Helper patterns for faster feature prototyping and workflow experimentation
-22. [Feature config](22-feature-config.md) - Configuration structures for features
-23. [Streaming](23-streaming.md) - Streaming feature processing patterns
-24. [Realtime Execution](24-realtime.md) - Realtime feature computation and serving
-25. [Masking](25-masking.md) - Feature masking and sensitive data handling
+22. [Feature config](22-feature-config.md) - JSON-based feature definition for AI agents and config pipelines
+23. [Streaming](23-streaming.md) - Consume results incrementally with `stream_all`
+24. [Realtime Execution](24-realtime.md) - Reuse execution plans with `prepare` + `run`
+25. [Masking](25-masking.md) - Conditional aggregation via `mask` context option
 26. [Input-feature forwarding](26-input-feature-forwarding.md) - Consuming another group's root feature and controlling which options forward upstream
 27. [Source FeatureGroups](27-input-data-readers.md) - Pointing a feature at a source group, custom file formats, non-file / HTTP sources and required declarations
 28. [Backend families](28-backend-families.md) - Three shapes for letting exactly one sibling backend claim a feature

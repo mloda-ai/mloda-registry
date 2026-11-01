@@ -30,7 +30,6 @@ Share your work with others - from your team to the world.
 - [Share with your team](05-share-with-team.md) - Distribute via private git repo
 - [Publish to the community registry](06-publish-to-community.md)
 - [Contribute to official plugins](07-contribute-to-official.md)
-- [Become an official plugin](08-become-official.md)
 
 ---
 

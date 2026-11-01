@@ -8,15 +8,6 @@ Stateful frameworks require a connection or session object to operate.
 **Where**: DuckDB, SQLite, Spark, Trino, Dask distributed.
 **How**: Same as Category 1, plus implement `set_framework_connection_object()`, `connection_requirement()` and `_connection_matches()`.
 
-## Key Difference from Stateless
-
-| Aspect | Stateless (Category 1) | Stateful (Category 3) |
-|--------|------------------------|------------------------|
-| Connection | Not needed | **Required** or self-managed |
-| Critical methods | - | `set_framework_connection_object()`, `connection_requirement()`, `_connection_matches()` |
-| Data location | In-memory | External engine/database |
-| Transform | Direct conversion | Requires connection |
-
 ## What's Different
 
 Compared with Category 1, a stateful framework implements `set_framework_connection_object()` and checks the connection in `transform()`. It also declares `connection_requirement()` and `_connection_matches()`, covered in the next section. First, the connection setter:

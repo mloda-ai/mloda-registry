@@ -17,12 +17,6 @@ Each FeatureGroup has a `version()` method that returns a composite identifier c
 
 The hash covers the class, its first-party base classes, and the helper functions, classes and module-level constants they reference, across first-party modules (the feature group's top-level package, and for plugins the whole `mloda.*` namespace except mloda itself). It ignores docstrings, comments, formatting, and unreferenced functions. Third-party code is not hashed; by default (`ThirdPartyVersionMode.INCLUDE`) the name and version of each referenced third-party package count instead.
 
-This means the version changes automatically when:
-- mloda is upgraded
-- The feature group or code it reaches is modified (not just reformatted or re-documented)
-- A referenced third-party package is upgraded (unless excluded)
-- The feature group is moved to a different module
-
 Code reached only at runtime (registries, reflection, `importlib`) and data or config files are not covered. Reference such a class in the class body (e.g. `VERSION_INCLUDES = (Scaler,)`) to make it count.
 
 ## Usage

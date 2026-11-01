@@ -1,19 +1,10 @@
 # Pattern 7: Index Features (Index Columns)
 
-Index features require specific columns for ordering, grouping, or joining.
-
 **What**: Features that require specific columns for ordering, grouping, or joining.
 **When**: Time series operations, group-by aggregations, window functions, join operations.
 **Why**: Many computations need data ordered or grouped by specific columns.
 **Where**: Rolling aggregations, lag/lead features, time windows, grouped calculations.
 **How**: Return `List[Index]` from `index_columns()` method.
-
-## Key Characteristic
-
-| Aspect | Value |
-|--------|-------|
-| Method | `index_columns()` returns `List[Index]` |
-| Class | `Index` from components |
 
 ## Complete Example
 
@@ -73,25 +64,12 @@ The community data operations declare their `partition_by`, `order_by`, `time_co
 
 ## Index Types
 
-**Single column**
 ```python
-Index(("user_id",))
+Index(("user_id",))  # single column
+Index(("user_id", "date"))  # composite key
 ```
 
-**Composite key**
-```python
-Index(("user_id", "date"))
-```
-
-**Multiple indexes (primary + foreign keys)**
-```python
-@classmethod
-def index_columns(cls) -> list[Index]:
-    return [
-        Index(("order_id",)),  # Primary key
-        Index(("customer_id",)),  # Foreign key
-    ]
-```
+`index_columns()` may return several indexes (e.g. a primary and a foreign key); a link picks one by position.
 
 ## Real Implementations
 
@@ -102,28 +80,7 @@ def index_columns(cls) -> list[Index]:
 
 ## Indexes as Join Keys
 
-```python
-from mloda.user import Link
-
-
-class UserFeatures(FeatureGroup):
-    @classmethod
-    def index_columns(cls) -> list[Index] | None:
-        return [Index(("user_id",))]
-
-
-class OrderFeatures(FeatureGroup):
-    @classmethod
-    def index_columns(cls) -> list[Index] | None:
-        return [Index(("order_id",)), Index(("user_id",))]
-
-
-# Both sides must define index_columns()
-link = Link.left_on(UserFeatures, OrderFeatures, right_index=1)  # user_id on both sides
-
-# Select specific index positions: user_id (index 0) on the left, user_id (index 1) on the right
-link = Link.inner_on(UserFeatures, OrderFeatures, left_index=0, right_index=1)
-```
+Both sides of an `_on` link must define `index_columns()`; `left_index` / `right_index` pick which index to join on. See [Using _on Methods](08-links-joins.md#using-_on-methods-convenience).
 
 ## Combines With
 

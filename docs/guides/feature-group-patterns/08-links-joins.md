@@ -1,7 +1,5 @@
 # Pattern 8: Links and Joins
 
-Join feature groups to combine data from different sources.
-
 **What**: Features that join data from multiple feature groups.
 **When**: Combining data from different sources, cross-source feature combinations, self-joins.
 **Why**: Real-world features often require data from multiple tables/sources.
@@ -65,6 +63,8 @@ class OrderWithCustomer(FeatureGroup):
         return data
 ```
 
+A link on one input is enough; core injects the join key into the unlinked siblings.
+
 ## Test
 
 ```python
@@ -86,10 +86,6 @@ def test_input_features_with_link():
 | `Link.append()` | UNION ALL | `append_on()` |
 | `Link.union()` | UNION | `union_on()` |
 | `Link.asof()` | ASOF JOIN (point-in-time) | `asof_on()` |
-
-ASOF (point-in-time) joins match each left row to the right row that was valid at
-the left row's timestamp. See [As-of (point-in-time) joins](#as-of-point-in-time-joins)
-below for the keyword reference, per-backend support, and a runnable end-to-end example.
 
 ## As-of (point-in-time) joins
 
@@ -130,13 +126,7 @@ both factories (`Link.asof(left_spec, right_spec, *, left_time_column=..., ...)`
 | DuckDB | yes | SQL `ASOF JOIN`. Rejects `direction="nearest"` and a `timedelta` tolerance with a `ValueError`; pass a numeric tolerance instead. |
 | SQLite | yes | SQL window functions. Same restriction as DuckDB: no `nearest`, numeric tolerance only. |
 
-`direction="nearest"` and `timedelta` tolerances work only on the Pandas and Polars
-backends; PyArrow and the SQL backends reject them (see the table). Two guards apply to
-every backend: as-of time columns must be ordered, so a non-ordered (e.g. string) column
-raises a clear `ValueError` naming it
-([mloda#529](https://github.com/mloda-ai/mloda/pull/529)); and
-`coerce_time_columns=True` opts in to coercing ISO-8601 string columns per backend
-([mloda#548](https://github.com/mloda-ai/mloda/pull/548)).
+On every backend the as-of time columns must be ordered: a non-ordered (e.g. string) column raises a `ValueError` naming it, unless `coerce_time_columns=True` coerces an ISO-8601 string column.
 
 ### Defining the link
 
@@ -191,10 +181,6 @@ class RunEvents(EventFeatureGroup, DataCreatorFeatureGroup):
         ts = pd.to_datetime(["2023-01-01 10:15", "2023-01-01 10:45"])
         return pd.DataFrame({"id": [0, 1], "symbol": ["AAA", "AAA"], "event_ts": ts})
 
-    @classmethod
-    def compute_framework_rule(cls) -> Any:
-        return {PandasDataFrame}
-
 
 class RunQuotes(QuoteFeatureGroup, DataCreatorFeatureGroup):
     @classmethod
@@ -205,10 +191,6 @@ class RunQuotes(QuoteFeatureGroup, DataCreatorFeatureGroup):
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         ts = pd.to_datetime(["2023-01-01 10:00", "2023-01-01 10:30"])
         return pd.DataFrame({"symbol": ["AAA", "AAA"], "quote_ts": ts, "price": [100, 110]})
-
-    @classmethod
-    def compute_framework_rule(cls) -> Any:
-        return {PandasDataFrame}
 
 
 class EventPriceFeatureGroup(FeatureGroup):
@@ -222,10 +204,6 @@ class EventPriceFeatureGroup(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         return pd.DataFrame({"asof_event_id": data["id"], "asof_event_price": data["price"]})
-
-    @classmethod
-    def compute_framework_rule(cls) -> Any:
-        return {PandasDataFrame}
 
 
 link = Link.asof_on(
@@ -279,10 +257,6 @@ features = {
 }
 ```
 
-## Feature-Level Links
-
-Links can also be set directly on Feature objects.
-
 ## Via Feature Parameter
 
 ```python
@@ -292,36 +266,6 @@ link = Link.left(
 )
 feature = Feature(name="order_value", link=link, index=Index(("order_id",)))
 ```
-
-## Via input_features()
-
-```python
-def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-    link = Link.left(
-        JoinSpec(OrderFeatureGroup, Index(("order_id",))), JoinSpec(CustomerFeatureGroup, Index(("customer_id",)))
-    )
-    return {
-        Feature(name="order_value", link=link, index=Index(("order_id",))),
-        Feature(name="customer_name", index=Index(("customer_id",))),
-    }
-```
-
-A link on one input is enough from mloda 0.14.0. Older cores register a link only when they reach the Feature carrying it, and `input_features()` returns a set, so when the unlinked sibling is processed first its join key is never injected and the join fails with a missing-column `KeyError`, depending on `PYTHONHASHSEED`. A plugin that still supports mloda below 0.14.0 attaches the same link to every input it joins (equal links deduplicate) or passes it via `mloda.run_all(links=...)`.
-
-## Multi-Table Join (Aggregate + Left-Join)
-
-```py
-link = Link.left(
-    left=JoinSpec(CustomerFeatures, Index(("customer_id",))),
-    right=JoinSpec(OrderAggregation, Index(("customer_id",))),
-)
-
-features = [
-    Feature("customer_name"),
-    Feature("total_orders", link=link),
-]
-```
-
 
 ## Same-Class Joins with Discriminators
 
@@ -353,18 +297,9 @@ Remedy: split the consumer into one FeatureGroup per member, each requesting tha
 
 The check has limits:
 
-- mloda 0.15.1 and older do not have it: some of these layouts plan, others fail with unrelated join errors.
 - It does not cover append and union links.
 - Members that share a compute framework pass it, but one base-class link over both is still ambiguous (`There are more than one solution for the join`).
 - A planned layout is not always correct: with the other side on one member's framework, a left or right join that keeps the member side can return wrong rows when the members hold different keys, and under `THREADING` planned layouts can fail intermittently with a missing column.
-
-## When to Use Each Approach
-
-| Approach | Use When |
-|----------|----------|
-| `input_features()` with link | Joins for derived feature dependencies |
-| Feature `link` parameter | Dynamic joins at feature creation |
-| `mloda.run_all(links=...)` | Global joins for entire computation |
 
 ## Real Implementations
 

@@ -52,8 +52,6 @@ assert any(list(df["sales_total"]) == [3, 3, 5] for df in result if "sales_total
 { "name": "daily_sales", "keep_index": true, "index": ["customer_id"] }
 ```
 
-Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
-
 `feature_group` is the class **name** as a string, also valid inside a nested `in_features` dict:
 
 ```json
@@ -87,11 +85,9 @@ config = """
 | Rank | `{source}__{rank_type}_ranked` (`row_number`, `dense_rank`, `ntile_N`, ...) | `partition_by` (list), `order_by` (string) |
 | Percentile | `{source}__p{N}_percentile` (e.g. `p50`, `p95`) | `partition_by` (list) |
 
-Use `context_options` (not `group_options`): the partition/order are operation parameters, not identity that should split the FeatureGroup.
-
 ## How Plugins Resolve Config Values
 
-When a JSON config specifies `context_options` like `{"aggregation_type": "sum"}`, the receiving FeatureGroup needs to extract that value at compute time. Plugins using `FeatureChainParserMixin` call `_resolve_operation(feature, config_key)` to handle both string-based names (where the operation is embedded in the feature name) and config-based creation (where the operation comes from options) in one call. See [Chained Features](03-chained-features.md) for the full pattern.
+Plugins resolve these values with `_resolve_operation`, see [Chained Features](03-chained-features.md).
 
 ---
 

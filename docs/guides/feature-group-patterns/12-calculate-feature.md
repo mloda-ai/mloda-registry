@@ -7,8 +7,6 @@ How to implement the core computation method of a FeatureGroup.
 **Why**: Separates static class definition (matching, dependencies) from runtime computation.
 **Where**: `calculate_feature(cls, data, features)` in every FeatureGroup.
 
-A FeatureGroup class defines static behavior (matching, dependencies, framework rules). The `calculate_feature()` method receives runtime context: the actual data and a `FeatureSet` containing which features were requested, their options, and any filters. This separation allows one FeatureGroup class to handle many feature variants.
-
 ## Signature
 
 ```py
@@ -68,7 +66,7 @@ One call receives the requested features of your group that agree on:
 - the data source the group matched, and for API input data the API source
 - the variant of a source class their inputs read from
 
-Since mloda 0.18.0, features that differ only in data type share a call when they carry the same filters, unless the group has an artifact or two of them share a name. Earlier releases split them by data type. A feature that needs another feature of the same group runs in a later call. A cache scoped to one call therefore shares work only within that call: to compute siblings once, make them [declared parts](05-multi-output-features.md#declaring-output-parts) of one feature (users then request `scan~label`; parts requested with differing data types still split, since they share the base name), or cache beyond the call, keyed by the inputs.
+Features that differ only in data type share a call when they carry the same filters, unless the group has an artifact or two of them share a name. A feature that needs another feature of the same group runs in a later call. A cache scoped to one call therefore shares work only within that call: to compute siblings once, make them [declared parts](05-multi-output-features.md#declaring-output-parts) of one feature (users then request `scan~label`; parts requested with differing data types still split, since they share the base name), or cache beyond the call, keyed by the inputs.
 
 ```python
 from typing import Any
@@ -198,24 +196,7 @@ from mloda.user.python_dict import columnar_to_rows, homogenize_rows, is_columna
 
 ## Extracting the Operation Type
 
-Chained feature groups (using `FeatureChainParserMixin`) often need to extract an operation type inside `calculate_feature`. The operation can come from the feature name string or from a config key in options. Use `_resolve_operation()` to handle both paths in one call:
-
-```py
-@classmethod
-def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-    for feature in features.features:
-        name = feature.name
-
-        # Resolves from PREFIX_PATTERN match or options["imputation_method"]
-        method = cls._resolve_operation(feature, "imputation_method")
-        source = next(iter(feature.options.get_in_features())).name
-
-        col = data[source]
-        data[name] = col.fillna(col.mean() if method == "mean" else col.median())
-    return data
-```
-
-`_resolve_operation(feature, config_key)` tries string-based parsing via `PREFIX_PATTERN` first, then falls back to `options.get(config_key)`. On the string path, a named-capture pattern returns the capture named `config_key`, and a positional pattern returns its first group for any key. See [Chained Features](03-chained-features.md) for the full pattern.
+Chained groups read a value that can come from the name or from options with `cls._resolve_operation(feature, key)`; see [Chained Features](03-chained-features.md) for the lookup rules.
 
 Framework-specific column access belongs in one `Implementation` per framework behind the operation group. See [Framework-Specific](09-framework-specific.md#complete-example).
 

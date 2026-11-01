@@ -30,54 +30,24 @@ median, mode, nunique, first, last
 |---|---|---|---|
 | `partition_by` | `list[str]` (or tuple) | Required | Columns defining the window. Must be present and non-empty; the matcher rejects the feature otherwise. For a single global window, use [scalar aggregate](08-scalar-and-frame-aggregate.md) instead. |
 | `order_by` | `str` | Required for ordered aggs (`first`, `last`) | Column that orders rows within each partition. |
-| `mask` | tuple or list of tuples | Optional | Conditional aggregation. See [Masking](../feature-group-patterns/25-masking.md). |
+| `mask` | tuple or list of tuples | Optional | Conditional aggregation: masked rows become NULL before the aggregate and stay in the output. See [Masking](../feature-group-patterns/25-masking.md). |
 
 ---
 
 ## Usage
 
 ```python
-from typing import Any
-
-import duckdb
-import pyarrow as pa
-
-from mloda.provider import DataCreatorFeatureGroup, FeatureSet
-from mloda.user import DataAccessCollection, Feature, Options, PluginLoader, mloda
-from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
+from mloda.user import Feature, Options, PluginLoader, mloda
 
 PluginLoader.all()
 
-
-class WindowData(DataCreatorFeatureGroup):
-    """Source columns for the example."""
-
-    @classmethod
-    def feature_names_supported(cls) -> set[str]:
-        return {"region", "value_int", "ts"}
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return pa.table({"region": ["A", "A", "B"], "value_int": [10, 20, 30], "ts": [1, 2, 3]})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type] | bool:
-        return {DuckDBFramework}
-
+data = {"region": ["A", "A", "B"], "value_int": [10, 20, 30], "ts": [1, 2, 3]}
 
 features = [
-    Feature(
-        "value_int__sum_window",
-        Options(context={"partition_by": ["region"]}),
-    ),
-    Feature(
-        "value_int__first_window",
-        Options(context={"partition_by": ["region"], "order_by": "ts"}),
-    ),
+    Feature("value_int__sum_window", Options(context={"partition_by": ["region"]})),
+    Feature("value_int__first_window", Options(context={"partition_by": ["region"], "order_by": "ts"})),
 ]
-
-data_access = DataAccessCollection(connections={duckdb.connect()})
-result = mloda.run_all(features, compute_frameworks=["DuckDBFramework"], data_access_collection=data_access)
+result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
 Every row in `result` has the same number of columns plus the two new ones. Within each `region`, `value_int__sum_window` holds the same value on every row.
@@ -96,26 +66,6 @@ Because window aggregation must preserve input order (see [row-preserving contra
 | DuckDB / SQLite | `{AGG}(col) OVER (PARTITION BY ...)` (no `ORDER BY` when not needed) |
 
 The DuckDB/SQLite form omits `ORDER BY` for non-ordered aggregates (`sum`, `avg`, etc.). The DuckDB backend tags rows and restores input order after the window.
-
----
-
-## Mask support
-
-Every window-aggregation feature accepts the `mask` option. Masked rows have their source value replaced with NULL before the aggregate runs, so the aggregate skips them. Row count is still preserved; the masked rows remain in the output, just carrying a non-contributing NULL.
-
-```python
-Feature(
-    "value_int__sum_window",
-    Options(
-        context={
-            "partition_by": ["region"],
-            "mask": ("category", "equal", "X"),
-        }
-    ),
-)
-```
-
-See [Masking](../feature-group-patterns/25-masking.md) for the full mask spec.
 
 ---
 

@@ -69,8 +69,6 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
         return data
 ```
 
-> **Manual alternative**: Before `_resolve_operation()`, plugins called `FeatureChainParser.parse_feature_name()` directly and handled the options fallback themselves. The helper handles this dual-path lookup automatically, so prefer `_resolve_operation()` in new code.
-
 > **Source features**: a single-input group reads its source with `_extract_single_source_feature(feature)`, which works for string- and configuration-based features and raises a count error naming the feature; unpacking `_extract_source_features` yourself gives a bare `too many values to unpack`. Multi-input groups use `_extract_validated_source_features`.
 
 > **Linting**: `PROPERTY_MAPPING` and other mutable class-level defaults trip ruff `RUF012` unless annotated `ClassVar`. See [Options: Annotate with ClassVar](11-options.md#annotate-with-classvar).
@@ -91,28 +89,9 @@ Feature("imputed_income", Options(context={"imputation_method": "mean", "in_feat
 
 > **Note on Context**: Context options are local by default and do not flow to input features. To hand a context key to the direct input feature (e.g., a trace ID), use `propagate_context_keys`; the push is one hop. For a value every level of the chain needs, use `cascade_context_keys` (mloda 0.16.0+) or group options. See [Options](11-options.md#context-propagation) for details.
 
-### Discriminator Keys
+### Discriminator Keys and Validation
 
-When your feature group supports multiple method variants (e.g., different scaling algorithms), use a **unique discriminator key** in `PROPERTY_MAPPING`. The mixin handles matching automatically for both string-based and config-based creation.
-
-| Feature Group | Discriminator Key | Example Values |
-|--------------|------------------|----------------|
-| `ScalingFeatureGroup` | `scaler_type` | standard, minmax, robust |
-| `EncodingFeatureGroup` | `encoder_type` | onehot, label, ordinal |
-| `AggregatedFeatureGroup` | `aggregation_type` | sum, avg, min, max |
-
-Use specific keys (not generic `operation_type`) to avoid collisions between feature group types. See [Feature Matching](14-feature-matching.md#discriminator-keys-for-configuration-based-matching) for the full pattern.
-
-### Advanced PROPERTY_MAPPING Features
-
-PROPERTY_MAPPING supports additional capabilities that reduce boilerplate in `match_feature_group_criteria` overrides:
-
-- **`allowed_values`**: The kwarg that declares a key's accepted value space; `strict=True` (the builder kwarg that sets the `strict_validation` field) makes membership enforced, and the spec validates itself at construction. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space) and [Options: Builder `property_spec`](11-options.md#builder-property_spec).
-- **`required_when`**: Declare options that are only required under certain conditions via a predicate callable.
-- **`match_guard`**: Check the raw option value with a callable (e.g., that it is a list of strings). Does not require `strict_validation`; a falsy return is a non-match, not an error, with no reason reported unless the spec is strict or declares `expected` (see [Options](11-options.md)).
-- **`element_validator`**: Validate each parsed element when `strict_validation` is enabled (e.g., that it is a positive integer). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
-
-See [Feature Matching: Key Differences](14-feature-matching.md#key-differences-from-element_validator) for the comparison table and examples, and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the precedence and lifecycle rules.
+Give each method variant a unique discriminator key in `PROPERTY_MAPPING` (`scaler_type`, not a generic `operation_type`), see [Feature Matching](14-feature-matching.md#discriminator-keys-for-configuration-based-matching). For `allowed_values` / `strict`, `required_when`, `match_guard` and `element_validator`, see [Options](11-options.md#property_mapping-value-space) and [Feature Matching](14-feature-matching.md#key-differences-from-element_validator).
 
 ## Test
 

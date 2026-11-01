@@ -4,35 +4,6 @@ Improve existing community plugins with bug fixes or new features.
 
 > For general PR mechanics, code style, and the full review process, see [CONTRIBUTING.md](../../CONTRIBUTING.md). This guide focuses on the workflow specific to contributing to official plugins.
 
-## Steps
-
-1. **Fork and clone** mloda-registry:
-   ```bash
-   gh repo fork mloda-ai/mloda-registry --clone
-   cd mloda-registry
-   ```
-
-2. **Create a branch**:
-   ```bash
-   git checkout -b fix/my-improvement
-   ```
-
-3. **Make changes** and add tests
-
-4. **Run tests locally**:
-   ```bash
-   tox
-   ```
-
-5. **Create a Pull Request**
-
-## Guidelines
-
-- Follow existing code style
-- Add tests for new functionality
-- Update documentation if needed
-- Keep changes focused and small
-
 ## Code Review Process
 
 ### What Happens After You Submit
@@ -53,14 +24,3 @@ Your PR will be merged when:
 - **Tests included**: New functionality has corresponding tests
 - **Docs updated**: If behavior changes, documentation reflects it
 - **Style consistent**: Code follows existing patterns in the codebase
-
-### Review Feedback
-
-- Expect constructive feedback aimed at improving code quality
-- Changes may be requested before merge. This is normal
-- Discussion is encouraged; ask questions if something is unclear
-
-### After Merge
-
-- Your changes will be included in the next release
-- You'll be credited in the git history as the author

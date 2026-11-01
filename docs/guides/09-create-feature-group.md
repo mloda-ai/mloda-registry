@@ -104,41 +104,4 @@ Q31: Is the model a compiled binary (shipped as a wheel, possibly license-gated)
     YES → See 29-binary-backed-features
 ```
 
-## Pattern Guides
-
-| Pattern | When to Use |
-|---------|-------------|
-| [01-root-features](feature-group-patterns/01-root-features.md) | Loading data from files, APIs, databases, or generating synthetic data |
-| [02-derived-features](feature-group-patterns/02-derived-features.md) | Simple transformation with static output name |
-| [03-chained-features](feature-group-patterns/03-chained-features.md) | Reusable transforms via naming pattern (`price__scaled`) |
-| [04-multi-input-features](feature-group-patterns/04-multi-input-features.md) | Combining multiple inputs (`a&b__distance`) |
-| [05-multi-output-features](feature-group-patterns/05-multi-output-features.md) | Multiple output columns (`emb~0`, `emb~1`) |
-| [06-artifact-features](feature-group-patterns/06-artifact-features.md) | Fitted models, cached computations |
-| [07-index-features](feature-group-patterns/07-index-features.md) | Time series, group-by, window functions |
-| [08-links-joins](feature-group-patterns/08-links-joins.md) | Joining data from multiple feature groups |
-| [09-framework-specific](feature-group-patterns/09-framework-specific.md) | Pandas-only, Polars-only features |
-| [10-testing-guide](feature-group-patterns/10-testing-guide.md) | 3-level testing approach; plan locks |
-
-## Concepts
-
-| Guide | What It Covers |
-|-------|----------------|
-| [11-options](feature-group-patterns/11-options.md) | Group vs context options for feature configuration |
-| [12-calculate-feature](feature-group-patterns/12-calculate-feature.md) | Implementing the core computation method |
-| [13-feature-naming](feature-group-patterns/13-feature-naming.md) | How to define feature names |
-| [14-feature-matching](feature-group-patterns/14-feature-matching.md) | How mloda finds the right FeatureGroup |
-| [15-filter-concepts](feature-group-patterns/15-filter-concepts.md) | Filtering data during computation |
-| [16-validators](feature-group-patterns/16-validators.md) | Input/output validation |
-| [17-data-connection-matching](feature-group-patterns/17-data-connection-matching.md) | Matching against data connections |
-| [18-datatypes](feature-group-patterns/18-datatypes.md) | Data type declaration and validation |
-| [19-domain](feature-group-patterns/19-domain.md) | Disambiguate feature-to-FeatureGroup matching |
-| [20-versioning](feature-group-patterns/20-versioning.md) | Version tracking and reproducibility |
-| [21-experimental-shortcuts](feature-group-patterns/21-experimental-shortcuts.md) | Dynamic creation and input source helpers |
-| [22-feature-config](feature-group-patterns/22-feature-config.md) | JSON-based feature definition for AI agents and config pipelines |
-| [23-streaming](feature-group-patterns/23-streaming.md) | Consume results incrementally with `stream_all` |
-| [24-realtime](feature-group-patterns/24-realtime.md) | Reuse execution plans with `prepare` + `run` |
-| [25-masking](feature-group-patterns/25-masking.md) | Conditional aggregation via `mask` context option |
-| [26-input-feature-forwarding](feature-group-patterns/26-input-feature-forwarding.md) | Consuming another group's feature; controlling option forwarding |
-| [27-input-data-readers](feature-group-patterns/27-input-data-readers.md) | Source FeatureGroups: pointing, custom file formats, non-file / HTTP sources; required declarations |
-| [28-backend-families](feature-group-patterns/28-backend-families.md) | Picking one sibling backend: name, discriminator option, or source group |
-| [29-binary-backed-features](feature-group-patterns/29-binary-backed-features.md) | Running a compiled, license-gated binary as a black-box model |
+Every pattern, with links: [Feature group patterns index](feature-group-patterns/index.md).
