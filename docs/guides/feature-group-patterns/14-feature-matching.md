@@ -107,10 +107,10 @@ A data operation claims a config-path feature only when it carries an option onl
 
 | Feature Group | Discriminator Key | PREFIX_PATTERN |
 |--------------|------------------|----------------|
-| `AggregatedFeatureGroup` | `aggregation_type` | `r".*__([\w]+)_aggr$"` |
-| `ScalingFeatureGroup` | `scaler_type` | `r".*__(standard|minmax|robust|normalizer)_scaled$"` |
-| `EncodingFeatureGroup` | `encoder_type` | `r".*__(onehot|label|ordinal)_encoded(~\d+)?$"` |
-| `RankFeatureGroup` (named capture) | `rank_type` | `r".*__(?P<rank_type>[\w]+)_ranked$"` |
+| `AggregatedFeatureGroup` | `aggregation_type` | `r".*__(?P<aggregation_type>[\w]+)_aggr$"` |
+| `ScalingFeatureGroup` | `scaler_type` | `r".*__(?P<scaler_type>standard\|minmax\|robust\|normalizer)_scaled$"` |
+| `EncodingFeatureGroup` | `encoder_type` | `r".*__(?P<encoder_type>onehot\|label\|ordinal)_encoded$"` |
+| `RankFeatureGroup` | `rank_type` | `r".*__(?P<rank_type>[\w]+)_ranked$"` |
 
 ### Pattern
 

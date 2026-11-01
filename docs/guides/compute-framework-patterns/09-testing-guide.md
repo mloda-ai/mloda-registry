@@ -132,7 +132,7 @@ The mixin expects `mask_engine_class`, `sample_data`, `empty_data`, `null_data`,
 For SQL engines that return condition strings, inherit from `SqlMaskEngineTestMixin`
 to add SQL condition-shape checks on top of the shared mask engine contract.
 
-### MultiIndexMergeEngineTestBase (6 tests)
+### MultiIndexMergeEngineTestBase
 
 For merge engine tests with multi-column indexes:
 
@@ -280,7 +280,7 @@ class TestMyFramework:
 
     def test_transform_dict(self):
         framework = MyFramework(...)
-        result = framework.transform({"col": [1, 2]}, {"col"})
+        result = framework.transform({"col": [1, 2]}, ["col"])
         assert isinstance(result, my_lib.DataFrame)
 ```
 
@@ -309,7 +309,7 @@ class TestMyTransformer:
 - [ ] `transform()` handles dict input
 
 ### Merge Engine (use MultiIndexMergeEngineTestBase)
-- [ ] All 6 merge types work with multi-column indexes
+- [ ] INNER, LEFT, FULL OUTER, APPEND and UNION merges work with multi-column indexes
 - [ ] Connection passed correctly for stateful frameworks
 
 ### Filter Engine (use FilterEngineTestMixin)

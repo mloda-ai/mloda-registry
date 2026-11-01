@@ -5,14 +5,14 @@ Authoritative list of cases where a framework would, without intervention, produ
 **What**: Every audited case where a framework's native operator diverges from PyArrow semantics.
 **When**: Read this before adding a new data-operation implementation, a new framework, or changing null or tie-breaking behavior in an existing one.
 **Why**: Divergences of this kind are the most dangerous class of bug: the feature resolves, the pipeline succeeds, the output is silently wrong. Keeping a single list prevents that category from growing unnoticed.
-**Where**: Audit of the 11 data operations under `mloda/community/feature_groups/data_operations/`.
+**Where**: Audit of the data operations under `mloda/community/feature_groups/data_operations/`.
 **How**: Each entry records the divergence, the mitigation, and the test (or `supported_ops()` exclusion) that keeps it from silently regressing. Every entry also carries a machine-checked block (see [When to add to this page](#when-to-add-to-this-page)) so a `tox` test can verify the cited regression test still exists.
 
 ---
 
 ## Categories of divergence
 
-Divergences fall into three kinds, handled in three different places.
+Divergences fall into four kinds, each with its own mitigation.
 
 | Kind | Example | Mitigation |
 |---|---|---|
@@ -111,11 +111,11 @@ regression_test:
 
 - **Operations**: `point_arithmetic` (`divide` op).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py`.
-- **Reference behavior**: PyArrow's `pc.divide` on float64 operands returns IEEE-754 `inf` / `-inf` for `N/0` (sign of `N`) and `NaN` for `0/0`. Pandas, Polars lazy, and DuckDB all match this when both operands are cast to float / DOUBLE.
+- **Reference behavior**: PyArrow's `pc.divide` on float64 operands returns IEEE-754 `inf` / `-inf` for `N/0` (sign of `N`) and `NaN` for `0/0`. Pandas, Polars lazy, and DuckDB all match this when both operands are cast to float / DOUBLE; Python dict matches through an explicit IEEE-754 divide helper.
 - **Native SQLite behavior**: `CAST(a AS REAL) / CAST(b AS REAL)` returns `NULL` for any divide-by-zero or null operand. SQLite has no native IEEE-754 inf/nan storage; the engine substitutes `NULL` for results that would otherwise be a non-finite float.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted; the contract is documented and the test base accommodates both behaviors).
-- **How**: `SqlitePointArithmetic.divergent` declares `divide`, so with several frameworks enabled mloda ranks a non-divergent implementation first. `PointArithmeticTestBase.divide_zero_propagates_inf()` reads that declaration, so the cross-framework divide-by-zero row at index 5 of the canonical fixture (`value_int=50, amount=0.0`) is asserted as `inf` on the four other backends and `None` on SQLite. Forcing SQLite into inf-emitting behavior would require an out-of-band float library; the cost outweighs the benefit for an operation whose primary callers will pick a non-SQLite backend when they need IEEE-754 semantics anyway.
-- **Regression signal**: `TestDivideByZeroPerRow.test_sqlite_divide_by_zero_per_row` in `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py` pins the SQLite-specific `NULL` expectation; the corresponding four backends pin `inf`/`-inf`/`nan` per the truth table. If a future SQLite implementation begins returning a different non-NULL value, the assertion fails.
+- **How**: `SqlitePointArithmetic.divergent` declares `divide`, so with several frameworks enabled mloda ranks a non-divergent implementation first. `PointArithmeticTestBase.divide_zero_propagates_inf()` reads that declaration, so the cross-framework divide-by-zero row at index 5 of the canonical fixture (`value_int=50, amount=0.0`) is asserted as `inf` on the five other backends and `None` on SQLite. Forcing SQLite into inf-emitting behavior would require an out-of-band float library; the cost outweighs the benefit for an operation whose primary callers will pick a non-SQLite backend when they need IEEE-754 semantics anyway.
+- **Regression signal**: `TestDivideByZeroPerRow.test_sqlite_divide_by_zero_per_row` in `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py` pins the SQLite-specific `NULL` expectation; its PyArrow, Pandas, Polars lazy and DuckDB tests pin `inf`/`-inf`/`nan` per the truth table. If a future SQLite implementation begins returning a different non-NULL value, the assertion fails.
 - **Scope note**: `scalar_arithmetic` does not appear here because its divisor is a validated `Options` constant; `divide_by_zero` is rejected up front before dispatch reaches any backend, so the per-row divergence cannot arise there.
 
 ### SQLite arithmetic cannot reject a boolean source column
@@ -179,7 +179,7 @@ regression_test:
 -->
 
 - **Operations**: `aggregation`, `scalar_aggregate`, `window_aggregation`, `percentile` (`avg`, `mean`, `std`, `var`, percentile interpolation).
-- **Where it lives**: Integration tests that flip `use_approx=True` on the cross-framework comparison (e.g. `aggregation/tests/test_integration.py:96`, `scalar_aggregate/tests/test_integration.py:82`, `window_aggregation/tests/test_integration.py:81`, `percentile/tests/test_integration.py:78`).
+- **Where it lives**: Integration tests that flip `use_approx=True` on the cross-framework comparison (`aggregation/tests/test_integration.py`, `scalar_aggregate/tests/test_integration.py`, `window_aggregation/tests/test_integration.py`, `percentile/tests/test_integration.py`).
 - **Reference behavior**: PyArrow computes a columnar mean in a deterministic reduction tree.
 - **Native SQL behavior**: DuckDB and SQLite accumulate with a running sum in query execution order, producing tiny relative-precision differences (~`1e-12` to `1e-8`).
 - **Mitigation kind**: Accepted tolerance.
@@ -204,7 +204,7 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate`, `.../offset`, `.../percentile`, `.../rank`.
 - **Reference behavior**: PyArrow is the reference *for correctness semantics* of the operations that keep a PyArrow-based reference, but it does not provide native rolling/expanding, LAG/LEAD, percentile, or rank. Frame aggregate has a pure Python reference. The reference functions for rank, offset and percentile (`reference_rank`, `reference_offset`, `reference_percentile`) live in pure Python over PyArrow arrays, and rank, offset and percentile have no PyArrow Implementation (requesting them on PyArrowTable alone is a resolution error).
 - **Mitigation kind**: Excluded op (from the test suite and from routing, since no PyArrow Implementation exists).
-- **How**: The `supported_ops()` / `supported_agg_types()` on each operation's PyArrow test class returns an empty or reduced set so the suite does not try to compare against an implementation that does not exist. Aggregation declares its PyArrow capability on the implementation (`PyArrowAggregation.supported`), so `median` and `mode` are not offered there. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
+- **How**: Frame aggregate, offset, percentile and rank have no PyArrow test class, so the suite never compares against an implementation that does not exist. Aggregation and window aggregation do ship PyArrow Implementations but declare a reduced capability (`PyArrowAggregation.supported`, `PyArrowWindowAggregation.supported`), so `median` and `mode` are not offered there; their PyArrow test classes mirror it through `supported_agg_types()`. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
 - **Regression signal**: Restoring the op on PyArrow requires both providing a native implementation and re-expanding the supported set; no silent skip is possible.
 - **Related**: This is the "Category 1" case described in issue #146; listed here for completeness.
 
@@ -573,7 +573,7 @@ regression_test:
 - **Mitigation kind**: Accepted divergence. Splitting the tiers would trade agreement with Pandas for agreement with the reference, the same trade as the rank entry below.
 - **Regression signal**: `test_nan_orders_before_none` in both test bases asserts the reference value, then the backend value through `orders_nan_before_none()` (default `True`; the PythonDict, Pandas and SQLite classes above override to `False`).
 
-### PythonDict and SQLite rank tie None and NaN in order-value runs; PyArrow >= 25, DuckDB, and Polars rank them apart
+### PythonDict, Pandas and SQLite rank tie None and NaN in order-value runs; PyArrow >= 25, DuckDB, and Polars rank them apart
 
 <!-- machine-checked
 operation: rank

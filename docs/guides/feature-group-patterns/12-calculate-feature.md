@@ -183,7 +183,7 @@ The check runs during execution, not inside `calculate_feature()`, so a unit tes
 
 ## Columnar Helpers
 
-`mloda.user` exports helpers for the `PythonDictFramework` shape. Use them instead of hand-rolling conversions:
+`mloda.user.python_dict` exports helpers for the `PythonDictFramework` shape. Use them instead of hand-rolling conversions:
 
 | Helper | Purpose |
 |--------|---------|

@@ -47,7 +47,7 @@ def result_framework(cls) -> type[ComputeFramework]:
     return PolarsDataFrame  # The type select_data_by_column_names returns
 
 
-def transform(self, data: Any, feature_names: set[str]) -> Any:
+def transform(self, data: Any, feature_names: Sequence[str]) -> Any:
     if isinstance(data, dict):
         return pl.LazyFrame(data)  # LazyFrame, not DataFrame
     if isinstance(data, pl.DataFrame):

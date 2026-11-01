@@ -4,7 +4,7 @@ Forward-fill carries the last observed value of a column forward across rows tha
 
 **What**: `FfillFeatureGroup` accepts feature names of the form `{col}__ffill`. It reads `order_by` (the time column to sort by, ascending) and optional `partition_by` from `Options(context=...)`, and emits a new `{col}__ffill` column.
 **When**: You have an irregular event stream with gaps (sensor readings, prices, status flags) and want every row to see the most recent known value rather than a null.
-**Why**: Doing this identically across PyArrow, Pandas, Polars, DuckDB, and SQLite is subtle: partition boundaries, leading-null handling, and ordering stability all diverge by default.
+**Why**: Doing this identically across every supported framework is subtle: partition boundaries, leading-null handling, and ordering stability all diverge by default.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/ffill/`.
 **How**: The feature name carries only the op; the time column and partitions come from Options. Each backend sorts within partition, carries the last non-null forward, and restores the original row order.
 

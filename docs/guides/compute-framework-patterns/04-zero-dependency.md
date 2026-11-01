@@ -29,6 +29,7 @@ Zero dependency frameworks use pure Python with no external libraries.
 ## What's Different
 
 ```python
+from collections.abc import Sequence
 from typing import Any
 
 from mloda.provider import ComputeFramework
@@ -50,7 +51,7 @@ class MyZeroDependencyFramework(ComputeFramework):
             return set(data[0].keys())
         return set()
 
-    def transform(self, data: Any, feature_names: set[str]) -> dict[str, list[Any]]:
+    def transform(self, data: Any, feature_names: Sequence[str]) -> dict[str, list[Any]]:
         if isinstance(data, dict):
             return data
         if isinstance(data, list):

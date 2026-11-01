@@ -38,7 +38,7 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
 Then `transform()` must check the connection:
 
 ```py
-def transform(self, data: Any, feature_names: set[str]) -> Any:
+def transform(self, data: Any, feature_names: Sequence[str]) -> Any:
     if self.framework_connection_object is None:
         raise ValueError("Connection not set.")
     # Use connection for conversion...
