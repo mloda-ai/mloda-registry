@@ -143,9 +143,9 @@ A row-oriented `list[dict]` is still accepted, but it is not the native shape: `
 
 ## Reporting Failed Rows
 
-When a row got no value (a lookup miss, a parse failure), call `report_failed_rows(column, rows, reason)` from `mloda.provider` instead of failing the run silently. `reason` is a short code matching `[A-Za-z0-9_.-]{1,64}`, never row data (anything else raises `ValueError`). `rows` are positions in the group's own output.
+When a row got no value (a lookup miss, a parse failure), call `report_failed_rows(column, rows, reason)` from `mloda.provider` instead of returning a silent null. `reason` is a short code matching `[A-Za-z0-9_.-]{1,64}`, never row data (anything else raises `ValueError`). `rows` are positions in the group's own output.
 
-Outside a collector (direct calls, `stream_run`, `stream_all`) the call is a no-op. Under `run()` and `run_all()` the entries surface in `RunResult.failed_rows` and `HookContext.failed_rows`, and the extenders turn them into counts and reason codes: `mloda.failed_rows.*` span attributes, the `mloda.step.failed_rows` counter, the `mlodaFailedRows` lineage facet and the audit `failed_rows` key. Positions never leave the process. See the core [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
+A direct call outside a run is a no-op. In every run, streams included, the entries reach `HookContext.failed_rows` and the extenders; `run()` and `run_all()` also return them in `RunResult.failed_rows`. The extenders turn them into counts and reason codes: `mloda.failed_rows.*` span attributes, the `mloda.step.failed_rows` counter, the `mlodaFailedRows` lineage facet and the audit `failed_rows` key. Positions never leave the process. See the core [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
 
 ```python
 from typing import Any

@@ -137,6 +137,7 @@ def record_run(instruments: Instruments, run: RunContext, outcome: LifecycleOutc
 
 class OtelMetricsExtender(Extender):
     """Records run and step durations and step row counts for wrapped hooks.
+    Also counts failed rows (mloda.step.failed_rows) on successful calculate calls, 0 included.
 
     Uses the injected meter_provider, else the global one with use_sdk_defaults, else is inert (warns once).
     record_result_attributes opts into counters for non-negative integer result attributes from calculate hooks.

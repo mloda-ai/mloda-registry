@@ -1895,6 +1895,19 @@ class TestOpenLineageExtenderCompleteEvent:
         assert facets["scan"] is None
         assert facets["scan~label"]["count"] == 1
 
+    def test_failed_rows_longest_matching_prefix_output_wins(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        facets = self._failed_rows_outputs(
+            transport, client, ("scan", "scan~label"), FailedRows("G", "scan~label~score", (4,), "no_match")
+        )
+
+        assert facets["scan"] is None
+        assert facets["scan~label"]["count"] == 1
+        assert facets["scan~label"]["columns"] == {"scan~label~score": {"count": 1, "reasons": ["no_match"]}}
+
     def test_failed_rows_matching_no_output_is_dropped(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:

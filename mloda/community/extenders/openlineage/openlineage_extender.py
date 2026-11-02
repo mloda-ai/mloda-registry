@@ -859,7 +859,7 @@ def _now_iso() -> str:
 
 
 def _failed_rows_facets(context: HookContext, producer: str) -> dict[str, dict[str, Any]]:
-    """Per output name, an mlodaFailedRows facet from the entries assigned to it (exact match wins, else `name~`)."""
+    """mlodaFailedRows facet per output name; exact column match wins, else the longest `name~` prefix."""
     from mloda.community.extenders.openlineage._facets import MlodaFailedRowsOutputDatasetFacet
 
     names = set(context.feature_names)
@@ -868,7 +868,8 @@ def _failed_rows_facets(context: HookContext, producer: str) -> dict[str, dict[s
         if entry.column in names:
             targets = [entry.column]
         else:
-            targets = [name for name in names if entry.column.startswith(name + "~")]
+            prefixed = [name for name in names if entry.column.startswith(name + "~")]
+            targets = [max(prefixed, key=len)] if prefixed else []
         for target in targets:
             assigned.setdefault(target, []).append(entry)
     facets: dict[str, dict[str, Any]] = {}
