@@ -621,8 +621,7 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
             if folder is not None:
                 found.setdefault(os.path.abspath(folder), SourceMatch(source=os.path.abspath(folder), access=folder))
         if not found:
-            # The reader declares JOURNAL itself, so a request for it is addressed here and a missing source is
-            # worth naming; earlier, more specific reasons win (the first recording per owner wins).
+            # JOURNAL is declared here, so a missing source is recorded although plain non-matches stay silent.
             record_match_rejection(
                 cls.get_class_name(),
                 f"no {cls.SOURCE_LABEL} in the data access collection or the {cls.get_class_name()} option",

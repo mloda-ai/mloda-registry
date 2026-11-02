@@ -50,9 +50,9 @@ Three rules keep it predictable:
 
 1. **Install it.** `PluginLoader.all()` discovers the package through its entry point, and
    importing it also registers its groups. `SkrAccountFeatureGroup` then answers `revenue` and
-   `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, but core picks
-   them over another source only when a ledger source (a GDPdU dossier or DATEV batch folder)
-   can feed their input chain, so a plain CSV `revenue` column resolves as usual. Scope a request with
+   `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, but core picks them over
+   another source only when a ledger source (a GDPdU dossier or DATEV batch folder) can feed
+   their input chain, so a plain CSV `revenue` column resolves as usual. Scope a request with
    `feature_group=` only when the same collection also holds another source that answers the
    name, see
    [Names Claimed by an Installed Package](../../../../../docs/guides/01-use-existing-plugin.md#names-claimed-by-an-installed-package).
