@@ -38,6 +38,7 @@ session_id = cumsum(is_new) - 1        # over the [partition, ts]-sorted frame
 ```
 
 - A gap **equal** to the threshold stays in the **same** session (the comparison is strict `>`).
+- Rows tied on `[partition, order_by]` share a session id.
 - Session ids are **globally unique** 0-based integers, not reset per partition: distinct partitions never share a session id, so you can group by the session id alone.
 - **Row-preserving**: same rows, same original order, one new integer column; the source timestamp column is unchanged.
 

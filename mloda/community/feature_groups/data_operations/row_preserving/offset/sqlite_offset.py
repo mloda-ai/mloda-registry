@@ -98,25 +98,31 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
 
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        q_rn = quote_ident(rn)
+        tagged = data.with_row_number(rn)
+        q_table = quote_ident(tagged.table_name)
+
         partition_match = " AND ".join(f"t2.{quote_ident(col)} IS t1.{quote_ident(col)}" for col in partition_by)
         null_sort = f"CASE WHEN t2.{quoted_order} IS NULL THEN 1 ELSE 0 END"
 
         if offset_type == "first_value":
-            sort_clause = f"{null_sort}, t2.{quoted_order}"
+            sort_clause = f"{null_sort}, t2.{quoted_order}, t2.{q_rn}"
         else:
-            sort_clause = f"{null_sort} DESC, t2.{quoted_order} DESC"
+            sort_clause = f"{null_sort} DESC, t2.{quoted_order} DESC, t2.{q_rn} DESC"
 
         subquery = (
-            f"(SELECT t2.{quoted_source} FROM {quote_ident(data.table_name)} t2 "  # nosec
+            f"(SELECT t2.{quoted_source} FROM {q_table} t2 "  # nosec
             f"WHERE {partition_match} AND t2.{quoted_source} IS NOT NULL "
             f"ORDER BY {sort_clause} LIMIT 1)"
         )
-        # Positional append: this outer SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
+        # ORDER BY the input-position tag so the fetched values line up with the input rows.
         sql = (
             f"SELECT {subquery} AS {quoted_feature} "  # nosec
-            f"FROM {quote_ident(data.table_name)} t1"
+            f"FROM {q_table} t1 ORDER BY t1.{q_rn}"
         )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-        result_values = [row[0] for row in rows]
+        try:
+            result_values = [row[0] for row in data.connection.execute(sql).fetchall()]
+        finally:
+            tagged.drop()
         return data.append_column(feature_name, result_values)

@@ -14,6 +14,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import with_input_position
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -89,4 +90,13 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         else:
             raise ValueError(f"Unsupported offset type for DuckDB: {offset_type}")
 
-        return data.window(offset_expr, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame)
+        if frame is None:
+            return data.window(offset_expr, feature_name, partition_by=partition_by, order_by=order_spec)
+        # rn breaks order_by ties by input position.
+        return with_input_position(
+            data,
+            feature_name,
+            lambda rel, rn: rel.window(
+                offset_expr, feature_name, partition_by=partition_by, order_by=[*order_spec, rn], frame=frame
+            ),
+        )

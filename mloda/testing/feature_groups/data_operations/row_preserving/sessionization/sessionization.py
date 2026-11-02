@@ -78,6 +78,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
+    extract_column,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -367,6 +368,25 @@ class SessionizationTestBase(
             partition_by=["user"],
             order_by="ts",
         )
+
+    def test_tied_timestamps_share_a_session(self) -> None:
+        """Rows tied on (user, ts) share a session id, including a tie at a session boundary."""
+        noon = datetime(2023, 1, 1, 12, 0, 0, tzinfo=_U)
+        ten = datetime(2023, 1, 1, 10, 0, 0, tzinfo=_U)
+        table = pa.table(
+            {
+                "id": pa.array([0, 1, 2, 3, 4, 5], type=pa.int64()),
+                "user": pa.array(["A", "A", "A", "A", "B", "B"], type=pa.string()),
+                "ts": pa.array([noon, ten, noon, noon, ten, ten], type=pa.timestamp("us", tz="UTC")),
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
+        col = self.extract_column(result, "ts__sessionize_30_minute")
+        assert_values_with_nulls(col, [1, 0, 1, 1, 2, 2], cast=int)
+        assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

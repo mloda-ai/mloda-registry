@@ -92,6 +92,8 @@ Feature(
 
 All offset types require `order_by`; partition ordering is what "previous row" means.
 
+`first_value` / `last_value` break `order_by` ties by input position (the first / last non-null in stable-sort order).
+
 ---
 
 ## Both creation paths accept the same operations

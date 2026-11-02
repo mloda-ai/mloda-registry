@@ -66,6 +66,18 @@ EXPECTED_FIRST_VALUE = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_LAST_VALUE = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
 
+# Tie layouts. nulls: partition a ties at the max order value with a null inside it, b ties at the min with a
+# leading null. small: a 3-row case where Polars' small-input sort is unstable.
+# null_order: tied null order keys, which sort last.
+_TIE_NULLS = (
+    ["a"] * 4 + ["b"] * 4,
+    [2, 2, 1, 2, 1, 3, 1, 1],
+    [1.0, 2.0, 3.0, None, None, 7.0, 5.0, 6.0],
+)
+_TIE_NULL_ORDER = (["a"] * 4, [None, None, 1, 1], [1.0, 2.0, 3.0, 4.0])
+_TIE_SMALL = (["a", "a", "a"], [2, 2, 1], [1.0, 2.0, 3.0])
+
+
 class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for offset framework tests."""
 
@@ -280,6 +292,31 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         if skip_offset_type is not None:
             self._skip_if_unsupported(skip_offset_type)
         self._compare_with_reference(feature_name, partition_by=["region"], order_by="value_int", use_approx=use_approx)
+
+    @pytest.mark.parametrize(
+        "g,t,v,op,expected",
+        [
+            pytest.param(*_TIE_NULLS, "first_value", [3.0] * 4 + [5.0] * 4, id="nulls-first_value"),
+            pytest.param(*_TIE_NULLS, "last_value", [2.0] * 4 + [7.0] * 4, id="nulls-last_value"),
+            pytest.param(*_TIE_NULL_ORDER, "first_value", [3.0] * 4, id="null_order-first_value"),
+            pytest.param(*_TIE_NULL_ORDER, "last_value", [2.0] * 4, id="null_order-last_value"),
+            pytest.param(*_TIE_SMALL, "first_value", [3.0] * 3, id="small-first_value"),
+            pytest.param(*_TIE_SMALL, "last_value", [2.0] * 3, id="small-last_value"),
+        ],
+    )
+    def test_tied_order_matches_reference(
+        self, g: list[str], t: list[int | None], v: list[float | None], op: str, expected: list[float]
+    ) -> None:
+        """Tied order values keep input order: first/last_value pick the first/last non-null in that order."""
+        table = pa.table({"g": g, "t": pa.array(t, type=pa.int64()), "v": pa.array(v, type=pa.float64())})
+        data = self.create_test_data(table)
+        fs = make_feature_set(f"v__{op}_offset", ["g"], "t")
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
+
+        result_col = self.extract_column(result, f"v__{op}_offset")
+        assert result_col == expected
+        assert result_col == extract_column(ref, f"v__{op}_offset")
 
     # -- All-null column tests -----------------------------------------------
 

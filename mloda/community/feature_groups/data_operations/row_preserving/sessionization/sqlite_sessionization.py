@@ -58,9 +58,12 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         q_order = quote_ident(order_col)
         partition_cols = [quote_ident(c) for c in partition_by]
 
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
         partition_clause = f"PARTITION BY {', '.join(partition_cols)} " if partition_cols else ""
-        window_def = f"w AS ({partition_clause}ORDER BY {q_order})"
-        order_keys = ", ".join([*partition_cols, q_order])
+        q_rn = quote_ident(rn)
+        # rn breaks (partition, order) ties by input position in both windows.
+        window_def = f"w AS ({partition_clause}ORDER BY {q_order}, {q_rn})"
+        order_keys = ", ".join([*partition_cols, q_order, q_rn])
 
         gap_seconds = f"ROUND((julianday({q_order}) - julianday(LAG({q_order}) OVER w)) * 86400.0)"
         is_new_expr = (
@@ -68,8 +71,6 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         )
 
         inner_cols = ", ".join([*partition_cols, q_order])
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        q_rn = quote_ident(rn)
         # The position tag lives in its own view, numbered before any other window.
         tagged = data.with_row_number(rn)
         q_table = quote_ident(tagged.table_name)
