@@ -299,7 +299,6 @@ _ROW_REPLACING_GROUPS: list[Any] = []
 
 
 def _is_row_replacing_output(source: Feature) -> bool:
-    """True when ``source`` is an output of a registered row-replacing group."""
     return any(
         name_matches_prefix(group, source.name) or group.match_feature_group_criteria(source.name, source.options)
         for group in _ROW_REPLACING_GROUPS
