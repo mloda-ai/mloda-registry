@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, TypeVar
 
+from mloda.provider import DefaultOptionKeys
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -299,10 +300,17 @@ _ROW_REPLACING_GROUPS: list[Any] = []
 
 
 def _is_row_replacing_output(source: Feature) -> bool:
-    return any(
-        name_matches_prefix(group, source.name) or group.match_feature_group_criteria(source.name, source.options)
-        for group in _ROW_REPLACING_GROUPS
-    )
+    """True if the source, a name prefix of it, or a feature nested in its in_features is a row-replacing output."""
+    name = str(source.name)
+    prefixes = ["__".join(name.split("__")[:i]) for i in range(1, len(name.split("__")) + 1)]
+    for group in _ROW_REPLACING_GROUPS:
+        if any(name_matches_prefix(group, prefix) for prefix in prefixes):
+            return True
+        if group.match_feature_group_criteria(source.name, source.options):
+            return True
+    if DefaultOptionKeys.in_features in source.options:
+        return any(_is_row_replacing_output(nested) for nested in source.options.get_in_features())
+    return False
 
 
 def key_column_features(
@@ -310,7 +318,7 @@ def key_column_features(
     sources: Iterable[Feature],
     keys: Iterable[str] = (PARTITION_BY, "order_by", "time_column", MASK_KEY),
 ) -> set[Feature]:
-    """Plain features for the ``keys`` columns named in ``options`` (single column refs only), minus the sources."""
+    """Plain features for the ``keys`` columns in ``options`` (single column refs), none if a source is on a row-replacing frame."""
     keys = tuple(keys)
     names: list[str] = []
     partition_by = options.get(PARTITION_BY) if PARTITION_BY in keys else None
@@ -339,7 +347,7 @@ class KeyColumnInputsMixin:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        if "replaces_rows" in cls.__dict__ and cls.replaces_rows():  # type: ignore[attr-defined]
+        if cls.replaces_rows():  # type: ignore[attr-defined]
             _ROW_REPLACING_GROUPS.append(cls)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

@@ -420,3 +420,19 @@ class TestKeyColumnFeaturesRowReplacingSource:
 
     def test_plain_source_still_yields_keys(self) -> None:
         assert key_column_features(self._OPTIONS, [Feature("value_int")]) == {Feature("region")}
+
+    def test_name_matched_source_two_steps_downstream_yields_no_keys(self) -> None:
+        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_agg__sum_window")]) == set()
+
+    def test_configuration_based_source_over_nested_aggregation_yields_no_keys(self) -> None:
+        inner_context = {"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
+        inner = Feature("my_sum", Options(context=inner_context))
+        outer_context = {"window_aggregation_type": "max", "in_features": inner, "partition_by": ["region"]}
+        source = Feature("my_window_max", Options(context=outer_context))
+        assert key_column_features(self._OPTIONS, [source]) == set()
+
+    def test_subclass_inheriting_replaces_rows_is_registered(self) -> None:
+        class _LocalMyAggFeatureGroup(AggregationFeatureGroup):
+            PREFIX_PATTERN = r".*__([\w]+)_myagg$"
+
+        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")]) == set()

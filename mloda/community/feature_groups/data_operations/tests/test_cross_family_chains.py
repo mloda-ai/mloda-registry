@@ -60,6 +60,17 @@ class TestCrossFamilyChains:
         )
         assert sort_none_last(_column(results, name)) == [-10, 25, 70, 140]
 
+    def test_window_aggregation_over_window_aggregation_over_aggregation(self) -> None:
+        name = "value_int__sum_agg__sum_window__max_window"
+        options = Options(context=self._CONTEXT, cascade_context_keys=frozenset(self._CONTEXT))
+        plugin_collector = enabled_with_implementations(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup, WindowAggregationFeatureGroup}
+        )
+        results = mloda.run_all(
+            [Feature(name, options=options)], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector
+        )
+        assert sort_none_last(_column(results, name)) == [-10, 25, 70, 140]
+
     def test_offset_over_resample(self) -> None:
         name = "value_float__resample_1_day_sum__lag_1_offset"
         context = {"time_column": "timestamp", "partition_by": ["region"], "order_by": "timestamp"}
@@ -71,6 +82,19 @@ class TestCrossFamilyChains:
             [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
         )
         expected = [1e-15, 1.5, 2.36, 2.5, 6.5, 100.0, None, None, None, None, None]
+        assert sort_none_last(_column(results, name)) == pytest.approx(expected)
+
+    def test_offset_over_offset_over_resample(self) -> None:
+        name = "value_float__resample_1_day_sum__lag_1_offset__lag_1_offset"
+        context = {"time_column": "timestamp", "partition_by": ["region"], "order_by": "timestamp"}
+        options = Options(context=context, cascade_context_keys=frozenset(context))
+        plugin_collector = enabled_with_implementations(
+            {PandasDataOpsTestDataCreator, ResampleFeatureGroup, OffsetFeatureGroup}
+        )
+        results = mloda.run_all(
+            [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
+        )
+        expected = [1e-15, 1.5, 2.36, 2.5, None, None, None, None, None, None, None]
         assert sort_none_last(_column(results, name)) == pytest.approx(expected)
 
 
