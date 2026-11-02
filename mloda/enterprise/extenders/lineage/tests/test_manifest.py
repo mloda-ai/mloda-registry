@@ -31,6 +31,17 @@ _ENTRY_POINT = importlib.metadata.EntryPoint(
 )
 
 
+def _only_the_lineage_entry_point() -> importlib.metadata.EntryPoints:
+    return importlib.metadata.EntryPoints([_ENTRY_POINT])
+
+
+def _stub_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve only the lineage entry point; clear the class-level scan cache so a cached real scan cannot bypass
+    the stub and the stubbed scan is not left behind."""
+    monkeypatch.setattr(importlib.metadata, "entry_points", _only_the_lineage_entry_point)
+    monkeypatch.setattr(PluginLoader, "_entry_point_scan", None)
+
+
 def _cold_import_without(monkeypatch: pytest.MonkeyPatch, missing_root: str) -> None:
     """Evict the lineage and community packages, then poison ``missing_root`` so the next import of the
     manifest re-executes and hits it. Evict first: evicting after blocking would lift the block."""
@@ -102,10 +113,7 @@ def test_plugin_loader_skips_the_entry_point_quietly_when_the_community_emitter_
     module (own root ``mloda``) and no extender registers on an install without the extra."""
     _cold_import_without(monkeypatch, missing_root)
 
-    def only_the_lineage_entry_point(*, group: str) -> list[importlib.metadata.EntryPoint]:
-        return [_ENTRY_POINT] if group == "mloda.extenders" else []
-
-    monkeypatch.setattr(importlib.metadata, "entry_points", only_the_lineage_entry_point)
+    _stub_entry_points(monkeypatch)
 
     keys = PluginLoader().load_entry_points(group="mloda.extenders")
 
@@ -187,10 +195,7 @@ def test_manifest_lists_the_extender_when_the_versions_match_on_minor_or_cannot_
 def test_plugin_loader_registers_nothing_when_the_community_minor_differs(monkeypatch: pytest.MonkeyPatch) -> None:
     _cold_import_with_versions(monkeypatch, community="1.5.0")
 
-    def only_the_lineage_entry_point(*, group: str) -> list[importlib.metadata.EntryPoint]:
-        return [_ENTRY_POINT] if group == "mloda.extenders" else []
-
-    monkeypatch.setattr(importlib.metadata, "entry_points", only_the_lineage_entry_point)
+    _stub_entry_points(monkeypatch)
 
     keys = PluginLoader().load_entry_points(group="mloda.extenders")
 

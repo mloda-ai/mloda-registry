@@ -26,7 +26,6 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from mloda.core.abstract_plugins.components.failed_rows import collect_failed_rows  # no public equivalent yet
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import FailedRows, FeatureSet, report_failed_rows
 from mloda.steward import (
@@ -39,6 +38,7 @@ from mloda.steward import (
     LifecycleOutcome,
     PlanContext,
     RunContext,
+    collect_failed_rows,
     scrub_credentials,
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
