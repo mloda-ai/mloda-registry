@@ -43,19 +43,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 ### The Same Name Can Arrive Twice
 
-A feature requested directly and also as another requested feature's input reaches your group twice in one FeatureSet: same name, different options (the input copy carries forwarded options), so the set keeps both. Assignment like `data[name] = ...` just overwrites, but an append-style API adds a second column of that name, and the later lookup by name fails (PyArrow: `KeyError: 'Field "<name>" exists 2 times in schema'`). Write each name once:
-
-```py
-@classmethod
-def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
-    written: set[str] = set()
-    for feature in features.features:
-        if feature.name in written:
-            continue
-        written.add(feature.name)
-        data = data.append_column(feature.name, compute(data, feature))
-    return data
-```
+A feature requested directly and also as another requested feature's input reaches your group once: mloda merges the two copies at intake, so no per-group dedupe is needed. The copies stay apart only when their options differ, for example when the consumer passes a context key down with `propagate_context_keys`. They then run in separate calls on the same data, and an append-style write of the second copy fails (PyArrow: `KeyError: 'Field "<name>" exists 2 times in schema'`).
 
 ## Which Features Share a Call
 

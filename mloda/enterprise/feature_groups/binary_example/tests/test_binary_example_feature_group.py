@@ -13,7 +13,13 @@ from typing import Any, cast
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiDataFG, FeatureSet, PropertySpec, property_spec
+from mloda.provider import (
+    ApiDataFG,
+    FeatureGroup,
+    FeatureSet,
+    PropertySpec,
+    property_spec,
+)
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -63,6 +69,40 @@ def _hash_feature(name: str, columns: Sequence[str], parameters: dict[str, Any] 
     if parameters is not None:
         context["binary_parameters"] = parameters
     return Feature(name, Options(context=context))
+
+
+class HashedLenConsumer(FeatureGroup):
+    """Test-local consumer: appends the decimal string length of the ``hashed`` column."""
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls, feature_name: Any, options: Options, data_access_collection: Any = None
+    ) -> bool:
+        return str(feature_name) == "hashed_len"
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {_hash_feature("hashed", ["col_a"])}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[Any]]:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        lengths = [len(str(value)) for value in data.column("hashed").to_pylist()]
+        return data.append_column("hashed_len", pa.array(lengths))
+
+
+def _count_binary_runs(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Wrap ``run_binary`` so every spawn appends to the returned list."""
+    runs: list[int] = []
+
+    def counting_run_binary(*args: Any, **kwargs: Any) -> bytes:
+        runs.append(1)
+        return real_run_binary(*args, **kwargs)
+
+    monkeypatch.setattr(mixin, "run_binary", counting_run_binary)
+    return runs
 
 
 # -------------------------------------------------------------------------------------------
@@ -259,13 +299,7 @@ class TestCalculateFeature:
         assert result.column("hash_b").to_pylist() == compute_expected_hash_column(rows, ["col_b"], None)
 
     def test_duplicate_options_spawn_one_run_per_distinct_options(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        runs: list[int] = []
-
-        def counting_run_binary(*args: Any, **kwargs: Any) -> bytes:
-            runs.append(1)
-            return real_run_binary(*args, **kwargs)
-
-        monkeypatch.setattr(mixin, "run_binary", counting_run_binary)
+        runs = _count_binary_runs(monkeypatch)
         rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta"]}
         table = pa.table(rows)
         features = [
@@ -362,6 +396,32 @@ class TestIntegration:
                 assert table.column("hashed").to_pylist() == expected
                 found = True
         assert found, "hashed column not found in any result table"
+
+    def test_hash_requested_directly_and_as_consumer_input_runs_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """hashed requested directly and as the input of hashed_len is computed by one binary run."""
+        runs = _count_binary_runs(monkeypatch)
+        rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta", "gamma"]}
+        results = mloda.run_all(
+            [_hash_feature("hashed", ["col_a"]), Feature("hashed_len")],
+            compute_frameworks=[PyArrowTable],
+            api_data={"BinaryExampleData": rows},
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubExample, HashedLenConsumer}),
+        )
+        expected = compute_expected_hash_column(rows, ["col_a"], None)
+        hashed_tables = 0
+        len_found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "hashed" in table.column_names:
+                assert table.column_names.count("hashed") == 1
+                assert table.column("hashed").to_pylist() == expected
+                hashed_tables += 1
+            if "hashed_len" in table.column_names:
+                len_found = True
+        assert len(runs) == 1
+        assert hashed_tables == 1, "hashed should appear in exactly one result table"
+        assert len_found, "hashed_len column not found in any result table"
 
     def test_two_hashed_features_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta"], "col_b": ["x", "y"]}
