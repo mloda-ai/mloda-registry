@@ -268,8 +268,7 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.JOIN: "join",
 }
 
-# 1 total + 15 x 2 per-column keys keeps the mloda.failed_rows prefix within the same 32-key budget;
-# reason codes per column get the same bound so one code per row cannot grow the array without limit.
+# 1 total + 15 x 2 per-column keys stays within the 32-key budget; reasons per column get the same bound.
 _MAX_FAILED_ROWS_COLUMNS = 15
 _MAX_FAILED_ROWS_REASONS = 15
 
