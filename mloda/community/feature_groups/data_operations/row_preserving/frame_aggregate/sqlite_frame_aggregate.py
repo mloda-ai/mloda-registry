@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
@@ -211,31 +212,39 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # aggregate. The reference returns the source value of just the current
         # row in that case (see reference.py:115-116). The OR branch matches the
         # self-row only when ``t.{order_by}`` is NULL, restoring reference parity.
-        tagged = data.with_row_number(rn)
-        quoted_table = quote_ident(tagged.table_name)
-        sql = " ".join(  # nosec
-            [
-                "SELECT",
-                "(SELECT",
-                f"{agg_func}({inner_source_sql})",
-                f"FROM {quoted_table} s",
-                f"WHERE {partition_eq}",
-                "AND (",
-                f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
-                f"AND julianday(s.{quoted_order}) >= julianday(t.{quoted_order}) - {n_days}",
-                f"AND (julianday(s.{quoted_order}) < julianday(t.{quoted_order})",
-                f"OR (julianday(s.{quoted_order}) = julianday(t.{quoted_order}) AND s.{quoted_rn} <= t.{quoted_rn})))",
-                f"OR (t.{quoted_order} IS NULL AND s.{quoted_rn} = t.{quoted_rn})",
-                ")",
-                f") AS {quoted_feature}",
-                f"FROM {quoted_table} t",
-                f"ORDER BY t.{quoted_rn}",
-            ]
-        )
+        tagged: SqliteRelation | None = None
+        tmp_table = f"_frame_agg_{uuid.uuid4().hex}"
+        quoted_table = quote_ident(tmp_table)
         try:
+            tagged = data.with_row_number(rn)
+            # Materialize the tag: the correlated subquery would re-run the tag view per outer row.
+            data.connection.execute(
+                f"CREATE TEMP TABLE {quoted_table} AS SELECT * FROM {quote_ident(tagged.table_name)}"  # nosec
+            )
+            sql = " ".join(  # nosec
+                [
+                    "SELECT",
+                    "(SELECT",
+                    f"{agg_func}({inner_source_sql})",
+                    f"FROM {quoted_table} s",
+                    f"WHERE {partition_eq}",
+                    "AND (",
+                    f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
+                    f"AND julianday(s.{quoted_order}) >= julianday(t.{quoted_order}) - {n_days}",
+                    f"AND (julianday(s.{quoted_order}) < julianday(t.{quoted_order})",
+                    f"OR (julianday(s.{quoted_order}) = julianday(t.{quoted_order}) AND s.{quoted_rn} <= t.{quoted_rn})))",
+                    f"OR (t.{quoted_order} IS NULL AND s.{quoted_rn} = t.{quoted_rn})",
+                    ")",
+                    f") AS {quoted_feature}",
+                    f"FROM {quoted_table} t",
+                    f"ORDER BY t.{quoted_rn}",
+                ]
+            )
             rows = data.connection.execute(sql).fetchall()
         finally:
-            tagged.drop()
+            data.connection.execute(f"DROP TABLE IF EXISTS {quoted_table}")  # nosec
+            if tagged is not None:
+                tagged.drop()
 
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

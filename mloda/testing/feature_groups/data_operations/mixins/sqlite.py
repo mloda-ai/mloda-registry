@@ -65,10 +65,11 @@ class SqliteTestMixin:
 
 
 class SqliteViewTestMixin(SqliteTestMixin):
-    """Feeds the suite a TEMP VIEW, like the output of an earlier feature."""
+    """The view stands in for an earlier feature's output (a window that reorders and restores input order)."""
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name
+        from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
         rel = SqliteRelation.from_arrow(self.conn, arrow_table)
@@ -76,4 +77,4 @@ class SqliteViewTestMixin(SqliteTestMixin):
         if not cols:
             return rel
         helper = pick_helper_column_name(taken=set(cols))
-        return rel.with_row_number(helper, order_by=[cols[0]]).select(*cols)
+        return rel.with_row_number(helper, order_by=[OrderBy(cols[0], descending=True)]).select(*cols)
