@@ -9,7 +9,11 @@ How mloda determines which FeatureGroup handles a requested feature name.
 
 ## How It Works
 
-When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda checks each FeatureGroup's `match_feature_group_criteria()` method. Exactly one must return `True`. Community and enterprise FeatureGroups never accept the same name, since a license does not affect matching; `tests/test_end2end/test_community_enterprise_disjoint_names.py` enforces it.
+When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda checks each FeatureGroup's `match_feature_group_criteria()` method. Exactly one must be left once resolution narrows the matches.
+
+When more than one group still matches after subclass takeover, mloda resolves each candidate's input chain in the run and drops one whose inputs do not resolve (stage `inputs`), so a matcher need not check that its upstream source is present. A lone match skips this check: it is picked and fails one level deeper, at the missing input. See [Feature Group Matching](https://mloda-ai.github.io/mloda/in_depth/feature-group-matching/#matching-process).
+
+Community and enterprise FeatureGroups never accept the same name, since a license does not affect matching; `tests/test_end2end/test_community_enterprise_disjoint_names.py` enforces it.
 
 ---
 
