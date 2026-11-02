@@ -83,9 +83,9 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # Tag rows with original position
         data = data.with_row_index(rn_col)
 
-        # Sort within partitions by order_by (nulls last)
+        # Sort within partitions by order_by (nulls last, ties keep input order).
         sort_expr = pl.col(order_by).is_null().cast(pl.Int8)
-        sorted_data = data.sort(sort_expr, order_by)
+        sorted_data = data.sort(sort_expr, order_by, maintain_order=True)
 
         col = pl.col(actual_source)
 
