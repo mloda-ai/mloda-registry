@@ -13,13 +13,7 @@ from typing import Any, cast
 
 import pyarrow as pa
 import pytest
-from mloda.provider import (
-    ApiDataFG,
-    FeatureGroup,
-    FeatureSet,
-    PropertySpec,
-    property_spec,
-)
+from mloda.provider import ApiDataFG, ComputeFramework, FeatureGroup, FeatureSet, PropertySpec, property_spec
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -71,20 +65,18 @@ def _hash_feature(name: str, columns: Sequence[str], parameters: dict[str, Any] 
     return Feature(name, Options(context=context))
 
 
-class HashedLenConsumer(FeatureGroup):
+class _HashedLenConsumer(FeatureGroup):
     """Test-local consumer: appends the decimal string length of the ``hashed`` column."""
 
     @classmethod
-    def match_feature_group_criteria(
-        cls, feature_name: Any, options: Options, data_access_collection: Any = None
-    ) -> bool:
-        return str(feature_name) == "hashed_len"
+    def feature_names_supported(cls) -> set[str]:
+        return {"hashed_len"}
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         return {_hash_feature("hashed", ["col_a"])}
 
     @classmethod
-    def compute_framework_rule(cls) -> set[type[Any]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod
@@ -405,7 +397,7 @@ class TestIntegration:
             [_hash_feature("hashed", ["col_a"]), Feature("hashed_len")],
             compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubExample, HashedLenConsumer}),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubExample, _HashedLenConsumer}),
         )
         expected = compute_expected_hash_column(rows, ["col_a"], None)
         hashed_tables = 0
@@ -418,6 +410,7 @@ class TestIntegration:
                 assert table.column("hashed").to_pylist() == expected
                 hashed_tables += 1
             if "hashed_len" in table.column_names:
+                assert table.column("hashed_len").to_pylist() == [len(str(value)) for value in expected]
                 len_found = True
         assert len(runs) == 1
         assert hashed_tables == 1, "hashed should appear in exactly one result table"

@@ -41,9 +41,9 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
-### The Same Name Can Arrive Twice
+### A Feature Requested Directly and as an Input
 
-A feature requested directly and also as another requested feature's input reaches your group once: mloda merges the two copies at intake, so no per-group dedupe is needed. The copies stay apart only when their options differ, for example when the consumer passes a context key down with `propagate_context_keys`. They then run in separate calls on the same data, and an append-style write of the second copy fails (PyArrow: `KeyError: 'Field "<name>" exists 2 times in schema'`).
+A feature requested directly and also as another requested feature's input reaches your group once: mloda merges the two copies at intake, so no per-group dedupe is needed. The exception is a consumer that pushes a context key down with `propagate_context_keys`: the copies then differ and run in separate calls on the same data, so an append-style API adds a second column of that name and the later lookup by name fails (PyArrow: `KeyError: 'Field "<name>" exists 2 times in schema'`).
 
 ## Which Features Share a Call
 
