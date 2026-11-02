@@ -164,6 +164,7 @@ _INVALID_KEYS = [
 _EVENT_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z")
 
 _UNFORWARDED = {
+    "failed_rows": {"count": 4242, "columns": {"col-marker-9c1d": {"count": 4242, "reasons": ["reason-marker-9c1d"]}}},
     "extra_marker": "extra-marker-9c1d",
     "data_access_identity": ["s3://bucket-marker-9c1d/key"],
     "data_access_format": ["format-marker-9c1d"],

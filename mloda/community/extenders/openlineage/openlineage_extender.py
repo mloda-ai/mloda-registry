@@ -29,6 +29,7 @@ from mloda.steward import (
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.declared import readable_declared, same_scalar
+from mloda.community.extenders.shared.failed_rows import failed_rows_summary
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.provider_sink import drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
@@ -244,8 +245,9 @@ class OpenLineageExtender(Extender):
     `mloda.data.classification` in a standard `tags` facet. A group's declared `mloda.owner` (comma separated) becomes
     the calculate job's ownership facet; dataset_owners maps a load's (namespace, name) to its dataset owners.
     Each calculate run also carries an mlodaStep facet (added outside the _calculate_run_facets seam, so a subclass
-    cannot drop it there), each COMPLETE output an outputStatistics facet when rows_out is known, and the parent run
-    a processingEngine facet."""
+    cannot drop it there), each COMPLETE output an outputStatistics facet when rows_out is known and an
+    mlodaFailedRows facet (counts and reason codes, never positions) when failed rows were reported for it, and the
+    parent run a processingEngine facet."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -637,6 +639,7 @@ class OpenLineageExtender(Extender):
                 if context.rows_out is not None
                 else None
             )
+            failed_rows = _failed_rows_facets(context, self.producer)
             return [
                 _build_output_dataset(
                     self.dataset_namespace,
@@ -650,7 +653,7 @@ class OpenLineageExtender(Extender):
                         levels.get(name),
                         self.producer,
                     ),
-                    None if output_statistics is None else dict(output_statistics),
+                    {**(output_statistics or {}), **failed_rows.get(name, {})} or None,
                 )
                 for name in context.feature_names
             ]
@@ -853,6 +856,33 @@ def _job_ownership_facets(declared: dict[str, str | int | float | bool] | None, 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _failed_rows_facets(context: HookContext, producer: str) -> dict[str, dict[str, Any]]:
+    """mlodaFailedRows facet per output name; exact column match wins, else the longest `name~` prefix."""
+    from mloda.community.extenders.openlineage._facets import MlodaFailedRowsOutputDatasetFacet
+
+    names = set(context.feature_names)
+    assigned: dict[str, list[Any]] = {}
+    for entry in context.failed_rows:
+        if entry.column in names:
+            targets = [entry.column]
+        else:
+            prefixed = [name for name in names if entry.column.startswith(name + "~")]
+            targets = [max(prefixed, key=len)] if prefixed else []
+        for target in targets:
+            assigned.setdefault(target, []).append(entry)
+    facets: dict[str, dict[str, Any]] = {}
+    for name, entries in assigned.items():
+        summary = failed_rows_summary(entries)
+        facets[name] = {
+            "mlodaFailedRows": MlodaFailedRowsOutputDatasetFacet(
+                count=summary["count"],
+                columns={c: dict(v) for c, v in summary["columns"].items()},
+                producer=producer,
+            )
+        }
+    return facets
 
 
 def _build_output_dataset(

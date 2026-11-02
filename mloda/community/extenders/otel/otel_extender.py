@@ -51,6 +51,7 @@ from mloda.community.extenders.otel._constants import (
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
 from mloda.community.extenders.shared.declared import declared_scalars
+from mloda.community.extenders.shared.failed_rows import failed_rows_summary
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
@@ -724,18 +725,13 @@ def _set_failed_rows_attributes(span: Span, context: HookContext | None) -> None
         return
     if not context.failed_rows or not span.is_recording():
         return
-    by_column: dict[str, tuple[set[int], set[str]]] = {}
-    for entry in context.failed_rows:
-        positions, reasons = by_column.setdefault(entry.column, (set(), set()))
-        positions.update(entry.rows)
-        reasons.add(entry.reason)
-    # A position that failed in several columns counts once in the total.
-    span.set_attribute("mloda.failed_rows.count", len(set().union(*(p for p, _ in by_column.values()))))
-    for column in sorted(by_column)[:_MAX_FAILED_ROWS_COLUMNS]:
-        positions, reasons = by_column[column]
-        span.set_attribute(f"mloda.failed_rows.columns.{column}.count", len(positions))
+    summary = failed_rows_summary(context.failed_rows)
+    span.set_attribute("mloda.failed_rows.count", summary["count"])
+    for column in list(summary["columns"])[:_MAX_FAILED_ROWS_COLUMNS]:
+        info = summary["columns"][column]
+        span.set_attribute(f"mloda.failed_rows.columns.{column}.count", info["count"])
         span.set_attribute(
-            f"mloda.failed_rows.columns.{column}.reasons", tuple(sorted(reasons))[:_MAX_FAILED_ROWS_REASONS]
+            f"mloda.failed_rows.columns.{column}.reasons", tuple(info["reasons"][:_MAX_FAILED_ROWS_REASONS])
         )
 
 
