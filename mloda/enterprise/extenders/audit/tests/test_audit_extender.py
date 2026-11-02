@@ -29,7 +29,6 @@ from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import (
     ComputeFramework,
     DataCreatorFeatureGroup,
@@ -38,6 +37,7 @@ from mloda.provider import (
     FeatureSet,
     ReadFileFG,
     SourceFeatureGroup,
+    instrument,
     report_failed_rows,
 )
 from mloda.steward import (

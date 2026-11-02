@@ -19,9 +19,7 @@ _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist", "
 # (module, name) pairs with no public mloda.user/mloda.provider equivalent yet. Keyed by the
 # exact module too, so a name that merely matches one of these (imported from some other
 # mloda.core module) is not silently exempt. A pair nothing imports fails the guard.
-_ALLOWED_INTERNAL_IMPORTS = {
-    ("mloda.core.abstract_plugins.hook_context", "instrument"),
-}
+_ALLOWED_INTERNAL_IMPORTS: set[tuple[str, str]] = set()
 
 
 def _is_core_module(name: str) -> bool:

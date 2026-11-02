@@ -22,8 +22,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
-from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import FailedRows
+from mloda.provider import FailedRows, instrument
 from mloda.steward import (
     CompositeExtender,
     Extender,
