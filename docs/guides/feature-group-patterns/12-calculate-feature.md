@@ -143,7 +143,7 @@ A row-oriented `list[dict]` is still accepted, but it is not the native shape: `
 
 ### Returning Other Rows: replaces_rows()
 
-Override `replaces_rows()` to return True when the group returns other rows than it receives (an aggregation, a resample or re-basing, a sorted, filtered or deduplicated table). Each step then writes a frame of its own while sibling steps keep reading the unchanged input, so return a new frame and never mutate the input in place. For such a group, returning the whole dict is the intended shape (the "WRONG: replaces the frame" warning above is about row-preserving groups).
+Override `replaces_rows()` to return True when the group returns other rows than it receives (an aggregation, a resample or re-basing, a sorted, filtered or deduplicated table). Each step then writes a frame of its own while sibling steps keep reading the unchanged input, so return a new whole frame holding the output and the key column a consumer joins on, and never add columns to `data` or otherwise mutate it. On `PythonDictFramework` that is a fresh dict, the shape the "WRONG" example above warns about for row-preserving groups. The aggregation group in [`aggregation/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/feature_groups/data_operations/aggregation/base.py) is a real example.
 
 ```py
 @classmethod
@@ -151,7 +151,7 @@ def replaces_rows(cls) -> bool:
     return True
 ```
 
-A consumer reading the output together with an unchanged input column needs a `Link` (see [Joining a replaces_rows() Output](08-links-joins.md#joining-a-replaces_rows-output)). Without the flag such a consumer fails only at run time with `MissingInputFeatureError`, which does not name the cause. For a runnable check see [Refusing a Consumer of a Row-Replacing Output](10-testing-guide.md#refusing-a-consumer-of-a-row-replacing-output) and mloda's [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
+A consumer reading the output together with an unchanged input column, or with another `replaces_rows()` output, needs a `Link` (see [Joining a replaces_rows() Output](08-links-joins.md#joining-a-replaces_rows-output)). Without the flag such a consumer either fails only at run time with `MissingInputFeatureError`, which does not name the cause, or, when the output keeps the row count, silently reads misaligned rows. For a runnable check see [Refusing a Consumer of a Row-Replacing Output](10-testing-guide.md#refusing-a-consumer-of-a-row-replacing-output) and mloda's [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
 
 ## Reporting Failed Rows
 

@@ -303,7 +303,7 @@ The check has limits:
 
 ## Joining a replaces_rows() Output
 
-A `replaces_rows()` group's output lives on its own frame. A consumer reading it together with a column of the unchanged input is refused at plan time with a `ValueError` unless a `Link` joins them on a key column the row-replacing group returns in its frame. Carry the link on the consumer's input:
+A `replaces_rows()` group's output lives on its own frame. A consumer reading it together with a column of the unchanged input, or of another `replaces_rows()` output, is refused at plan time with a `ValueError` unless a `Link` joins them on a key column the row-replacing group returns in its frame. When the consumer only needs columns the group can compute, exposing them as features of that group avoids the join. Otherwise carry the link on the consumer's input:
 
 ```py
 def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
