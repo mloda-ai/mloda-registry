@@ -311,6 +311,7 @@ def _is_row_replacing_output(source: Feature, consumer: Options) -> bool:
             inherit_context_keys=source.inherit_context_keys,
         )
     except ValueError:
+        # Core raises this forwarding conflict itself when it merges the options, so this check must not raise first.
         forwarded = source.options
     name = str(source.name)
     prefixes = ["__".join(name.split("__")[:i]) for i in range(1, len(name.split("__")) + 1)]
