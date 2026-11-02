@@ -2,8 +2,8 @@
 
 SQLite has no native timestamp type and no ``.query()`` relational method, so
 the session ids are computed by running raw SQL directly against the relation's
-table (mirroring ``sqlite_time_bucketization``), fetching them in ``rowid``
-order, and appending the result column via ``append_column``.
+table (mirroring ``sqlite_time_bucketization``), fetching them in input order
+(a ``ROW_NUMBER()`` tag, as views have no ``rowid``), and appending the result column via ``append_column``.
 
 Floating-point note
 -------------------
@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
@@ -56,7 +56,6 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         # is quoted via quote_ident(); the only interpolated literal is the
         # integer threshold_seconds. No user-controlled string is inlined unquoted.
         q_order = quote_ident(order_col)
-        q_table = quote_ident(data.table_name)
         partition_cols = [quote_ident(c) for c in partition_by]
 
         partition_clause = f"PARTITION BY {', '.join(partition_cols)} " if partition_cols else ""
@@ -69,18 +68,25 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         )
 
         inner_cols = ", ".join([*partition_cols, q_order])
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        q_rn = quote_ident(rn)
+        # The position tag lives in its own view, numbered before any other window.
+        tagged = data.with_row_number(rn)
+        q_table = quote_ident(tagged.table_name)
         sql = (
             f"SELECT sid FROM ("  # nosec
-            f"SELECT __rid, "
+            f"SELECT {q_rn}, "
             f"(SUM(is_new) OVER (ORDER BY {order_keys} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) - 1) AS sid "
             f"FROM ("
-            f"SELECT rowid AS __rid, {inner_cols}, {is_new_expr} AS is_new "
+            f"SELECT {q_rn}, {inner_cols}, {is_new_expr} AS is_new "
             f"FROM {q_table} "
             f"WINDOW {window_def}"
             f")"
-            f") ORDER BY __rid"
+            f") ORDER BY {q_rn}"
         )
-        cursor = data.connection.execute(sql)
-        values = [int(row[0]) for row in cursor.fetchall()]
+        try:
+            values = [int(row[0]) for row in data.connection.execute(sql).fetchall()]
+        finally:
+            tagged.drop()
 
         return data.append_column(feature_name, values)

@@ -39,7 +39,8 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
 
         if op == "bin":
             # Equal-width binning uses scalar subqueries (no window function), so this
-            # path stays a fetch+append; ``ORDER BY rowid`` preserves input row order.
+            # path stays a fetch+append.
+            # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
             # Safety: all identifiers are quote_ident()-quoted, n_bins is int.
             expr = (
                 f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec
@@ -57,7 +58,6 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
                     f"{expr} AS {quoted_feature}",
                     "FROM",
                     table_name,
-                    "ORDER BY rowid",
                 ]
             )
             cursor = data.connection.execute(sql)

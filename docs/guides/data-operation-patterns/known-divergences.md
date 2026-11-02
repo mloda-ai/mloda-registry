@@ -244,7 +244,7 @@ regression_test:
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
-- **How**: Both backends issue a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND s.{ts} >= t.{ts} - delta AND (s.{ts} < t.{ts} OR (s.{ts}=t.{ts} AND s.{tiebreak}<=t.{tiebreak}))`. SQLite uses `julianday()` arithmetic (preserves sub-second precision; `datetime()` would truncate) with `rowid` as the peer tiebreaker. DuckDB uses `INTERVAL '{N}' {unit}` arithmetic with `ROW_NUMBER()` as the tiebreaker. The tiebreaker is required to match the reference's positional `rows[:pos+1]` semantics on same-ts peers; SQL `RANGE` windows and `BETWEEN` predicates without a tiebreaker include all peers (both earlier and later in physical position).
+- **How**: Both backends issue a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND s.{ts} >= t.{ts} - delta AND (s.{ts} < t.{ts} OR (s.{ts}=t.{ts} AND s.{tiebreak}<=t.{tiebreak}))`. SQLite uses `julianday()` arithmetic (preserves sub-second precision; `datetime()` would truncate) with a `ROW_NUMBER()` input position as the peer tiebreaker. DuckDB uses `INTERVAL '{N}' {unit}` arithmetic with `ROW_NUMBER()` as the tiebreaker. The tiebreaker is required to match the reference's positional `rows[:pos+1]` semantics on same-ts peers; SQL `RANGE` windows and `BETWEEN` predicates without a tiebreaker include all peers (both earlier and later in physical position).
 
 ### Polars time-frame adds 1ns-per-row offset to break same-ts peer ties
 
