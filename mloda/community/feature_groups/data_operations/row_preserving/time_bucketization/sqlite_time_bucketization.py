@@ -48,6 +48,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     TIME_BUCKETIZATION_OPS,
     TimeBucketizationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.sqlite_helpers import (
+    column_affinities,
+    first_storage_class_outside,
+)
 
 # Calendar units whose ``ceil`` always advances one bucket even on aligned
 # input (PyArrow's behaviour for week / month / year with
@@ -200,10 +204,15 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
            insufficient for DST-correct bucketization. UTC (``+00:00``)
            and naive (no suffix) are accepted.
         """
-        rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
-        affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
-        affinity = affinity_by_column[source_col]
-        if affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
+        affinity = column_affinities(data)[source_col]
+        if affinity == "":
+            # Computed column (view expression): no declared type, so probe storage classes.
+            offender = first_storage_class_outside(data, source_col, frozenset({"text"}))
+            if offender is not None:
+                TimeBucketizationFeatureGroup._raise_non_timestamp_source(
+                    source_col, f"SQLite storage class {offender!r}"
+                )
+        elif affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
             TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
 
         # Probe every non-null value via ``julianday`` to weed out

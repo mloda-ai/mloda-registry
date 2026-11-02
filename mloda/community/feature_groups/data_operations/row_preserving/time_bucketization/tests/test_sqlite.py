@@ -8,7 +8,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     SqliteTimeBucketization,
 )
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import (
+    SqliteComputedColumnTestMixin,
+    SqliteTestMixin,
+    SqliteViewTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
@@ -38,3 +42,7 @@ class TestSqliteTimeBucketization(ReservedColumnsTestMixin, SqliteTestMixin, Tim
 
 class TestSqliteTimeBucketizationViewInput(SqliteViewTestMixin, TestSqliteTimeBucketization):
     """Runs the TimeBucketization suite on a view input."""
+
+
+class TestSqliteTimeBucketizationComputedInput(SqliteComputedColumnTestMixin, TestSqliteTimeBucketization):
+    """Runs the TimeBucketization suite on computed (empty declared type) input columns."""

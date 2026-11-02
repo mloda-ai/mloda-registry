@@ -78,3 +78,17 @@ class SqliteViewTestMixin(SqliteTestMixin):
             return rel
         helper = pick_helper_column_name(taken=set(cols))
         return rel.with_row_number(helper, order_by=[OrderBy(cols[0], descending=True)]).select(*cols)
+
+
+class SqliteComputedColumnTestMixin(SqliteTestMixin):
+    """Every input column is an expression in a view, as an earlier feature's output is, so its declared type is empty."""
+
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
+        rel = SqliteRelation.from_arrow(self.conn, arrow_table)
+        cols = list(arrow_table.column_names)
+        if not cols:
+            return rel
+        return rel.select(_raw_sql=", ".join(f"+{quote_ident(c)} AS {quote_ident(c)}" for c in cols))

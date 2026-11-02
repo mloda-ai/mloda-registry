@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.sqlite_point_arithmetic import (
     SqlitePointArithmetic,
 )
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteComputedColumnTestMixin, SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
     PointArithmeticTestBase,
 )
@@ -25,3 +25,7 @@ class TestSqlitePointArithmetic(SqliteTestMixin, PointArithmeticTestBase):
         # source column is indistinguishable from int64 at the relation level.
         # We can still reject TEXT-affinity (string) columns.
         return {"string"}
+
+
+class TestSqlitePointArithmeticComputedInput(SqliteComputedColumnTestMixin, TestSqlitePointArithmetic):
+    """Runs the PointArithmetic suite on computed (empty declared type) input columns."""

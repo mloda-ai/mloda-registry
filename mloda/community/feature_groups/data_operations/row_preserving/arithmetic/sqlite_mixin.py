@@ -18,7 +18,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sq
 class SqliteArithmeticMixin:
     @classmethod
     def _non_numeric_descriptor(cls, data: SqliteRelation, source_col: str) -> object | None:
-        """Report non-numeric source columns via ``PRAGMA table_info`` declared affinity.
+        """Report non-numeric source columns via ``PRAGMA table_info`` declared affinity (computed columns: storage-class probe).
 
         Caveat: ``SqliteRelation.from_arrow`` maps arrow booleans to SQLite
         ``INTEGER`` affinity (see ``mloda_plugins`` ``_arrow_type_to_sqlite``),
