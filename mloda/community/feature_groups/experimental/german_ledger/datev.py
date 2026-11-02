@@ -431,6 +431,7 @@ class DatevExtfReader(_ReaderJournal):
     """Claims a folder of DATEV-Format booking batches (EXTF/DTVF, category 21)."""
 
     ORIGIN_COLUMN = _ORIGIN_COLUMN
+    SOURCE_LABEL = "DATEV batch folder"
 
     @classmethod
     def dossier(cls, path: str) -> str | None:

@@ -17,9 +17,7 @@ from .policy import ADMITTED, unprefixed
 from .reader import (
     ADMISSIBILITY_COLUMN,
     GdpduReader,
-    decline_without_ledger_source,
     is_admitted,
-    ledger_source_in,
     refuse_unadmitted,
 )
 
@@ -297,14 +295,9 @@ class SkrAccountFeatureGroup(FeatureGroup):
         options: Options,
         data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
-        """Gate on the semantic catalog BEFORE the inherited rules.
-
-        Then a ledger source must be in reach, so a user's own `revenue` column is not claimed.
-        """
+        """Gate on the semantic catalog BEFORE the inherited rules."""
         if cls.get_column_base_feature(str(feature_name)) not in cls.feature_names_supported():
             return False
-        if not ledger_source_in(options, data_access_collection):
-            return decline_without_ledger_source(cls.get_class_name())
         return super().match_feature_group_criteria(feature_name, options, data_access_collection)
 
     def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:

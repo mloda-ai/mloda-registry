@@ -172,12 +172,14 @@ def plugin_loader_all() -> dict[str, Any]:
     # A folder with no ledger source: the user's own `revenue` column must not collide with a ledger group.
     with tempfile.TemporaryDirectory() as tmp:
         plain = Path(tmp)
-        (plain / "sales.csv").write_text("revenue,cost\n100,40\n250,90\n")
+        (plain / "sales.csv").write_text("revenue,cost,cost__sources\n100,40,40\n250,90,90\n")
         csv_revenue = outcome(lambda: _run(plain, ["revenue"])["revenue"])
+        csv_cost_sources = outcome(lambda: _run(plain, ["cost__sources"])["cost__sources"])
         csv_sources = outcome(lambda: sorted(_run(plain, ["revenue__sources"])))
 
     return {
         "csv_revenue": csv_revenue,
+        "csv_cost_sources": csv_cost_sources,
         "csv_sources": csv_sources,
         "registered": registered,
         "revenue": outcome(lambda: _revenue(dossier)),

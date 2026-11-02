@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import inspect
 import os
 import re
 import xml.etree.ElementTree as ET  # nosec B405
@@ -26,8 +25,6 @@ from mloda.provider import (
     NamePolicy,
     SourceFeatureGroup,
     SourceMatch,
-    collect_match_rejections,
-    get_all_subclasses,
     record_match_rejection,
 )
 from mloda.user import DataAccessCollection, Options
@@ -572,6 +569,7 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
     """Abstract base of the dossier readers: finds dossiers in folders and files, serves JOURNAL."""
 
     CLAIM_ROUTES = (ClaimRoute("dossier", NamePolicy.DECLARED, True),)
+    SOURCE_LABEL: str
 
     @classmethod
     def declared_names(cls) -> frozenset[str]:
@@ -622,6 +620,14 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
             folder = cls.dossier(os.fspath(candidate) if isinstance(candidate, os.PathLike) else str(candidate))
             if folder is not None:
                 found.setdefault(os.path.abspath(folder), SourceMatch(source=os.path.abspath(folder), access=folder))
+        if not found:
+            # The reader declares JOURNAL itself, so a request for it is addressed here and a missing source is
+            # worth naming; earlier, more specific reasons win (the first recording per owner wins).
+            record_match_rejection(
+                cls.get_class_name(),
+                f"no {cls.SOURCE_LABEL} in the data access collection or the {cls.get_class_name()} option",
+                stage=INPUT_DATA_STAGE,
+            )
         return list(found.values())
 
     @classmethod
@@ -640,40 +646,12 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         return _prefixed(cls.load_data(match.access, features), JOURNAL)
 
 
-def _stands_down(reader: type[_ReaderJournal], options: Options) -> bool:
-    """Options point at another reader and not at this one."""
-    return reader.foreign_pointer(options) is not None and not any(k in options for k in reader.pointer_keys())
-
-
-def ledger_source_in(options: Options, data_access_collection: DataAccessCollection | None) -> bool:
-    """True when a loaded dossier reader finds a ledger source in the options or the collection.
-
-    Any loaded reader counts, whether or not the run's PluginCollector enables it.
-    """
-    with collect_match_rejections():
-        return any(
-            reader.find_sources(route, JOURNAL, options, data_access_collection)
-            for reader in get_all_subclasses(_ReaderJournal)
-            if not inspect.isabstract(reader) and not _stands_down(reader, options)
-            for route in reader.CLAIM_ROUTES
-        )
-
-
-def decline_without_ledger_source(owner: str) -> bool:
-    """Record why `owner` declines a name it would otherwise claim; always False."""
-    record_match_rejection(
-        owner,
-        "no GDPdU dossier or DATEV batch folder in the data access collection or a reader option",
-        stage=INPUT_DATA_STAGE,
-    )
-    return False
-
-
 class GdpduReader(_ReaderJournal):
     """Claims a dossier *directory* by its index.xml."""
 
     #: public alias; parse_descriptor reserves this name against a descriptor collision
     ORIGIN_COLUMN = _ORIGIN_COLUMN
+    SOURCE_LABEL = "GDPdU dossier"
 
     @classmethod
     def dossier(cls, path: str) -> str | None:

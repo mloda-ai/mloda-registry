@@ -14,11 +14,10 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet, collect_match_rejections
+from mloda.provider import FeatureSet
 from mloda.user import DataAccessCollection, Feature, FeatureResolutionError, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.experimental.german_ledger import sources as sources_module
 from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityRefused,
     JournalFeatureGroup,
@@ -76,26 +75,13 @@ FIX = HERE / "fixtures"
 
 def test_collision_gate() -> None:
     """The name gate keeps a claim-all reader off a part name; core keeps it off the chain name."""
-    dossier = str(FIX / "dossier_a")
-    with_source = DataAccessCollection(folders={dossier})
-    no_ledger = DataAccessCollection(folders={str(FIX)})
-    pointer = Options({"GdpduReader": dossier})
-    skr, sources = SkrAccountFeatureGroup, SourcesFeatureGroup
-    # Without a ledger source in reach, neither group claims a name the user's own data may hold.
-    assert skr.match_feature_group_criteria("revenue", Options()) is False
-    assert skr.match_feature_group_criteria("revenue", Options(), no_ledger) is False
-    assert skr.match_feature_group_criteria("revenue", Options(), with_source) is True
-    assert skr.match_feature_group_criteria("revenue", pointer) is True
-    assert skr.match_feature_group_criteria("revenue__sources", Options()) is False
-    assert sources.match_feature_group_criteria("revenue__sources", Options()) is False
-    assert sources.match_feature_group_criteria("revenue__sources", Options(), no_ledger) is False
-    assert sources.match_feature_group_criteria("revenue__sources", Options(), with_source) is True
-    assert sources.match_feature_group_criteria("revenue__sources", pointer) is True
-
-    # A pointer aimed at another reader stands down, so it does not count as a ledger source.
-    datev = DataAccessCollection(folders={str(FIX / "datev_ledermann")})
-    assert skr.match_feature_group_criteria("revenue", Options({"GdpduReader": str(FIX)}), datev) is False
-    assert skr.match_feature_group_criteria("revenue", Options(), datev) is True
+    assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue__sources", Options()) is False
+    assert (
+        SourcesFeatureGroup.match_feature_group_criteria(
+            "cost", Options(), DataAccessCollection(folders={str(FIX / "dossier_a")})
+        )
+        is False
+    )
 
     # The stock reader declines the chain name on its own; the scenario below widens it.
     def claimed(name: str) -> Any:
@@ -112,24 +98,24 @@ def test_collision_gate() -> None:
     assert facts["gated_chain"] == facts["ungated_chain"] == "45385.06", facts
 
 
-def test_gate_records_only_its_own_rejection() -> None:
-    skr, sources = SkrAccountFeatureGroup, SourcesFeatureGroup
-    # The probe's own rejections stay out of the window; the gate records one reason of its own.
-    for group, name in ((skr, "revenue"), (sources, "revenue__sources")):
-        with collect_match_rejections() as reasons:
-            assert group.match_feature_group_criteria(name, Options({"GdpduReader": 5})) is False
-        owner = group.get_class_name()
-        assert set(reasons) == {owner}, reasons
-        assert "no GDPdU dossier or DATEV batch folder" in reasons[owner].reason, reasons
-
-
-def test_sources_gate_checks_name_first(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(*args: Any, **kwargs: Any) -> bool:
-        raise AssertionError("the source probe ran for a name that is not __sources")
-
-    monkeypatch.setattr(sources_module, "ledger_source_in", boom)
-    with_source = DataAccessCollection(folders={str(FIX / "dossier_a")})
-    assert SourcesFeatureGroup.match_feature_group_criteria("cost", Options(), with_source) is False
+@pytest.mark.parametrize(
+    ("pointed", "datev_reason"),
+    [
+        (False, "DatevExtfReader (input data): no DATEV batch folder"),
+        (True, "DatevExtfReader (input data): options point at GdpduReader"),
+    ],
+)
+def test_no_ledger_source_names_each_readers_rejection(pointed: bool, datev_reason: str) -> None:
+    """With no ledger source, core names the missing chain input and each reader's own reason."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "sales.csv").write_text("cost\n40\n90\n")
+        options = Options({"GdpduReader": tmp} if pointed else {})
+        with pytest.raises(FeatureResolutionError) as exc:
+            _run(Path(tmp), [Feature("revenue", options)], PLUGINS)
+    message = str(exc.value)
+    assert "'gdpdu_journal'" in message, message
+    assert "GdpduReader (input data): no GDPdU dossier" in message, message
+    assert datev_reason in message, message
 
 
 def test_plugin_loader_all() -> None:
@@ -143,8 +129,10 @@ def test_plugin_loader_all() -> None:
     assert facts["scoped"] == columns, facts
     assert facts["unscoped"] == columns, facts
     assert facts["csv_revenue"] == [100, 250], facts
-    no_groups = "FeatureResolutionError: No feature groups found for feature name: 'revenue__sources'"
+    assert facts["csv_cost_sources"] == [40, 90], facts
+    no_groups = "FeatureResolutionError: No feature groups found for feature name: 'gdpdu_journal'"
     assert str(facts["csv_sources"]).startswith(no_groups), facts
+    assert "no GDPdU dossier" in str(facts["csv_sources"]), facts
 
 
 def test_german_decimal() -> None:
