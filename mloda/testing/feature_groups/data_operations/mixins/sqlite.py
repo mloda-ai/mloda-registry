@@ -62,3 +62,18 @@ class SqliteTestMixin:
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 
         return SqliteFramework
+
+
+class SqliteViewTestMixin(SqliteTestMixin):
+    """Feeds the suite a TEMP VIEW, like the output of an earlier feature."""
+
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
+        rel = SqliteRelation.from_arrow(self.conn, arrow_table)
+        cols = list(arrow_table.column_names)
+        if not cols:
+            return rel
+        helper = pick_helper_column_name(taken=set(cols))
+        return rel.with_row_number(helper, order_by=[cols[0]]).select(*cols)

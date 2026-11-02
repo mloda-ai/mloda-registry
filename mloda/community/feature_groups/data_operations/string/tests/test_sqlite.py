@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.string.sqlite_string import 
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
@@ -74,3 +74,7 @@ class TestSqliteUnsupportedOps:
             assert StringFeatureGroup.supports_compute_framework(f"name__{op}", Options(), SqliteFramework), (
                 f"Expected name__{op} to be supported on SqliteFramework"
             )
+
+
+class TestSqliteStringOpsViewInput(SqliteViewTestMixin, TestSqliteStringOps):
+    """Runs the StringOps suite on a view input."""

@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.sqli
     SqliteDateTimeExtraction,
 )
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
@@ -28,3 +28,7 @@ class TestSqliteDateTimeExtraction(ReservedColumnsTestMixin, SqliteTestMixin, Da
     @classmethod
     def reserved_columns_partition_by(cls) -> list[str] | None:
         return None
+
+
+class TestSqliteDateTimeExtractionViewInput(SqliteViewTestMixin, TestSqliteDateTimeExtraction):
+    """Runs the DateTimeExtraction suite on a view input."""

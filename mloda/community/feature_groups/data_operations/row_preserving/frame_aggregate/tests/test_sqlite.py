@@ -18,7 +18,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
     config_frame_options,
@@ -111,3 +111,7 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col, f"got {result_col}, expected {ref_col}"
+
+
+class TestSqliteFrameAggregateViewInput(SqliteViewTestMixin, TestSqliteFrameAggregate):
+    """Runs the FrameAggregate suite on a view input."""
