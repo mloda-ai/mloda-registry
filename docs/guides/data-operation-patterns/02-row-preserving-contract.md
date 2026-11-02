@@ -32,7 +32,7 @@ Row count and row order are both asserted by `DataOpsTestBase._compare_with_refe
 
 The SQLite fetch-and-append backends (for example `scalar_arithmetic`, `point_arithmetic`) compute the new column with a bare `SELECT (expr) AS feat FROM <table>` and then call `data.append_column(feature_name, result_values)`. `append_column` aligns `result_values` to the existing rows **by position**, so correctness depends on the unordered `SELECT` returning rows in the relation's stored order. A plain scan returns rows in that same order, so the invariant holds. Do not add `ORDER BY rowid`: views have no `rowid`, and an op's input is a view after the first feature.
 
-The dependency is implicit, so each `_compute_arithmetic` carries a comment stating it: the `SELECT` must stay free of `ORDER BY`, `JOIN`, `GROUP BY`, or `DISTINCT`. Adding any of those could reorder rows and silently misalign the appended column. By contrast the DuckDB backend stays in a single relation via `data.project("*, (expr) AS feat")`, so it has no equivalent positional assumption.
+The dependency is implicit, so each fetch-and-append site carries a comment stating it: the `SELECT` must stay free of `ORDER BY`, `JOIN`, `GROUP BY`, or `DISTINCT`. Adding any of those could reorder rows and silently misalign the appended column. By contrast the DuckDB backend stays in a single relation via `data.project("*, (expr) AS feat")`, so it has no equivalent positional assumption.
 
 ---
 

@@ -50,7 +50,7 @@ class SqliteLookup(Implementation[LookupFeatureGroup]):
     ) -> SqliteRelation:
         out_table = f"_lookup_out_{uuid.uuid4().hex}"
         select_cols = ", ".join(quote_ident(c) for c in original_cols)
-        # Plain scan keeps the input order; no ORDER BY (views have no rowid).
+        # Plain scan keeps the input order; no ORDER BY.
         data.connection.execute(
             f"CREATE TEMP TABLE {quote_ident(out_table)} AS "  # nosec
             f"SELECT {select_cols}, NULL AS {quote_ident(feature_name)} FROM {quote_ident(data.table_name)}"

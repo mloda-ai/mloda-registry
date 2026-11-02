@@ -31,8 +31,8 @@ because SQLite's ``NULL || anything`` is ``NULL``.
 Ordering
 --------
 
-The SQL projection is a plain scan without ``ORDER BY``: the order
-``append_column`` aligns values by. ``rowid`` is not used (views have none).
+The SQL projection is a plain scan without ``ORDER BY``, the order
+``append_column`` aligns values by.
 """
 
 from __future__ import annotations

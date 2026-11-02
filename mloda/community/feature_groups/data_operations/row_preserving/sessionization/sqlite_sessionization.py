@@ -3,7 +3,7 @@
 SQLite has no native timestamp type and no ``.query()`` relational method, so
 the session ids are computed by running raw SQL directly against the relation's
 table (mirroring ``sqlite_time_bucketization``), fetching them in input order
-(a ``ROW_NUMBER()`` tag, as views have no ``rowid``), and appending the result column via ``append_column``.
+(a ``ROW_NUMBER()`` tag; views have no ``rowid``), and appending via ``append_column``.
 
 Floating-point note
 -------------------
