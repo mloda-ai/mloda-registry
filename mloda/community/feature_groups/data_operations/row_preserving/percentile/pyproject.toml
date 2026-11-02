@@ -20,10 +20,10 @@ requires-python = ">=3.11,<3.15"
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest>=9.0.3"]
 python_dict = []
-duckdb = ["duckdb", "pyarrow>=14.0.1"]
+duckdb = ["duckdb<3", "pyarrow>=14.0.1"]
 polars = ["polars>=1.21"]
 pandas = ["pandas"]
-all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb"]
+all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb<3"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

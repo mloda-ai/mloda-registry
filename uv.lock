@@ -677,10 +677,10 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.18.0"
+version = "0.19.1"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/77/6c356c66bb5408648d136402fbc9f2977c4be731b550652540b95d4bfc5c/mloda-0.18.0-py3-none-any.whl", hash = "sha256:72c1b3e54b2dc472f6eeb18177cc93a591ecfe42d317eecf3238fdb31a9aa457", size = 760259, upload-time = "2026-10-25T16:08:53.776Z" },
+    { url = "https://files.pythonhosted.org/packages/46/87/341b2b63909f4fc2e4c0c03d1ebeb02eb743da09c33bd15ded4f14f60e71/mloda-0.19.1-py3-none-any.whl", hash = "sha256:65f156fa590aade822e43f4acfd154c84b0b2f8ca9546b705e23d4d226b6d7d5", size = 790815, upload-time = "2026-11-02T15:51:27.11Z" },
 ]
 
 [[package]]
@@ -744,7 +744,7 @@ otel = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-aggregation", editable = "mloda/community/feature_groups/data_operations/aggregation" },
     { name = "mloda-community-binary-model", editable = "mloda/community/feature_groups/binary_model" },
     { name = "mloda-community-binning", editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" },
@@ -815,8 +815,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -850,7 +850,7 @@ pyarrow = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -895,8 +895,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -947,7 +947,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-aggregation", marker = "extra == 'all'" },
     { name = "mloda-community-binning", marker = "extra == 'all'" },
     { name = "mloda-community-datetime", marker = "extra == 'all'" },
@@ -1009,8 +1009,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1080,7 +1080,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -1125,7 +1125,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1169,8 +1169,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1220,8 +1220,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'", specifier = ">=2.2" },
@@ -1252,7 +1252,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pyarrow", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -1297,8 +1297,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1348,8 +1348,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1383,7 +1383,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.11.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "openlineage-python", specifier = ">=1.36,<2" },
@@ -1412,7 +1412,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.11.0" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
@@ -1453,8 +1453,8 @@ polars = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1505,8 +1505,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1556,8 +1556,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1606,8 +1606,8 @@ pyarrow = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1659,8 +1659,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1713,8 +1713,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1767,8 +1767,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1821,8 +1821,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1875,8 +1875,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1929,8 +1929,8 @@ sqlite = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.11.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
@@ -1973,7 +1973,7 @@ otel = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.3,<0.2.0" },
     { name = "mloda-community-binary-model", editable = "mloda/community/feature_groups/binary_model" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
@@ -2033,7 +2033,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'dev'", specifier = ">=42" },
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.11.0" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.37,<2" },
@@ -2090,7 +2090,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.11.0" },
     { name = "mloda-community-openlineage", marker = "extra == 'dev'", specifier = "~=0.11.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
@@ -2127,7 +2127,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -2163,9 +2163,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
-    { name = "duckdb", marker = "extra == 'dev'" },
+    { name = "duckdb", marker = "extra == 'dev'", specifier = "<3" },
     { name = "mktestdocs", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'dev'" },
     { name = "polars", marker = "extra == 'dev'" },
@@ -2210,7 +2210,7 @@ otel = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'binary-model'", specifier = ">=44" },
-    { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
+    { name = "mloda", specifier = ">=0.19.0,<0.20.0" },
     { name = "mloda-community-binary-model", marker = "extra == 'binary-model'", editable = "mloda/community/feature_groups/binary_model" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },

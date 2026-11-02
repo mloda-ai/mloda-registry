@@ -11,7 +11,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11,<3.15"
 dependencies = [
     # Generated from config/shared.toml [defaults].core_dependency; run: python scripts/generate_pyproject.py
-    "mloda>=0.18.0,<0.19.0",
+    "mloda>=0.19.0,<0.20.0",
 ]
 authors = [
     { name = "Tom Kaltofen", email = "info@mloda.ai" }
@@ -29,7 +29,7 @@ dev = [
     "bandit",
     "python-dateutil",
     "types-python-dateutil",
-    "duckdb",
+    "duckdb<3",
     "pandas",
     "polars",
     "pyarrow>=14.0.1",
