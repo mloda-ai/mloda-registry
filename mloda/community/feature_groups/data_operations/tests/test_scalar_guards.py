@@ -466,7 +466,8 @@ class TestKeyColumnFeaturesRowReplacingSource:
     def test_nested_source_with_partition_by_forwarded_by_consumer(
         self, forwarding_key: str, expected: set[Feature]
     ) -> None:
-        consumer = Options(context={"partition_by": ["region"]}, **{forwarding_key: frozenset({"partition_by"})})
+        forwarding: dict[str, Any] = {forwarding_key: frozenset({"partition_by"})}
+        consumer = Options(context={"partition_by": ["region"]}, **forwarding)
         outer_context = {"window_aggregation_type": "max", "in_features": self._config_aggregation()}
         source = Feature("my_window_max", Options(context=outer_context))
         assert key_column_features(consumer, [source]) == expected

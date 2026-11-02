@@ -66,7 +66,8 @@ class TestCrossFamilyChains:
     ) -> None:
         inner = Feature("my_sum", Options(context={"aggregation_type": "sum", "in_features": "value_int"}))
         context = {"window_aggregation_type": "max", "in_features": inner, "partition_by": ["region"]}
-        options = Options(context=context, **{forwarding: frozenset({"partition_by"})})
+        forwarding_kwargs: dict[str, Any] = {forwarding: frozenset({"partition_by"})}
+        options = Options(context=context, **forwarding_kwargs)
         plugin_collector = enabled_with_implementations(
             {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup, WindowAggregationFeatureGroup}
         )
