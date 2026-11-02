@@ -117,8 +117,8 @@ covered. When adding a package to the set, see
 ## Core minor releases
 
 Every distribution, `mloda-testing` included, pins one core minor through `core_dependency` in
-`config/shared.toml` (`mloda>=X.Y.0,<X.(Y+1).0`), so until the registry releases, no kit installs
-next to a new core minor. Release the registry within a day of each core minor:
+`config/shared.toml`, so no kit installs next to a new core minor until the registry releases. Release
+the registry within a day of each core minor:
 
 1. Before core tags the minor, run the registry suite against core main, so the move holds no surprises.
 2. Once the new core is on PyPI, move `core_dependency` to it, run `python scripts/generate_pyproject.py`

@@ -546,7 +546,7 @@ def test_synthetic_mloda_testing_package_gets_no_self_entry() -> None:
 
 
 def test_mloda_testing_gets_source_entries_for_every_sibling_named_in_its_extras() -> None:
-    """mloda-testing's extras name siblings (binary-model, data-operations and its leaves) only in extras: each needs a source or uv will not lock."""
+    """A sibling named only in a mloda-testing extra still needs a workspace source or uv will not lock."""
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
 

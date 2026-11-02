@@ -354,8 +354,8 @@ py_typed = true
 
 # mloda-testing[binary-model] pins the mixin package (the kit checks binaries with the mixin's own
 # parsers), and every other package names mloda-testing only in a dev extra.
-# mloda-testing[data-operations] declares the packages the data-operation suites import: an extra, so a
-# plain kit install does not register their FeatureGroups.
+# mloda-testing[data-operations] declares what the data-operation suites import; an extra, so a plain
+# kit install does not register those FeatureGroups.
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
