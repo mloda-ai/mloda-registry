@@ -30,8 +30,6 @@ from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import result_column_values, sort_none_last
 from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
-EXPECTED_LAG_ADD: list[Any] = [0, 5, 15, 20, 20, 35, 55, None, None, None, None, None]
-
 
 def _column(results: list[Any], name: str) -> list[Any]:
     """Values of ``name`` from the single result frame holding it, None for null or NaN."""
@@ -127,6 +125,8 @@ class TestCrossFamilyChains:
 class TestSqliteComputedColumnChains:
     """A feature reads an earlier feature's output, a computed column in SQLite."""
 
+    _CONTEXT = {"partition_by": ["region"], "order_by": "timestamp", "constant": 5}
+
     @staticmethod
     def _run(name: str, context: dict[str, Any]) -> list[Any]:
         conn = sqlite3.connect(":memory:")
@@ -146,13 +146,12 @@ class TestSqliteComputedColumnChains:
             conn.close()
 
     def test_add_constant_over_lag(self) -> None:
-        context = {"partition_by": ["region"], "order_by": "timestamp", "constant": 5}
-        values = self._run("value_int__lag_1_offset__add_constant", context)
-        assert sort_none_last(values) == EXPECTED_LAG_ADD
+        values = self._run("value_int__lag_1_offset__add_constant", self._CONTEXT)
+        expected: list[Any] = [0, 5, 15, 20, 20, 35, 55, None, None, None, None, None]
+        assert sort_none_last(values) == expected
 
     def test_add_constant_over_all_null_lag(self) -> None:
-        context = {"partition_by": ["region"], "order_by": "timestamp", "constant": 5}
-        values = self._run("value_int__lag_100_offset__add_constant", context)
+        values = self._run("value_int__lag_100_offset__add_constant", self._CONTEXT)
         assert values == [None] * 12
 
 

@@ -17,7 +17,7 @@ _NUMERIC_STORAGE_CLASSES: frozenset[str] = frozenset({"integer", "real"})
 
 
 def sqlite_non_numeric_descriptor(data: Any, source_col: str) -> str | None:
-    """Return ``f"SQLite affinity {affinity!r}"`` when NON-numeric, else ``None``.
+    """Return a descriptor (declared affinity or storage class) when NON-numeric, else ``None``.
 
     Uses ``PRAGMA table_info`` declared affinity. Returns ``None`` when the
     column is absent (presence is validated separately by the caller).

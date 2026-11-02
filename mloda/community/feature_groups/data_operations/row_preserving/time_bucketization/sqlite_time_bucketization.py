@@ -66,6 +66,7 @@ _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "ye
 # candidate timestamp affinity and let the SQL functions surface any
 # parse-time error from non-timestamp text.
 _SQLITE_TIMESTAMP_AFFINITIES: frozenset[str] = frozenset({"TEXT", "DATETIME", "TIMESTAMP", "DATE"})
+_TIMESTAMP_STORAGE_CLASSES: frozenset[str] = frozenset({"text"})
 
 
 def _zero_pad_two(int_expr: str) -> str:
@@ -195,6 +196,7 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
 
         1. Column must exist with a timestamp-like affinity (TEXT included,
            since ``SqliteRelation.from_arrow`` maps Arrow timestamps to TEXT).
+           A computed column (empty declared type) must hold only text values.
         2. Every non-null value must parse via ``julianday``. SQLite's date
            functions return NULL for unparsable input rather than raising,
            so a LIMIT 1 probe would let later malformed rows slip past and
@@ -205,15 +207,17 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
            and naive (no suffix) are accepted.
         """
         affinity = column_affinities(data)[source_col]
+        descriptor = f"SQLite affinity {affinity!r}"
         if affinity == "":
             # Computed column (view expression): no declared type, so probe storage classes.
-            offender = first_storage_class_outside(data, source_col, frozenset({"text"}))
+            descriptor = "SQLite storage class 'text'"
+            offender = first_storage_class_outside(data, source_col, _TIMESTAMP_STORAGE_CLASSES)
             if offender is not None:
                 TimeBucketizationFeatureGroup._raise_non_timestamp_source(
                     source_col, f"SQLite storage class {offender!r}"
                 )
         elif affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
-            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, descriptor)
 
         # Probe every non-null value via ``julianday`` to weed out
         # TEXT-affinity columns that hold non-timestamp content. A LIMIT 1
@@ -236,7 +240,7 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         if row is not None:
             (raw_value,) = row
             TimeBucketizationFeatureGroup._raise_non_timestamp_source(
-                source_col, f"SQLite affinity {affinity!r} (value {raw_value!r} does not parse as timestamp)"
+                source_col, f"{descriptor} (value {raw_value!r} does not parse as timestamp)"
             )
 
         # Reject non-UTC tz-aware sources. SQLite stores tz-aware Arrow
