@@ -23,7 +23,7 @@ Row count and row order are both asserted by `DataOpsTestBase._compare_with_refe
 | PyArrow | Operates on columnar arrays by index; naturally preserves row order | No |
 | Pandas | Index-aligned assignments (`df[col] = ...`) preserve order | No, as long as you avoid `groupby(...).apply()` patterns that reset index |
 | Polars (lazy) | `pl.when/then/otherwise` and `over(...)` preserve order | No |
-| SQLite | SQL result order is undefined unless `ORDER BY` is specified, but `window()` keeps input order since mloda 0.19 and the rest re-select columns rather than applying `ORDER BY` | No, but see the positional-append note below |
+| SQLite | `window()` keeps input order since mloda 0.19; fetch-and-append paths order by `rowid` | No, but see the positional-append note below |
 | DuckDB | `window()` and `with_row_number()` keep input order since mloda 0.19; raw SQL and joins may reorder | Only for non-window reordering steps, see below |
 
 ---
@@ -38,7 +38,7 @@ The dependency is implicit, so each `_compute_arithmetic` carries a comment stat
 
 ## SQL backends: window() keeps row order
 
-Since mloda 0.19, `window()` and `with_row_number()` on `DuckdbRelation` and `SqliteRelation` keep input row order themselves, so window-only code needs no workaround. Call `data.window(...)` directly.
+Since mloda 0.19, `window()` and `with_row_number()` on `DuckdbRelation` and `SqliteRelation` keep input row order, so window-only code needs no workaround.
 
 A step that reorders outside `window()` (raw SQL via `rel.query`, joins) must be wrapped in `preserve_row_order` from `mloda/community/feature_groups/data_operations/duckdb_helpers.py`. It tags each input row with a row-number column, runs the callback, re-sorts on the tag and drops it. When a window needs the input position as a tie-break, `with_input_position` tags without re-sorting. Paraphrased from `mloda/community/feature_groups/data_operations/row_preserving/sessionization/duckdb_sessionization.py`:
 

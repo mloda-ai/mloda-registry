@@ -68,5 +68,4 @@ class SqliteFfill(Implementation[FfillFeatureGroup]):
             partition_by=[*partition_by, grp],
         )
 
-        # Drop the helper column.
         return rel.select(*original_cols, feature_name)
