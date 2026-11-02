@@ -64,7 +64,7 @@ PluginLoader.all()
 
 data = {"region": ["A", "A", "B"], "value_int": [10, 20, 30], "name": ["ann", "bob", "cy"]}
 
-# Row-preserving operations share one run.
+# Row-preserving operations, and reducing ones with them, share one request.
 features = [
     Feature("value_int__p95_percentile", Options(context={"partition_by": ["region"]})),
     Feature("name__upper"),
@@ -72,8 +72,8 @@ features = [
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 
 # Aggregations with the same partition_by run together: one row per group, one column each,
-# and each feature may carry its own mask. Features split into separate steps only when they cannot
-# share one chosen framework or carry different group options; then give each its own Options(group=...).
+# and each feature may carry its own mask. Features that split into separate steps (for example the same
+# name with two data types) each read the unreduced input.
 grouped = [
     Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]})),
     Feature("value_int__max_agg", Options(context={"partition_by": ["region"]})),

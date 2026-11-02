@@ -561,6 +561,24 @@ class TestIntegrationMultipleFeatures:
                     found[name] = sorted(frame[name].tolist())
         assert found == {str(f.name): expected[str(f.name)] for f in features}
 
+    @pytest.mark.parametrize("frameworks", [[PandasDataFrame, PyArrowTable], [PandasDataFrame]])
+    def test_same_name_data_type_pair_computes_in_two_steps(self, frameworks: list[Any]) -> None:
+        """A same-name pair that differs only in data type yields two frames, each holding the reduced column."""
+        options = Options(context={"partition_by": ["region"]})
+        features = [
+            Feature("value_int__sum_agg", options=options, data_type=DataType.INT32),
+            Feature("value_int__sum_agg", options=options, data_type=DataType.INT64),
+        ]
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        results = mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
+
+        sums = []
+        for t in results:
+            frame = t.to_pandas() if isinstance(t, pa.Table) else t
+            if "value_int__sum_agg" in frame.columns:
+                sums.append(sorted(frame["value_int__sum_agg"].tolist()))
+        assert sums == [sorted(EXPECTED_SUM_BY_REGION.values())] * 2
+
     def test_chained_aggregation_runs_without_group_error(self) -> None:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
         name = "value_int__sum_agg__max_agg"

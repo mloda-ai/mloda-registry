@@ -16,7 +16,6 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 import math
-import re
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -296,7 +295,7 @@ class AggregationTestBase(
             "missing_source_column": InputValidationCase(
                 "value_int__sum_agg",
                 {"partition_by": ["region"]},
-                (r"(?s)(?=.*Source column 'value_int' is not present)(?=.*" + re.escape("Options(group=") + ")"),
+                r"Source column 'value_int' is not present",
                 table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
             ),
             # partition_by=[] means one whole-table group; every backend must support it.

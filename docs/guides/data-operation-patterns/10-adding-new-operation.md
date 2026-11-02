@@ -13,7 +13,7 @@ End-to-end recipe for introducing a new data operation: one `OperationFeatureGro
 ## Step 1: Decide the category
 
 - **Row-preserving**? Place it under `row_preserving/{your_op}/`. Read [the row-preserving contract](02-row-preserving-contract.md) first.
-- **Row-reducing** (group aggregate)? Place it under `aggregation/` if it fits the `__{agg}_agg` naming; otherwise it probably wants its own folder at the top level of `data_operations/`.
+- **Row-reducing** (group aggregate)? Place it under `aggregation/` if it fits the `__{agg}_agg` naming; otherwise it probably wants its own folder at the top level of `data_operations/`. The group overrides `replaces_rows()` to return True and must return a new frame, never mutating its input.
 - **Element-wise on strings**? Extend `string/` only if the new op has no parameters. Otherwise build a separate feature group.
 
 The category decides your naming pattern. See [overview](01-overview.md) for the conventions.

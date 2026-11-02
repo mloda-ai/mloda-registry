@@ -20,10 +20,8 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_TYPE,
     OP_TOKEN_EXPECTED,
-    SPLIT_REDUCING_FEATURE_SET_HINT,
     WINDOW_AGGREGATION_TYPE,
     assert_key_columns_present,
-    assert_no_earlier_step_output,
     assert_single_grid,
     assert_source_columns_present,
     is_op_token,
@@ -52,8 +50,8 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
     aggregation reduces the table to one row per group key combination.
 
     Several features with the same ``partition_by`` are aggregated together in one result, each with its
-    own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call. Features split into separate
-    steps (they cannot share one framework or carry different group options) need distinct ``Options(group=...)``.
+    own ``mask``; a different ``partition_by`` needs a separate ``run_all`` call. Features that split into separate
+    steps (for example the same name with two data types) each read the unreduced input.
 
     ## Supported Aggregation Types
 
@@ -153,6 +151,11 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
     }
 
     @classmethod
+    def replaces_rows(cls) -> bool:
+        """Returns a new, reduced frame and never mutates its input."""
+        return True
+
+    @classmethod
     def match_feature_group_criteria(
         cls,
         feature_name: Any,
@@ -198,20 +201,13 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
         specs: list[AggregationSpec] = []
         grids: dict[tuple[str, ...], list[str]] = {}
 
-        assert_no_earlier_step_output(
-            data,
-            features,
-            cls.PREFIX_PATTERN,
-            "aggregation",
-            [cls._extract_single_source_feature(f) for f in features.features],
-        )
         for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
-            assert_source_columns_present(data, [source_col], hint=SPLIT_REDUCING_FEATURE_SET_HINT)
+            assert_source_columns_present(data, [source_col])
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
-            assert_key_columns_present(data, partition_by, mask_spec=mask_spec, hint=SPLIT_REDUCING_FEATURE_SET_HINT)
+            assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
 
             specs.append(AggregationSpec(feature.name, source_col, agg_type, mask_spec))
             grids.setdefault(tuple(partition_by), []).append(str(feature.name))

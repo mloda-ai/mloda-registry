@@ -6,6 +6,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureGroup
 from mloda.user import Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -13,6 +14,9 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+    ScalarAggregateFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -77,3 +81,33 @@ class TestCrossFamilyChains:
         )
         expected = [1e-15, 1.5, 2.36, 2.5, 6.5, 100.0, None, None, None, None, None]
         assert _sort_none_last(_column(results, name)) == pytest.approx(expected)
+
+
+class TestReducingNextToRowPreserving:
+    """A reducing feature and a row-preserving feature from another family in one request both compute."""
+
+    def test_aggregation_next_to_window_aggregation(self) -> None:
+        options = Options(context={"partition_by": ["region"]})
+        features = [Feature("value_int__sum_agg", options=options), Feature("value_int__sum_window", options=options)]
+        plugin_collector = enabled_with_implementations(
+            {PandasDataOpsTestDataCreator, AggregationFeatureGroup, WindowAggregationFeatureGroup}
+        )
+        results = mloda.run_all(features, compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+
+        assert _sort_none_last(_column(results, "value_int__sum_agg")) == [-10, 25, 70, 140]
+        window = _column(results, "value_int__sum_window")
+        assert len(window) == 12
+        assert set(window) == {-10, 25, 70, 140}
+
+
+@pytest.mark.parametrize(
+    "group, expected",
+    [
+        (AggregationFeatureGroup, True),
+        (ResampleFeatureGroup, True),
+        (WindowAggregationFeatureGroup, False),
+        (ScalarAggregateFeatureGroup, False),
+    ],
+)
+def test_replaces_rows_only_for_reducing_groups(group: type[FeatureGroup], expected: bool) -> None:
+    assert group.replaces_rows() is expected

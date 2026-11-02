@@ -54,11 +54,9 @@ from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
-    SPLIT_REDUCING_FEATURE_SET_HINT,
     KeyColumnInputsMixin,
     always_required,
     assert_key_columns_present,
-    assert_no_earlier_step_output,
     assert_single_grid,
     assert_source_columns_present,
     column_ref_value,
@@ -190,6 +188,11 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
     }
 
     @classmethod
+    def replaces_rows(cls) -> bool:
+        """Returns a new, reduced frame and never mutates its input."""
+        return True
+
+    @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
         """Reject pattern matches whose token fails ``_parse_resample_op`` validation (bad unit/agg or n<=0)."""
         try:
@@ -253,23 +256,14 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
         aggs: list[ResampleAgg] = []
         grids: dict[tuple[tuple[str, ...], str, int, str], list[str]] = {}
 
-        assert_no_earlier_step_output(
-            data,
-            features,
-            cls.PREFIX_PATTERN,
-            "resample",
-            [cls._extract_single_source_feature(f) for f in features.features],
-        )
         for feature in sorted(features.features, key=lambda f: str(f.name)):
             source_col = cls._extract_single_source_feature(feature)
             n, unit, agg = _parse_resample_op(cls._extract_resample_op(feature))
             partition_by = cls._extract_partition_by(feature)
             time_column = cls._extract_time_column(feature)
 
-            assert_key_columns_present(
-                data, partition_by, time_column, order_label="time_column", hint=SPLIT_REDUCING_FEATURE_SET_HINT
-            )
-            assert_source_columns_present(data, [source_col], hint=SPLIT_REDUCING_FEATURE_SET_HINT)
+            assert_key_columns_present(data, partition_by, time_column, order_label="time_column")
+            assert_source_columns_present(data, [source_col])
 
             aggs.append(ResampleAgg(feature.name, source_col, agg))
             grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(str(feature.name))

@@ -25,11 +25,13 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.user import DataType, Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     ResampleFeatureGroup,
 )
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
@@ -164,9 +166,16 @@ class TestResampleSplitFeatureSets:
     _MEAN = "value_float__resample_1_day_mean"
     _COUNT = "value_float__resample_1_day_count"
 
-    def _run(self, features: list[Feature]) -> list[Any]:
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ResampleFeatureGroup})
-        return mloda.run_all(features, compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
+    def _run(
+        self,
+        features: list[Feature],
+        frameworks: list[Any] | None = None,
+        creator: type = PyArrowDataOpsTestDataCreator,
+    ) -> list[Any]:
+        plugin_collector = PluginCollector.enabled_feature_groups({creator, ResampleFeatureGroup})
+        return mloda.run_all(
+            features, compute_frameworks=frameworks or [PyArrowTable], plugin_collector=plugin_collector
+        )
 
     @pytest.mark.parametrize("order", ["mean_first", "count_first"])
     @pytest.mark.parametrize("count_source", ["value_float", "timestamp"])
@@ -183,6 +192,22 @@ class TestResampleSplitFeatureSets:
         # The null-timestamp row has no timestamp to count, so that source counts one bucket fewer than value_float.
         expected_counts = _COUNT_SORTED if count_source == "value_float" else [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2]
         assert sorted(table.column(count_name).to_pylist()) == expected_counts
+
+    @pytest.mark.parametrize("frameworks", [[PandasDataFrame, PyArrowTable], [PandasDataFrame]])
+    def test_same_name_data_type_pair_computes_in_two_steps(self, frameworks: list[Any]) -> None:
+        """A same-name pair that differs only in data type yields two frames, each holding the resampled column."""
+        features = [
+            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.DOUBLE),
+            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.FLOAT),
+        ]
+        results = self._run(features, frameworks, PandasDataOpsTestDataCreator)
+
+        means = []
+        for t in results:
+            frame = t.to_pandas() if isinstance(t, pa.Table) else t
+            if self._MEAN in frame.columns:
+                means.append(_sort_none_last([None if v != v else v for v in frame[self._MEAN].tolist()]))
+        assert means == [_MEAN_SORTED] * 2
 
     def test_chained_resample_runs_without_group_error(self) -> None:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
