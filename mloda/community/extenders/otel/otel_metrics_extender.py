@@ -31,6 +31,7 @@ from mloda.community.extenders.otel._constants import (
     outcome_attribute_key,
 )
 from mloda.community.extenders.shared.declared import declared_scalars
+from mloda.community.extenders.shared.failed_rows import failed_rows_summary
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
 
@@ -69,6 +70,7 @@ class Instruments:
         )
         self.rows_in: Counter = meter.create_counter("mloda.step.rows.in", unit="{row}")
         self.rows_out: Counter = meter.create_counter("mloda.step.rows.out", unit="{row}")
+        self.failed_rows: Counter = meter.create_counter("mloda.step.failed_rows", unit="{row}")
         self.result: Counter = meter.create_counter("mloda.step.result", unit="1")
 
 
@@ -112,6 +114,8 @@ def record_step(
             instruments.rows_in.add(context.rows_in, attributes)
         if context.rows_out is not None:
             instruments.rows_out.add(context.rows_out, attributes)
+        if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+            instruments.failed_rows.add(failed_rows_summary(context.failed_rows)["count"], attributes)
         if record_result_attributes and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
             for key, value in islice(declared_scalars(context.result_attributes).items(), MAX_DECLARED_KEYS):
                 if isinstance(value, int) and not isinstance(value, bool) and value >= 0:

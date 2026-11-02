@@ -34,6 +34,7 @@ import pyarrow as pa
 import pytest
 import requests
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
+from mloda.provider import FailedRows
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -1814,6 +1815,129 @@ class TestOpenLineageExtenderCompleteEvent:
         assert second_facets is not None
         first_facets["probe"] = first_facets["outputStatistics"]
         assert "probe" not in second_facets
+
+    @staticmethod
+    def _failed_rows_outputs(
+        transport: RecordingTransport, client: OpenLineageClient, names: tuple[str, ...], *entries: FailedRows
+    ) -> dict[str, Any]:
+        context = make_hook_context(feature_names=names, failed_rows=entries)
+        with context.activate():
+            OpenLineageExtender(client=client)(lambda: None)
+        outputs = json.loads(Serde.to_json(transport.events[1]))["outputs"]
+        return {output["name"]: (output.get("outputFacets") or {}).get("mlodaFailedRows") for output in outputs}
+
+    def test_failed_rows_facet_is_split_per_output_next_to_statistics(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        context = make_hook_context(
+            feature_names=("price", "qty"),
+            rows_out=5,
+            failed_rows=(
+                FailedRows("G", "price", (1, 2), "parse_error"),
+                FailedRows("G", "price", (2, 3), "no_match"),
+                FailedRows("G", "qty", (9,), "null_input"),
+            ),
+        )
+
+        with context.activate():
+            OpenLineageExtender(client=client)(lambda: None)
+
+        outputs = {o["name"]: o for o in json.loads(Serde.to_json(transport.events[1]))["outputs"]}
+        price = outputs["price"]["outputFacets"]
+        assert price["outputStatistics"]["rowCount"] == 5
+        assert price["mlodaFailedRows"]["count"] == 3
+        assert price["mlodaFailedRows"]["columns"] == {"price": {"count": 3, "reasons": ["no_match", "parse_error"]}}
+        assert price["mlodaFailedRows"]["_producer"] == transport.events[1].producer
+        qty = outputs["qty"]["outputFacets"]["mlodaFailedRows"]
+        assert qty["count"] == 1
+        assert qty["columns"] == {"qty": {"count": 1, "reasons": ["null_input"]}}
+
+    def test_failed_rows_facet_is_the_declared_facet_type(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        from mloda.community.extenders.openlineage._facets import MlodaFailedRowsOutputDatasetFacet
+
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("price",), failed_rows=(FailedRows("G", "price", (1,), "a"),))
+
+        with context.activate():
+            OpenLineageExtender(client=client)(lambda: None)
+
+        output = (transport.events[1].outputs or [])[0]
+        assert output.outputFacets is not None
+        facet = output.outputFacets["mlodaFailedRows"]
+        assert isinstance(facet, MlodaFailedRowsOutputDatasetFacet)
+        assert facet.count == 1
+
+    def test_failed_rows_part_column_goes_to_its_prefix_output(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        facets = self._failed_rows_outputs(
+            transport, client, ("scan", "other"), FailedRows("G", "scan~label", (4, 5), "no_match")
+        )
+
+        assert facets["other"] is None
+        assert facets["scan"]["count"] == 2
+        assert facets["scan"]["columns"] == {"scan~label": {"count": 2, "reasons": ["no_match"]}}
+
+    def test_failed_rows_exact_output_match_wins_over_prefix(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        facets = self._failed_rows_outputs(
+            transport, client, ("scan", "scan~label"), FailedRows("G", "scan~label", (4,), "no_match")
+        )
+
+        assert facets["scan"] is None
+        assert facets["scan~label"]["count"] == 1
+
+    def test_failed_rows_matching_no_output_is_dropped(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        facets = self._failed_rows_outputs(transport, client, ("price",), FailedRows("G", "ghost", (4,), "no_match"))
+
+        assert facets == {"price": None}
+
+    def test_failed_rows_facet_is_absent_when_none_reported(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        assert self._failed_rows_outputs(transport, client, ("price", "qty")) == {"price": None, "qty": None}
+
+    def test_failed_rows_positions_never_reach_the_serialized_event(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        facets = self._failed_rows_outputs(
+            transport, client, ("price",), FailedRows("G", "price", (424242, 424243), "parse_error")
+        )
+
+        assert facets["price"]["count"] == 2
+        assert "42424" not in Serde.to_json(transport.events[1])
+
+    def test_failed_rows_are_absent_on_a_fail_event(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("price",), failed_rows=(FailedRows("G", "price", (1,), "a"),))
+
+        def boom() -> None:
+            raise RuntimeError("boom")
+
+        with context.activate():
+            with pytest.raises(RuntimeError):
+                OpenLineageExtender(client=client)(boom)
+
+        assert transport.events[1].eventType == RunState.FAIL
+        assert "mlodaFailedRows" not in Serde.to_json(transport.events[1])
 
     def test_schema_facet_never_leaks_columns_outside_feature_names(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

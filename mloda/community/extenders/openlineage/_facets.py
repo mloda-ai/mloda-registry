@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import importlib.metadata
+from typing import Any
 
 import attr
 
-from openlineage.client.facet_v2 import DatasetFacet, RunFacet
+from openlineage.client.facet_v2 import DatasetFacet, OutputDatasetFacet, RunFacet
 
 
 def versioned_schema_url(distribution: str, module_path: str) -> str:
@@ -35,6 +36,16 @@ class MlodaDataAccessFacet(DatasetFacet):
 class MlodaDeclaredDatasetFacet(DatasetFacet):
     attributes: dict[str, str | int | float | bool] = attr.field()
     conflicts: list[str] = attr.field(factory=list)
+
+    @staticmethod
+    def _get_schema() -> str:
+        return _SCHEMA_URL
+
+
+@attr.define
+class MlodaFailedRowsOutputDatasetFacet(OutputDatasetFacet):
+    count: int = attr.field()
+    columns: dict[str, dict[str, Any]] = attr.field()
 
     @staticmethod
     def _get_schema() -> str:

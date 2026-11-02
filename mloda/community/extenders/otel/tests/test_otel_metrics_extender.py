@@ -23,6 +23,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
+from mloda.provider import FailedRows
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -63,6 +64,7 @@ _RUN_DURATION = "mloda.run.duration"
 _STEP_DURATION = "mloda.step.duration"
 _ROWS_IN = "mloda.step.rows.in"
 _ROWS_OUT = "mloda.step.rows.out"
+_FAILED_ROWS = "mloda.step.failed_rows"
 _RESULT = "mloda.step.result"
 _RESULT_KEY = "mloda.result.key"
 _STEP_ATTRIBUTES = {"mloda.operation.name", "mloda.feature_group.name", "mloda.compute_framework.name"}
@@ -524,7 +526,7 @@ def _failure_type(exc_type: type[BaseException]) -> str:
 class TestOtelMetricsExtenderMetrics:
     """Metrics emitted through opentelemetry.metrics (API only): step and run durations plus row counters."""
 
-    def test_exactly_four_instruments_with_kinds_units_and_bucket_advisory(
+    def test_exactly_five_instruments_with_kinds_units_and_bucket_advisory(
         self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
     ) -> None:
         provider, reader = metric_capture
@@ -532,16 +534,16 @@ class TestOtelMetricsExtenderMetrics:
         _call_once(OtelMetricsExtender(meter_provider=provider), _rows_context())
 
         collected = _collected(reader)
-        assert set(collected) == {_STEP_DURATION, _ROWS_IN, _ROWS_OUT}
+        assert set(collected) == {_STEP_DURATION, _ROWS_IN, _ROWS_OUT, _FAILED_ROWS}
         otel = OtelMetricsExtender(meter_provider=provider)
         _complete_run(otel, "r", started_at=datetime.datetime.now(datetime.timezone.utc), status="succeeded")
         collected = _collected(reader)
-        assert set(collected) == {_RUN_DURATION, _STEP_DURATION, _ROWS_IN, _ROWS_OUT}
+        assert set(collected) == {_RUN_DURATION, _STEP_DURATION, _ROWS_IN, _ROWS_OUT, _FAILED_ROWS}
         for name in (_RUN_DURATION, _STEP_DURATION):
             assert isinstance(collected[name].data, Histogram), name
             assert collected[name].unit == "s", name
             assert tuple(collected[name].data.data_points[0].explicit_bounds) == _DURATION_BUCKETS, name
-        for name in (_ROWS_IN, _ROWS_OUT):
+        for name in (_ROWS_IN, _ROWS_OUT, _FAILED_ROWS):
             assert isinstance(collected[name].data, Sum), name
             assert collected[name].data.is_monotonic, name
             assert collected[name].unit == "{row}", name
@@ -644,6 +646,52 @@ class TestOtelMetricsExtenderMetrics:
                 point = _single_point(reader, name)
                 assert point.value == expected, name
                 assert set(point.attributes) == _STEP_ATTRIBUTES, name
+
+    @pytest.mark.parametrize(
+        ("hook", "entries", "expected"),
+        [
+            (
+                ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+                (FailedRows("G", "price", (1, 2), "parse_error"), FailedRows("G", "qty", (2, 5), "null_input")),
+                3,
+            ),
+            (ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, (), 0),
+            (ExtenderHook.INPUT_DATA_LOAD, (FailedRows("G", "price", (1,), "parse_error"),), None),
+            (ExtenderHook.VALIDATE_OUTPUT_FEATURE, (FailedRows("G", "price", (1,), "parse_error"),), None),
+        ],
+        ids=["calculate_distinct", "calculate_none_records_zero", "load", "validate_out"],
+    )
+    def test_failed_rows_are_recorded_only_for_calculate(
+        self,
+        metric_capture: tuple[MeterProvider, InMemoryMetricReader],
+        hook: ExtenderHook,
+        entries: tuple[FailedRows, ...],
+        expected: int | None,
+    ) -> None:
+        provider, reader = metric_capture
+
+        _call_once(OtelMetricsExtender(meter_provider=provider), make_hook_context(hook=hook, failed_rows=entries))
+
+        if expected is None:
+            assert _points(reader, _FAILED_ROWS) == []
+        else:
+            point = _single_point(reader, _FAILED_ROWS)
+            assert point.value == expected
+            assert dict(point.attributes) == {
+                "mloda.operation.name": "calculate",
+                "mloda.feature_group.name": "mloda.testing.DummyFeatureGroup",
+                "mloda.compute_framework.name": "PyArrowTable",
+            }
+
+    def test_failed_rows_are_not_recorded_when_the_step_fails(
+        self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
+    ) -> None:
+        provider, reader = metric_capture
+        context = make_hook_context(failed_rows=(FailedRows("G", "price", (1,), "parse_error"),))
+
+        _failing_step(OtelMetricsExtender(meter_provider=provider), _StepBoom("boom"), context)
+
+        assert _points(reader, _FAILED_ROWS) == []
 
     def test_attributes_stay_within_the_allowlist_and_leak_no_identifiers(
         self, metric_capture: tuple[MeterProvider, InMemoryMetricReader]
@@ -870,7 +918,7 @@ class TestOtelMetricsResultAttributes:
             assert otel(instrument(context, calculate)) == [1, 2]
 
         collected = _collected(reader)
-        assert set(collected) == {_RESULT, _STEP_DURATION, _ROWS_IN, _ROWS_OUT}
+        assert set(collected) == {_RESULT, _STEP_DURATION, _ROWS_IN, _ROWS_OUT, _FAILED_ROWS}
         metric = collected[_RESULT]
         assert isinstance(metric.data, Sum)
         assert metric.data.is_monotonic
@@ -920,7 +968,7 @@ class TestOtelMetricsResultAttributes:
             ("GroupA", "place"): 3,
             ("GroupB", "person"): 4,
         }
-        assert set(_collected(reader)) == {_RESULT, _STEP_DURATION}
+        assert set(_collected(reader)) == {_RESULT, _STEP_DURATION, _FAILED_ROWS}
 
     def test_only_nonnegative_integers_are_counts(
         self, metric_capture: tuple[MeterProvider, InMemoryMetricReader], caplog: pytest.LogCaptureFixture

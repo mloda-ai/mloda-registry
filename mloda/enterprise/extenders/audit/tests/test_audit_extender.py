@@ -29,13 +29,16 @@ from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import (
     ComputeFramework,
     DataCreatorFeatureGroup,
+    FailedRows,
     FeatureGroup,
     FeatureSet,
     ReadFileFG,
     SourceFeatureGroup,
+    report_failed_rows,
 )
 from mloda.steward import (
     CompositeExtender,
@@ -47,6 +50,7 @@ from mloda.steward import (
     PlanContext,
     PlanStep,
     RunContext,
+    collect_failed_rows,
     verified_context,
 )
 from mloda.user import (
@@ -154,6 +158,8 @@ _MISSING_IDENTITY_CASES = [
     (_TENANT, _PROJECT, "   ", "missing_principal"),
 ]
 
+_FAILED_ROWS_FG = "mloda.testing.DummyFeatureGroup"
+
 _EXPECTED_RECORD_KEYS = {
     "record_version",
     "event_time",
@@ -173,6 +179,7 @@ _EXPECTED_RECORD_KEYS = {
     "input_features",
     "compute_framework_name",
     "rows_out",
+    "failed_rows",
     "duration_seconds",
     "status",
     "error_type",
@@ -1656,6 +1663,98 @@ class TestAuditExtenderRecord:
         assert record["cancel_type"] == expected_cancel_type
         assert record["policy_version"] == extender.policy_version
         assert marker not in json.dumps(record)
+
+    def test_calculate_record_carries_the_failed_rows_summary(self) -> None:
+        sink = InMemoryAuditSink()
+        context = make_hook_context(
+            tenant_id="tenant-1",
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(
+                FailedRows(_FAILED_ROWS_FG, "price", (1, 2), "parse_error"),
+                FailedRows(_FAILED_ROWS_FG, "qty", (2, 5), "null_input"),
+            ),
+        )
+
+        with context.activate():
+            AuditExtender(sink=sink)(lambda: None)
+
+        assert sink.records[0]["failed_rows"] == {
+            "count": 3,
+            "columns": {
+                "price": {"count": 2, "reasons": ["parse_error"]},
+                "qty": {"count": 2, "reasons": ["null_input"]},
+            },
+        }
+
+    def test_calculate_record_without_reports_has_a_zero_summary(self) -> None:
+        sink = InMemoryAuditSink()
+
+        with make_hook_context(tenant_id="tenant-1", hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            AuditExtender(sink=sink)(lambda: None)
+
+        assert sink.records[0]["failed_rows"] == {"count": 0, "columns": {}}
+
+    def test_error_record_carries_rows_reported_before_the_wrapped_call_raised(self) -> None:
+        sink = InMemoryAuditSink()
+        context = make_hook_context(tenant_id="tenant-1", hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        def reporting_then_failing() -> None:
+            report_failed_rows("price", [917_331, 917_332], "no_match")
+            raise RuntimeError("inner boom")
+
+        with collect_failed_rows(_FAILED_ROWS_FG):
+            with context.activate():
+                with pytest.raises(RuntimeError, match="inner boom"):
+                    AuditExtender(sink=sink)(instrument(context, reporting_then_failing))
+
+        record = sink.records[0]
+        assert record["status"] == "error"
+        assert record["failed_rows"] == {"count": 2, "columns": {"price": {"count": 2, "reasons": ["no_match"]}}}
+        assert "91733" not in json.dumps(record)
+
+    @pytest.mark.parametrize(
+        "hook",
+        [ExtenderHook.VALIDATE_INPUT_FEATURE, ExtenderHook.VALIDATE_OUTPUT_FEATURE, ExtenderHook.FEATURE_GROUP_MATCHED],
+    )
+    def test_non_calculate_hooks_record_null_failed_rows(self, hook: ExtenderHook) -> None:
+        sink = InMemoryAuditSink()
+        context = make_hook_context(
+            tenant_id="tenant-1", hook=hook, failed_rows=(FailedRows(_FAILED_ROWS_FG, "price", (1,), "a"),)
+        )
+
+        with context.activate():
+            AuditExtender(sink=sink)(lambda: None)
+
+        assert sink.records[0]["failed_rows"] is None
+
+    def test_fail_closed_refusal_records_null_failed_rows(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, required_identity=("tenant_id",), fail_closed=True)
+        context = make_hook_context(
+            tenant_id=None,
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(FailedRows(_FAILED_ROWS_FG, "price", (1,), "a"),),
+        )
+
+        with context.activate():
+            with pytest.raises(IdentityRequiredError):
+                extender(lambda: None)
+
+        assert sink.records[0]["failed_rows"] is None
+
+    def test_failed_row_positions_never_reach_the_serialized_record(self) -> None:
+        sink = InMemoryAuditSink()
+        context = make_hook_context(
+            tenant_id="tenant-1",
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            failed_rows=(FailedRows(_FAILED_ROWS_FG, "price", (424242, 424243), "parse_error"),),
+        )
+
+        with context.activate():
+            AuditExtender(sink=sink)(lambda: None)
+
+        assert sink.records[0]["failed_rows"]["count"] == 2
+        assert "42424" not in json.dumps(sink.records[0])
 
     def test_successful_call_records_success_and_no_error_type(self) -> None:
         sink = InMemoryAuditSink()

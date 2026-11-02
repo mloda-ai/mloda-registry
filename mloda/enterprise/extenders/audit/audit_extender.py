@@ -30,6 +30,7 @@ from mloda.community.extenders.shared import is_picklable, termination
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, LEVELS, feature_classifications
 from mloda.community.extenders.shared.declared import readable_declared, same_scalar
 from mloda.community.extenders.shared.exception_type import qualified_type_name
+from mloda.community.extenders.shared.failed_rows import failed_rows_summary
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.enterprise.extenders.audit._core import (
@@ -498,6 +499,7 @@ class AuditExtender(Extender):
             "rows_out": None,
             "duration_seconds": None,
             "feature_group_declared_attributes": None,
+            "failed_rows": None,
         }
         try:
             raise error
@@ -804,6 +806,7 @@ class AuditExtender(Extender):
                 cancel_type=qualified_type_name(exc) if interrupted else None,
                 start_time=start_time,
                 trace=trace,
+                call_ran=True,
             )
             try:
                 self.sink.write(record)
@@ -827,6 +830,7 @@ class AuditExtender(Extender):
             error_type=None,
             start_time=start_time,
             trace=trace,
+            call_ran=True,
         )
         self.sink.write(record)
         return result
@@ -900,6 +904,7 @@ class AuditExtender(Extender):
         trace: tuple[str | None, str | None],
         deny_reason: str | None = None,
         classification: str | None = None,
+        call_ran: bool = False,
     ) -> dict[str, Any]:
         matched = context.hook in _PLAN_HOOKS
         per_call: dict[str, Any] = {
@@ -917,6 +922,11 @@ class AuditExtender(Extender):
             "rows_out": context.rows_out,
             "duration_seconds": context.duration_seconds,
             "feature_group_declared_attributes": None if matched else readable_declared(context.declared_attributes),
+            "failed_rows": (
+                failed_rows_summary(context.failed_rows)
+                if call_ran and context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
+                else None
+            ),
         }
         return self._record(
             context,
