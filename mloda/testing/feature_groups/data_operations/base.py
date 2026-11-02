@@ -27,7 +27,7 @@ import pytest
 from mloda.provider import Implementation
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, result_column_names
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 
 # Capability methods ``_skip_if_unsupported`` probes, in order. Operation families
@@ -136,6 +136,21 @@ class DataOpsTestBase(ABC):
             f"so {op!r} cannot be checked for support. Declare the supported set on the test base, "
             "or keep the shared test on a base that declares one."
         )
+
+    def _snapshot(self, data: Any) -> dict[str, list[Any]]:
+        """Deep copy of ``data`` as column name -> list of values, via ``extract_column``."""
+        return {name: list(self.extract_column(data, name)) for name in result_column_names(data)}
+
+    def _assert_snapshot_unchanged(self, before: dict[str, list[Any]], data: Any) -> None:
+        """Assert ``data`` still holds the ``before`` snapshot (NaN equal to NaN, None equal to None)."""
+        after = self._snapshot(data)
+        assert list(after) == list(before), f"input columns changed: {list(before)} -> {list(after)}"
+        for name, expected in before.items():
+            actual = after[name]
+            assert len(actual) == len(expected), f"input column {name} row count changed"
+            for i, (a, e) in enumerate(zip(actual, expected)):
+                same = (is_null(a) and is_null(e) and (a is None) == (e is None)) or a == e
+                assert same, f"input column {name} row {i} mutated: {e!r} -> {a!r}"
 
     # -- Shared NaN-policy fixture -----------------------------------------
 

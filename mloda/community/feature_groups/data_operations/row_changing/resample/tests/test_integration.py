@@ -25,12 +25,15 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.user import DataType, Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     ResampleFeatureGroup,
 )
+from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import result_column_values, sort_none_last
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PYARROW_TABLE,
@@ -48,11 +51,6 @@ _MEAN_SORTED: list[Any] = [0.0, 0.0, 1e-15, 1.18, 1.5, 2.5, 6.5, 7.5, 100.0, Non
 _COUNT_SORTED: list[Any] = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2]
 # Daily sum per region bucket, computed with plain pyarrow.
 _SUM_SORTED: list[Any] = [0.0, 0.0, 1e-15, 1.5, 2.36, 2.5, 6.5, 7.5, 100.0, None, None]
-
-
-def _sort_none_last(values: list[Any]) -> list[Any]:
-    """Sort values with ``None`` ordered last (mirrors the base-class trick)."""
-    return sorted(values, key=lambda x: (x is None, x))
 
 
 def _run_resample(name: str, context: dict[str, Any], *more_names: str) -> pa.Table:
@@ -151,8 +149,8 @@ class TestResampleIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegra
         table = _run_resample(mean_name, {"time_column": "timestamp", "partition_by": ["region"]}, sum_name)
 
         assert table.num_rows == _NUM_BUCKETS
-        assert _sort_none_last(table.column(mean_name).to_pylist()) == _MEAN_SORTED
-        sums = _sort_none_last(table.column(sum_name).to_pylist())
+        assert sort_none_last(table.column(mean_name).to_pylist()) == _MEAN_SORTED
+        sums = sort_none_last(table.column(sum_name).to_pylist())
         assert sums.count(None) == _SUM_SORTED.count(None)
         assert [v for v in sums if v is not None] == pytest.approx([v for v in _SUM_SORTED if v is not None], abs=1e-12)
 
@@ -164,9 +162,16 @@ class TestResampleSplitFeatureSets:
     _MEAN = "value_float__resample_1_day_mean"
     _COUNT = "value_float__resample_1_day_count"
 
-    def _run(self, features: list[Feature]) -> list[Any]:
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ResampleFeatureGroup})
-        return mloda.run_all(features, compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector)
+    def _run(
+        self,
+        features: list[Feature],
+        frameworks: list[Any] | None = None,
+        creator: type = PyArrowDataOpsTestDataCreator,
+    ) -> list[Any]:
+        plugin_collector = PluginCollector.enabled_feature_groups({creator, ResampleFeatureGroup})
+        return mloda.run_all(
+            features, compute_frameworks=frameworks or [PyArrowTable], plugin_collector=plugin_collector
+        )
 
     @pytest.mark.parametrize("order", ["mean_first", "count_first"])
     @pytest.mark.parametrize("count_source", ["value_float", "timestamp"])
@@ -179,17 +184,34 @@ class TestResampleSplitFeatureSets:
         results = self._run(features)
 
         table = next(t for t in results if isinstance(t, pa.Table) and self._MEAN in t.column_names)
-        assert _sort_none_last(table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
+        assert sort_none_last(table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
         # The null-timestamp row has no timestamp to count, so that source counts one bucket fewer than value_float.
         expected_counts = _COUNT_SORTED if count_source == "value_float" else [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2]
         assert sorted(table.column(count_name).to_pylist()) == expected_counts
+
+    @pytest.mark.parametrize("frameworks", [[PandasDataFrame, PyArrowTable], [PandasDataFrame]])
+    def test_same_name_data_type_pair_computes_in_two_steps(self, frameworks: list[Any]) -> None:
+        """A same-name pair that differs only in data type yields two frames, each holding the resampled column."""
+        features = [
+            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.DOUBLE),
+            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.FLOAT),
+        ]
+        results = self._run(features, frameworks, PandasDataOpsTestDataCreator)
+
+        means = [sort_none_last(v) for v in result_column_values(results, self._MEAN)]
+        assert means == [_MEAN_SORTED] * 2
 
     def test_chained_resample_runs_without_group_error(self) -> None:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
         name = "value_float__resample_1_day_sum__resample_2_day_max"
         options = Options(context=self._CONTEXT, cascade_context_keys=frozenset(self._CONTEXT))
         results = self._run([Feature(name, options=options)])
-        assert any(isinstance(t, pa.Table) and name in t.column_names for t in results)
+        values = [
+            sort_none_last(t.column(name).to_pylist())
+            for t in results
+            if isinstance(t, pa.Table) and name in t.column_names
+        ]
+        assert values == [[0.0, 0.0, 2.36, 2.5, 7.5, 100.0, None, None]]
 
     def test_split_with_distinct_groups_work(self) -> None:
         features = [
@@ -208,7 +230,7 @@ class TestResampleSplitFeatureSets:
 
         mean_table = next(t for t in results if isinstance(t, pa.Table) and self._MEAN in t.column_names)
         count_table = next(t for t in results if isinstance(t, pa.Table) and self._COUNT in t.column_names)
-        assert _sort_none_last(mean_table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
+        assert sort_none_last(mean_table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
         assert sorted(count_table.column(self._COUNT).to_pylist()) == _COUNT_SORTED
 
 

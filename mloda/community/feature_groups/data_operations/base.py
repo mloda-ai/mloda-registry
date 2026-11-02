@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, TypeVar
 
+from mloda.provider import DefaultOptionKeys
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -259,34 +260,12 @@ def available_columns(data: Any) -> list[str]:
     return list(data.columns)
 
 
-SPLIT_REDUCING_FEATURE_SET_HINT = (
-    "If several row-reducing features of one request ran as separate steps on one frame, this step sees an "
-    "earlier step's reduced output; give each such feature its own Options(group=...)."
-)
-
-
-def assert_no_earlier_step_output(
-    data: Any, features: Any, pattern: str, operation: str, source_cols: Iterable[str]
-) -> None:
-    """Raise ``ValueError`` when ``data`` holds another feature's output column (an earlier split step's reduced frame)."""
-    allowed = {str(f.name) for f in features.features} | set(source_cols)
-    for col in available_columns(data):
-        if col not in allowed and re.fullmatch(pattern, str(col)):
-            raise ValueError(
-                f"Input column {col!r} looks like the output of an earlier {operation} step on this frame. "
-                + SPLIT_REDUCING_FEATURE_SET_HINT
-            )
-
-
-def assert_source_columns_present(
-    data: Any, columns: Iterable[str], label: str = "Source column", hint: str = ""
-) -> None:
-    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data`` (exact match); ``hint`` is appended."""
+def assert_source_columns_present(data: Any, columns: Iterable[str], label: str = "Source column") -> None:
+    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data`` (exact match)."""
     names = available_columns(data)
     for col in columns:
         if col not in names:
-            message = f"{label} {col!r} is not present in the {type(data).__name__} input; available: {names}."
-            raise ValueError(f"{message} {hint}" if hint else message)
+            raise ValueError(f"{label} {col!r} is not present in the {type(data).__name__} input; available: {names}.")
 
 
 def assert_key_columns_present(
@@ -295,15 +274,14 @@ def assert_key_columns_present(
     order_by: str | None = None,
     mask_spec: list[tuple[str, str, Any]] | None = None,
     order_label: str = "order_by",
-    hint: str = "",
 ) -> None:
     """Raise ``ValueError`` for the first partition_by, order_by or mask column absent from ``data``; None skips."""
     if partition_by:
-        assert_source_columns_present(data, partition_by, label="partition_by", hint=hint)
+        assert_source_columns_present(data, partition_by, label="partition_by")
     if order_by is not None:
-        assert_source_columns_present(data, [order_by], label=order_label, hint=hint)
+        assert_source_columns_present(data, [order_by], label=order_label)
     if mask_spec:
-        assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column", hint=hint)
+        assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column")
 
 
 def assert_single_grid(grids: dict[Any, list[str]], describe: Callable[[Any], str], operation: str) -> None:
@@ -318,12 +296,29 @@ def assert_single_grid(grids: dict[Any, list[str]], describe: Callable[[Any], st
     )
 
 
+_ROW_REPLACING_GROUPS: list[Any] = []
+
+
+def _is_row_replacing_output(source: Feature) -> bool:
+    """True if the source, a name prefix of it, or a feature nested in its in_features is a row-replacing output."""
+    name = str(source.name)
+    prefixes = ["__".join(name.split("__")[:i]) for i in range(1, len(name.split("__")) + 1)]
+    for group in _ROW_REPLACING_GROUPS:
+        if any(name_matches_prefix(group, prefix) for prefix in prefixes):
+            return True
+        if group.match_feature_group_criteria(source.name, source.options):
+            return True
+    if DefaultOptionKeys.in_features in source.options:
+        return any(_is_row_replacing_output(nested) for nested in source.options.get_in_features())
+    return False
+
+
 def key_column_features(
     options: Options,
     sources: Iterable[Feature],
     keys: Iterable[str] = (PARTITION_BY, "order_by", "time_column", MASK_KEY),
 ) -> set[Feature]:
-    """Plain features for the ``keys`` columns named in ``options`` (single column refs only), minus the sources."""
+    """Plain features for the ``keys`` columns in ``options`` (single column refs), none if a source is on a row-replacing frame."""
     keys = tuple(keys)
     names: list[str] = []
     partition_by = options.get(PARTITION_BY) if PARTITION_BY in keys else None
@@ -337,6 +332,10 @@ def key_column_features(
         mask_spec = parse_mask_spec(options.get(MASK_KEY))
         names.extend(spec[0] for spec in mask_spec or [])
 
+    sources = list(sources)
+    # The reducing step's own frame already carries its key columns.
+    if any(_is_row_replacing_output(source) for source in sources):
+        return set()
     taken = {str(source.name) for source in sources}
     return {Feature(name) for name in dict.fromkeys(names) if name not in taken}
 
@@ -345,6 +344,11 @@ class KeyColumnInputsMixin:
     """Declares the key columns named in the options as inputs next to the source features."""
 
     KEY_COLUMN_OPTIONS: tuple[str, ...] = ()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if cls.replaces_rows():  # type: ignore[attr-defined]
+            _ROW_REPLACING_GROUPS.append(cls)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         sources = super().input_features(options, feature_name) or set()  # type: ignore[misc]

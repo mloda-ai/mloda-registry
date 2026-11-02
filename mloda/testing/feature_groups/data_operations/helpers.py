@@ -7,6 +7,8 @@ Provides:
 - ``make_multi_feature_set``: Build a FeatureSet holding one Feature per (name, context) pair.
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
 - ``is_null``: True for None or a float NaN.
+- ``sort_none_last``: Sort values with None ordered last.
+- ``result_column_values``: One value list per result frame (pyarrow or pandas) holding a column.
 - ``assert_values_with_nulls``: Assert two lists match, null-aware, with optional cast/approx.
 - ``calculate_with``: Run a FeatureGroup class or an Implementation class on data with a FeatureSet
   (``group=`` runs a subclass of the Implementation's group, e.g. a hook).
@@ -76,6 +78,23 @@ def is_null(value: Any) -> bool:
     if isinstance(value, float) and value != value:
         return True
     return False
+
+
+def sort_none_last(values: list[Any]) -> list[Any]:
+    """Sort values with ``None`` ordered last."""
+    return sorted(values, key=lambda x: (x is None, x))
+
+
+def result_column_values(results: list[Any], name: str) -> list[list[Any]]:
+    """One value list per result frame (pyarrow or pandas) holding ``name``, NaN as None."""
+    found = []
+    for frame in results:
+        if isinstance(frame, pa.Table):
+            if name in frame.column_names:
+                found.append(frame.column(name).to_pylist())
+        elif hasattr(frame, "columns") and name in frame.columns:
+            found.append([None if is_null(v) else v for v in frame[name].tolist()])
+    return found
 
 
 def assert_values_with_nulls(

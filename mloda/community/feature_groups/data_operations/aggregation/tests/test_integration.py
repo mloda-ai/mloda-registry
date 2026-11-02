@@ -32,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.aggregation.aggregation import
     EXPECTED_MAX_BY_REGION,
     EXPECTED_SUM_BY_REGION,
 )
+from mloda.testing.feature_groups.data_operations.helpers import result_column_values
 from mloda.testing.feature_groups.data_operations.integration import (
     DataOpsIntegrationTestBase,
     enabled_with_implementations,
@@ -561,6 +562,20 @@ class TestIntegrationMultipleFeatures:
                     found[name] = sorted(frame[name].tolist())
         assert found == {str(f.name): expected[str(f.name)] for f in features}
 
+    @pytest.mark.parametrize("frameworks", [[PandasDataFrame, PyArrowTable], [PandasDataFrame]])
+    def test_same_name_data_type_pair_computes_in_two_steps(self, frameworks: list[Any]) -> None:
+        """A same-name pair that differs only in data type yields two frames, each holding the reduced column."""
+        options = Options(context={"partition_by": ["region"]})
+        features = [
+            Feature("value_int__sum_agg", options=options, data_type=DataType.INT32),
+            Feature("value_int__sum_agg", options=options, data_type=DataType.INT64),
+        ]
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        results = mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
+
+        sums = [sorted(v) for v in result_column_values(results, "value_int__sum_agg")]
+        assert sums == [sorted(EXPECTED_SUM_BY_REGION.values())] * 2
+
     def test_chained_aggregation_runs_without_group_error(self) -> None:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
         name = "value_int__sum_agg__max_agg"
@@ -570,7 +585,25 @@ class TestIntegrationMultipleFeatures:
         results = mloda.run_all(
             [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
         )
-        assert any(name in t.columns for t in results if hasattr(t, "columns"))
+        values = [sorted(t[name].tolist()) for t in results if hasattr(t, "columns") and name in t.columns]
+        assert values == [[-10, 25, 70, 140]]
+
+    def test_chained_configuration_based_aggregation(self) -> None:
+        """A configuration-based aggregate over another configuration-based aggregate computes."""
+        inner = Feature(
+            "my_sum",
+            options=Options(
+                context={"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
+            ),
+        )
+        outer = Feature(
+            "my_max",
+            options=Options(context={"aggregation_type": "max", "in_features": inner, "partition_by": ["region"]}),
+        )
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        results = mloda.run_all([outer], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+        values = [sorted(t["my_max"].tolist()) for t in results if hasattr(t, "columns") and "my_max" in t.columns]
+        assert values == [[-10, 25, 70, 140]]
 
     def test_split_feature_sets_with_distinct_groups_work(self) -> None:
         """Giving each feature its own Options(group=...) computes both aggregates correctly."""

@@ -16,7 +16,6 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 import math
-import re
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -296,7 +295,7 @@ class AggregationTestBase(
             "missing_source_column": InputValidationCase(
                 "value_int__sum_agg",
                 {"partition_by": ["region"]},
-                (r"(?s)(?=.*Source column 'value_int' is not present)(?=.*" + re.escape("Options(group=") + ")"),
+                r"Source column 'value_int' is not present",
                 table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
             ),
             # partition_by=[] means one whole-table group; every backend must support it.
@@ -669,6 +668,33 @@ class AggregationTestBase(
         )
         with pytest.raises(ValueError, match="run_all"):
             calculate_with(self.implementation_class(), self.test_data, fs)
+
+    @pytest.mark.parametrize(
+        ("feature_name", "partition_by", "extra", "agg_type"),
+        [
+            pytest.param("value_int__sum_agg", ["region"], {}, "sum", id="partitioned"),
+            pytest.param("value_int__sum_agg", [], {}, "sum", id="whole_table"),
+            pytest.param("value_int__sum_agg", ["region"], {"mask": ("category", "equal", "X")}, "sum", id="masked"),
+            pytest.param("value_int__sum_agg", ["value_int"], {}, "sum", id="source_is_partition_key"),
+            pytest.param(
+                "value_int__sum_agg",
+                ["value_int"],
+                {"mask": ("category", "equal", "X")},
+                "sum",
+                id="masked_source_is_partition_key",
+            ),
+            pytest.param("value_int__mode_agg", ["region"], {}, "mode", id="mode"),
+        ],
+    )
+    def test_input_not_mutated(
+        self, feature_name: str, partition_by: list[str], extra: dict[str, Any], agg_type: str
+    ) -> None:
+        """Aggregating leaves the input frame's columns and values unchanged."""
+        self._skip_if_unsupported(agg_type)
+        before = self._snapshot(self.test_data)
+        fs = make_feature_set(feature_name, partition_by, **extra)
+        calculate_with(self.implementation_class(), self.test_data, fs)
+        self._assert_snapshot_unchanged(before, self.test_data)
 
     def test_empty_feature_set_returns_input(self) -> None:
         """A FeatureSet without features returns the input unchanged and never calls compute_group."""
