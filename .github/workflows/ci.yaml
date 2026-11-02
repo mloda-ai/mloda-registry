@@ -82,7 +82,8 @@ jobs:
         uv tool install tox --with tox-uv
     - name: Run tests on DuckDB 1.x
       run: tox -e duckdb1
-      timeout-minutes: 10
+      # Runs all five gate steps in one job.
+      timeout-minutes: 15
       env:
         PYTEST_WORKERS: "4"
 
