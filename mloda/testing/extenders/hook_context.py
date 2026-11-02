@@ -9,7 +9,7 @@ from mloda.steward import ExtenderHook, HookContext, OutputSchema
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from mloda.provider import SourceFeatureGroup
+    from mloda.provider import FailedRows, SourceFeatureGroup
     from mloda.steward import AsOfJoinConfig
 
 # Mirrors HookContext.input_check; core does not export the alias.
@@ -60,6 +60,7 @@ def make_hook_context(
     reader_class: type[SourceFeatureGroup] | None = None,
     result_attributes: dict[str, str | int | float | bool] | None = None,
     input_check: InputCheck | None = None,
+    failed_rows: tuple[FailedRows, ...] = (),
 ) -> HookContext:
     """Build a HookContext test fixture; every keyword lands on the result, except that core filters
     declared_attributes and result_attributes to portable scalars."""
@@ -106,4 +107,5 @@ def make_hook_context(
         reader_class=reader_class,
         result_attributes=result_attributes,
         input_check=input_check,
+        failed_rows=failed_rows,
     )

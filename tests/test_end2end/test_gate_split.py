@@ -171,11 +171,16 @@ def test_every_gate_env_declares_tests_and_lint_variants() -> None:
     )
 
 
+def _job_text(name: str) -> str:
+    """Text of the ci.yaml job ``name``, up to the next job."""
+    match = re.search(rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)", _CI_WORKFLOW.read_text(), re.MULTILINE | re.DOTALL)
+    assert match is not None, f".github/workflows/ci.yaml has no '{name}' job"
+    return match.group(1)
+
+
 def _build_job() -> str:
     """Text of the ci.yaml ``build`` job, up to the next job."""
-    match = re.search(r"^  build:\n(.*?)(?=^  [\w-]+:\n|\Z)", _CI_WORKFLOW.read_text(), re.MULTILINE | re.DOTALL)
-    assert match is not None, ".github/workflows/ci.yaml has no 'build' job"
-    return match.group(1)
+    return _job_text("build")
 
 
 def _scalar(value: str) -> str:
@@ -287,3 +292,29 @@ def test_ci_build_keeps_pytest_workers() -> None:
     assert re.search(r"^\s*PYTEST_WORKERS:\s*\S", _build_job(), re.MULTILINE), (
         "the ci.yaml build job no longer sets PYTEST_WORKERS for tox"
     )
+
+
+def test_duckdb1_env_runs_all_five_steps() -> None:
+    """``tox -e duckdb1`` inherits the [testenv] commands and runs the whole gate once."""
+    assert Counter(_steps_run_by("duckdb1")) == Counter(_GATE_STEPS), (
+        f"tox -e duckdb1 must run each of {list(_GATE_STEPS)} exactly once, runs {_steps_run_by('duckdb1')}"
+    )
+
+
+def test_duckdb1_env_installs_duckdb_1_and_asserts_the_major() -> None:
+    """``commands_pre`` pins an exact duckdb 1.x, then asserts the installed major is 1."""
+    section = _declared_envs().get("duckdb1")
+    assert section is not None, "tox.ini declares no duckdb1 env"
+    pre = [line.strip() for line in _tox()[section]["commands_pre"].splitlines() if line.strip()]
+    installs = [index for index, line in enumerate(pre) if re.search(r"duckdb==1\.\d+\.\d+", line)]
+    checks = [index for index, line in enumerate(pre) if "duckdb.__version__.startswith('1.')" in line]
+    assert installs and checks, f"duckdb1 commands_pre must pin 'duckdb==1.x.y' and assert the major, has {pre}"
+    assert installs[0] < checks[0], f"duckdb1 commands_pre must install duckdb before asserting its major: {pre}"
+
+
+def test_ci_has_a_duckdb1_job_outside_the_build_matrix() -> None:
+    """A separate ci.yaml job runs ``tox -e duckdb1``; the build job never names it."""
+    assert re.search(r"^\s*run:\s*tox -e duckdb1\s*$", _job_text("duckdb1"), re.MULTILINE), (
+        "the ci.yaml duckdb1 job has no 'run: tox -e duckdb1' step"
+    )
+    assert "duckdb1" not in _build_job(), "the ci.yaml build job must not name duckdb1: it has its own job"

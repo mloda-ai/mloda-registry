@@ -268,6 +268,10 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.JOIN: "join",
 }
 
+# 1 total + 15 x 2 per-column keys stays within the 32-key budget; reasons per column get the same bound.
+_MAX_FAILED_ROWS_COLUMNS = 15
+_MAX_FAILED_ROWS_REASONS = 15
+
 _PREFLIGHT_ORIGINS = ("explain", "diagnose")
 
 
@@ -496,10 +500,13 @@ class OtelExtender(Extender):
                 logger.warning("%s %s %s: %s", type(self).__name__, span_name, verb, type(exc).__name__)
                 raise
             finally:
-                try:
-                    _set_result_attributes(span, context)
-                except Exception as exc:
-                    logger.warning("%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__)
+                for record in (_set_result_attributes, _set_failed_rows_attributes):
+                    try:
+                        record(span, context)
+                    except Exception as exc:
+                        logger.warning(
+                            "%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__
+                        )
 
             try:
                 if context is not None and context.hook in DECLARABLE_HOOKS:
@@ -709,6 +716,27 @@ def _set_result_attributes(span: Span, context: HookContext | None) -> None:
     if context is None or context.hook not in DECLARABLE_HOOKS:
         return
     _set_scalar_attributes(span, context.result_attributes, "mloda.result", scrub=True)
+
+
+def _set_failed_rows_attributes(span: Span, context: HookContext | None) -> None:
+    """mloda.failed_rows.* attributes from the context's failed_rows: counts and reason codes only, never positions."""
+    if context is None or context.hook != ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+        return
+    if not context.failed_rows or not span.is_recording():
+        return
+    by_column: dict[str, tuple[set[int], set[str]]] = {}
+    for entry in context.failed_rows:
+        positions, reasons = by_column.setdefault(entry.column, (set(), set()))
+        positions.update(entry.rows)
+        reasons.add(entry.reason)
+    # A position that failed in several columns counts once in the total.
+    span.set_attribute("mloda.failed_rows.count", len(set().union(*(p for p, _ in by_column.values()))))
+    for column in sorted(by_column)[:_MAX_FAILED_ROWS_COLUMNS]:
+        positions, reasons = by_column[column]
+        span.set_attribute(f"mloda.failed_rows.columns.{column}.count", len(positions))
+        span.set_attribute(
+            f"mloda.failed_rows.columns.{column}.reasons", tuple(sorted(reasons))[:_MAX_FAILED_ROWS_REASONS]
+        )
 
 
 def _set_step_attributes(span: Span, context: HookContext, func: Any) -> None:

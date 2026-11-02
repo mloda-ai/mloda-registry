@@ -5240,9 +5240,14 @@ class TestAuditExtenderClassificationRunAll:
                     run()
 
         denies = [r for r in sink.records if r["decision"] == "deny"]
-        # A source group is probed for the input only: its class-name prefix no longer claims the chain-shaped name.
+        # A source group is probed for the requested name and for its input.
         assert sorted((r["hook"], r["reader_class"], r["feature_names"][0]) for r in denies) == (
-            [] if allowed else [("INPUT_DATA_MATCH", _qualname(CsvFG), "alpha")]
+            []
+            if allowed
+            else [
+                ("INPUT_DATA_MATCH", _qualname(CsvFG), _CSV_MASKED),
+                ("INPUT_DATA_MATCH", _qualname(CsvFG), "alpha"),
+            ]
         )
 
     def test_a_masking_step_over_a_public_source_stays_public_for_a_public_principal(

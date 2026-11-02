@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FailedRows
 from mloda.steward import CloseContext, Extender, ExtenderHook, HookContext
 from mloda.user import ParallelizationMode, mloda
 
@@ -210,6 +211,11 @@ class TestMakeHookContextOverrides:
     def test_result_attributes_override(self) -> None:
         context = make_hook_context(result_attributes={"rows": 3, "ok": True})
         assert context.result_attributes == {"rows": 3, "ok": True}
+
+    def test_failed_rows_override(self) -> None:
+        entry = FailedRows("mloda.testing.DummyFeatureGroup", "value_int", (101, 202), "no_match")
+        context = make_hook_context(failed_rows=(entry,))
+        assert context.failed_rows == (entry,)
 
     def test_join_keys_override(self) -> None:
         context = make_hook_context(join_keys=("id",))

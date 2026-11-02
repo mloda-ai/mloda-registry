@@ -88,9 +88,9 @@ assert set(result) == {"emb~0", "emb~1"}
 
 | File | Description |
 |------|-------------|
-| [sklearn/encoding/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
-| [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output, overrides `output_parts()` from the name |
-| [forecasting/base.py](https://github.com/mloda-ai/mloda/blob/0.18.0/mloda_plugins/feature_group/experimental/forecasting/base.py) | Forecast output, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
+| [sklearn/encoding/base.py](https://github.com/mloda-ai/mloda/blob/0.19.1/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
+| [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/0.19.1/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output, overrides `output_parts()` from the name |
+| [forecasting/base.py](https://github.com/mloda-ai/mloda/blob/0.19.1/mloda_plugins/feature_group/experimental/forecasting/base.py) | Forecast output, `OUTPUT_PARTS = (ANY_OUTPUT_PART,)` |
 
 ## Consuming Sub-Columns
 
@@ -212,7 +212,7 @@ To derive the parts from the feature name or options, override the classmethod `
 - `match_feature_group_criteria()` is asked with the full name first, then the base name; `input_features()` and `calculate_feature()` see the base name
 - Artifacts are keyed by the base name
 
-See [Declaring Output Parts](https://github.com/mloda-ai/mloda/blob/0.18.0/docs/docs/in_depth/multiple_result_columns.md#declaring-output-parts) in the core docs.
+See [Declaring Output Parts](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/in_depth/multiple_result_columns.md#declaring-output-parts) in the core docs.
 
 ## Requesting Multiple Parts Together
 
