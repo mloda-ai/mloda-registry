@@ -82,29 +82,28 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-        result = with_input_position(
-            data,
-            feature_name,
-            lambda rel, rn: nan_policy_window(
+
+        def window(rel: DuckdbRelation, order_sql: str | None = None) -> DuckdbRelation:
+            return nan_policy_window(
                 rel,
                 source_col,
                 source_sql,
                 agg_type,
                 agg_func,
                 feature_name,
-                order_sql=quote_ident(rn),
+                order_sql=order_sql,
                 partition_by=partition_by,
-            ),
-        )
-        if agg_type == "mode":
-            # MODE returns a struct; extract .v with one projection that keeps column order.
-            quoted_feature = quote_ident(feature_name)
-            keep = ", ".join(
-                f"{quoted_feature}.v AS {quoted_feature}" if c == feature_name else quote_ident(c)
-                for c in result.columns
             )
-            result = result.project(keep)
-        return result
+
+        if agg_type != "mode":
+            return window(data)
+        result = with_input_position(data, feature_name, lambda rel, rn: window(rel, quote_ident(rn)))
+        # MODE returns a struct; extract .v with one projection that keeps column order.
+        quoted_feature = quote_ident(feature_name)
+        keep = ", ".join(
+            f"{quoted_feature}.v AS {quoted_feature}" if c == feature_name else quote_ident(c) for c in result.columns
+        )
+        return result.project(keep)
 
     @classmethod
     def _compute_first_last(

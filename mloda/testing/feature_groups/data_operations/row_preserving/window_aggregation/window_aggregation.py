@@ -1087,8 +1087,7 @@ class WindowAggregationTestBase(
     def test_row_order_preserved_first(self) -> None:
         """Original columns must remain in input row order after first.
 
-        PyArrow parity: DuckDB first/last uses ORDER BY which reorders
-        rows; the ROW_NUMBER + .order() pattern must restore input order.
+        PyArrow parity: the ordered SQL window must keep input row order.
 
         Compares (value_int, category) tuples to detect tied-row swaps
         (rows 8 and 9 both have value_int=15).

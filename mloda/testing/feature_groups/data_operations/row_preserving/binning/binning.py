@@ -441,8 +441,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_row_order_preserved_qbin(self) -> None:
         """Original columns must remain in input row order after qbin.
 
-        PyArrow parity: DuckDB NTILE() reorders rows via ORDER BY;
-        the ROW_NUMBER + .order() pattern must restore input order.
+        PyArrow parity: the ordered SQL window must keep input row order.
 
         Compares (value_int, category) tuples to detect tied-row swaps
         (rows 8 and 9 both have value_int=15).

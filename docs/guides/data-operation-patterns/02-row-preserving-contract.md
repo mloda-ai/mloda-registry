@@ -40,7 +40,7 @@ The dependency is implicit, so each `_compute_arithmetic` carries a comment stat
 
 Since mloda 0.19, `window()` and `with_row_number()` on `DuckdbRelation` and `SqliteRelation` keep input row order, so window-only code needs no workaround.
 
-A step that reorders outside `window()` (raw SQL via `rel.query`, joins) must be wrapped in `preserve_row_order` from `mloda/community/feature_groups/data_operations/duckdb_helpers.py`. It tags each input row with a row-number column, runs the callback, re-sorts on the tag and drops it. When a window needs the input position as a tie-break, `with_input_position` tags without re-sorting. Paraphrased from `mloda/community/feature_groups/data_operations/row_preserving/sessionization/duckdb_sessionization.py`:
+A step that reorders outside `window()` (raw SQL via `rel.query`, joins) must record positions and restore them; `preserve_row_order` from `mloda/community/feature_groups/data_operations/duckdb_helpers.py` is the helper (lookup does it by hand). It tags each input row with a row-number column, runs the callback, re-sorts on the tag and drops it. When a window needs the input position as a tie-break, `with_input_position` tags without re-sorting. Paraphrased from `_compute_time_frame` in `mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/duckdb_frame_aggregate.py`:
 
 ```py
 def compute(tagged, rn):
