@@ -26,8 +26,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import FailedRows, FeatureSet, report_failed_rows
+from mloda.provider import FailedRows, FeatureSet, instrument, report_failed_rows
 from mloda.steward import (
     AsOfJoinConfig,
     CompositeExtender,

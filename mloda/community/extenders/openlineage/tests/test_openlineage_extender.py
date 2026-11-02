@@ -33,8 +33,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 import requests
-from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import FailedRows
+from mloda.provider import FailedRows, instrument
 from mloda.steward import (
     CompositeExtender,
     Extender,
