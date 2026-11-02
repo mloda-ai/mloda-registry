@@ -222,7 +222,7 @@ PROPERTY_MAPPING = {
 
 Use `match_guard` to check the raw option value with a callable. Despite the name, a guard is not a type assertion: a falsy return means "not my feature group", not "the user made a mistake". Unlike `element_validator`, it does not require `strict_validation` and it sees the whole value, before any unpacking.
 
-After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `match_guard`. A falsy return is a plain non-match (`False`, debug log, no error), so resolution moves on and another candidate may still take the feature. A guard that raises `TypeError`, `ValueError`, or `AttributeError` is treated the same way.
+After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `match_guard`. A falsy return is a plain non-match (`False`, debug log, no error), so resolution moves on and another candidate may still take the feature. A guard that raises `TypeError`, `ValueError`, or `AttributeError` is treated the same way. Only a missing key skips the guard: an empty container such as `[]` or `()` is a present value, so the guard sees it.
 
 The rejection reaches the user's "No feature groups found" error only when the spec is strict or declares `expected`, a phrase completing "must be ...", as `partition_by` does below. A strict spec echoes the rejected value in full; `expected` shows a scalar value shortened and a composite by its type only. On a key that can carry a secret, such as a token or a connection string, declare neither.
 
@@ -230,15 +230,16 @@ The rejection reaches the user's "No feature groups found" error only when the s
 from mloda.provider import property_spec
 
 
-def _is_list_of_strings(value):
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+def _is_column_list(value):
+    # Rejects a bare string and an empty container.
+    return isinstance(value, (list, tuple)) and len(value) > 0 and all(isinstance(item, str) for item in value)
 
 
 PROPERTY_MAPPING = {
     "partition_by": property_spec(
         "Columns to partition by",
-        match_guard=_is_list_of_strings,
-        expected="a list of column names",
+        match_guard=_is_column_list,
+        expected="a non-empty list of column names",
     ),
     "window_size": property_spec(
         "Number of rows in the rolling window",
@@ -247,7 +248,7 @@ PROPERTY_MAPPING = {
 }
 ```
 
-A `match_guard` is also the way to reject a composite value for a key that otherwise accepts a single token: the element-wise check unpacks a container and validates each element, so `["sum", "max"]` passes membership on both elements and matches. Guard the arity, not the Python syntax: core unwraps a single-element container when it reads a property value, so `("sum",)` is valid caller syntax for one token and a naive `lambda v: isinstance(v, str)` would wrongly reject it. See the shared `is_op_token` guard in `mloda/community/feature_groups/data_operations/base.py`.
+A `match_guard` is also the way to reject a composite value for a key that otherwise accepts a single token: the element-wise check unpacks a container and validates each element, so `["sum", "max"]` passes membership on both elements and matches. Guard the arity, not the Python syntax: core unwraps a single-element container when it reads a property value, so `("sum",)` is valid caller syntax for one token and a naive `lambda v: isinstance(v, str)` would wrongly reject it. See the shared `is_op_token` guard in `mloda/community/feature_groups/data_operations/base.py`. A list-of-names key wants the opposite: a bare string such as `"ab"` passes `len(value) > 0`, and a group that calls `set(value)` gets `{"a", "b"}`, so `_is_column_list` above checks the container type.
 
 ### Key Differences from `element_validator`
 
