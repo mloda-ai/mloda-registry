@@ -114,6 +114,21 @@ and `mloda-community-example-a` are published to keep end-to-end PyPI dependency
 covered. When adding a package to the set, see
 [Add a new package](packaging.md#add-a-new-package).
 
+## Core minor releases
+
+Every distribution, `mloda-testing` included, pins one core minor through `core_dependency` in
+`config/shared.toml` (`mloda>=X.Y.0,<X.(Y+1).0`), so until the registry releases, no kit installs
+next to a new core minor. Release the registry within a day of each core minor:
+
+1. Before core tags the minor, run the registry suite against core main, so the move holds no surprises.
+2. Once the new core is on PyPI, move `core_dependency` to it, run `python scripts/generate_pyproject.py`
+   (it also rewrites the root `pyproject.toml`) and relock with uv 0.13.5. `mloda` is exempt from
+   `exclude-newer`, so a same-day core release resolves.
+3. Fix what breaks and merge it as a `minor:` commit.
+4. Once CI is green on main, dispatch Release, then the verify-published workflow.
+
+Never widen the ceiling ahead of a core release: core makes no compatibility promise across minors.
+
 ## Commit messages
 
 Conventional commits determine the bump. This project deviates from the standard:

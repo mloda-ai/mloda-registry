@@ -91,6 +91,32 @@ _BUNDLE_ONLY = [
 _DATA_OPERATIONS = "mloda-community-data-operations"
 
 _COMMUNITY_EXAMPLE = "mloda-community-example"
+# Members of mloda-testing's data-operations extra: the base package, then the leaves the kit imports.
+_TESTING_DATA_OPERATIONS_MEMBERS = [
+    _DATA_OPERATIONS,
+    *(
+        f"mloda-community-{leaf}"
+        for leaf in (
+            "aggregation",
+            "rank",
+            "offset",
+            "window-aggregation",
+            "frame-aggregate",
+            "scalar-aggregate",
+            "scalar-arithmetic",
+            "point-arithmetic",
+            "datetime",
+            "string",
+            "binning",
+            "percentile",
+            "time-bucketization",
+            "ffill",
+            "sessionization",
+            "resample",
+            "lookup",
+        )
+    ),
+]
 
 # The child whose flag the wheel-boundary tests drop.
 _UNPUBLISH_PROBE = "mloda-community-ema"
@@ -1005,6 +1031,7 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
         ),
         ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
         ("mloda-testing", "binary-model", ["mloda-community-binary-model"]),
+        ("mloda-testing", "data-operations", _TESTING_DATA_OPERATIONS_MEMBERS),
     ]
     assert entries == expected, f"internal_extra_members() yielded {entries!r}, expected exactly {expected!r}"
 
@@ -1072,8 +1099,14 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
         ),
         ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
         ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
-        ("mloda-testing", "mloda-testing==9.9.9", False, ["mloda-community-binary-model"]),
+        (
+            "mloda-testing",
+            "mloda-testing==9.9.9",
+            False,
+            ["mloda-community-binary-model", *_TESTING_DATA_OPERATIONS_MEMBERS],
+        ),
         ("mloda-testing", "mloda-testing[binary-model]==9.9.9", True, ["mloda-community-binary-model"]),
+        ("mloda-testing", "mloda-testing[data-operations]==9.9.9", True, _TESTING_DATA_OPERATIONS_MEMBERS),
     ]
     assert jobs == expected, f"verification_jobs() yielded {jobs!r}, expected exactly {expected!r}"
 

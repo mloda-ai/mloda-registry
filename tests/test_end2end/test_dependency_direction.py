@@ -3,7 +3,8 @@
 features.md``), and no runtime module under ``mloda/community/`` or ``mloda/enterprise/`` may import
 ``mloda.testing`` at any depth. Enterprise code may use ``mloda.community.extenders.shared`` only
 through public names (no private imports, subclassing, or private attributes). Binary wheel floors must
-also exclude releases that trust no production key. Mirrors the resolution
+also exclude releases that trust no production key. The ``mloda-testing`` kit must declare every registry
+package it imports. Mirrors the resolution
 and TOML-loading style of ``tests/test_end2end/test_dev_dependencies.py`` and
 ``tests/test_end2end/test_manifest_resilience.py``.
 """
@@ -582,6 +583,98 @@ def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None
         assert root_dir.is_dir(), f"expected {root_dir} to exist"
         offenders.extend(f"mloda/{root_name}/{path.as_posix()}" for path in _files_importing_mloda_testing(root_dir))
     assert not offenders, f"mloda.testing imported outside tests/: {offenders}"
+
+
+# Kit subtrees (relative to the kit root) whose registry imports may be declared in a named extra.
+_KIT_EXTRAS = {"binary_model": "binary-model", "feature_groups/data_operations": "data-operations"}
+_KIT_PACKAGE = "mloda-testing"
+
+
+def _registry_imports(tree: ast.AST) -> set[str]:
+    """Dotted modules under mloda.community or mloda.enterprise imported at any depth (absolute imports only)."""
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        names: list[str] = []
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module is not None and node.level == 0:
+            names = [node.module] + [f"{node.module}.{alias.name}" for alias in node.names]
+        for name in names:
+            if name.startswith(("mloda.community.", "mloda.enterprise.")):
+                found.add(name)
+    return found
+
+
+def _owning_package(module: str, packages: dict[str, dict[str, Any]]) -> str | None:
+    """Configured package with the longest path prefix of the dotted module."""
+    module_path = module.replace(".", "/")
+    best: str | None = None
+    best_len = -1
+    for name, cfg in packages.items():
+        path = cfg.get("path", "")
+        if (module_path == path or module_path.startswith(path + "/")) and len(path) > best_len:
+            best, best_len = name, len(path)
+    return best
+
+
+def _undeclared_kit_imports(
+    kit_root: Path, packages: dict[str, dict[str, Any]], kit_extras: dict[str, str] = _KIT_EXTRAS
+) -> list[str]:
+    """Registry packages the kit imports outside its declared dependencies (or the extra gating the subtree)."""
+    kit_deps = list(packages.get(_KIT_PACKAGE, {}).get("dependencies", []))
+    extras = packages.get(_KIT_PACKAGE, {}).get("optional_dependencies", {})
+    violations: list[str] = []
+    for py_file in sorted(kit_root.rglob("*.py")):
+        rel_path = py_file.relative_to(kit_root)
+        parts = rel_path.parts
+        if "tests" in parts or any(part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts):
+            continue
+        rel = rel_path.as_posix()
+        gate = next((extra for key, extra in kit_extras.items() if rel == key or rel.startswith(key + "/")), None)
+        deps = kit_deps + (list(extras.get(gate, [])) if gate else [])
+        allowed = gen.dependency_closure({"dependencies": deps}, packages)
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        first_module: dict[str, str] = {}
+        for module in sorted(_registry_imports(tree), key=lambda m: (len(m), m)):
+            owner = _owning_package(module, packages)
+            if owner is not None and owner not in allowed:
+                first_module.setdefault(owner, module)
+        target = f"the {gate!r} extra" if gate else "dependencies"
+        violations.extend(
+            f"{rel}: imports {module} (package {owner}); declare it in {target} of {_KIT_PACKAGE}"
+            for owner, module in first_module.items()
+        )
+    return violations
+
+
+def test_mloda_testing_declares_every_registry_package_it_imports() -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    kit_root = _REPO_ROOT / "mloda" / "testing"
+    assert kit_root.is_dir(), f"expected {kit_root} to exist"
+    violations = _undeclared_kit_imports(kit_root, packages)
+    assert not violations, (
+        "mloda-testing imports registry packages it does not declare. Declare each in config/packages.toml under "
+        f"[packages.mloda-testing] (dependencies or the gating extra), then regenerate: {violations}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("rel_file", "flagged"),
+    [
+        pytest.param("gated/m.py", False, id="inside-gated-subtree"),
+        pytest.param("other/m.py", True, id="outside-gated-subtree"),
+    ],
+)
+def test_undeclared_kit_imports_routes_a_leaf_through_the_gating_extra(
+    tmp_path: Path, rel_file: str, flagged: bool
+) -> None:
+    packages: dict[str, dict[str, Any]] = {
+        _KIT_PACKAGE: {"path": "mloda/testing", "dependencies": [], "optional_dependencies": {"x": ["leaf>=1"]}},
+        "leaf": {"path": "mloda/community/feature_groups/leaf", "dependencies": []},
+    }
+    _write(tmp_path / rel_file, "def f() -> None:\n    from mloda.community.feature_groups.leaf.impl import Thing\n")
+    violations = _undeclared_kit_imports(tmp_path, packages, {"gated": "x"})
+    assert bool(violations) is flagged, violations
 
 
 def _write(path: Path, body: str) -> None:
