@@ -81,7 +81,7 @@ class SqliteViewTestMixin(SqliteTestMixin):
 
 
 class SqliteComputedColumnTestMixin(SqliteTestMixin):
-    """Every input column is an expression in a view, as an earlier feature's output is, so its declared type is empty."""
+    """Every input column is a view expression, so its declared type is empty."""
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident

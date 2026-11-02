@@ -125,7 +125,7 @@ class TestCrossFamilyChains:
 
 
 class TestSqliteComputedColumnChains:
-    """An earlier feature's output is a computed column in SQLite (empty declared type) that the next feature reads."""
+    """A feature reads an earlier feature's output, a computed column in SQLite."""
 
     @staticmethod
     def _run(name: str, context: dict[str, Any]) -> list[Any]:
