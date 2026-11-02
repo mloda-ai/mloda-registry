@@ -386,7 +386,7 @@ class SessionizationTestBase(
         ref = self.reference_calculate(table, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, [1, 0, 1, 1, 2, 2], cast=int)
-        assert [int(v) for v in col] == [int(v) for v in extract_column(ref, "ts__sessionize_30_minute")]
+        assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
