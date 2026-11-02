@@ -6,7 +6,7 @@ Row-preserving operations must return an output whose row count and row order ma
 **When**: Applies to every feature group or operation group under `data_operations/row_preserving/`: binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime, time bucketization, ffill, ema, sessionization, lookup.
 **Why**: Row-preserving ops broadcast a computed value back onto each row. If the framework reorders rows (some SQL window functions do), downstream joins on index position break silently.
 **Where**: The contract is enforced by cross-framework tests. Row count and row order are both asserted in `DataOpsTestBase._compare_with_reference`.
-**How**: Each framework implementation must return rows in the same order they came in. If the native operator reorders (DuckDB `NTILE` and, in DuckDB 2, partitioned windows), the implementation records original positions and restores them.
+**How**: Each framework implementation must return rows in the same order they came in. On SQL backends `window()` and `with_row_number()` keep input order since mloda 0.19; a step that reorders outside `window()` records original positions and restores them.
 
 ---
 
@@ -23,8 +23,8 @@ Row count and row order are both asserted by `DataOpsTestBase._compare_with_refe
 | PyArrow | Operates on columnar arrays by index; naturally preserves row order | No |
 | Pandas | Index-aligned assignments (`df[col] = ...`) preserve order | No, as long as you avoid `groupby(...).apply()` patterns that reset index |
 | Polars (lazy) | `pl.when/then/otherwise` and `over(...)` preserve order | No |
-| SQLite | SQL result order is undefined unless `ORDER BY` is specified, but the implementations re-select columns rather than applying `ORDER BY` | No, but see the positional-append note below |
-| DuckDB | Most operators preserve order. `NTILE()` reorders by its `ORDER BY` clause, and partitioned windows reorder too (DuckDB 2), restored the same way | Yes, see below |
+| SQLite | SQL result order is undefined unless `ORDER BY` is specified, but `window()` keeps input order since mloda 0.19 and the rest re-select columns rather than applying `ORDER BY` | No, but see the positional-append note below |
+| DuckDB | `window()` and `with_row_number()` keep input order since mloda 0.19; raw SQL and joins may reorder | Only for non-window reordering steps, see below |
 
 ---
 
@@ -36,27 +36,21 @@ The dependency is implicit, so each `_compute_arithmetic` carries a comment stat
 
 ---
 
-## The DuckDB NTILE workaround
+## SQL backends: window() keeps row order
 
-DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows in that order, not in input order. PyArrow's rank-based `qbin` assigns labels by index and preserves the original sequence. To make the two match, DuckDB wraps the window in `preserve_row_order` (in `mloda/community/feature_groups/data_operations/duckdb_helpers.py`), which tags each input row with a row-number column, runs the callback, re-sorts on the tag to restore the original sequence, and drops it.
+Since mloda 0.19, `window()` and `with_row_number()` on `DuckdbRelation` and `SqliteRelation` keep input row order themselves, so window-only code needs no workaround. Call `data.window(...)` directly.
 
-The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. Inside the callback, `rel.columns` already holds the tag, so helper picks against it cannot collide. Paraphrased from `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
+A step that reorders outside `window()` (raw SQL via `rel.query`, joins) must be wrapped in `preserve_row_order` from `mloda/community/feature_groups/data_operations/duckdb_helpers.py`. It tags each input row with a row-number column, runs the callback, re-sorts on the tag and drops it. When a window needs the input position as a tie-break, `with_input_position` tags without re-sorting. Paraphrased from `mloda/community/feature_groups/data_operations/row_preserving/sessionization/duckdb_sessionization.py`:
 
 ```py
-# PyArrow parity: results come back in original row order.
-def compute(rel, rn):
-    qbin_part = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
-    qbin_ntile = pick_helper_column_name(taken=set(rel.columns) | {feature_name, qbin_part})
-    rel = rel.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
-    rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
-    # project out the helper columns and add the bin label
-    return rel.project(f"{keep}, {expr} AS {quoted_feature}")
+def compute(tagged, rn):
+    return tagged.query("tagged", sql_using_rn)
 
 
 return preserve_row_order(data, feature_name, compute)
 ```
 
-This pattern generalizes. Any time a framework's native operator reorders rows, the implementation must record positions before the operator runs and restore them afterward.
+The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. Inside a tagged callback, `rel.columns` already holds the tag, so helper picks against it cannot collide.
 
 Every backend now picks provably collision-free helper names at runtime, so user columns of any name (including the `__mloda_` prefix) are accepted. The SQL backends (DuckDB, SQLite) use `pick_helper_column_name` from `mloda_plugins` `sql_utils`; the pandas, polars and pyarrow backends use `unique_helper_name(base, taken)` from `mloda/community/feature_groups/data_operations/helper_columns.py`. See [Known divergences](known-divergences.md) for the full entry.
 
@@ -66,7 +60,7 @@ Every backend now picks provably collision-free helper names at runtime, so user
 
 Inherit the operation's test base and the framework mixin (template in [Adding a new data operation, Step 6](10-adding-new-operation.md#step-6-wire-up-the-framework-test-classes)); the row-count and order assertions come from `DataOpsTestBase`.
 
-If your framework reorders, you will see row-count assertions pass but value comparisons fail with "row 0: 3 != reference 0". That means order is wrong, not math. Add the row-number workaround (on DuckDB, wrap the reordering step in `preserve_row_order`) and try again.
+If your framework reorders, you will see row-count assertions pass but value comparisons fail with "row 0: 3 != reference 0". That means order is wrong, not math. Add the row-number workaround (on DuckDB, wrap a non-window reordering step in `preserve_row_order`) and try again.
 
 ---
 

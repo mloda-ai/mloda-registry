@@ -15,7 +15,6 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import preserve_row_order
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
@@ -49,9 +48,4 @@ class DuckdbFfill(Implementation[FfillFeatureGroup]):
         order_spec: list[OrderBy] = [OrderBy(order_by)]
         frame = WindowFrame("rows", Unbounded(), CurrentRow())
 
-        # PyArrow parity: preserve original input row order.
-        return preserve_row_order(
-            data,
-            feature_name,
-            lambda rel, rn: rel.window(func, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame),
-        )
+        return data.window(func, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame)

@@ -9,11 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import (
-    column_types,
-    nan_to_null_sql,
-    preserve_row_order,
-)
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, nan_to_null_sql
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
@@ -33,7 +29,7 @@ class DuckdbPercentile(Implementation[PercentileFeatureGroup]):
     @classmethod
     def _compute_percentile(
         cls,
-        data: Any,
+        data: DuckdbRelation,
         feature_name: str,
         source_col: str,
         partition_by: list[str],
@@ -50,10 +46,4 @@ class DuckdbPercentile(Implementation[PercentileFeatureGroup]):
         # Python float validated to [0.0, 1.0] by the base class, so it cannot
         # produce SQL injection via float.__format__.
         agg_source = nan_to_null_sql(source_sql, column_types(data).get(source_col, ""))
-        return preserve_row_order(
-            data,
-            feature_name,
-            lambda rel, rn: rel.window(
-                f"QUANTILE_CONT({agg_source}, {percentile})", feature_name, partition_by=partition_by
-            ),
-        )
+        return data.window(f"QUANTILE_CONT({agg_source}, {percentile})", feature_name, partition_by=partition_by)

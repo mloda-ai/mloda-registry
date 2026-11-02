@@ -4,7 +4,7 @@ Binning maps a numeric column onto integer bucket indices `0..n-1`. Two variants
 
 **What**: `BinningFeatureGroup` (an `OperationFeatureGroup` whose loop is `assign_bins`) accepts feature names of the form `{col}__bin_{N}` or `{col}__qbin_{N}`; each backend (`PandasBinning`, `DuckdbBinning`, ...) is an `Implementation` of it.
 **When**: You need discretization for downstream grouping, charting, or model features.
-**Why**: Both operations are standard, but implementing them identically across frameworks is non-trivial because of NTILE reordering and NULL propagation.
+**Why**: Both operations are standard, but implementing them identically across frameworks is non-trivial because of NULL propagation.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/binning/`.
 **How**: Feature name encodes the op and bin count; the framework implementation computes the bin index per row and preserves input order.
 
@@ -54,9 +54,9 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 
 ---
 
-## The DuckDB row-order workaround
+## SQL row order
 
-`NTILE` requires `ORDER BY col`, so DuckDB wraps the window in `preserve_row_order`; the code is in [The DuckDB NTILE workaround](02-row-preserving-contract.md#the-duckdb-ntile-workaround). Pandas and PyArrow assign by index and need no workaround.
+`NTILE` runs through `window()`, which keeps input order, so no workaround is needed. See [SQL backends: window() keeps row order](02-row-preserving-contract.md#sql-backends-window-keeps-row-order). Pandas and PyArrow assign by index and need no workaround.
 
 ---
 
@@ -83,6 +83,6 @@ Row count matches the input; each new column contains integers in `[0, N-1]` (or
 
 ## Related
 
-- [Row-preserving contract](02-row-preserving-contract.md) - Why the DuckDB `ROW_NUMBER()` tag-and-restore pattern exists.
+- [Row-preserving contract](02-row-preserving-contract.md) - How SQL `window()` keeps input order and when a tag-and-restore wrapper is still needed.
 - [Reference implementation pattern](03-reference-implementation.md) - PyArrow's rank-based `qbin` is the source of truth.
 - [Adding a new data operation](10-adding-new-operation.md) - Template for extending binning to a new framework.

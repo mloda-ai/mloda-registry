@@ -77,8 +77,6 @@ class SqliteRank(Implementation[RankFeatureGroup]):
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
         original_cols = list(data.columns)
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        rel = data.with_row_number(rn, order_by=["rowid"])
 
         if rank_type.startswith(("top_", "bottom_")):
             # The window result is wrapped in a boolean comparison, so compute
@@ -87,8 +85,8 @@ class SqliteRank(Implementation[RankFeatureGroup]):
             is_top = rank_type.startswith("top_")
             prefix = "top_" if is_top else "bottom_"
             n_val = int(rank_type[len(prefix) :])
-            helper = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
-            rel = rel.window(
+            helper = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+            rel = data.window(
                 "ROW_NUMBER()",
                 helper,
                 partition_by=partition_by,
@@ -97,11 +95,9 @@ class SqliteRank(Implementation[RankFeatureGroup]):
             qhelper = quote_ident(helper)
             proj = (
                 ", ".join(quote_ident(c) for c in original_cols)
-                + f", {quote_ident(rn)}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}"
+                + f", ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}"
             )
-            rel = rel.select(_raw_sql=proj)
-            rel = rel.order(rn)
-            result = rel.select(*original_cols, feature_name)
+            result = rel.select(_raw_sql=proj)
             return _BoolCastRelation(result, {feature_name})
 
         if rank_type.startswith("ntile_"):
@@ -113,11 +109,9 @@ class SqliteRank(Implementation[RankFeatureGroup]):
                 raise ValueError(f"Unsupported rank type for SQLite: {rank_type}")
             rank_func = standard_func
 
-        rel = rel.window(
+        return data.window(
             rank_func,
             feature_name,
             partition_by=partition_by,
             order_by=[OrderBy(order_by, nulls="last")],
         )
-        rel = rel.order(rn)
-        return rel.select(*original_cols, feature_name)

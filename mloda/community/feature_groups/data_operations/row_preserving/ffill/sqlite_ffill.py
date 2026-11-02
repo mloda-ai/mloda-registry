@@ -48,16 +48,12 @@ class SqliteFfill(Implementation[FfillFeatureGroup]):
         #      picks the single non-null value of each fill group (the grp = 0
         #      leading-null group has no non-null -> MAX stays NULL).
         taken = set(data.columns) | {feature_name}
-        rn = pick_helper_column_name(taken=taken)
-        grp = pick_helper_column_name(taken=taken | {rn})
+        grp = pick_helper_column_name(taken=taken)
 
         quoted_source = quote_ident(source_col)
 
-        # Tag rows with original order (rowid is stable insertion order in SQLite).
-        rel = data.with_row_number(rn, order_by=["rowid"])
-
         # Step 1: fill-group id via a running COUNT over the ordered partition.
-        rel = rel.window(
+        rel = data.window(
             f"COUNT({quoted_source})",
             grp,
             partition_by=partition_by,
@@ -72,6 +68,5 @@ class SqliteFfill(Implementation[FfillFeatureGroup]):
             partition_by=[*partition_by, grp],
         )
 
-        # Restore original row order and drop both helper columns.
-        rel = rel.order(rn)
+        # Drop the helper column.
         return rel.select(*original_cols, feature_name)

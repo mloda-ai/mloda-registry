@@ -46,15 +46,13 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
         order_spec = [OrderBy(order_by, nulls="last")]
 
         original_cols = list(data.columns)
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        rel = data.with_row_number(rn, order_by=["rowid"])
 
         if offset_type.startswith("pct_change_"):
             # The window result is wrapped in a CASE expression, so compute LAG into a
             # helper column, then apply the wrapper via a raw projection (Pattern W).
             offset_n = int(offset_type[len("pct_change_") :])
-            prev = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
-            rel = rel.window(
+            prev = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+            rel = data.window(
                 f"LAG({quoted_source}, {offset_n})",
                 prev,
                 partition_by=partition_by,
@@ -65,13 +63,8 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
                 f"CASE WHEN {qhelper} IS NOT NULL AND {qhelper} != 0 "
                 f"THEN ({quoted_source} - {qhelper}) * 1.0 / {qhelper} END"
             )
-            proj = (
-                ", ".join(quote_ident(c) for c in original_cols)
-                + f", {quote_ident(rn)}, {wrapper} AS {quote_ident(feature_name)}"
-            )
-            rel = rel.select(_raw_sql=proj)
-            rel = rel.order(rn)
-            return rel.select(*original_cols, feature_name)
+            proj = ", ".join(quote_ident(c) for c in original_cols) + f", {wrapper} AS {quote_ident(feature_name)}"
+            return rel.select(_raw_sql=proj)
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
@@ -87,9 +80,7 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
             supported = "lag, lead, diff, pct_change, first_value, last_value"
             raise ValueError(f"Unsupported offset type for SQLite: {offset_type}. Supported types: {supported}")
 
-        rel = rel.window(func, feature_name, partition_by=partition_by, order_by=order_spec)
-        rel = rel.order(rn)
-        return rel.select(*original_cols, feature_name)
+        return data.window(func, feature_name, partition_by=partition_by, order_by=order_spec)
 
     @classmethod
     def _compute_first_last(

@@ -155,10 +155,17 @@ def nan_policy_window(
     return result.project(keep)
 
 
+def with_input_position(
+    data: "DuckdbRelation", feature_name: str, compute: Callable[["DuckdbRelation", str], "DuckdbRelation"]
+) -> "DuckdbRelation":
+    """Run ``compute(tagged, rn)`` with an input-position column ``rn``, then drop it; ``compute`` must keep row order."""
+    rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+    result = compute(data.with_row_number(rn), rn)
+    return result.project(", ".join(quote_ident(c) for c in result.columns if c != rn))
+
+
 def preserve_row_order(
     data: "DuckdbRelation", feature_name: str, compute: Callable[["DuckdbRelation", str], "DuckdbRelation"]
 ) -> "DuckdbRelation":
-    """Tag rows, run ``compute(tagged, rn)``, then restore input order and drop the tag."""
-    rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-    result = compute(data.with_row_number(rn), rn).order(quote_ident(rn))
-    return result.project(", ".join(quote_ident(c) for c in result.columns if c != rn))
+    """``with_input_position`` for a ``compute`` that may reorder rows (raw SQL, joins): re-sorts on ``rn`` first."""
+    return with_input_position(data, feature_name, lambda tagged, rn: compute(tagged, rn).order(quote_ident(rn)))
