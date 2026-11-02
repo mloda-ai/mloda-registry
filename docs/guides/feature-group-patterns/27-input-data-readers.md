@@ -111,6 +111,7 @@ record_match_rejection(
 ```
 
 - Record only when ownership is established but the content fails (right suffix, missing column; valid credentials, declined feature). Plain non-matches stay silent.
+- A `NamePolicy.DECLARED` group owns its declared names and prefixes, so record a reason when an unpointed `find_sources` finds no source for one (core records the pointed case). A derived group that is the only match for its name skips the input-chain check (see [Feature Matching](14-feature-matching.md#how-it-works)) and fails at this input, where without a recorded reason the error names no cause.
 - Never raise to decline. A raise marked with `escalate_match_abort` propagates; any other raise ends matching for that candidate. Record, then return a falsy value.
 - The first recording per owner wins, and recorded reasons are discarded when the group ultimately matches. Name the group and the concrete source in the reason.
 - Recording outside an engine-opened window is a no-op; in tests use `collect_match_rejections`.
