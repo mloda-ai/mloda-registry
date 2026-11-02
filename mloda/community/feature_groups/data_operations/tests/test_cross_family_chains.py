@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureGroup
 from mloda.user import Feature, Options, mloda
@@ -22,23 +21,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import result_column_values, sort_none_last
 from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
-
-
-def _sort_none_last(values: list[Any]) -> list[Any]:
-    return sorted(values, key=lambda x: (x is None, x))
 
 
 def _column(results: list[Any], name: str) -> list[Any]:
     """Values of ``name`` from the single result frame holding it, None for null or NaN."""
-    found = []
-    for t in results:
-        if isinstance(t, pa.Table) and name in t.column_names:
-            found.append(t.column(name).to_pylist())
-        elif hasattr(t, "columns") and name in t.columns:
-            found.append([None if v != v else v for v in t[name].tolist()])
+    found = result_column_values(results, name)
     assert len(found) == 1, f"expected one frame holding {name}, found {len(found)}"
-    return list(found[0])
+    return found[0]
 
 
 class TestCrossFamilyChains:
@@ -56,7 +47,7 @@ class TestCrossFamilyChains:
         results = mloda.run_all(
             [Feature(name, options=options)], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector
         )
-        assert _sort_none_last(_column(results, name)) == pytest.approx([4.0, 16.36, 100.0, None])
+        assert sort_none_last(_column(results, name)) == pytest.approx([4.0, 16.36, 100.0, None])
 
     def test_window_aggregation_over_aggregation(self) -> None:
         name = "value_int__sum_agg__sum_window"
@@ -67,7 +58,7 @@ class TestCrossFamilyChains:
         results = mloda.run_all(
             [Feature(name, options=options)], compute_frameworks=[PyArrowTable], plugin_collector=plugin_collector
         )
-        assert _sort_none_last(_column(results, name)) == [-10, 25, 70, 140]
+        assert sort_none_last(_column(results, name)) == [-10, 25, 70, 140]
 
     def test_offset_over_resample(self) -> None:
         name = "value_float__resample_1_day_sum__lag_1_offset"
@@ -80,7 +71,7 @@ class TestCrossFamilyChains:
             [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
         )
         expected = [1e-15, 1.5, 2.36, 2.5, 6.5, 100.0, None, None, None, None, None]
-        assert _sort_none_last(_column(results, name)) == pytest.approx(expected)
+        assert sort_none_last(_column(results, name)) == pytest.approx(expected)
 
 
 class TestReducingNextToRowPreserving:
@@ -94,7 +85,7 @@ class TestReducingNextToRowPreserving:
         )
         results = mloda.run_all(features, compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
 
-        assert _sort_none_last(_column(results, "value_int__sum_agg")) == [-10, 25, 70, 140]
+        assert sort_none_last(_column(results, "value_int__sum_agg")) == [-10, 25, 70, 140]
         window = _column(results, "value_int__sum_window")
         assert len(window) == 12
         assert set(window) == {-10, 25, 70, 140}

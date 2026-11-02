@@ -33,6 +33,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import result_column_values, sort_none_last
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PYARROW_TABLE,
@@ -50,11 +51,6 @@ _MEAN_SORTED: list[Any] = [0.0, 0.0, 1e-15, 1.18, 1.5, 2.5, 6.5, 7.5, 100.0, Non
 _COUNT_SORTED: list[Any] = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2]
 # Daily sum per region bucket, computed with plain pyarrow.
 _SUM_SORTED: list[Any] = [0.0, 0.0, 1e-15, 1.5, 2.36, 2.5, 6.5, 7.5, 100.0, None, None]
-
-
-def _sort_none_last(values: list[Any]) -> list[Any]:
-    """Sort values with ``None`` ordered last (mirrors the base-class trick)."""
-    return sorted(values, key=lambda x: (x is None, x))
 
 
 def _run_resample(name: str, context: dict[str, Any], *more_names: str) -> pa.Table:
@@ -153,8 +149,8 @@ class TestResampleIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegra
         table = _run_resample(mean_name, {"time_column": "timestamp", "partition_by": ["region"]}, sum_name)
 
         assert table.num_rows == _NUM_BUCKETS
-        assert _sort_none_last(table.column(mean_name).to_pylist()) == _MEAN_SORTED
-        sums = _sort_none_last(table.column(sum_name).to_pylist())
+        assert sort_none_last(table.column(mean_name).to_pylist()) == _MEAN_SORTED
+        sums = sort_none_last(table.column(sum_name).to_pylist())
         assert sums.count(None) == _SUM_SORTED.count(None)
         assert [v for v in sums if v is not None] == pytest.approx([v for v in _SUM_SORTED if v is not None], abs=1e-12)
 
@@ -188,7 +184,7 @@ class TestResampleSplitFeatureSets:
         results = self._run(features)
 
         table = next(t for t in results if isinstance(t, pa.Table) and self._MEAN in t.column_names)
-        assert _sort_none_last(table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
+        assert sort_none_last(table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
         # The null-timestamp row has no timestamp to count, so that source counts one bucket fewer than value_float.
         expected_counts = _COUNT_SORTED if count_source == "value_float" else [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2]
         assert sorted(table.column(count_name).to_pylist()) == expected_counts
@@ -202,11 +198,7 @@ class TestResampleSplitFeatureSets:
         ]
         results = self._run(features, frameworks, PandasDataOpsTestDataCreator)
 
-        means = []
-        for t in results:
-            frame = t.to_pandas() if isinstance(t, pa.Table) else t
-            if self._MEAN in frame.columns:
-                means.append(_sort_none_last([None if v != v else v for v in frame[self._MEAN].tolist()]))
+        means = [sort_none_last(v) for v in result_column_values(results, self._MEAN)]
         assert means == [_MEAN_SORTED] * 2
 
     def test_chained_resample_runs_without_group_error(self) -> None:
@@ -215,7 +207,7 @@ class TestResampleSplitFeatureSets:
         options = Options(context=self._CONTEXT, cascade_context_keys=frozenset(self._CONTEXT))
         results = self._run([Feature(name, options=options)])
         values = [
-            _sort_none_last(t.column(name).to_pylist())
+            sort_none_last(t.column(name).to_pylist())
             for t in results
             if isinstance(t, pa.Table) and name in t.column_names
         ]
@@ -238,7 +230,7 @@ class TestResampleSplitFeatureSets:
 
         mean_table = next(t for t in results if isinstance(t, pa.Table) and self._MEAN in t.column_names)
         count_table = next(t for t in results if isinstance(t, pa.Table) and self._COUNT in t.column_names)
-        assert _sort_none_last(mean_table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
+        assert sort_none_last(mean_table.column(self._MEAN).to_pylist()) == _MEAN_SORTED
         assert sorted(count_table.column(self._COUNT).to_pylist()) == _COUNT_SORTED
 
 

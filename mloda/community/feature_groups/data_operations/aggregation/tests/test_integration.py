@@ -32,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.aggregation.aggregation import
     EXPECTED_MAX_BY_REGION,
     EXPECTED_SUM_BY_REGION,
 )
+from mloda.testing.feature_groups.data_operations.helpers import result_column_values
 from mloda.testing.feature_groups.data_operations.integration import (
     DataOpsIntegrationTestBase,
     enabled_with_implementations,
@@ -572,11 +573,7 @@ class TestIntegrationMultipleFeatures:
         plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
         results = mloda.run_all(features, compute_frameworks=frameworks, plugin_collector=plugin_collector)
 
-        sums = []
-        for t in results:
-            frame = t.to_pandas() if isinstance(t, pa.Table) else t
-            if "value_int__sum_agg" in frame.columns:
-                sums.append(sorted(frame["value_int__sum_agg"].tolist()))
+        sums = [sorted(v) for v in result_column_values(results, "value_int__sum_agg")]
         assert sums == [sorted(EXPECTED_SUM_BY_REGION.values())] * 2
 
     def test_chained_aggregation_runs_without_group_error(self) -> None:

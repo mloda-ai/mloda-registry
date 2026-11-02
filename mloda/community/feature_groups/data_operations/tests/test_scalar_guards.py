@@ -17,7 +17,7 @@ import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options
 
-from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup  # noqa: F401  (import registers the row-replacing group)
 from mloda.community.feature_groups.data_operations.base import (
     assert_key_columns_present,
     assert_source_columns_present,
