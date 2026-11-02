@@ -119,21 +119,16 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 framework="DuckDB",
             )
 
-        # PyArrow parity: the reference preserves input row order.
-        return preserve_row_order(
+        return nan_policy_window(
             data,
+            source_col,
+            source_sql,
+            agg_type,
+            agg_func,
             feature_name,
-            lambda rel, rn: nan_policy_window(
-                rel,
-                source_col,
-                source_sql,
-                agg_type,
-                agg_func,
-                feature_name,
-                partition_by=partition_by,
-                order_by=order_spec,
-                frame=frame,
-            ),
+            partition_by=partition_by,
+            order_by=order_spec,
+            frame=frame,
         )
 
     @classmethod

@@ -73,17 +73,11 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
         # key into a helper column, run NTILE, then apply the wrapper via a raw
         # projection (Pattern W). ``MIN(a, b)`` here is the 2-arg scalar min.
         original_cols = list(data.columns)
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        part = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
-        ntile = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn, part})
-        rel = data.with_row_number(rn, order_by=["rowid"])
-        rel = rel.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
+        part = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        ntile = pick_helper_column_name(taken=set(data.columns) | {feature_name, part})
+        rel = data.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
         rel = rel.window(f"NTILE({n_bins})", ntile, partition_by=[part], order_by=[source_col])
         qntile = quote_ident(ntile)
         feat_expr = f"CASE WHEN {quoted_source} IS NULL THEN NULL ELSE MIN({qntile} - 1, {n_bins - 1}) END"
-        proj = (
-            ", ".join(quote_ident(c) for c in original_cols) + f", {quote_ident(rn)}, {feat_expr} AS {quoted_feature}"
-        )
-        rel = rel.select(_raw_sql=proj)
-        rel = rel.order(rn)
-        return rel.select(*original_cols, feature_name)
+        proj = ", ".join(quote_ident(c) for c in original_cols) + f", {feat_expr} AS {quoted_feature}"
+        return rel.select(_raw_sql=proj)

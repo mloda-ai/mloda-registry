@@ -56,7 +56,7 @@ Every row in `result` has the same number of columns plus the two new ones. With
 
 ## Row-preserving behavior
 
-Because window aggregation must preserve input order (see [row-preserving contract](02-row-preserving-contract.md)), framework implementations rely on native windowed expressions (DuckDB tags rows and restores input order, since partitioned windows reorder on DuckDB 2):
+Because window aggregation must preserve input order (see [row-preserving contract](02-row-preserving-contract.md)), framework implementations rely on native windowed expressions (SQL `window()` keeps input order since mloda 0.19):
 
 | Framework | Native construct |
 |---|---|
@@ -65,7 +65,7 @@ Because window aggregation must preserve input order (see [row-preserving contra
 | Polars lazy | `col.{agg}().over(partition_by)` |
 | DuckDB / SQLite | `{AGG}(col) OVER (PARTITION BY ...)` (no `ORDER BY` when not needed) |
 
-The DuckDB/SQLite form omits `ORDER BY` for non-ordered aggregates (`sum`, `avg`, etc.). The DuckDB backend tags rows and restores input order after the window.
+The DuckDB/SQLite form omits `ORDER BY` for non-ordered aggregates (`sum`, `avg`, etc.). DuckDB tags rows only where the aggregate needs input position (`mode`, `first`, `last`).
 
 ---
 

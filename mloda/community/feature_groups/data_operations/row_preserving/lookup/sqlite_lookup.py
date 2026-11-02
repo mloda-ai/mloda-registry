@@ -88,7 +88,7 @@ class SqliteLookup(Implementation[LookupFeatureGroup]):
         conn.execute(f"CREATE TEMP TABLE {q_map} (k {_AFFINITIES[key_fam]} PRIMARY KEY, v {_AFFINITIES[value_fam]})")
         tagged = None
         try:
-            tagged = data.with_row_number(rn, order_by=["rowid"])
+            tagged = data.with_row_number(rn)
             join_sql = f"FROM {quote_ident(tagged.table_name)} AS s LEFT JOIN {q_map} AS m ON s.{q_source} = m.k"  # nosec
             conn.executemany(f"INSERT INTO {q_map} VALUES (?, ?)", list(mapping.items()))  # nosec
 

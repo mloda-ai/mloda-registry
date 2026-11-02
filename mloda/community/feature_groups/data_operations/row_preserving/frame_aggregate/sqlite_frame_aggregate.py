@@ -6,7 +6,7 @@ from typing import Any
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda.user import Options
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
     OrderBy,
@@ -124,18 +124,13 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
-        original_cols = list(data.columns)
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        rel = data.with_row_number(rn, order_by=["rowid"])
-        rel = rel.window(
+        return data.window(
             f"{agg_func}({source_sql})",
             feature_name,
             partition_by=partition_by,
             order_by=[OrderBy(order_by, nulls="last")],
             frame=frame,
         )
-        rel = rel.order(rn)
-        return rel.select(*original_cols, feature_name)
 
     @classmethod
     def _compute_time_frame(

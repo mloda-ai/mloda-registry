@@ -250,7 +250,7 @@ One file per framework, each an `Implementation[YourOpFeatureGroup]`, plus the m
   python_dict_{your_op}.py
 ```
 
-Each sets `feature_group` and `compute_framework`, makes `calculate` the one-liner through `group.apply_your_op`, and implements `_compute_your_op` with its native primitives. For row-preserving ops, respect the row-order invariant. If the native operation reorders (DuckDB `NTILE`), DuckDB implementations wrap the reordering step in `preserve_row_order` (see [the row-preserving contract](02-row-preserving-contract.md)).
+Each sets `feature_group` and `compute_framework`, makes `calculate` the one-liner through `group.apply_your_op`, and implements `_compute_your_op` with its native primitives. For row-preserving ops, respect the row-order invariant. SQL `window()` keeps input order, so call it directly; DuckDB implementations wrap only a non-window reordering step (raw SQL, joins) in `preserve_row_order` (see [the row-preserving contract](02-row-preserving-contract.md)).
 
 A framework that cannot run an op, or differs from the reference on one, declares `supported` / `divergent` on its Implementation (see [Framework-Specific](../feature-group-patterns/09-framework-specific.md#complete-example)).
 

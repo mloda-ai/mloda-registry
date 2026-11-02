@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import Unbounded, WindowFrame
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_window, preserve_row_order
+from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_window, with_input_position
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -56,7 +56,7 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
     @classmethod
     def _compute_window(
         cls,
-        data: Any,
+        data: DuckdbRelation,
         feature_name: str,
         source_col: str,
         partition_by: list[str],
@@ -74,11 +74,7 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, quoted_source)
 
         if agg_type == "nunique":
-            return preserve_row_order(
-                data,
-                feature_name,
-                lambda rel, rn: rel.window(f"COUNT(DISTINCT {source_sql})", feature_name, partition_by=partition_by),
-            )
+            return data.window(f"COUNT(DISTINCT {source_sql})", feature_name, partition_by=partition_by)
 
         if agg_type in ("first", "last"):
             return cls._compute_first_last(data, feature_name, source_sql, partition_by, agg_type, order_by)
@@ -86,29 +82,28 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-        result = preserve_row_order(
-            data,
-            feature_name,
-            lambda rel, rn: nan_policy_window(
+
+        def window(rel: DuckdbRelation, order_sql: str | None = None) -> DuckdbRelation:
+            return nan_policy_window(
                 rel,
                 source_col,
                 source_sql,
                 agg_type,
                 agg_func,
                 feature_name,
-                order_sql=quote_ident(rn),
+                order_sql=order_sql,
                 partition_by=partition_by,
-            ),
-        )
-        if agg_type == "mode":
-            # MODE returns a struct; extract .v with one projection that keeps column order.
-            quoted_feature = quote_ident(feature_name)
-            keep = ", ".join(
-                f"{quoted_feature}.v AS {quoted_feature}" if c == feature_name else quote_ident(c)
-                for c in result.columns
             )
-            result = result.project(keep)
-        return result
+
+        if agg_type != "mode":
+            return window(data)
+        result = with_input_position(data, feature_name, lambda rel, rn: window(rel, quote_ident(rn)))
+        # MODE returns a struct; extract .v with one projection that keeps column order.
+        quoted_feature = quote_ident(feature_name)
+        keep = ", ".join(
+            f"{quoted_feature}.v AS {quoted_feature}" if c == feature_name else quote_ident(c) for c in result.columns
+        )
+        return result.project(keep)
 
     @classmethod
     def _compute_first_last(
@@ -127,7 +122,7 @@ class DuckdbWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         full-partition visibility to match PyArrow group_by().aggregate().
         Ties in order_by break by input order."""
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
-        return preserve_row_order(
+        return with_input_position(
             data,
             feature_name,
             lambda rel, rn: rel.window(

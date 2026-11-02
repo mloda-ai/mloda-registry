@@ -9,7 +9,6 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import preserve_row_order
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -61,23 +60,19 @@ class DuckdbBinning(Implementation[BinningFeatureGroup]):
             return rel.project(keep)
 
         if op == "qbin":
-            # PyArrow parity: results come back in original row order.
             # The NTILE partition key is a SQL CASE expression, so it must be
             # projected into a helper column before being used as partition_by.
-            def compute(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
-                qbin_part = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
-                qbin_ntile = pick_helper_column_name(taken=set(rel.columns) | {feature_name, qbin_part})
-                part_case = f"CASE WHEN {quoted_source} IS NOT NULL AND NOT isnan({quoted_source}) THEN 1 END"
-                rel = rel.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
-                rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
-                qntile = quote_ident(qbin_ntile)
-                expr = (
-                    f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
-                    f"ELSE LEAST({qntile} - 1, {n_bins - 1}) END"
-                )
-                keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (qbin_part, qbin_ntile))
-                return rel.project(f"{keep}, {expr} AS {quoted_feature}")
-
-            return preserve_row_order(data, feature_name, compute)
+            qbin_part = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+            qbin_ntile = pick_helper_column_name(taken=set(data.columns) | {feature_name, qbin_part})
+            part_case = f"CASE WHEN {quoted_source} IS NOT NULL AND NOT isnan({quoted_source}) THEN 1 END"
+            rel = data.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
+            rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+            qntile = quote_ident(qbin_ntile)
+            expr = (
+                f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
+                f"ELSE LEAST({qntile} - 1, {n_bins - 1}) END"
+            )
+            keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (qbin_part, qbin_ntile))
+            return rel.project(f"{keep}, {expr} AS {quoted_feature}")
 
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")

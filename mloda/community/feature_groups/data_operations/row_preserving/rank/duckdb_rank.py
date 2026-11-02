@@ -10,7 +10,6 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import preserve_row_order
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -36,7 +35,7 @@ class DuckdbRank(Implementation[RankFeatureGroup]):
     @classmethod
     def _compute_rank(
         cls,
-        data: Any,
+        data: DuckdbRelation,
         feature_name: str,
         partition_by: list[str],
         order_by: str,
@@ -52,19 +51,16 @@ class DuckdbRank(Implementation[RankFeatureGroup]):
             # The boolean comparison wraps a ROW_NUMBER() window, so compute the
             # row number into a helper column first, then project the comparison
             # (no OVER). DESC for top_, ASC for bottom_.
-            def compute(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
-                rank_rn = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
-                qhelper = quote_ident(rank_rn)
-                rel = rel.window(
-                    "ROW_NUMBER()",
-                    rank_rn,
-                    partition_by=partition_by,
-                    order_by=[OrderBy(order_by, descending=is_top, nulls="last")],
-                )
-                keep = ", ".join(quote_ident(c) for c in rel.columns if c != rank_rn)
-                return rel.project(f"{keep}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}")
-
-            return preserve_row_order(data, feature_name, compute)
+            rank_rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+            qhelper = quote_ident(rank_rn)
+            rel = data.window(
+                "ROW_NUMBER()",
+                rank_rn,
+                partition_by=partition_by,
+                order_by=[OrderBy(order_by, descending=is_top, nulls="last")],
+            )
+            keep = ", ".join(quote_ident(c) for c in rel.columns if c != rank_rn)
+            return rel.project(f"{keep}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}")
 
         if rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
@@ -75,9 +71,4 @@ class DuckdbRank(Implementation[RankFeatureGroup]):
                 raise ValueError(f"Unsupported rank type for DuckDB: {rank_type}")
             rank_func = mapped
 
-        # PyArrow parity: results come back in original row order.
-        return preserve_row_order(
-            data,
-            feature_name,
-            lambda rel, rn: rel.window(rank_func, feature_name, partition_by=partition_by, order_by=order_spec),
-        )
+        return data.window(rank_func, feature_name, partition_by=partition_by, order_by=order_spec)
