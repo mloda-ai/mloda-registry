@@ -287,6 +287,85 @@ def test_recipe_plan_matches_lock() -> None:
 
 `check_plan_lock` never writes: it raises `PlanLockMismatchError` with a diff when the plan drifts, or with the content to write when the lock is missing. Regenerate with `UPDATE_PLAN_LOCKS=1 pytest ...` (the test's own switch, not an mloda setting), review the diff and commit the lock file. The lock records each feature group, reader and framework by `module:qualname`, so moving a class or upgrading mloda can change it too (mloda 0.16.0 moved the lock format to 5, adding input wiring and join keys, so rewrite each lock once after upgrading); they must live in an importable module, since `write_plan_lock` refuses classes defined in `__main__`.
 
+## Refusing a Consumer of a Row-Replacing Output
+
+The refusal is a plan-time check, so `mloda.explain` catches it without running anything. A `Link` on the key column makes the same request run (see [Joining a replaces_rows() Output](08-links-joins.md#joining-a-replaces_rows-output)):
+
+```python
+from typing import Any
+
+import pytest
+from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet
+from mloda.user import Feature, FeatureName, JoinSpec, Link, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+
+class Guide10Sales(DataCreatorFeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide10_region", "guide10_amount"}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"guide10_region": ["a", "a", "b"], "guide10_amount": [1, 3, 5]}
+
+
+class Guide10RegionTotal(FeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide10_region_total"}
+
+    @classmethod
+    def replaces_rows(cls) -> bool:
+        return True
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature.not_typed("guide10_region"), Feature.not_typed("guide10_amount")}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        totals: dict[str, int] = {}
+        for region, amount in zip(data["guide10_region"], data["guide10_amount"]):
+            totals[region] = totals.get(region, 0) + amount
+        return {"guide10_region": list(totals), "guide10_region_total": list(totals.values())}
+
+
+class Guide10Share(FeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"guide10_share"}
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature.not_typed("guide10_region_total"), Feature.not_typed("guide10_amount")}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"guide10_share": [a / t for a, t in zip(data["guide10_amount"], data["guide10_region_total"])]}
+
+
+GUIDE10_GROUPS = {Guide10Sales, Guide10RegionTotal, Guide10Share}
+
+
+def test_consumer_without_link_is_refused() -> None:
+    with pytest.raises(ValueError, match="different frames"):
+        mloda.explain(
+            [Feature.not_typed("guide10_share")],
+            compute_frameworks=[PythonDictFramework],
+            plugin_collector=PluginCollector.enabled_feature_groups(GUIDE10_GROUPS),
+        )
+
+
+def test_consumer_with_link_computes() -> None:
+    link = Link.left(JoinSpec(Guide10Sales, "guide10_region"), JoinSpec(Guide10RegionTotal, "guide10_region"))
+    result = mloda.run_all(
+        [Feature.not_typed("guide10_share")],
+        compute_frameworks=[PythonDictFramework],
+        links={link},
+        plugin_collector=PluginCollector.enabled_feature_groups(GUIDE10_GROUPS),
+    )
+    assert result[0]["guide10_share"] == [0.25, 0.75, 1.0]
+```
+
 ## Testing What an Import Loads
 
 A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). Probe a fresh interpreter, because the test process has already imported every FeatureGroup:

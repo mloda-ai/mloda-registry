@@ -141,6 +141,18 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 A row-oriented `list[dict]` is still accepted, but it is not the native shape: `transform()` pivots it with `rows_to_columnar()` on every calculation, and that pivot requires **homogeneous keys** across rows. A row missing a key raises `ValueError: Inconsistent row keys at index i`. Build the columnar dict directly, or run rows through `homogenize_rows()` first.
 
+### Returning Other Rows: replaces_rows()
+
+Override `replaces_rows()` to return True when the group returns other rows than it receives (an aggregation, a resample or re-basing, a sorted, filtered or deduplicated table). Each step then writes a frame of its own while sibling steps keep reading the unchanged input, so return a new frame and never mutate the input in place. For such a group, returning the whole dict is the intended shape (the "WRONG: replaces the frame" warning above is about row-preserving groups).
+
+```py
+@classmethod
+def replaces_rows(cls) -> bool:
+    return True
+```
+
+A consumer reading the output together with an unchanged input column needs a `Link` (see [Joining a replaces_rows() Output](08-links-joins.md#joining-a-replaces_rows-output)). Without the flag such a consumer fails only at run time with `MissingInputFeatureError`, which does not name the cause. For a runnable check see [Refusing a Consumer of a Row-Replacing Output](10-testing-guide.md#refusing-a-consumer-of-a-row-replacing-output) and mloda's [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
+
 ## Reporting Failed Rows
 
 When a row got no value (a lookup miss, a parse failure), call `report_failed_rows(column, rows, reason)` from `mloda.provider` instead of returning a silent null. `reason` is a short code matching `[A-Za-z0-9_.-]{1,64}`, never row data (anything else raises `ValueError`). `rows` are positions in the group's own output.

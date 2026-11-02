@@ -301,6 +301,18 @@ The check has limits:
 - Members that share a compute framework pass it, but one base-class link over both is still ambiguous (`There are more than one solution for the join`).
 - A planned layout is not always correct: with the other side on one member's framework, a left or right join that keeps the member side can return wrong rows when the members hold different keys, and under `THREADING` planned layouts can fail intermittently with a missing column.
 
+## Joining a replaces_rows() Output
+
+A `replaces_rows()` group's output lives on its own frame. A consumer reading it together with a column of the unchanged input is refused at plan time with a `ValueError` unless a `Link` joins them on a key column the row-replacing group returns in its frame. Carry the link on the consumer's input:
+
+```py
+def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+    link = Link.left(JoinSpec(Sales, "region"), JoinSpec(RegionTotal, "region"))
+    return {Feature("region_total", link=link), Feature("amount")}
+```
+
+The same link can be passed per request via `mloda.run_all(links=...)`. The testing guide has a runnable example: [Refusing a Consumer of a Row-Replacing Output](10-testing-guide.md#refusing-a-consumer-of-a-row-replacing-output).
+
 ## Real Implementations
 
 | File | Description |
