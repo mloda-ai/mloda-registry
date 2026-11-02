@@ -552,13 +552,13 @@ def test_mloda_testing_gets_source_entries_for_every_sibling_named_in_its_extras
 
     sources = _generated_uv_sources("mloda-testing", packages, shared)
 
-    extras = packages["mloda-testing"]["optional_dependencies"]
-    named = {name for deps in extras.values() for name in gen.sibling_dependency_names(list(deps), packages)}
-    named -= {"mloda-testing"}
-    expected = {name: _WORKSPACE for name in named}
-    assert {"mloda-community-binary-model", _DEP, _LEAF, "mloda-community-lookup"} <= set(expected), (
-        f"expected binary-model, data-operations and its leaves among the extras' siblings, got {sorted(expected)!r}"
-    )
+    leaves = (
+        "aggregation binning datetime ffill frame-aggregate lookup offset percentile point-arithmetic rank "
+        "resample scalar-aggregate scalar-arithmetic sessionization string time-bucketization window-aggregation"
+    ).split()
+    names = ["mloda-community-binary-model", "mloda-community-data-operations"]
+    names += [f"mloda-community-{leaf}" for leaf in leaves]
+    expected = {name: _WORKSPACE for name in names}
     assert sources == expected, f"expected a workspace source per sibling named in the extras, got {sources!r}"
 
 

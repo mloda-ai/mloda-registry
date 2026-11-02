@@ -472,15 +472,23 @@ def _is_mloda_testing_import(node: ast.AST) -> bool:
     return False
 
 
+def _runtime_py_files(root_dir: Path) -> list[Path]:
+    """Sorted .py files under root_dir, skipping tests/, build artifacts and egg-info directories."""
+    files: list[Path] = []
+    for py_file in sorted(root_dir.rglob("*.py")):
+        parts = py_file.relative_to(root_dir).parts
+        if "tests" in parts or any(part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts):
+            continue
+        files.append(py_file)
+    return files
+
+
 def _files_with_import(root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[Path]:
     """Every .py file under root_dir, outside any tests/ directory, with a node matching predicate
     at any depth (module level, function level, or inside a TYPE_CHECKING block)."""
     offenders: list[Path] = []
-    for py_file in sorted(root_dir.rglob("*.py")):
+    for py_file in _runtime_py_files(root_dir):
         rel_path = py_file.relative_to(root_dir)
-        parts = rel_path.parts
-        if "tests" in parts or any(part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts):
-            continue
         tree = ast.parse(py_file.read_text(encoding="utf-8"))
         if any(predicate(node) for node in ast.walk(tree)):
             offenders.append(rel_path)
@@ -590,14 +598,14 @@ _KIT_PACKAGE = "mloda-testing"
 
 
 def _registry_imports(tree: ast.AST) -> set[str]:
-    """Dotted modules under mloda.community or mloda.enterprise imported at any depth (absolute imports only)."""
+    """Absolute imports under mloda.community or mloda.enterprise at any depth; `from m import a` yields `m.a`."""
     found: set[str] = set()
     for node in ast.walk(tree):
         names: list[str] = []
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module is not None and node.level == 0:
-            names = [node.module] + [f"{node.module}.{alias.name}" for alias in node.names]
+            names = [f"{node.module}.{alias.name}" for alias in node.names]
         for name in names:
             if name.startswith(("mloda.community.", "mloda.enterprise.")):
                 found.add(name)
@@ -623,12 +631,8 @@ def _undeclared_kit_imports(
     kit_deps = list(packages.get(_KIT_PACKAGE, {}).get("dependencies", []))
     extras = packages.get(_KIT_PACKAGE, {}).get("optional_dependencies", {})
     violations: list[str] = []
-    for py_file in sorted(kit_root.rglob("*.py")):
-        rel_path = py_file.relative_to(kit_root)
-        parts = rel_path.parts
-        if "tests" in parts or any(part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts):
-            continue
-        rel = rel_path.as_posix()
+    for py_file in _runtime_py_files(kit_root):
+        rel = py_file.relative_to(kit_root).as_posix()
         gate = next((extra for key, extra in kit_extras.items() if rel == key or rel.startswith(key + "/")), None)
         deps = kit_deps + (list(extras.get(gate, [])) if gate else [])
         allowed = gen.dependency_closure({"dependencies": deps}, packages)
@@ -674,6 +678,17 @@ def test_undeclared_kit_imports_routes_a_leaf_through_the_gating_extra(
     _write(tmp_path / rel_file, "def f() -> None:\n    from mloda.community.feature_groups.leaf.impl import Thing\n")
     violations = _undeclared_kit_imports(tmp_path, packages, {"gated": "x"})
     assert bool(violations) is flagged, violations
+
+
+def test_undeclared_kit_imports_ignores_the_bare_parent_of_a_from_import(tmp_path: Path) -> None:
+    """`from pkg import leaf` resolves to the leaf's owner, never to a bundle owning the bare parent module."""
+    packages: dict[str, dict[str, Any]] = {
+        _KIT_PACKAGE: {"path": "mloda/testing", "dependencies": [], "optional_dependencies": {"x": ["leaf>=1"]}},
+        "leaf": {"path": "mloda/community/feature_groups/leaf", "dependencies": []},
+        "bundle": {"path": "mloda/community", "dependencies": []},
+    }
+    _write(tmp_path / "gated/m.py", "from mloda.community.feature_groups import leaf\n")
+    assert _undeclared_kit_imports(tmp_path, packages, {"gated": "x"}) == []
 
 
 def _write(path: Path, body: str) -> None:
