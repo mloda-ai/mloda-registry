@@ -50,10 +50,10 @@ class SqliteLookup(Implementation[LookupFeatureGroup]):
     ) -> SqliteRelation:
         out_table = f"_lookup_out_{uuid.uuid4().hex}"
         select_cols = ", ".join(quote_ident(c) for c in original_cols)
+        # Plain scan keeps the input order; no ORDER BY.
         data.connection.execute(
             f"CREATE TEMP TABLE {quote_ident(out_table)} AS "  # nosec
-            f"SELECT {select_cols}, NULL AS {quote_ident(feature_name)} FROM {quote_ident(data.table_name)} "
-            f"ORDER BY rowid"
+            f"SELECT {select_cols}, NULL AS {quote_ident(feature_name)} FROM {quote_ident(data.table_name)}"
         )
         value_type = ARROW_VALUE_TYPES[value_family(mapping)]
         return SqliteRelation(data.connection, out_table, _types=[*original_types, value_type])

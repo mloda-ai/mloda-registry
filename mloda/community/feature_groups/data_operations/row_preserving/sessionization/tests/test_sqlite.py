@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.sqlite_sessionization import (
     SqliteSessionization,
 )
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
 )
@@ -19,3 +19,7 @@ class TestSqliteSessionization(SqliteTestMixin, SessionizationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteSessionization
+
+
+class TestSqliteSessionizationViewInput(SqliteViewTestMixin, TestSqliteSessionization):
+    """Runs the Sessionization suite on a view input."""

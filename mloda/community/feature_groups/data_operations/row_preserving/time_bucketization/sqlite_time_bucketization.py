@@ -31,10 +31,8 @@ because SQLite's ``NULL || anything`` is ``NULL``.
 Ordering
 --------
 
-``calculate_feature`` is invoked many times in a single mloda run, so the
-SQL projection re-sorts on ``rowid`` (``ORDER BY rowid``) before fetching to
-return results in input order, mirroring the tag-and-restore pattern in
-``sqlite_datetime.py``.
+The SQL projection is a plain scan without ``ORDER BY``, the order
+``append_column`` aligns values by.
 """
 
 from __future__ import annotations
@@ -291,17 +289,13 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             round_expr = cls._round_expression(local_src, n, unit, floor_expr)
             bucket_expr = f"({round_expr}) || {tz_suffix}"
 
-        # Project the bucket value directly and re-sort on ``rowid`` so the
-        # results come back in input order, mirroring the tag-and-restore
-        # pattern in ``sqlite_datetime.py``. No window function is needed: the
-        # ordering is fully expressed by ``ORDER BY rowid``.
+        # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
         quoted_feature = quote_ident(feature_name)
         quoted_table = quote_ident(data.table_name)
 
         sql = (
             f"SELECT {bucket_expr} AS {quoted_feature} "  # nosec
-            f"FROM {quoted_table} "
-            f"ORDER BY rowid"
+            f"FROM {quoted_table}"
         )
         cursor = data.connection.execute(sql)
         result_values = [row[0] for row in cursor.fetchall()]

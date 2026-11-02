@@ -55,13 +55,13 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         expr = expr_template.format(col=quoted_source)
         quoted_feature = quote_ident(feature_name)
 
+        # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
         sql = " ".join(
             [
                 "SELECT",
                 f"{expr} AS {quoted_feature}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
-                "ORDER BY rowid",
             ]
         )
         cursor = data.connection.execute(sql)

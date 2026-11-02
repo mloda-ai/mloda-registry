@@ -11,7 +11,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.
     _EmptyMappingHookLookup,
     _HookLookup,
 )
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     LookupTestBase,
 )
@@ -31,3 +31,7 @@ class TestSqliteLookup(SqliteTestMixin, LookupTestBase):
     @classmethod
     def invalid_hook_group_class(cls) -> Any:
         return _EmptyMappingHookLookup
+
+
+class TestSqliteLookupViewInput(SqliteViewTestMixin, TestSqliteLookup):
+    """Runs the Lookup suite on a view input."""

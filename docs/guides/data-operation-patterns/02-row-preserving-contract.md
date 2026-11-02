@@ -23,16 +23,16 @@ Row count and row order are both asserted by `DataOpsTestBase._compare_with_refe
 | PyArrow | Operates on columnar arrays by index; naturally preserves row order | No |
 | Pandas | Index-aligned assignments (`df[col] = ...`) preserve order | No, as long as you avoid `groupby(...).apply()` patterns that reset index |
 | Polars (lazy) | `pl.when/then/otherwise` and `over(...)` preserve order | No |
-| SQLite | `window()` keeps input order since mloda 0.19; fetch-and-append paths order by `rowid` | No, but see the positional-append note below |
+| SQLite | `window()` keeps input order since mloda 0.19; plain fetch-and-append paths scan without `ORDER BY`, the order `append_column` aligns by; paths adding a window or correlated subquery order by a `ROW_NUMBER()` tag | No, but see the positional-append note below |
 | DuckDB | `window()` and `with_row_number()` keep input order since mloda 0.19; raw SQL and joins may reorder | Only for non-window reordering steps, see below |
 
 ---
 
 ## The SQLite positional-append assumption
 
-The SQLite arithmetic backends (`scalar_arithmetic`, `point_arithmetic`) compute the new column with a bare `SELECT (expr) AS feat FROM <table>` and then call `data.append_column(feature_name, result_values)`. `append_column` aligns `result_values` to the existing rows **by position**, so correctness depends on the unordered `SELECT` returning rows in the relation's stored order. SQLite does return rows in `rowid` order for such a simple scan, which matches the stored order, so the invariant holds today.
+The SQLite fetch-and-append backends (for example `scalar_arithmetic`, `point_arithmetic`) compute the new column with a bare `SELECT (expr) AS feat FROM <table>` and then call `data.append_column(feature_name, result_values)`. `append_column` aligns `result_values` to the existing rows **by position**, so correctness depends on the unordered `SELECT` returning rows in the relation's stored order. A plain scan returns rows in that same order, so the invariant holds. Do not add `ORDER BY rowid`: views have no `rowid`, and an op's input is a view after the first feature.
 
-The dependency is implicit, so each `_compute_arithmetic` carries a comment stating it: the `SELECT` must stay free of `ORDER BY`, `JOIN`, `GROUP BY`, or `DISTINCT`. Adding any of those could reorder rows and silently misalign the appended column. By contrast the DuckDB backend stays in a single relation via `data.project("*, (expr) AS feat")`, so it has no equivalent positional assumption.
+The dependency is implicit, so each plain fetch-and-append site carries a comment stating it: the `SELECT` must stay free of `ORDER BY`, `JOIN`, `GROUP BY`, or `DISTINCT`. Adding any of those could reorder rows and silently misalign the appended column. By contrast the DuckDB backend stays in a single relation via `data.project("*, (expr) AS feat")`, so it has no equivalent positional assumption. Paths that add a window or a correlated subquery (sessionization, frame_aggregate time frame) instead order by a `ROW_NUMBER()` input-position tag from `with_row_number`.
 
 ---
 

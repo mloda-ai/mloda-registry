@@ -111,9 +111,10 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
             f"WHERE {partition_match} AND t2.{quoted_source} IS NOT NULL "
             f"ORDER BY {sort_clause} LIMIT 1)"
         )
+        # Positional append: this outer SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
         sql = (
             f"SELECT {subquery} AS {quoted_feature} "  # nosec
-            f"FROM {quote_ident(data.table_name)} t1 ORDER BY rowid"
+            f"FROM {quote_ident(data.table_name)} t1"
         )
         cursor = data.connection.execute(sql)
         rows = cursor.fetchall()

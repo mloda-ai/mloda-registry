@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda.user import Options
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
     OrderBy,
@@ -191,7 +192,8 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             partition_eq = "1=1"
 
         quoted_feature = quote_ident(feature_name)
-        quoted_table = quote_ident(data.table_name)
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        quoted_rn = quote_ident(rn)
 
         # Safety: identifiers via quote_ident(); agg_func from whitelist; n_days is
         # computed in Python from sanitized integer/unit values, embedded as a
@@ -201,36 +203,48 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # sort by order_by, so peers at the same order_by but later physical position
         # are excluded from the current row's window. SQL ``BETWEEN`` would include
         # all same-ts peers (both earlier and later), so the upper bound is split into
-        # ``s.ts < t.ts`` plus an explicit rowid tiebreaker for the equal case. ``rowid``
-        # is the stable insertion order in SQLite, matching the reference's stable-sort
-        # tie-break behaviour.
+        # ``s.ts < t.ts`` plus an explicit input-position tiebreaker for the equal case.
+        # The position is a ROW_NUMBER() tag (views have no rowid), matching the
+        # reference's stable-sort tie-break behaviour.
         #
         # When the outer row's order_by is NULL, ``julianday(NULL)`` is NULL and the
         # comparison short-circuits to NULL, which would leave the row with a NULL
         # aggregate. The reference returns the source value of just the current
         # row in that case (see reference.py:115-116). The OR branch matches the
         # self-row only when ``t.{order_by}`` is NULL, restoring reference parity.
-        sql = " ".join(  # nosec
-            [
-                "SELECT",
-                "(SELECT",
-                f"{agg_func}({inner_source_sql})",
-                f"FROM {quoted_table} s",
-                f"WHERE {partition_eq}",
-                "AND (",
-                f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
-                f"AND julianday(s.{quoted_order}) >= julianday(t.{quoted_order}) - {n_days}",
-                f"AND (julianday(s.{quoted_order}) < julianday(t.{quoted_order})",
-                f"OR (julianday(s.{quoted_order}) = julianday(t.{quoted_order}) AND s.rowid <= t.rowid)))",
-                f"OR (t.{quoted_order} IS NULL AND s.rowid = t.rowid)",
-                ")",
-                f") AS {quoted_feature}",
-                f"FROM {quoted_table} t",
-                "ORDER BY t.rowid",
-            ]
-        )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
+        tagged: SqliteRelation | None = None
+        tmp_table = f"_frame_agg_{uuid.uuid4().hex}"
+        quoted_table = quote_ident(tmp_table)
+        try:
+            tagged = data.with_row_number(rn)
+            # Materialize the tag: the correlated subquery would re-run the tag view per outer row.
+            data.connection.execute(
+                f"CREATE TEMP TABLE {quoted_table} AS SELECT * FROM {quote_ident(tagged.table_name)}"  # nosec
+            )
+            sql = " ".join(  # nosec
+                [
+                    "SELECT",
+                    "(SELECT",
+                    f"{agg_func}({inner_source_sql})",
+                    f"FROM {quoted_table} s",
+                    f"WHERE {partition_eq}",
+                    "AND (",
+                    f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
+                    f"AND julianday(s.{quoted_order}) >= julianday(t.{quoted_order}) - {n_days}",
+                    f"AND (julianday(s.{quoted_order}) < julianday(t.{quoted_order})",
+                    f"OR (julianday(s.{quoted_order}) = julianday(t.{quoted_order}) AND s.{quoted_rn} <= t.{quoted_rn})))",
+                    f"OR (t.{quoted_order} IS NULL AND s.{quoted_rn} = t.{quoted_rn})",
+                    ")",
+                    f") AS {quoted_feature}",
+                    f"FROM {quoted_table} t",
+                    f"ORDER BY t.{quoted_rn}",
+                ]
+            )
+            rows = data.connection.execute(sql).fetchall()
+        finally:
+            data.connection.execute(f"DROP TABLE IF EXISTS {quoted_table}")  # nosec
+            if tagged is not None:
+                tagged.drop()
 
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

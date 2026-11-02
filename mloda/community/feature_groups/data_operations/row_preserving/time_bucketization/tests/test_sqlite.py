@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     SqliteTimeBucketization,
 )
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
@@ -19,7 +19,7 @@ class TestSqliteTimeBucketization(ReservedColumnsTestMixin, SqliteTestMixin, Tim
 
     Uses ``ReservedColumnsTestMixin`` to assert that a ``__mloda_``-prefixed
     user column is accepted: there is no reserved-column guard any more, and
-    SQLite time bucketization orders by ``rowid`` without adding a helper
+    SQLite time bucketization keeps input order without adding a helper
     column, so such inputs are processed normally.
     """
 
@@ -34,3 +34,7 @@ class TestSqliteTimeBucketization(ReservedColumnsTestMixin, SqliteTestMixin, Tim
     @classmethod
     def reserved_columns_partition_by(cls) -> list[str] | None:
         return None
+
+
+class TestSqliteTimeBucketizationViewInput(SqliteViewTestMixin, TestSqliteTimeBucketization):
+    """Runs the TimeBucketization suite on a view input."""

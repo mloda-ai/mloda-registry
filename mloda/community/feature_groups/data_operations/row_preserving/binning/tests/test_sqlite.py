@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.sqlit
     SqliteBinning,
 )
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,
 )
@@ -36,3 +36,7 @@ class TestSqliteBinning(ReservedColumnsTestMixin, SqliteTestMixin, BinningTestBa
     @classmethod
     def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
         return ("value_int__qbin_3",)
+
+
+class TestSqliteBinningViewInput(SqliteViewTestMixin, TestSqliteBinning):
+    """Runs the Binning suite on a view input."""
