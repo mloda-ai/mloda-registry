@@ -844,18 +844,22 @@ dev = [
     { name = "mloda-testing", extra = ["binary-model"] },
     { name = "pytest" },
 ]
+license-token = [
+    { name = "cryptography" },
+]
 pyarrow = [
     { name = "pyarrow" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", marker = "extra == 'license-token'", specifier = ">=44" },
     { name = "mloda", specifier = ">=0.18.0,<0.19.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow"]
+provides-extras = ["dev", "pyarrow", "license-token"]
 
 [[package]]
 name = "mloda-community-binning"

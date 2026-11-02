@@ -1,5 +1,5 @@
 """Signed license-token test vectors (contract: License; spec: Test vectors): the deliberately
-public test keypair (``test-2026-01``), per-state builders on ``license_token.sign_license_token``,
+public test keypair (``test-2026-01``), per-state builders on the mixin's ``sign_license_token``,
 and literal tokens for every time-stable state the conformance kit distinguishes. Ed25519 signing
 is deterministic, so the literals are re-derived from the builders by the tests and cannot drift.
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from mloda.testing.binary_model.license_token import TOKEN_SCHEMA_VERSION, sign_license_token
+from mloda.community.feature_groups.binary_model.license_token import TOKEN_SCHEMA_VERSION, sign_license_token
 
 # =============================================================================
 # The published test keypair (spec: Keys, kid, rotation)

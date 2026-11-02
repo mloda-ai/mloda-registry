@@ -36,6 +36,8 @@ py_typed = true
 # The contract rules (constants, line/stream parsing) live in the mixin's own
 # mloda.community.feature_groups.binary_model.contract; mloda-testing[binary-model] takes them from
 # the mixin package, never the reverse.
+# License-token signing and verification live in the mixin package too (license_token, behind its
+# license-token extra); the kit's vectors import them from there.
 
 [packages.mloda-community-binary-model]
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"
@@ -44,7 +46,7 @@ dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/binary_model"
 published = true
 py_typed = true
-optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
+optional_dependencies = { pyarrow = ["pyarrow>=25"], license-token = ["cryptography>=44"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
 
 [packages.mloda-enterprise-binary-example]
 description = "Example enterprise FeatureGroup backed by a licensed binary model"

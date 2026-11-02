@@ -301,7 +301,8 @@ def _check_license(binary: FakeBinary) -> None:
     free-form diagnostic line on stderr, never stdout, and the exit stays 0 (contract: Errors;
     spec: Verification step 6)."""
     # Imported inside the call so license-free invocations (--version, --capabilities) skip the cryptography import.
-    from mloda.testing.binary_model import license_token, license_vectors
+    from mloda.community.feature_groups.binary_model import license_token
+    from mloda.testing.binary_model import license_vectors
 
     source_name, text = _license_source()
     text = text.strip()

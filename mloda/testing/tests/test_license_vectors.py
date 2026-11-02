@@ -5,12 +5,13 @@ spec: Keys, kid, rotation)."""
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mloda.testing.binary_model.license_token import LicenseVerificationError, verify_license_token
+from mloda.community.feature_groups.binary_model.license_token import LicenseVerificationError, verify_license_token
 from mloda.testing.binary_model.license_vectors import (
     COMPACT_TIMESTAMP_TOKEN,
     EXPIRED_TOKEN,
@@ -195,3 +196,23 @@ class TestVerification:
             WRONG_PLUGIN_TOKEN, keys=TEST_PUBLIC_KEYS, plugin_id=OTHER_PLUGIN_ID, now=NOW_2026
         )
         assert result.in_grace is False
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "pae",
+        "sign_v4_public",
+        "verify_v4_public",
+        "sign_license_token",
+        "verify_license_token",
+        "LicenseVerificationError",
+        "VerifiedLicense",
+        "TOKEN_SCHEMA_VERSION",
+    ],
+)
+def test_kit_license_token_path_reexports_runtime_home(name: str) -> None:
+    """The kit path re-exports the license-token API from its runtime home, for existing issuer scripts."""
+    kit = importlib.import_module("mloda.testing.binary_model.license_token")
+    home = importlib.import_module("mloda.community.feature_groups.binary_model.license_token")
+    assert getattr(kit, name) is getattr(home, name)

@@ -241,6 +241,7 @@ py_typed = true
 | `pip install mloda-enterprise[openlineage]` | The bundle plus the OpenLineage emitter the lineage facets extender builds on |
 | `pip install mloda-enterprise[anonymizer]` | The bundle plus the anonymizer wheel (`mloda-anonymizer-binary`) and pyarrow |
 | `pip install mloda-community-binary-model` | The binary-model mixin only, the base for binary-backed FeatureGroups |
+| `pip install mloda-community-binary-model[license-token]` | The mixin plus `cryptography` for signing and verifying license tokens |
 | `pip install mloda-community-example` | Base example only |
 | `pip install mloda-community-example[all]` | Base + its published variants |
 | `pip install mloda-community-example-a` | Variant A + base |
