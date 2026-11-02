@@ -99,22 +99,33 @@ def test_collision_gate() -> None:
 
 
 @pytest.mark.parametrize(
-    ("pointed", "datev_reason"),
+    ("pointer", "gdpdu_reason", "datev_reason"),
     [
-        (False, "DatevExtfReader (input data): no DATEV batch folder"),
-        (True, "DatevExtfReader (input data): options point at GdpduReader"),
+        (None, "GdpduReader (input data): no GDPdU dossier", "DatevExtfReader (input data): no DATEV batch folder"),
+        (
+            lambda tmp: tmp,
+            "GdpduReader (input data): no GDPdU dossier",
+            "DatevExtfReader (input data): options point at GdpduReader",
+        ),
+        (
+            lambda tmp: 5,
+            "GdpduReader (input data): the pointer value must be a path",
+            "DatevExtfReader (input data): options point at GdpduReader",
+        ),
     ],
 )
-def test_no_ledger_source_names_each_readers_rejection(pointed: bool, datev_reason: str) -> None:
+def test_no_ledger_source_names_each_readers_rejection(
+    pointer: Callable[[str], Any] | None, gdpdu_reason: str, datev_reason: str
+) -> None:
     """With no ledger source, core names the missing chain input and each reader's own reason."""
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "sales.csv").write_text("cost\n40\n90\n")
-        options = Options({"GdpduReader": tmp} if pointed else {})
+        options = Options({"GdpduReader": pointer(tmp)} if pointer else {})
         with pytest.raises(FeatureResolutionError) as exc:
             _run(Path(tmp), [Feature("revenue", options)], PLUGINS)
     message = str(exc.value)
     assert "'gdpdu_journal'" in message, message
-    assert "GdpduReader (input data): no GDPdU dossier" in message, message
+    assert gdpdu_reason in message, message
     assert datev_reason in message, message
 
 
@@ -1040,14 +1051,17 @@ def _audited_run(fmt: str, clearance: str, sink: ListSink) -> None:
 @pytest.mark.parametrize("fmt", ["gdpdu", "datev"])
 def test_a_reader_above_clearance_is_refused_at_plan_time(fmt: str) -> None:
     """The german_ledger readers declare `confidential`; the gate refuses them below that clearance."""
+    pytest.importorskip("mloda.enterprise.extenders.audit")
     from mloda.steward import FeatureResolutionError
 
     from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+    from mloda.enterprise.extenders.audit.classification import ClassificationDeniedError
 
     sink = ListSink()
 
-    with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError"):
+    with pytest.raises(FeatureResolutionError, match="ClassificationDeniedError") as exc:
         _audited_run(fmt, "internal", sink)
+    assert any(isinstance(r, ClassificationDeniedError) for r in exc.value.refusals), exc.value.refusals
 
     denies = [r for r in sink.records if r["decision"] == "deny" and r["hook"] == "INPUT_DATA_MATCH"]
     assert {r["deny_reason"] for r in denies} == {"classification_above_clearance"}
