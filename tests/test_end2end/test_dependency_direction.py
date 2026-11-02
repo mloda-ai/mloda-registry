@@ -23,6 +23,7 @@ from packaging.requirements import Requirement
 from packaging.version import Version
 
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from mloda.testing.import_isolation import block_root, evict_package
 from tests.script_loader import load_script
 from tests.toml_loader import load_toml
 
@@ -653,3 +654,27 @@ def test_extenders_shared_private_use_predicate(tmp_path: Path, body: str, flagg
     _write(tmp_path / "m.py", body)
     expected = [Path("m.py")] if flagged else []
     assert _files_with_import(tmp_path, _uses_extenders_shared_privately) == expected
+
+
+def test_binary_model_runtime_modules_cold_import_without_cryptography(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mixin modules and binary enterprise manifests must not need the optional `cryptography` (license_token)."""
+    mixin_pkg = "mloda.community.feature_groups.binary_model"
+    mixin_dir = _REPO_ROOT / mixin_pkg.replace(".", "/")
+    modules = [
+        f"{mixin_pkg}.{p.stem}" for p in sorted(mixin_dir.glob("*.py")) if p.stem not in {"__init__", "license_token"}
+    ]
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    enterprise = {cfg["path"].replace("/", ".") for _n, cfg, _c in _licensed_plugin_classes_by_package(packages)}
+    assert modules and enterprise, "expected mixin modules and binary enterprise packages; check is vacuous"
+    modules += [f"{dotted}.manifest" for dotted in sorted(enterprise)]
+
+    block_root(monkeypatch, "cryptography")
+    for package in (mixin_pkg, *sorted(enterprise)):
+        evict_package(monkeypatch, package)
+    failures: list[str] = []
+    for module in modules:
+        try:
+            importlib.import_module(module)
+        except ImportError as exc:
+            failures.append(f"{module}: {exc}")
+    assert not failures, f"runtime modules must import without cryptography: {failures}"
