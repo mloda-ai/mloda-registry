@@ -431,6 +431,58 @@ class TestKeyColumnFeaturesRowReplacingSource:
         source = Feature("my_window_max", Options(context=outer_context))
         assert key_column_features(self._OPTIONS, [source]) == set()
 
+    @staticmethod
+    def _config_aggregation(**kwargs: Any) -> Feature:
+        return Feature("my_sum", Options(context={"aggregation_type": "sum", "in_features": "value_int"}), **kwargs)
+
+    @pytest.mark.parametrize(
+        ("consumer", "source_kwargs"),
+        [
+            (
+                Options(context={"partition_by": ["region"]}, propagate_context_keys=frozenset({"partition_by"})),
+                {},
+            ),
+            (
+                Options(context={"partition_by": ["region"]}, cascade_context_keys=frozenset({"partition_by"})),
+                {},
+            ),
+            (Options(group={"partition_by": ["region"]}), {}),
+            (Options(context={"partition_by": ["region"]}), {"inherit_context_keys": frozenset({"partition_by"})}),
+        ],
+        ids=["propagate", "cascade", "group", "pull"],
+    )
+    def test_aggregation_source_with_partition_by_forwarded_by_consumer_yields_no_keys(
+        self, consumer: Options, source_kwargs: dict[str, Any]
+    ) -> None:
+        source = self._config_aggregation(**source_kwargs)
+        assert key_column_features(consumer, [source]) == set()
+        assert "partition_by" not in source.options
+
+    @pytest.mark.parametrize(
+        ("forwarding_key", "expected"),
+        [("cascade_context_keys", set()), ("propagate_context_keys", {Feature("region")})],
+        ids=["cascade_reaches_nested", "propagate_stops_at_direct_child"],
+    )
+    def test_nested_source_with_partition_by_forwarded_by_consumer(
+        self, forwarding_key: str, expected: set[Feature]
+    ) -> None:
+        forwarding: dict[str, Any] = {forwarding_key: frozenset({"partition_by"})}
+        consumer = Options(context={"partition_by": ["region"]}, **forwarding)
+        outer_context = {"window_aggregation_type": "max", "in_features": self._config_aggregation()}
+        source = Feature("my_window_max", Options(context=outer_context))
+        assert key_column_features(consumer, [source]) == expected
+
+    def test_source_blocking_forwarding_still_yields_keys(self) -> None:
+        consumer = Options(context={"partition_by": ["region"]}, propagate_context_keys=frozenset({"partition_by"}))
+        source = self._config_aggregation(forward_group=False)
+        assert key_column_features(consumer, [source]) == {Feature("region")}
+
+    def test_forwarding_conflict_does_not_raise(self) -> None:
+        consumer = Options(context={"partition_by": ["region"]}, propagate_context_keys=frozenset({"partition_by"}))
+        context = {"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["team"]}
+        source = Feature("my_sum", Options(context=context))
+        assert key_column_features(consumer, [source]) == set()
+
     def test_subclass_inheriting_replaces_rows_is_registered(self) -> None:
         class _LocalMyAggFeatureGroup(AggregationFeatureGroup):
             PREFIX_PATTERN = r".*__([\w]+)_myagg$"

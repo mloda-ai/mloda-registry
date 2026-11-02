@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Callable, Iterable
 from enum import Enum
@@ -299,17 +300,28 @@ def assert_single_grid(grids: dict[Any, list[str]], describe: Callable[[Any], st
 _ROW_REPLACING_GROUPS: list[Any] = []
 
 
-def _is_row_replacing_output(source: Feature) -> bool:
-    """True if the source, a name prefix of it, or a feature nested in its in_features is a row-replacing output."""
+def _is_row_replacing_output(source: Feature, consumer: Options) -> bool:
+    """True if the source, as forwarded from the consumer, is a row-replacing output (also via prefix or nesting)."""
+    forwarded = copy.copy(source.options)
+    try:
+        forwarded.inherit_from(
+            consumer,
+            forward_group=source.forward_group,
+            forward_group_exclude=source.forward_group_exclude,
+            inherit_context_keys=source.inherit_context_keys,
+        )
+    except ValueError:
+        # Core raises this forwarding conflict itself when it merges the options, so this check must not raise first.
+        forwarded = source.options
     name = str(source.name)
     prefixes = ["__".join(name.split("__")[:i]) for i in range(1, len(name.split("__")) + 1)]
     for group in _ROW_REPLACING_GROUPS:
         if any(name_matches_prefix(group, prefix) for prefix in prefixes):
             return True
-        if group.match_feature_group_criteria(source.name, source.options):
+        if group.match_feature_group_criteria(source.name, forwarded):
             return True
-    if DefaultOptionKeys.in_features in source.options:
-        return any(_is_row_replacing_output(nested) for nested in source.options.get_in_features())
+    if DefaultOptionKeys.in_features in forwarded:
+        return any(_is_row_replacing_output(nested, forwarded) for nested in forwarded.get_in_features())
     return False
 
 
@@ -334,7 +346,7 @@ def key_column_features(
 
     sources = list(sources)
     # The reducing step's own frame already carries its key columns.
-    if any(_is_row_replacing_output(source) for source in sources):
+    if any(_is_row_replacing_output(source, options) for source in sources):
         return set()
     taken = {str(source.name) for source in sources}
     return {Feature(name) for name in dict.fromkeys(names) if name not in taken}

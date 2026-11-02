@@ -60,6 +60,24 @@ class TestCrossFamilyChains:
         )
         assert sort_none_last(_column(results, name)) == [-10, 25, 70, 140]
 
+    @pytest.mark.parametrize("forwarding", ["cascade_context_keys", "propagate_context_keys"])
+    def test_window_aggregation_over_configuration_aggregation_with_forwarded_partition_by(
+        self, forwarding: str
+    ) -> None:
+        inner = Feature("my_sum", Options(context={"aggregation_type": "sum", "in_features": "value_int"}))
+        context = {"window_aggregation_type": "max", "in_features": inner, "partition_by": ["region"]}
+        forwarding_kwargs: dict[str, Any] = {forwarding: frozenset({"partition_by"})}
+        options = Options(context=context, **forwarding_kwargs)
+        plugin_collector = enabled_with_implementations(
+            {PyArrowDataOpsTestDataCreator, AggregationFeatureGroup, WindowAggregationFeatureGroup}
+        )
+        results = mloda.run_all(
+            [Feature("my_window", options=options)],
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=plugin_collector,
+        )
+        assert sort_none_last(_column(results, "my_window")) == [-10, 25, 70, 140]
+
     def test_window_aggregation_over_window_aggregation_over_aggregation(self) -> None:
         name = "value_int__sum_agg__sum_window__max_window"
         options = Options(context=self._CONTEXT, cascade_context_keys=frozenset(self._CONTEXT))
