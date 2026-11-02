@@ -61,7 +61,7 @@ For incremental results use [`stream_all`](feature-group-patterns/23-streaming.m
 
 ## Names Claimed by an Installed Package
 
-The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` answers `revenue` and `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, only when a ledger source (a GDPdU dossier or DATEV batch folder) is in the data access collection or a reader option points at one, so a plain CSV `revenue` column resolves as usual. A request needs `feature_group=` only when the same collection also holds another source that answers the name; the example scopes the ledger's own group (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
+The experimental [german_ledger](../../mloda/community/feature_groups/experimental/german_ledger/README.md) package registers through its entry point, so once installed, `PluginLoader.all()` registers its groups in every process. `SkrAccountFeatureGroup` answers `revenue` and `receivables`, and `SourcesFeatureGroup` any `<name>__sources`, but core picks them over another source only when a ledger source (a GDPdU dossier or DATEV batch folder) can feed their input chain, so a plain CSV `revenue` column resolves as usual. A request needs `feature_group=` only when the same collection also holds another source that answers the name; the example scopes the ledger's own group (see [Input-Feature Forwarding](feature-group-patterns/26-input-feature-forwarding.md)):
 
 ```py
 from mloda.user import DataAccessCollection, Feature, PluginLoader, mloda
