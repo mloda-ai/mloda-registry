@@ -570,7 +570,25 @@ class TestIntegrationMultipleFeatures:
         results = mloda.run_all(
             [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
         )
-        assert any(name in t.columns for t in results if hasattr(t, "columns"))
+        values = [sorted(t[name].tolist()) for t in results if hasattr(t, "columns") and name in t.columns]
+        assert values == [[-10, 25, 70, 140]]
+
+    def test_chained_configuration_based_aggregation(self) -> None:
+        """A configuration-based aggregate over another configuration-based aggregate computes."""
+        inner = Feature(
+            "my_sum",
+            options=Options(
+                context={"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
+            ),
+        )
+        outer = Feature(
+            "my_max",
+            options=Options(context={"aggregation_type": "max", "in_features": inner, "partition_by": ["region"]}),
+        )
+        plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        results = mloda.run_all([outer], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector)
+        values = [sorted(t["my_max"].tolist()) for t in results if hasattr(t, "columns") and "my_max" in t.columns]
+        assert values == [[-10, 25, 70, 140]]
 
     def test_split_feature_sets_with_distinct_groups_work(self) -> None:
         """Giving each feature its own Options(group=...) computes both aggregates correctly."""

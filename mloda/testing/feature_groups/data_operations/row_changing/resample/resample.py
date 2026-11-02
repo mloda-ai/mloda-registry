@@ -697,6 +697,14 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         """Every resample spec must agree with the PyArrow reference."""
         self._compare_resample_with_reference(feature_name, partition_by, use_approx=use_approx)
 
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["partitioned", "whole_table"])
+    def test_input_not_mutated(self, partition_by: list[str]) -> None:
+        """Resampling leaves the input frame's columns and values unchanged."""
+        before = self._snapshot(self.test_data)
+        fs = self._resample_fs("value__resample_1_hour_mean", partition_by)
+        calculate_with(self.implementation_class(), self.test_data, fs)
+        self._assert_snapshot_unchanged(before, self.test_data)
+
     # -- Error / validation --------------------------------------------------
 
     @pytest.mark.parametrize(

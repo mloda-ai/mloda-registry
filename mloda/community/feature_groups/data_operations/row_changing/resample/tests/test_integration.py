@@ -189,7 +189,12 @@ class TestResampleSplitFeatureSets:
         name = "value_float__resample_1_day_sum__resample_2_day_max"
         options = Options(context=self._CONTEXT, cascade_context_keys=frozenset(self._CONTEXT))
         results = self._run([Feature(name, options=options)])
-        assert any(isinstance(t, pa.Table) and name in t.column_names for t in results)
+        values = [
+            _sort_none_last(t.column(name).to_pylist())
+            for t in results
+            if isinstance(t, pa.Table) and name in t.column_names
+        ]
+        assert values == [[0.0, 0.0, 2.36, 2.5, 7.5, 100.0, None, None]]
 
     def test_split_with_distinct_groups_work(self) -> None:
         features = [
