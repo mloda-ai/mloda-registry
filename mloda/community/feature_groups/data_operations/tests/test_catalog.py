@@ -138,8 +138,16 @@ class TestList:
         assert all(isinstance(info, OperationInfo) for info in DataOperationsCatalog.list())
 
     def test_list_is_deterministic(self) -> None:
-        """Two successive list() calls return equal results."""
-        assert DataOperationsCatalog.list() == DataOperationsCatalog.list()
+        """Successive list() calls and a rebuild after cache_clear return equal results."""
+        from mloda.community.feature_groups.data_operations.catalog import _load_catalog
+
+        first = DataOperationsCatalog.list()
+        assert first == DataOperationsCatalog.list()
+        _load_catalog.cache_clear()
+        try:
+            assert DataOperationsCatalog.list() == first
+        finally:
+            _load_catalog.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -250,31 +258,6 @@ class TestAggregationFrameworksIgnoreUserSubclasses:
             _load_catalog.cache_clear()
             del _MyPandas
             gc.collect()
-
-
-class TestCatalogBuildScansCoreOncePerOperation:
-    def test_loaded_implementations_called_at_most_once_per_operation(self) -> None:
-        """Building the catalog runs the core implementation scan at most once per operation."""
-        from unittest.mock import patch
-
-        from mloda.community.feature_groups.data_operations.catalog import _OPERATION_SPECS, _load_catalog
-
-        core = importlib.import_module("mloda.core.abstract_plugins.implementation")
-
-        _load_catalog.cache_clear()
-        try:
-            baseline = DataOperationsCatalog.list()
-            _load_catalog.cache_clear()
-            with patch.object(core, "loaded_implementations", wraps=core.loaded_implementations) as spy:
-                counted = DataOperationsCatalog.list()
-            calls = spy.call_count
-        finally:
-            _load_catalog.cache_clear()
-
-        assert [info.name for info in counted] == EXPECTED_OPERATION_NAMES
-        assert counted == baseline
-        probing = sum(1 for spec in _OPERATION_SPECS if spec.subtypes is not None and spec.probe is not None)
-        assert calls <= probing, f"loaded_implementations called {calls} times"
 
 
 class TestStringCell:
