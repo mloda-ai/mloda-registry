@@ -58,8 +58,10 @@ class DuckdbSessionization(Implementation[SessionizationFeatureGroup]):
             partition_cols = [quote_ident(c) for c in partition_by]
 
             partition_clause = f"PARTITION BY {', '.join(partition_cols)} " if partition_cols else ""
-            window_def = f"w AS ({partition_clause}ORDER BY {q_order})"
-            order_keys = ", ".join([*partition_cols, q_order])
+            q_rn = quote_ident(rn)
+            # rn breaks (partition, order) ties by input position in both windows.
+            window_def = f"w AS ({partition_clause}ORDER BY {q_order}, {q_rn})"
+            order_keys = ", ".join([*partition_cols, q_order, q_rn])
 
             is_new_expr = (
                 f"CASE WHEN LAG({q_order}) OVER w IS NULL "

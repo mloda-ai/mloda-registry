@@ -42,7 +42,7 @@ class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
         data = data.with_row_index(orig_idx_col)
 
         # Sort by partition_by + order_by (nulls last) for correct offset
-        data = data.sort(partition_by + [order_by], nulls_last=True)
+        data = data.sort(partition_by + [order_by], nulls_last=True, maintain_order=True)
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
