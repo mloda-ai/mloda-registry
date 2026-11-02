@@ -20,6 +20,8 @@ class SqliteArithmeticMixin:
     def _non_numeric_descriptor(cls, data: SqliteRelation, source_col: str) -> object | None:
         """Report non-numeric source columns via ``PRAGMA table_info`` declared affinity.
 
+        A computed column (empty declared type) is probed by storage class instead.
+
         Caveat: ``SqliteRelation.from_arrow`` maps arrow booleans to SQLite
         ``INTEGER`` affinity (see ``mloda_plugins`` ``_arrow_type_to_sqlite``),
         so a boolean source column is indistinguishable from ``int64`` at the

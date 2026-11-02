@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import sqlite3
 from typing import Any
 
 import pytest
 from mloda.provider import FeatureGroup
-from mloda.user import Feature, Options, mloda
+from mloda.user import DataAccessCollection, Feature, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
@@ -16,11 +18,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
+    ScalarArithmeticFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import result_column_values, sort_none_last
 from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
@@ -114,6 +120,39 @@ class TestCrossFamilyChains:
         )
         expected = [1e-15, 1.5, 2.36, 2.5, None, None, None, None, None, None, None]
         assert sort_none_last(_column(results, name)) == pytest.approx(expected)
+
+
+class TestSqliteComputedColumnChains:
+    """A feature reads an earlier feature's output, a computed column in SQLite."""
+
+    _CONTEXT = {"partition_by": ["region"], "order_by": "timestamp", "constant": 5}
+
+    @staticmethod
+    def _run(name: str, context: dict[str, Any]) -> list[Any]:
+        conn = sqlite3.connect(":memory:")
+        try:
+            options = Options(context=context, cascade_context_keys=frozenset(context))
+            plugin_collector = enabled_with_implementations(
+                {SqliteDataOpsTestDataCreator, OffsetFeatureGroup, ScalarArithmeticFeatureGroup}
+            )
+            results = mloda.run_all(
+                [Feature(name, options=options)],
+                compute_frameworks=[SqliteFramework],
+                plugin_collector=plugin_collector,
+                data_access_collection=DataAccessCollection(connections={"db": conn}),
+            )
+            return _column(results, name)
+        finally:
+            conn.close()
+
+    def test_add_constant_over_lag(self) -> None:
+        values = self._run("value_int__lag_1_offset__add_constant", self._CONTEXT)
+        expected: list[Any] = [0, 5, 15, 20, 20, 35, 55, None, None, None, None, None]
+        assert sort_none_last(values) == expected
+
+    def test_add_constant_over_all_null_lag(self) -> None:
+        values = self._run("value_int__lag_100_offset__add_constant", self._CONTEXT)
+        assert values == [None] * 12
 
 
 class TestReducingNextToRowPreserving:
