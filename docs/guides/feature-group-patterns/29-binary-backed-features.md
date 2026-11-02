@@ -120,7 +120,7 @@ feature = Feature(
 
 ## What `run_binary_model()` Does
 
-Before the binary runs, in this order: resolves and probes the binary (`--version`, `--capabilities`; a wrong `contract`, a missing wheel, an empty `BINARY_COMMAND_OVERRIDE` or a non-executable path is `BinaryUnavailableError`), rejects a bare string for `input_columns`, an input column absent from the frame or a written name that collides with any frame column (`BinaryUsageError`), an operation the binary does not list or a column type outside `int64`, `float64`, `utf8`, `boolean` (`UnsupportedError`), and a single string cell of 2 GiB or more (`DataError`). Nothing is ever computed in Python instead. A single `list`/`large_list` column of utf8 values is flattened, sent as `utf8`, and each output re-nested to the input's shape (null rows and empty lists kept); a list column mixed with other input columns, or with non-string values, is `UnsupportedError`. A list column with no elements returns empty-shaped `list<utf8>` outputs, whatever type the operation would return, without starting the binary: only the usage checks run, no probe, license, operation or column-type check.
+Before the binary runs, in this order: resolves and probes the binary (`--version`, `--capabilities`; a wrong `contract`, a missing wheel, an empty `BINARY_COMMAND_OVERRIDE` or a non-executable path is `BinaryUnavailableError`), rejects a bare string for `input_columns`, an input column absent from the frame or a written name that collides with any frame column (`BinaryUsageError`), an operation the binary does not list or a column type outside `int64`, `float64`, `utf8`, `boolean` (`UnsupportedError`), and a single string cell of 2 GiB or more (`DataError`). Nothing is ever computed in Python instead. From `mloda-community-binary-model` 0.12.0 (earlier releases reject any list column with `UnsupportedError`), a single `list`/`large_list` column of utf8 values is flattened, sent as `utf8`, and each output re-nested to the input's shape (null rows and empty lists kept); a list column mixed with other input columns, or with non-string values, is `UnsupportedError`, and one with no elements returns empty-shaped `list<utf8>` outputs, whatever type the operation would return, without starting the binary: only the usage checks run, no probe, license, operation or column-type check.
 
 Then it projects the frame to the input columns, strips Arrow metadata, casts `large_string` and `string_view` to `utf8`, writes the config to a file in a private per-invocation directory under `<temp>/mloda-binary-<uid>/` (`<temp>/mloda-binary-<user>/` on Windows, where the parent and each invocation directory are created owner-only, and an existing parent that is a junction, not owned by the user, or writable by another user is refused: delete it so it is recreated), runs the binary with a minimal environment (the two license variables, `PATH`, a fixed `C.UTF-8` locale, and `SYSTEMROOT` on Windows), and verifies the answer: output column set, types, row count and array contents (for example invalid UTF-8), else `OutputContractError`. `utf8` outputs are cast back to `large_string` when the frame uses it. The directory is removed on every exit path, and a directory left behind by a killed process is removed by a later run.
 
@@ -154,6 +154,8 @@ class StubExample(BinaryExampleFeatureGroup):
     LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
 ```
 
+A subclass that matches the same features takes over its parent wherever its module is imported ([matching process](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/in_depth/feature-group-matching.md#matching-process)); an entry point imports it in every environment that installs the package. Keep stubs in test modules and name the class a test means with `PluginCollector.enabled_feature_groups`.
+
 Other license states come from the same module: `expired_license_token`, `in_grace_license_token` and `expiring_license_token(plugins, left=timedelta(hours=6))`, which signs `exp = now + left` for testing a pre-expiry notice.
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks=[PyArrowTable]` and `PluginCollector.enabled_feature_groups({StubExample, ApiDataFG})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
@@ -181,6 +183,46 @@ class StubAnonymizer(AnonymizerFeatureGroup):
 Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts test-signed licenses only.
 
 To fake a binary with another operation, build a `FakeBinary` of `FakeOperation`s and call `simulated_binary.main(binary)` from your own module's `__main__`. A `validate` raises `FakeUsageError` for a usage error, and its message goes to stderr as-is, so it must not carry parameter values; `hmac_fake_binary` is the worked example.
+
+### Child processes
+
+`BINARY_COMMAND_OVERRIDE` and the license overrides are class attributes, so a process the test starts (a CLI, a server, a `multiprocessing` spawn worker) runs the production class and imports the wheel. Fake the wheel instead: a `<BINARY_PLUGIN_ID>` package whose `binary_path()` returns an executable running the simulated binary (one path, not an argv, so a wrapper script; POSIX only):
+
+```python
+import os
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+from mloda.testing.binary_model.license_vectors import valid_license_token
+
+
+def write_fake_wheel(root: Path) -> None:
+    package = root / "example_binary"
+    package.mkdir()
+    wrapper = package / "simulated"
+    python = shlex.quote(sys.executable)
+    wrapper.write_text(f'#!/bin/sh\nexec {python} -m mloda.testing.binary_model.simulated_binary "$@"\n')
+    wrapper.chmod(0o755)
+    (package / "__init__.py").write_text(
+        "from pathlib import Path\n\n\ndef binary_path() -> Path:\n    return Path(__file__).with_name('simulated')\n"
+    )
+
+
+def child_environment(root: Path) -> dict[str, str]:
+    env = {**os.environ, "MLODA_LICENSE_KEY": valid_license_token(["example_binary"])}
+    env.pop("MLODA_LICENSE_FILE", None)  # the binary reads the file first
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(root), env.get("PYTHONPATH")]))
+    return env
+
+
+def test_cli(tmp_path: Path) -> None:
+    write_fake_wheel(tmp_path)
+    subprocess.run([sys.executable, "-m", "my_plugin.cli"], env=child_environment(tmp_path), check=True)
+```
+
+Limits: a `multiprocessing` spawn or forkserver worker (forkserver is the Linux default from Python 3.14) takes its `sys.path` from the parent, so also call `monkeypatch.syspath_prepend(str(tmp_path))` in the parent; a `python -I` or `-E` child ignores `PYTHONPATH` and cannot be faked this way.
 
 ### Against the real wheel
 

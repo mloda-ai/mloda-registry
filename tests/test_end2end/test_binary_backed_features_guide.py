@@ -13,6 +13,11 @@ import shlex
 import subprocess  # nosec
 import sys
 from pathlib import Path
+from typing import Any
+
+import pytest
+
+from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDE_PATH = _REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "29-binary-backed-features.md"
@@ -262,3 +267,33 @@ def test_test_section_shows_the_shipped_hmac_fake_binary_for_anonymizer_subclass
         "simulated_binary.main",
     ):
         assert needle in section, f"the Test section must contain {needle}; section was:\n" + section
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the guide's fake wheel wraps the binary in a POSIX sh script")
+def test_child_processes_snippet_fakes_the_wheel_for_the_production_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guide's "### Child processes" helpers let a child run the production class against the simulated binary."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    match = re.search(r"```python\n(.*?)```", _section(content, "### Child processes", ("\n## ", "\n### ")), re.DOTALL)
+    assert match is not None, "the Child processes section must contain a ```python block"
+    namespace: dict[str, Any] = {}
+    exec(match.group(1), namespace)  # nosec
+    monkeypatch.setenv("MLODA_LICENSE_FILE", str(tmp_path / "no-such-license"))
+    namespace["write_fake_wheel"](tmp_path)
+    env = namespace["child_environment"](tmp_path)
+    assert "MLODA_LICENSE_FILE" not in env, "child_environment must drop MLODA_LICENSE_FILE"
+    child = (
+        "import pyarrow as pa\n"
+        "from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import "
+        "BinaryExampleFeatureGroup\n"
+        "table = pa.table({'col_a': pa.array(['x', 'y', 'z'], pa.utf8())})\n"
+        "result = BinaryExampleFeatureGroup.run_binary_model(table, ['col_a'], 'hash', {}, {'result': 'h'})\n"
+        "print(result.column('h').to_pylist())\n"
+    )
+    proc = subprocess.run(  # nosec
+        [sys.executable, "-c", child], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120
+    )
+    expected = compute_expected_hash_column({"col_a": ["x", "y", "z"]}, ["col_a"], None)
+    assert proc.returncode == 0, f"stderr was:\n{proc.stderr}"
+    assert proc.stdout.strip() == str(expected), f"stdout was:\n{proc.stdout}"
