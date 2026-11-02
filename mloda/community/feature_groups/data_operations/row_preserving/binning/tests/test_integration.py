@@ -144,6 +144,45 @@ class TestIntegrationMultipleFeatures:
         assert bin3_found, "value_int__bin_3 result not found"
         assert bin5_found, "value_int__bin_5 result not found"
 
+    def test_bin_3_requested_directly_and_as_input_of_chained_bin(self) -> None:
+        """bin_3 requested directly and as the input of bin_3__bin_5 is computed once."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, BinningFeatureGroup})
+
+        f_bin3 = Feature("value_int__bin_3")
+        f_chained = Feature("value_int__bin_3__bin_5", options=Options(context={"note": "consumer"}))
+
+        results = mloda.run_all(
+            [f_bin3, f_chained],
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=plugin_collector,
+        )
+
+        assert len(results) >= 1
+
+        # EXPECTED_BIN_3 = [0, 0, 0, 1, None, 2, 1, 2, 1, 1, 2, 0]
+        # min=0, max=2, range=2, bin_width=2/5=0.4
+        # val=0: 0/0.4 = 0 -> 0
+        # val=1: 1/0.4 = 2.5 -> 2
+        # val=2: 2/0.4 = 5.0 -> min(5, 4) = 4
+        # val=None: None
+        chained_expected = [0, 0, 0, 2, None, 4, 2, 4, 2, 2, 4, 0]
+
+        bin3_tables = 0
+        chained_found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "value_int__bin_3" in table.column_names:
+                assert table.column_names.count("value_int__bin_3") == 1
+                assert table.column("value_int__bin_3").to_pylist() == EXPECTED_BIN_3
+                bin3_tables += 1
+            if "value_int__bin_3__bin_5" in table.column_names:
+                assert table.column("value_int__bin_3__bin_5").to_pylist() == chained_expected
+                chained_found = True
+
+        assert bin3_tables == 1, "value_int__bin_3 should appear in exactly one result table"
+        assert chained_found, "value_int__bin_3__bin_5 result not found"
+
     def test_qbin_3_integration(self) -> None:
         """Request qbin_3 feature through the full pipeline."""
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, BinningFeatureGroup})
