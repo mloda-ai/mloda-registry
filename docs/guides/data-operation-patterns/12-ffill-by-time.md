@@ -56,7 +56,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_dat
 | DuckDB | `LAST_VALUE(col IGNORE NULLS)` over a `partition_by` / `order_by` window (unbounded preceding → current row), via the typed window helper. |
 | SQLite | No `IGNORE NULLS`. Uses the two-window fill-group idiom: a running `COUNT(col)` assigns each row to a fill group (leading nulls get group 0), then `MAX(col)` carries the single non-null per group; group 0 stays null. |
 
-Ordering ties matter only when two rows in a partition share an `order_by` value; keep the time column unique within a partition for deterministic results across the SQL backends.
+Rows tied on `order_by` keep input order on every backend.
 
 ---
 

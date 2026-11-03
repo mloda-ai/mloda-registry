@@ -1266,21 +1266,41 @@ class FrameAggregateTestBase(
         assert self.extract_column(result, feature_name) == expected
 
     @pytest.mark.parametrize(
-        "feature_name,expected",
+        "feature_name,n_days,v,expected",
         [
-            ("v__cumsum", [4, 6, 3]),
-            ("v__sum_rolling_2", [4, 3, 3]),
-            ("v__sum_1_day_window", [4, 6, 3]),
+            pytest.param("v__cumsum", [2, 2, 1], [1, 2, 3], [4, 6, 3], id="small-cumsum"),
+            pytest.param("v__sum_rolling_2", [2, 2, 1], [1, 2, 3], [4, 3, 3], id="small-sum_rolling_2"),
+            pytest.param("v__sum_1_day_window", [2, 2, 1], [1, 2, 3], [4, 6, 3], id="small-sum_1_day_window"),
+            # long: all 25 rows tied, v = range(25); DuckDB reorders ties at this size.
+            pytest.param(
+                "v__cumsum", [1] * 25, list(range(25)), [i * (i + 1) // 2 for i in range(25)], id="long-cumsum"
+            ),
+            pytest.param(
+                "v__expanding_sum",
+                [1] * 25,
+                list(range(25)),
+                [i * (i + 1) // 2 for i in range(25)],
+                id="long-expanding_sum",
+            ),
+            pytest.param(
+                "v__sum_rolling_3",
+                [1] * 25,
+                list(range(25)),
+                [sum(range(max(0, i - 2), i + 1)) for i in range(25)],
+                id="long-sum_rolling_3",
+            ),
         ],
     )
-    def test_tied_order_matches_reference(self, feature_name: str, expected: list[int]) -> None:
+    def test_tied_order_matches_reference(
+        self, feature_name: str, n_days: list[int], v: list[int], expected: list[int]
+    ) -> None:
         """Rows tied on order_by keep input order (the tie is deliberate)."""
-        day = [datetime(2023, 1, 2, tzinfo=timezone.utc)] * 2 + [datetime(2023, 1, 1, tzinfo=timezone.utc)]
+        day = [datetime(2023, 1, d, tzinfo=timezone.utc) for d in n_days]
         table = pa.table(
             {
-                "g": ["a"] * 3,
+                "g": ["a"] * len(v),
                 "t": pa.array(day, type=pa.timestamp("us", tz="UTC")),
-                "v": pa.array([1, 2, 3], type=pa.int64()),
+                "v": pa.array(v, type=pa.int64()),
             }
         )
         self._skip_if_frame_feature_unsupported(feature_name, ["g"], "t")
