@@ -39,6 +39,7 @@ session_id = cumsum(is_new) - 1        # over the [partition, ts]-sorted frame
 
 - A gap **equal** to the threshold stays in the **same** session (the comparison is strict `>`).
 - Rows tied on `[partition, order_by]` share a session id.
+- Null timestamps sort last in their partition and each starts its own session (nulls never tie, so the tied-rows rule applies to valid timestamps); filter null timestamps first to avoid counting them as sessions.
 - Session ids are **globally unique** 0-based integers, not reset per partition: distinct partitions never share a session id, so you can group by the session id alone.
 - **Row-preserving**: same rows, same original order, one new integer column; the source timestamp column is unchanged.
 
@@ -62,7 +63,7 @@ Example with a 30-minute threshold for one user whose events are at `10:00, 10:2
 | Pandas | native `groupby(partition_by)[ts].diff()` + `cumsum`. |
 | Polars (lazy) | native `diff().over(partition_by)` + `cum_sum`. |
 | DuckDB | native SQL: `LAG` + `date_diff('second', ...)` over a window, then a running `SUM`. |
-| Python dict | stable-sorts row indices by `[*partition_by, order_by]` (nulls last), walks them comparing each row with the previous one for a partition change or a gap over the threshold, then scatters session ids back to the original row positions. |
+| Python dict | stable-sorts row indices by `[*partition_by, order_by]` (nulls last), walks them (a null timestamp always starts a session) comparing each row with the previous one for a partition change or a gap over the threshold, then scatters session ids back to the original row positions. |
 | SQLite | native SQL window functions: `LAG` + `ROUND((julianday(b) - julianday(a)) * 86400.0)` for the gap, then a running `SUM`. |
 
 The gap-diff plus cumulative-sum is expressible natively on every backend, so none rejects the operation. The SQLite backend rounds the `julianday` gap to whole seconds so floating-point noise cannot push an exact-threshold gap over the boundary.

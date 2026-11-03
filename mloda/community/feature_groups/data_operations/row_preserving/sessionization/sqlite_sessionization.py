@@ -62,13 +62,12 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         partition_clause = f"PARTITION BY {', '.join(partition_cols)} " if partition_cols else ""
         q_rn = quote_ident(rn)
         # rn breaks (partition, order) ties by input position in both windows.
-        window_def = f"w AS ({partition_clause}ORDER BY {q_order}, {q_rn})"
-        order_keys = ", ".join([*partition_cols, q_order, q_rn])
+        window_def = f"w AS ({partition_clause}ORDER BY {q_order} NULLS LAST, {q_rn})"
+        order_keys = ", ".join([*partition_cols, f"{q_order} NULLS LAST", q_rn])
 
         gap_seconds = f"ROUND((julianday({q_order}) - julianday(LAG({q_order}) OVER w)) * 86400.0)"
-        is_new_expr = (
-            f"CASE WHEN LAG({q_order}) OVER w IS NULL OR {gap_seconds} > {threshold_seconds} THEN 1 ELSE 0 END"
-        )
+        # Null timestamps sort last, so a null LAG (first in partition, or previous row null) means new.
+        is_new_expr = f"CASE WHEN {q_order} IS NULL OR LAG({q_order}) OVER w IS NULL OR {gap_seconds} > {threshold_seconds} THEN 1 ELSE 0 END"
 
         inner_cols = ", ".join([*partition_cols, q_order])
         # The position tag lives in its own view, numbered before any other window.

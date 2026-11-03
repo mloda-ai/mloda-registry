@@ -45,14 +45,15 @@ class PolarsLazySessionization(Implementation[SessionizationFeatureGroup]):
 
         # Sort within partitions by order_col (nulls last) so each partition is a
         # contiguous, time-ordered slice.
-        ordered = data.sort([*partition_by, order_col], nulls_last=True)
+        ordered = data.sort([*partition_by, order_col], nulls_last=True, maintain_order=True)
 
         gap = pl.col(order_col).diff()
         if partition_by:
             gap = gap.over(partition_by)
 
         threshold = timedelta(seconds=threshold_seconds)
-        is_new = gap.is_null() | (gap > threshold)
+        # A null timestamp never ties, so it starts its own session.
+        is_new = gap.is_null() | (gap > threshold) | pl.col(order_col).is_null()
         session = is_new.cast(pl.Int64).cum_sum() - 1
         ordered = ordered.with_columns(session.alias(feature_name))
 

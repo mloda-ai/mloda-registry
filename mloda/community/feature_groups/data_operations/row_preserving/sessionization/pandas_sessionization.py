@@ -44,7 +44,7 @@ class PandasSessionization(Implementation[SessionizationFeatureGroup]):
         # Tag original row order so we can restore it after sorting.
         data[rn_col] = range(len(data))
 
-        ordered = data.sort_values(by=[*partition_by, order_col], na_position="last")
+        ordered = data.sort_values(by=[*partition_by, order_col], na_position="last", kind="stable")
 
         if partition_by:
             gap = ordered.groupby(partition_by, dropna=False)[order_col].diff()
@@ -52,7 +52,8 @@ class PandasSessionization(Implementation[SessionizationFeatureGroup]):
             gap = ordered[order_col].diff()
 
         threshold = pd.Timedelta(seconds=threshold_seconds)
-        is_new = gap.isna() | (gap > threshold)
+        # A null timestamp never ties, so it starts its own session.
+        is_new = gap.isna() | (gap > threshold) | ordered[order_col].isna()
         ordered[feature_name] = is_new.cumsum().astype("int64") - 1
 
         # Restore original row order, drop the helper column.

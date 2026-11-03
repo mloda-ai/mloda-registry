@@ -2,7 +2,7 @@
 
 The session id is computed natively with two stacked window functions: an
 inner ``LAG``/``date_diff`` produces the per-row ``is_new`` flag (1 when the
-row begins a new session), and an outer running ``SUM`` over the same ordering
+row begins a new session; a null timestamp always does, nulls sort last), and an outer running ``SUM`` over the same ordering
 turns the flags into a 0-based session id. ``date_diff('second', ...)`` is
 exact integer second arithmetic, so the strict ``gap > threshold`` boundary
 needs no rounding.
@@ -60,11 +60,11 @@ class DuckdbSessionization(Implementation[SessionizationFeatureGroup]):
             partition_clause = f"PARTITION BY {', '.join(partition_cols)} " if partition_cols else ""
             q_rn = quote_ident(rn)
             # rn breaks (partition, order) ties by input position in both windows.
-            window_def = f"w AS ({partition_clause}ORDER BY {q_order}, {q_rn})"
-            order_keys = ", ".join([*partition_cols, q_order, q_rn])
+            window_def = f"w AS ({partition_clause}ORDER BY {q_order} NULLS LAST, {q_rn})"
+            order_keys = ", ".join([*partition_cols, f"{q_order} NULLS LAST", q_rn])
 
             is_new_expr = (
-                f"CASE WHEN LAG({q_order}) OVER w IS NULL "
+                f"CASE WHEN {q_order} IS NULL OR LAG({q_order}) OVER w IS NULL "
                 f"OR date_diff('second', LAG({q_order}) OVER w, {q_order}) > {threshold_seconds} "
                 f"THEN 1 ELSE 0 END"
             )
