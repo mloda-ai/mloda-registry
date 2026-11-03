@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
+import pytest
+
 from mloda.community.feature_groups.data_operations.row_preserving.offset.sqlite_offset import SqliteOffset
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import (
     OffsetTestBase,
@@ -15,6 +19,17 @@ class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteOffset
+
+    @pytest.mark.parametrize("source_type", [pa.int64(), pa.float64()])
+    @pytest.mark.parametrize("op", ["first_value", "last_value"])
+    def test_all_null_source_keeps_source_type(self, op: str, source_type: pa.DataType) -> None:
+        # Keeps the source type, as DuckDB does; the reference gives a null-typed column.
+        table = pa.table({"region": ["A"] * 3, "score": pa.array([None] * 3, type=source_type)})
+        data = self.create_test_data(table)
+        fs = make_feature_set(f"score__{op}_offset", ["region"], "score")
+        result = calculate_with(self.implementation_class(), data, fs)
+
+        assert result.to_arrow_table().schema.field(f"score__{op}_offset").type == source_type
 
 
 class TestSqliteOffsetViewInput(SqliteViewTestMixin, TestSqliteOffset):

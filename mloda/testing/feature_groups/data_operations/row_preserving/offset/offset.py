@@ -76,6 +76,8 @@ _TIE_NULLS = (
 )
 _TIE_NULL_ORDER = (["a"] * 4, [None, None, 1, 1], [1.0, 2.0, 3.0, 4.0])
 _TIE_SMALL = (["a", "a", "a"], [2, 2, 1], [1.0, 2.0, 3.0])
+# long: all rows tied; DuckDB reorders ties at this size.
+_TIE_LONG = (["a"] * 25, [1] * 25, [float(i) for i in range(25)])
 
 
 class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
@@ -302,12 +304,26 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             pytest.param(*_TIE_NULL_ORDER, "last_value", [2.0] * 4, id="null_order-last_value"),
             pytest.param(*_TIE_SMALL, "first_value", [3.0] * 3, id="small-first_value"),
             pytest.param(*_TIE_SMALL, "last_value", [2.0] * 3, id="small-last_value"),
+            pytest.param(*_TIE_NULLS, "lag_1", [3.0, 1.0, None, 2.0, None, 6.0, None, 5.0], id="nulls-lag_1"),
+            pytest.param(*_TIE_NULLS, "lead_1", [2.0, None, 1.0, None, 5.0, None, 6.0, 7.0], id="nulls-lead_1"),
+            pytest.param(*_TIE_NULL_ORDER, "lag_1", [4.0, 1.0, None, 3.0], id="null_order-lag_1"),
+            pytest.param(*_TIE_NULL_ORDER, "lead_1", [2.0, None, 4.0, 1.0], id="null_order-lead_1"),
+            pytest.param(*_TIE_SMALL, "lag_1", [3.0, 1.0, None], id="small-lag_1"),
+            pytest.param(*_TIE_SMALL, "lead_1", [2.0, None, 1.0], id="small-lead_1"),
+            pytest.param(*_TIE_LONG, "lag_1", [None] + [float(i) for i in range(24)], id="long-lag_1"),
+            pytest.param(*_TIE_LONG, "lead_1", [float(i) for i in range(1, 25)] + [None], id="long-lead_1"),
+            pytest.param(*_TIE_LONG, "diff_1", [None] + [1.0] * 24, id="long-diff_1"),
+            pytest.param(
+                *_TIE_LONG, "pct_change_1", [None, None] + [1.0 / (i - 1) for i in range(2, 25)], id="long-pct_change_1"
+            ),
         ],
     )
     def test_tied_order_matches_reference(
-        self, g: list[str], t: list[int | None], v: list[float | None], op: str, expected: list[float]
+        self, g: list[str], t: list[int | None], v: list[float | None], op: str, expected: list[float | None]
     ) -> None:
-        """Tied order values keep input order: first/last_value pick the first/last non-null in that order."""
+        """Tied order values keep input order for every offset type."""
+        if op.startswith(("diff", "pct_change")):
+            self._skip_if_unsupported(op.rsplit("_", 1)[0])
         table = pa.table({"g": g, "t": pa.array(t, type=pa.int64()), "v": pa.array(v, type=pa.float64())})
         data = self.create_test_data(table)
         fs = make_feature_set(f"v__{op}_offset", ["g"], "t")
@@ -315,8 +331,13 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, f"v__{op}_offset")
-        assert result_col == expected
-        assert result_col == extract_column(ref, f"v__{op}_offset")
+        ref_col = extract_column(ref, f"v__{op}_offset")
+        if op.startswith("pct_change"):
+            assert result_col == pytest.approx(expected)
+            assert result_col == pytest.approx(ref_col)
+        else:
+            assert result_col == expected
+            assert result_col == ref_col
 
     # -- All-null column tests -----------------------------------------------
 
