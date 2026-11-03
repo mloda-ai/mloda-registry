@@ -26,11 +26,13 @@ Semantics (pinned and verified):
   partition; they are unique across the whole sorted frame).
 - Output column dtype: integer (int64).
 
-Nulls in the timestamp column are OUT OF SCOPE for these tests: a null gap is
-ill-defined under a strict ``gap > threshold`` comparison (it is neither
-clearly a new session nor a continuation), so the dedicated fixture below uses
-globally-unique, non-null UTC timestamps. Backends decide null handling
-separately; it is not pinned here.
+Null timestamps (pinned): within a partition, null timestamps sort AFTER every
+valid timestamp. Each null-timestamp row starts its own new session (nulls
+never tie with each other) and null rows are ordered among themselves by input
+position. Valid rows are never affected by nulls. Session ids are never null:
+they stay 0-based and globally unique over the ``[partition, ts]``-sorted frame.
+The main fixture below uses non-null UTC timestamps; null cases build their own
+small tables.
 
 NO PINNED-ONLY ORACLE. Unlike EMA, every backend computes sessionization
 NATIVELY (like ffill), so PyArrow is the live cross-framework reference oracle
@@ -387,6 +389,64 @@ class SessionizationTestBase(
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, [1, 0, 1, 1, 2, 2], cast=int)
         assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
+
+    # -- Null timestamps / null partition keys --------------------------------
+
+    def _assert_null_case(
+        self,
+        users: list[str | None],
+        stamps: list[datetime | None],
+        expected: list[int],
+        partition_by: list[str],
+    ) -> None:
+        """Run a 30-minute sessionize on a small table; pin ids, non-null, and match the reference."""
+        table = pa.table(
+            {
+                "id": pa.array(list(range(len(users))), type=pa.int64()),
+                "user": pa.array(users, type=pa.string()),
+                "ts": pa.array(stamps, type=pa.timestamp("us", tz="UTC")),
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("ts__sessionize_30_minute", partition_by=partition_by, order_by="ts")
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
+        col = self.extract_column(result, "ts__sessionize_30_minute")
+        assert all(v is not None for v in col), f"session ids must be non-null: {list(col)!r}"
+        assert_values_with_nulls(col, expected, cast=int)
+        assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
+
+    def test_null_timestamp_starts_own_session(self) -> None:
+        """A null ts is its own session, in every partition: [None | T1 | None] by user a, b, b -> [0, 1, 2]."""
+        t1 = datetime(2023, 1, 1, 1, 0, 0, tzinfo=_U)
+        self._assert_null_case(["a", "b", "b"], [None, t1, None], [0, 1, 2], ["user"])
+
+    def test_null_timestamps_never_tie_and_keep_input_order(self) -> None:
+        """Two nulls in one partition sort after the valid row, each its own session, in input order."""
+        t1 = datetime(2023, 1, 1, 1, 0, 0, tzinfo=_U)
+        # sorted: T1 (s0), null row0 (s1), null row2 (s2)
+        self._assert_null_case(["b", "b", "b"], [None, t1, None], [1, 0, 2], ["user"])
+
+    def test_null_timestamp_whole_table(self) -> None:
+        """Without partition_by, nulls sort after all valid rows and do not shift valid rows' ids."""
+        t1 = datetime(2023, 1, 1, 1, 0, 0, tzinfo=_U)
+        t2 = datetime(2023, 1, 1, 2, 0, 0, tzinfo=_U)
+        # sorted: T1 (s0), T2 (s1), null row0 (s2), null row2 (s3)
+        self._assert_null_case(["a", "a", "a", "a"], [None, t1, None, t2], [2, 0, 3, 1], [])
+
+    def test_null_timestamp_between_valid_rows(self) -> None:
+        """A null between two valid rows sorts last: [T1, None, T2] -> [0, 2, 1]."""
+        t1 = datetime(2023, 1, 1, 1, 0, 0, tzinfo=_U)
+        t2 = datetime(2023, 1, 1, 2, 0, 0, tzinfo=_U)
+        self._assert_null_case(["a", "a", "a"], [t1, None, t2], [0, 2, 1], ["user"])
+
+    def test_null_partition_key_is_its_own_partition(self) -> None:
+        """Null partition keys sort last and form one partition: [None, None, b] -> [1, 1, 0]."""
+        t1 = datetime(2023, 1, 1, 1, 0, 0, tzinfo=_U)
+        t2 = datetime(2023, 1, 1, 1, 5, 0, tzinfo=_U)
+        t3 = datetime(2023, 1, 1, 1, 10, 0, tzinfo=_U)
+        # partition "b" sorts first (s0); the two null-key rows are 5 minutes apart, so one session (s1)
+        self._assert_null_case([None, None, "b"], [t1, t2, t3], [1, 1, 0], ["user"])
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

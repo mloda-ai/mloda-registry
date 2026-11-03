@@ -2,9 +2,10 @@
 
 PyArrow is the cross-framework reference oracle for sessionization. The
 computation is fully native (Arrow compute kernels, no per-row Python loop):
-rows are sorted by ``[*partition_by, order_col]`` ascending, the gap to the
-previous row and the partition boundary are derived with shifted-slice
-comparisons, the per-row ``is_new`` flag is cumulatively summed
+rows are sorted by ``[*partition_by, order_col]`` ascending (null timestamps
+last), the gap to the previous row and the partition boundary are derived with
+shifted-slice comparisons. ``is_new`` is true for a null timestamp (nulls never
+tie), a partition change, or a gap above the threshold; it is cumulatively summed
 (``pc.cumulative_sum``) to produce the 0-based session id, then the result is
 scattered back to the original row order.
 """
@@ -70,16 +71,24 @@ class PyArrowSessionization(Implementation[SessionizationFeatureGroup]):
             is_new = pa.array([True], type=pa.bool_())
         else:
             diff = pc.subtract(ts_int.slice(1), ts_int.slice(0, n - 1))
-            gap_new = pc.greater(diff, pa.scalar(threshold_us, type=pa.int64()))
+            gap_new = pc.fill_null(pc.greater(diff, pa.scalar(threshold_us, type=pa.int64())), False)
+            ts_null = pc.is_null(ts_int.slice(1))
 
             part_changed: pa.Array = pa.array([False] * (n - 1), type=pa.bool_())
             for col in partition_by:
                 sorted_col = sorted_tbl.column(col)
                 # NaN-safe: two NaN neighbours merge into one session, like Table.group_by().
-                changed = nan_safe_not_equal(sorted_col.slice(1), sorted_col.slice(0, n - 1))
+                curr, prev = sorted_col.slice(1), sorted_col.slice(0, n - 1)
+                curr_null, prev_null = pc.is_null(curr), pc.is_null(prev)
+                # null vs null is the same partition, null vs value is a change.
+                changed = pc.if_else(
+                    pc.or_(curr_null, prev_null),
+                    pc.not_equal(curr_null, prev_null),
+                    pc.fill_null(nan_safe_not_equal(curr, prev), False),
+                )
                 part_changed = pc.or_(part_changed, changed)
 
-            tail = pc.or_(gap_new, part_changed)
+            tail = pc.or_(pc.or_(gap_new, part_changed), ts_null)
             tail_arr = pc.cast(tail, pa.bool_())
             if isinstance(tail_arr, pa.ChunkedArray):
                 tail_arr = tail_arr.combine_chunks()

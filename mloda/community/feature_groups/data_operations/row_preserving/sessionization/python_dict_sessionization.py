@@ -80,45 +80,22 @@ class PythonDictSessionization(Implementation[SessionizationFeatureGroup]):
         result_values: list[Any] = [None] * num_rows
 
         session_id = -1
-        poisoned = False
 
         for pos, row_index in enumerate(sorted_indices):
-            key = partition_key(row_index)
             order_val = order_vals[row_index]
-
-            if pos == 0:
-                ambiguous = False
+            if pos == 0 or order_val is None or is_nan(order_val):
+                # A null timestamp never ties, so it starts its own session.
                 is_new = True
             else:
                 prev_index = sorted_indices[pos - 1]
-                prev_key = partition_key(prev_index)
                 prev_order_val = order_vals[prev_index]
-                # A null on either side of the partition-key or order-by comparison makes
-                # "same partition?"/"gap exceeded?" unknown rather than False. That mirrors
-                # the PyArrow oracle's Arrow-compute-kernel comparisons (``not_equal``,
-                # ``greater``), which yield null whenever an operand is null; once such a
-                # null reaches ``pc.cumulative_sum`` (default ``skip_nulls=False``), the
-                # session id for that row and every following row in sorted order becomes
-                # (and stays) null, rather than resuming the count once nulls are behind.
-                # A NaN order_by value is ambiguous too (the gap subtraction below is not
-                # well-defined against it), but a NaN partition-key value is NOT: it groups
-                # with itself via ``values_equal`` below, matching PyArrow's group_by().
-                ambiguous = (
-                    any(v is None for v in key)
-                    or any(v is None for v in prev_key)
-                    or order_val is None
-                    or prev_order_val is None
-                    or is_nan(order_val)
-                    or is_nan(prev_order_val)
+                is_new = not values_equal(partition_key(row_index), partition_key(prev_index)) or (
+                    prev_order_val is None or is_nan(prev_order_val) or (order_val - prev_order_val) > threshold
                 )
-                is_new = not ambiguous and (not values_equal(key, prev_key) or (order_val - prev_order_val) > threshold)
 
-            if ambiguous:
-                poisoned = True
-            elif is_new:
+            if is_new:
                 session_id += 1
-
-            result_values[row_index] = None if poisoned else session_id
+            result_values[row_index] = session_id
 
         result[feature_name] = result_values
         return result
