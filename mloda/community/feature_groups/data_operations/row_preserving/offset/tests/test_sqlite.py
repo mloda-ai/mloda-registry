@@ -31,6 +31,33 @@ class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
 
         assert result.to_arrow_table().schema.field(f"score__{op}_offset").type == source_type
 
+    @pytest.mark.parametrize(
+        "op, source_type, expected",
+        [
+            pytest.param(
+                op,
+                source_type,
+                pa.float64() if op == "pct_change_1" else source_type,
+                id=f"{op}-{source_type}",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="https://github.com/mloda-ai/mloda/issues/2561: SQLite type probe types offset windows as string on an all-null source",
+                ),
+            )
+            for op in ["lag_1", "lead_1", "diff_1", "pct_change_1"]
+            for source_type in [pa.int64(), pa.float64()]
+        ],
+    )
+    def test_all_null_source_keeps_type_for_row_offsets(
+        self, op: str, source_type: pa.DataType, expected: pa.DataType
+    ) -> None:
+        table = pa.table({"region": ["A"] * 3, "score": pa.array([None] * 3, type=source_type)})
+        data = self.create_test_data(table)
+        fs = make_feature_set(f"score__{op}_offset", ["region"], "score")
+        result = calculate_with(self.implementation_class(), data, fs)
+
+        assert result.to_arrow_table().schema.field(f"score__{op}_offset").type == expected
+
 
 class TestSqliteOffsetViewInput(SqliteViewTestMixin, TestSqliteOffset):
     """Runs the Offset suite on a view input."""
