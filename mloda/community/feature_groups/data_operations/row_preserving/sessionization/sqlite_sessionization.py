@@ -63,7 +63,7 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         q_rn = quote_ident(rn)
         # rn breaks (partition, order) ties by input position in both windows.
         window_def = f"w AS ({partition_clause}ORDER BY {q_order} NULLS LAST, {q_rn})"
-        order_keys = ", ".join([*partition_cols, f"{q_order} NULLS LAST", q_rn])
+        order_keys = ", ".join([*[f"{c} NULLS LAST" for c in partition_cols], f"{q_order} NULLS LAST", q_rn])
 
         gap_seconds = f"ROUND((julianday({q_order}) - julianday(LAG({q_order}) OVER w)) * 86400.0)"
         # Null timestamps sort last, so a null LAG (first in partition, or previous row null) means new.

@@ -441,22 +441,12 @@ class SessionizationTestBase(
         self._assert_null_case(["a", "a", "a"], [t1, None, t2], [0, 2, 1], ["user"])
 
     def test_null_partition_key_is_its_own_partition(self) -> None:
-        """A null partition key forms its own partition: every id non-null, other partitions unaffected."""
+        """Null partition keys sort last and form one partition: [None, None, b] -> [1, 1, 0]."""
         t1 = datetime(2023, 1, 1, 1, 0, 0, tzinfo=_U)
         t2 = datetime(2023, 1, 1, 1, 5, 0, tzinfo=_U)
-        table = pa.table(
-            {
-                "user": pa.array([None, "b"], type=pa.string()),
-                "ts": pa.array([t1, t2], type=pa.timestamp("us", tz="UTC")),
-            }
-        )
-        data = self.create_test_data(table)
-        fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
-        result = calculate_with(self.implementation_class(), data, fs)
-        col = self.extract_column(result, "ts__sessionize_30_minute")
-        assert all(v is not None for v in col), f"session ids must be non-null: {list(col)!r}"
-        # Different partitions never share a session; ids are 0-based and globally unique.
-        assert sorted(int(v) for v in col) == [0, 1]
+        t3 = datetime(2023, 1, 1, 1, 10, 0, tzinfo=_U)
+        # partition "b" sorts first (s0); the two null-key rows are 5 minutes apart, so one session (s1)
+        self._assert_null_case([None, None, "b"], [t1, t2, t3], [1, 1, 0], ["user"])
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
