@@ -67,7 +67,10 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
 
         gap_seconds = f"ROUND((julianday({q_order}) - julianday(LAG({q_order}) OVER w)) * 86400.0)"
         # Null timestamps sort last, so a null LAG (first in partition, or previous row null) means new.
-        is_new_expr = f"CASE WHEN {q_order} IS NULL OR LAG({q_order}) OVER w IS NULL OR {gap_seconds} > {threshold_seconds} THEN 1 ELSE 0 END"
+        is_new_expr = (
+            f"CASE WHEN {q_order} IS NULL OR LAG({q_order}) OVER w IS NULL "
+            f"OR {gap_seconds} > {threshold_seconds} THEN 1 ELSE 0 END"
+        )
 
         inner_cols = ", ".join([*partition_cols, q_order])
         # The position tag lives in its own view, numbered before any other window.

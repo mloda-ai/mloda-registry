@@ -57,7 +57,7 @@ class PyArrowSessionization(Implementation[SessionizationFeatureGroup]):
             return data.append_column(feature_name, pa.array([], type=pa.int64()))
 
         sort_keys = [(col, "ascending") for col in (*partition_by, order_col)]
-        perm = pc.sort_indices(data, sort_keys=sort_keys)  # nulls sort last by default
+        perm = pc.sort_indices(data, sort_keys=sort_keys)
         sorted_tbl = data.take(perm)
 
         # Normalize to microsecond resolution before the int64 view so any input

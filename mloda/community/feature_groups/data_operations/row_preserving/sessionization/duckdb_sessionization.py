@@ -2,10 +2,10 @@
 
 The session id is computed natively with two stacked window functions: an
 inner ``LAG``/``date_diff`` produces the per-row ``is_new`` flag (1 when the
-row begins a new session; a null timestamp always does, nulls sort last), and an outer running ``SUM`` over the same ordering
-turns the flags into a 0-based session id. ``date_diff('second', ...)`` is
-exact integer second arithmetic, so the strict ``gap > threshold`` boundary
-needs no rounding.
+row begins a new session; a null timestamp always does, nulls sort last), and
+an outer running ``SUM`` over the same ordering turns the flags into a 0-based
+session id. ``date_diff('second', ...)`` is exact integer second arithmetic, so
+the strict ``gap > threshold`` boundary needs no rounding.
 """
 
 from __future__ import annotations
