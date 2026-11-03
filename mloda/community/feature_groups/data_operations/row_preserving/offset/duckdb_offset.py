@@ -40,8 +40,26 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         order_by: str,
         offset_type: str,
     ) -> DuckdbRelation:
+        # rn breaks order_by ties by input position.
+        return with_input_position(
+            data,
+            feature_name,
+            lambda rel, rn: cls._offset_window(rel, rn, feature_name, source_col, partition_by, order_by, offset_type),
+        )
+
+    @classmethod
+    def _offset_window(
+        cls,
+        data: DuckdbRelation,
+        rn: str,
+        feature_name: str,
+        source_col: str,
+        partition_by: list[str],
+        order_by: str,
+        offset_type: str,
+    ) -> DuckdbRelation:
         quoted_source = quote_ident(source_col)
-        order_spec = [OrderBy(order_by, nulls="last")]
+        order_spec: list[str | OrderBy] = [OrderBy(order_by, nulls="last"), rn]
 
         offset_expr: str
         frame: WindowFrame | None = None
@@ -90,13 +108,4 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         else:
             raise ValueError(f"Unsupported offset type for DuckDB: {offset_type}")
 
-        if frame is None:
-            return data.window(offset_expr, feature_name, partition_by=partition_by, order_by=order_spec)
-        # rn breaks order_by ties by input position.
-        return with_input_position(
-            data,
-            feature_name,
-            lambda rel, rn: rel.window(
-                offset_expr, feature_name, partition_by=partition_by, order_by=[*order_spec, rn], frame=frame
-            ),
-        )
+        return data.window(offset_expr, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame)

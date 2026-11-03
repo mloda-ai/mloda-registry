@@ -35,24 +35,29 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
         order_by: str,
         offset_type: str,
     ) -> SqliteRelation:
+        original_cols = list(data.columns)
+        # rn breaks order_by ties by input position.
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        tagged = data.with_row_number(rn)
+
         if offset_type in ("first_value", "last_value"):
-            return cls._compute_first_last(data, feature_name, source_col, partition_by, order_by, offset_type)
+            return cls._compute_first_last(
+                tagged, rn, original_cols, feature_name, source_col, partition_by, order_by, offset_type
+            )
 
         quoted_source = quote_ident(source_col)
 
         # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
-        order_spec = [OrderBy(order_by, nulls="last")]
-
-        original_cols = list(data.columns)
+        order_spec: list[str | OrderBy] = [OrderBy(order_by, nulls="last"), rn]
 
         if offset_type.startswith("pct_change_"):
             # The window result is wrapped in a CASE expression, so compute LAG into a
             # helper column, then apply the wrapper via a raw projection (Pattern W).
             offset_n = int(offset_type[len("pct_change_") :])
-            prev = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-            rel = data.window(
+            prev = pick_helper_column_name(taken=set(tagged.columns) | {feature_name})
+            rel = tagged.window(
                 f"LAG({quoted_source}, {offset_n})",
                 prev,
                 partition_by=partition_by,
@@ -80,49 +85,32 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
             supported = "lag, lead, diff, pct_change, first_value, last_value"
             raise ValueError(f"Unsupported offset type for SQLite: {offset_type}. Supported types: {supported}")
 
-        return data.window(func, feature_name, partition_by=partition_by, order_by=order_spec)
+        rel = tagged.window(func, feature_name, partition_by=partition_by, order_by=order_spec)
+        return rel.select(*original_cols, feature_name)
 
     @classmethod
     def _compute_first_last(
         cls,
-        data: SqliteRelation,
+        tagged: SqliteRelation,
+        rn: str,
+        original_cols: list[str],
         feature_name: str,
         source_col: str,
         partition_by: list[str],
         order_by: str,
         offset_type: str,
     ) -> SqliteRelation:
-        """SQLite lacks IGNORE NULLS in window functions, so select the first
-        (or last) non-null value per partition via a correlated subquery."""
+        """SQLite lacks IGNORE NULLS, so a null flag sorts non-null sources first."""
         quoted_source = quote_ident(source_col)
-        quoted_order = quote_ident(order_by)
-        quoted_feature = quote_ident(feature_name)
+        flag = pick_helper_column_name(taken=set(tagged.columns) | {feature_name})
+        flagged = tagged.select(_raw_sql=f"*, {quoted_source} IS NULL AS {quote_ident(flag)}")
 
-        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        q_rn = quote_ident(rn)
-        tagged = data.with_row_number(rn)
-        q_table = quote_ident(tagged.table_name)
-
-        partition_match = " AND ".join(f"t2.{quote_ident(col)} IS t1.{quote_ident(col)}" for col in partition_by)
-        null_sort = f"CASE WHEN t2.{quoted_order} IS NULL THEN 1 ELSE 0 END"
-
+        order_spec: list[str | OrderBy]
         if offset_type == "first_value":
-            sort_clause = f"{null_sort}, t2.{quoted_order}, t2.{q_rn}"
+            order_spec = [flag, OrderBy(order_by, nulls="last"), rn]
         else:
-            sort_clause = f"{null_sort} DESC, t2.{quoted_order} DESC, t2.{q_rn} DESC"
-
-        subquery = (
-            f"(SELECT t2.{quoted_source} FROM {q_table} t2 "  # nosec
-            f"WHERE {partition_match} AND t2.{quoted_source} IS NOT NULL "
-            f"ORDER BY {sort_clause} LIMIT 1)"
+            order_spec = [flag, OrderBy(order_by, descending=True, nulls="first"), OrderBy(rn, descending=True)]
+        rel = flagged.window(
+            f"FIRST_VALUE({quoted_source})", feature_name, partition_by=partition_by, order_by=order_spec
         )
-        # ORDER BY the input-position tag so the fetched values line up with the input rows.
-        sql = (
-            f"SELECT {subquery} AS {quoted_feature} "  # nosec
-            f"FROM {q_table} t1 ORDER BY t1.{q_rn}"
-        )
-        try:
-            result_values = [row[0] for row in data.connection.execute(sql).fetchall()]
-        finally:
-            tagged.drop()
-        return data.append_column(feature_name, result_values)
+        return rel.select(*original_cols, feature_name)
