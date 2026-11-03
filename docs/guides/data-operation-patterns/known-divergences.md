@@ -185,6 +185,25 @@ regression_test:
 - **How**: The cross-framework assertion uses `pytest.approx(ref_value, rel=1e-6)` when the test's `use_approx` class attribute is `True`. Integer ops and null-equality still require exact match.
 - **Regression signal**: If a change makes the relative error exceed `1e-6`, the approx check fails with a loud message pointing at the specific row.
 
+### SQLite offset lag, lead, diff and pct_change type an all-null source as string
+
+<!-- machine-checked
+operation: offset
+framework: sqlite
+condition: lag, lead, diff and pct_change on an all-null source column come back as a string column instead of the source type
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/offset/sqlite_offset.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/offset/tests/test_sqlite.py::TestSqliteOffset::test_all_null_source_keeps_type_for_row_offsets
+-->
+
+- **Operations**: `offset` (`lag`, `lead`, `diff`, `pct_change`).
+- **Reference behavior**: the reference gives a null-typed column.
+- **Native SQLite behavior**: the output is a string column. DuckDB keeps the source type (float64 for `pct_change`).
+- **Mitigation kind**: Accepted divergence, pending a core fix.
+- **How**: Core types an all-null column by rerunning the projection on two placeholder rows whose partition keys differ, so LAG and LEAD are NULL on both and the type falls back to string. No SQL change in the registry fixes it. Core issue: https://github.com/mloda-ai/mloda/issues/2561.
+- **Regression signal**: `test_all_null_source_keeps_type_for_row_offsets` is `xfail(strict=True)`. Remove the xfail marks once core fixes the type probe.
+
 ### PyArrow lacks native `frame_aggregate`, `offset`, `percentile`, `rank`
 
 <!-- machine-checked
