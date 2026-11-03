@@ -36,9 +36,9 @@ class PolarsLazyFfill(Implementation[FfillFeatureGroup]):
         # Tag original row order so we can restore it after sorting.
         data = data.with_row_index(rn_col)
 
-        # Sort within partitions by order_by (nulls last).
+        # Sort within partitions by order_by (nulls last, ties keep input order).
         sort_null_last = pl.col(order_by).is_null().cast(pl.Int8)
-        ordered = data.sort(sort_null_last, order_by)
+        ordered = data.sort(sort_null_last, order_by, maintain_order=True)
 
         fill_expr = pl.col(source_col).forward_fill()
         if partition_by:

@@ -277,6 +277,28 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         assert normalized == EXPECTED_FFILL, f"per-partition result mismatch: {normalized!r}"
         assert normalized != NAIVE_WHOLE_TABLE_FFILL, "ffill bled across partitions (partition_by ignored)"
 
+    # -- Tied order values ---------------------------------------------------
+
+    def test_tied_order_matches_reference(self) -> None:
+        """Rows tied on order_by keep input order (the tie is deliberate, unlike the unique-ts fixture)."""
+        table = pa.table(
+            {
+                "g": ["a"] * 3,
+                "t": pa.array(
+                    [datetime(2023, 1, 2, tzinfo=_U), datetime(2023, 1, 2, tzinfo=_U), datetime(2023, 1, 1, tzinfo=_U)],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+                "v": pa.array([None, 2.0, 1.0], type=pa.float64()),
+            }
+        )
+        fs = make_feature_set("v__ffill", partition_by=["g"], order_by="t")
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        ref = self.reference_calculate(table, fs)
+
+        col = self.extract_column(result, "v__ffill")
+        assert [float(x) for x in col] == [1.0, 2.0, 1.0]
+        assert [float(x) for x in col] == [float(x) for x in ref.column("v__ffill").to_pylist()]
+
     # -- Row-preserving semantics -------------------------------------------
 
     def test_original_row_order_preserved(self) -> None:

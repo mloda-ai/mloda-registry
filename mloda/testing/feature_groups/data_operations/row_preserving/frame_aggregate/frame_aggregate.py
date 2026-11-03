@@ -1265,6 +1265,31 @@ class FrameAggregateTestBase(
         expected = [60, 50, 30] if self.orders_nan_before_none() else [40, 60, 30]
         assert self.extract_column(result, feature_name) == expected
 
+    @pytest.mark.parametrize(
+        "feature_name,expected",
+        [
+            ("v__cumsum", [4, 6, 3]),
+            ("v__sum_rolling_2", [4, 3, 3]),
+            ("v__sum_1_day_window", [4, 6, 3]),
+        ],
+    )
+    def test_tied_order_matches_reference(self, feature_name: str, expected: list[int]) -> None:
+        """Rows tied on order_by keep input order (the tie is deliberate)."""
+        day = [datetime(2023, 1, 2, tzinfo=timezone.utc)] * 2 + [datetime(2023, 1, 1, tzinfo=timezone.utc)]
+        table = pa.table(
+            {
+                "g": ["a"] * 3,
+                "t": pa.array(day, type=pa.timestamp("us", tz="UTC")),
+                "v": pa.array([1, 2, 3], type=pa.int64()),
+            }
+        )
+        self._skip_if_frame_feature_unsupported(feature_name, ["g"], "t")
+        fs = make_feature_set(feature_name, ["g"], "t")
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+
+        assert self.extract_column(result, feature_name) == expected
+        assert self.reference_calculate(table, fs).column(feature_name).to_pylist() == expected
+
     # No ``supported_agg_types`` exists on this base, so a feature's support is probed
     # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.
     def _skip_if_frame_feature_unsupported(self, feature_name: str, partition_by: list[str], order_by: str) -> None:

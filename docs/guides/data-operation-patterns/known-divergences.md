@@ -260,7 +260,7 @@ regression_test:
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
-- **How**: Polars `rolling_*_by` with `closed="both"` is value-based and includes every row whose `by` value equals the current row's value, even peers that come later in physical position. The reference uses `rows[:pos+1]` after a stable sort, excluding later peers. `polars_lazy_frame_aggregate.py` casts the `order_by` column to `datetime[ns]` and adds `pl.duration(nanoseconds=row_index)` into a temporary `__mloda_synth_ts__` column, then runs `rolling_*_by` on the synthetic column. The window string is extended by `{N}ns` (where N is total row count) so a peer at the exact lower bound is not lost to the offset. The synthetic column is dropped before returning. See `polars_lazy_frame_aggregate.py`.
+- **How**: Polars `rolling_*_by` with `closed="both"` is value-based and includes every row whose `by` value equals the current row's value, even peers that come later in physical position. The reference uses `rows[:pos+1]` after a stable sort, excluding later peers. `polars_lazy_frame_aggregate.py` casts the `order_by` column to `datetime[ns]` and adds `pl.duration(nanoseconds=row_index)` into a temporary `__mloda_synth_ts__` column, then runs `rolling_*_by` on the synthetic column; the preceding sort passes `maintain_order=True`, so tied rows keep input order. The window string is extended by `{N}ns` (where N is total row count) so a peer at the exact lower bound is not lost to the offset. The synthetic column is dropped before returning. See `polars_lazy_frame_aggregate.py`.
 
 ### SQLite + Pandas reject month/year time windows
 

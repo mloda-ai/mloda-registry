@@ -365,6 +365,23 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         # B seed: row 1 (07:00) value 10.0 -> ema 10.0.
         assert float(col[1]) == pytest.approx(10.0), f"B seed row 1 should be 10.0, got {col[1]!r}"
 
+    def test_tied_order_keeps_input_order(self) -> None:
+        """Rows tied on order_by keep input order (the tie is deliberate; no reference oracle exists)."""
+        table = pa.table(
+            {
+                "g": ["a"] * 3,
+                "t": pa.array(
+                    [datetime(2023, 1, 2, tzinfo=_U), datetime(2023, 1, 2, tzinfo=_U), datetime(2023, 1, 1, tzinfo=_U)],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+                "v": pa.array([1.0, 2.0, 3.0], type=pa.float64()),
+            }
+        )
+        fs = make_feature_set("v__ema_2", partition_by=["g"], order_by="t")
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        col = self.extract_column(result, "v__ema_2")
+        assert [float(x) for x in col] == pytest.approx([5 / 3, 17 / 9, 3.0])
+
     # -- Row-preserving semantics -------------------------------------------
 
     def test_original_row_order_preserved(self) -> None:
