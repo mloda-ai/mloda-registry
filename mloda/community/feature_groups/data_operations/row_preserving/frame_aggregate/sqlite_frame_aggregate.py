@@ -125,13 +125,18 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
-        return data.window(
+        original_cols = list(data.columns)
+        # rn breaks order_by ties by input position.
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        tagged = data.with_row_number(rn)
+        rel = tagged.window(
             f"{agg_func}({source_sql})",
             feature_name,
             partition_by=partition_by,
-            order_by=[OrderBy(order_by, nulls="last")],
+            order_by=[OrderBy(order_by, nulls="last"), rn],
             frame=frame,
         )
+        return rel.select(*original_cols, feature_name)
 
     @classmethod
     def _compute_time_frame(

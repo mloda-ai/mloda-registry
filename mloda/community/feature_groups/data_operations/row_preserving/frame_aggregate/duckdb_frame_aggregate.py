@@ -20,6 +20,7 @@ from mloda.community.feature_groups.data_operations.duckdb_helpers import (
     nan_policy_agg_sql,
     nan_policy_window,
     preserve_row_order,
+    with_input_position,
 )
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
@@ -119,16 +120,21 @@ class DuckdbFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 framework="DuckDB",
             )
 
-        return nan_policy_window(
+        # rn breaks order_by ties by input position.
+        return with_input_position(
             data,
-            source_col,
-            source_sql,
-            agg_type,
-            agg_func,
             feature_name,
-            partition_by=partition_by,
-            order_by=order_spec,
-            frame=frame,
+            lambda rel, rn: nan_policy_window(
+                rel,
+                source_col,
+                source_sql,
+                agg_type,
+                agg_func,
+                feature_name,
+                partition_by=partition_by,
+                order_by=[*order_spec, rn],
+                frame=frame,
+            ),
         )
 
     @classmethod

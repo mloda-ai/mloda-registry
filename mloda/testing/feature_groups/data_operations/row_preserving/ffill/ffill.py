@@ -279,16 +279,28 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
 
     # -- Tied order values ---------------------------------------------------
 
-    def test_tied_order_matches_reference(self) -> None:
+    @pytest.mark.parametrize(
+        "t_days,v,expected",
+        [
+            pytest.param([2, 2, 1], [None, 2.0, 1.0], [1.0, 2.0, 1.0], id="small"),
+            # long: all rows tied; DuckDB reorders ties at this size. Input order alternates null / non-null.
+            pytest.param(
+                [1] * 25,
+                [float(i) if i % 2 == 0 else None for i in range(25)],
+                [float(i - i % 2) for i in range(25)],
+                id="long",
+            ),
+        ],
+    )
+    def test_tied_order_matches_reference(
+        self, t_days: list[int], v: list[float | None], expected: list[float]
+    ) -> None:
         """Rows tied on order_by keep input order (the tie is deliberate, unlike the unique-ts fixture)."""
         table = pa.table(
             {
-                "g": ["a"] * 3,
-                "t": pa.array(
-                    [datetime(2023, 1, 2, tzinfo=_U), datetime(2023, 1, 2, tzinfo=_U), datetime(2023, 1, 1, tzinfo=_U)],
-                    type=pa.timestamp("us", tz="UTC"),
-                ),
-                "v": pa.array([None, 2.0, 1.0], type=pa.float64()),
+                "g": ["a"] * len(v),
+                "t": pa.array([datetime(2023, 1, d, tzinfo=_U) for d in t_days], type=pa.timestamp("us", tz="UTC")),
+                "v": pa.array(v, type=pa.float64()),
             }
         )
         fs = make_feature_set("v__ffill", partition_by=["g"], order_by="t")
@@ -296,7 +308,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         ref = self.reference_calculate(table, fs)
 
         col = self.extract_column(result, "v__ffill")
-        assert [float(x) for x in col] == [1.0, 2.0, 1.0]
+        assert [float(x) for x in col] == expected
         assert [float(x) for x in col] == [float(x) for x in ref.column("v__ffill").to_pylist()]
 
     # -- Row-preserving semantics -------------------------------------------

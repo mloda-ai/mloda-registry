@@ -35,6 +35,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -581,6 +582,32 @@ class WindowAggregationTestBase(
 
         result_col = self.extract_column(result, "value_int__last_window")
         assert result_col == EXPECTED_LAST_BY_REGION
+
+    # -- Tied order values ---------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "g,t,v,op,expected",
+        [
+            pytest.param(*TIE_SMALL, "first", [3.0] * 3, id="small-first"),
+            pytest.param(*TIE_SMALL, "last", [2.0] * 3, id="small-last"),
+            pytest.param(*TIE_LONG, "first", [0.0] * 25, id="long-first"),
+            pytest.param(*TIE_LONG, "last", [24.0] * 25, id="long-last"),
+        ],
+    )
+    def test_tied_order_matches_reference(
+        self, g: list[str], t: list[int], v: list[float], op: str, expected: list[float]
+    ) -> None:
+        """Tied order values keep input order for first and last."""
+        self._skip_if_unsupported(op)
+        table = pa.table({"g": g, "t": pa.array(t, type=pa.int64()), "v": pa.array(v, type=pa.float64())})
+        data = self.create_test_data(table)
+        fs = make_feature_set(f"v__{op}_window", ["g"], "t")
+        result = calculate_with(self.implementation_class(), data, fs)
+        ref = self.reference_calculate(table, fs)
+
+        result_col = self.extract_column(result, f"v__{op}_window")
+        assert result_col == expected
+        assert result_col == ref.column(f"v__{op}_window").to_pylist()
 
     # -- Null edge case tests ------------------------------------------------
 

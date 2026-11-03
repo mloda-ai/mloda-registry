@@ -1276,11 +1276,32 @@ class FrameAggregateTestBase(
     def test_tied_order_matches_reference(self, feature_name: str, expected: list[int]) -> None:
         """Rows tied on order_by keep input order (the tie is deliberate)."""
         day = [datetime(2023, 1, 2, tzinfo=timezone.utc)] * 2 + [datetime(2023, 1, 1, tzinfo=timezone.utc)]
+        self._assert_tied_order_matches_reference(feature_name, day, [1, 2, 3], expected)
+
+    @pytest.mark.parametrize(
+        "feature_name,expected",
+        [
+            # long: all 25 rows tied, v = range(25); DuckDB reorders ties at this size.
+            pytest.param("v__cumsum", [i * (i + 1) // 2 for i in range(25)], id="long-cumsum"),
+            pytest.param("v__expanding_sum", [i * (i + 1) // 2 for i in range(25)], id="long-expanding_sum"),
+            pytest.param(
+                "v__sum_rolling_3", [sum(range(max(0, i - 2), i + 1)) for i in range(25)], id="long-sum_rolling_3"
+            ),
+        ],
+    )
+    def test_tied_order_long_matches_reference(self, feature_name: str, expected: list[int]) -> None:
+        """25 all-tied rows keep input order in cumulative, expanding and rolling frames."""
+        day = [datetime(2023, 1, 1, tzinfo=timezone.utc)] * 25
+        self._assert_tied_order_matches_reference(feature_name, day, list(range(25)), expected)
+
+    def _assert_tied_order_matches_reference(
+        self, feature_name: str, day: list[datetime], v: list[int], expected: list[int]
+    ) -> None:
         table = pa.table(
             {
-                "g": ["a"] * 3,
+                "g": ["a"] * len(v),
                 "t": pa.array(day, type=pa.timestamp("us", tz="UTC")),
-                "v": pa.array([1, 2, 3], type=pa.int64()),
+                "v": pa.array(v, type=pa.int64()),
             }
         )
         self._skip_if_frame_feature_unsupported(feature_name, ["g"], "t")

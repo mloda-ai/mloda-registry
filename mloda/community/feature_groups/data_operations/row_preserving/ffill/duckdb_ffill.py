@@ -15,6 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import with_input_position
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
@@ -45,7 +46,17 @@ class DuckdbFfill(Implementation[FfillFeatureGroup]):
         # the typed window helper; only the aggregate expression is a raw fragment
         # (mirroring frame_aggregate's ``f"{agg_func}({source_sql})"``).
         func = f"LAST_VALUE({quoted_source} IGNORE NULLS)"
-        order_spec: list[OrderBy] = [OrderBy(order_by)]
         frame = WindowFrame("rows", Unbounded(), CurrentRow())
 
-        return data.window(func, feature_name, partition_by=partition_by, order_by=order_spec, frame=frame)
+        # rn breaks order_by ties by input position.
+        return with_input_position(
+            data,
+            feature_name,
+            lambda rel, rn: rel.window(
+                func,
+                feature_name,
+                partition_by=partition_by,
+                order_by=[OrderBy(order_by, nulls="last"), rn],
+                frame=frame,
+            ),
+        )

@@ -53,11 +53,14 @@ class SqliteFfill(Implementation[FfillFeatureGroup]):
         quoted_source = quote_ident(source_col)
 
         # Step 1: fill-group id via a running COUNT over the ordered partition.
-        rel = data.window(
+        # rn breaks order_by ties by input position.
+        rn = pick_helper_column_name(taken=taken | {grp})
+        tagged = data.with_row_number(rn)
+        rel = tagged.window(
             f"COUNT({quoted_source})",
             grp,
             partition_by=partition_by,
-            order_by=[OrderBy(order_by, nulls="last")],
+            order_by=[OrderBy(order_by, nulls="last"), rn],
             frame=WindowFrame("rows", Unbounded(), CurrentRow()),
         )
 

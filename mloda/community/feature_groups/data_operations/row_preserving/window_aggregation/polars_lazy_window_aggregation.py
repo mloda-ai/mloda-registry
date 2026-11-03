@@ -113,7 +113,7 @@ class PolarsLazyWindowAggregation(Implementation[WindowAggregationFeatureGroup])
         """Build a Polars expression for first/last with deterministic ordering."""
         base = pl.col(source_col)
         if order_by:
-            base = base.sort_by(order_by, nulls_last=True)
+            base = base.sort_by(order_by, nulls_last=True, maintain_order=True)
         base = base.drop_nulls()
         if agg_type == "first":
             return base.first().over(partition_by).alias(feature_name)
