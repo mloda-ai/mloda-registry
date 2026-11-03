@@ -386,7 +386,7 @@ class BinaryModelMixin:
             )
         if list_resolved is None:
             empty = pa.table({name: pa.array([], type=pa.string()) for name in output_columns.values()})
-            return _nest_outputs(empty, sources, column.type)
+            return _nest_outputs(_finalize_output(empty, table), sources, column.type)
         flat_table = pa.table({list_name: pa.chunked_array(flat_chunks, type=column.type.value_type)})
         result = cls._run_flat(list_resolved, flat_table, input_columns, operation, parameters, output_columns, table)
         return _nest_outputs(result, sources, column.type)

@@ -667,13 +667,20 @@ class TestListUtf8InputColumn:
         ],
     )
     @pytest.mark.parametrize("make_type", [pa.list_, pa.large_list], ids=["list", "large_list"])
-    def test_no_elements_never_starts_the_binary(self, rows: list[Any], make_type: Any) -> None:
-        list_type = make_type(pa.large_string())
+    @pytest.mark.parametrize(
+        "value_type",
+        [pa.string(), pa.large_string()],
+        ids=["string", "large_string"],
+    )
+    def test_no_elements_never_starts_the_binary(
+        self, rows: list[Any], make_type: Any, value_type: pa.DataType
+    ) -> None:
+        list_type = make_type(value_type)
         table = pa.table({"col_a": pa.array(rows, type=list_type)})
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
         result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         out = result.column("col_a_hash")
-        assert out.type == make_type(pa.string())
+        assert out.type == make_type(value_type)
         assert out.to_pylist() == rows
 
     def test_chunked_input_keeps_chunk_layout(self) -> None:
