@@ -20,15 +20,16 @@ class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
     def implementation_class(cls) -> Any:
         return SqliteOffset
 
+    @pytest.mark.parametrize("source_type", [pa.int64(), pa.float64()])
     @pytest.mark.parametrize("op", ["first_value", "last_value"])
-    def test_all_null_int_source_keeps_int64_type(self, op: str) -> None:
-        # Matches DuckDB, pinned.
-        table = pa.table({"region": ["A"] * 3, "score": pa.array([None] * 3, type=pa.int64())})
+    def test_all_null_source_keeps_source_type(self, op: str, source_type: pa.DataType) -> None:
+        # Keeps the source type, as DuckDB does; the reference gives a null-typed column.
+        table = pa.table({"region": ["A"] * 3, "score": pa.array([None] * 3, type=source_type)})
         data = self.create_test_data(table)
         fs = make_feature_set(f"score__{op}_offset", ["region"], "score")
         result = calculate_with(self.implementation_class(), data, fs)
 
-        assert result.to_arrow_table().schema.field(f"score__{op}_offset").type == pa.int64()
+        assert result.to_arrow_table().schema.field(f"score__{op}_offset").type == source_type
 
 
 class TestSqliteOffsetViewInput(SqliteViewTestMixin, TestSqliteOffset):

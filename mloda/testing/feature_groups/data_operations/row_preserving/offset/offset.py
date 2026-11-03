@@ -312,12 +312,18 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             pytest.param(*_TIE_SMALL, "lead_1", [2.0, None, 1.0], id="small-lead_1"),
             pytest.param(*_TIE_LONG, "lag_1", [None] + [float(i) for i in range(24)], id="long-lag_1"),
             pytest.param(*_TIE_LONG, "lead_1", [float(i) for i in range(1, 25)] + [None], id="long-lead_1"),
+            pytest.param(*_TIE_LONG, "diff_1", [None] + [1.0] * 24, id="long-diff_1"),
+            pytest.param(
+                *_TIE_LONG, "pct_change_1", [None, None] + [1.0 / (i - 1) for i in range(2, 25)], id="long-pct_change_1"
+            ),
         ],
     )
     def test_tied_order_matches_reference(
         self, g: list[str], t: list[int | None], v: list[float | None], op: str, expected: list[float | None]
     ) -> None:
         """Tied order values keep input order for every offset type."""
+        if op.startswith(("diff", "pct_change")):
+            self._skip_if_unsupported(op.rsplit("_", 1)[0])
         table = pa.table({"g": g, "t": pa.array(t, type=pa.int64()), "v": pa.array(v, type=pa.float64())})
         data = self.create_test_data(table)
         fs = make_feature_set(f"v__{op}_offset", ["g"], "t")
@@ -325,8 +331,13 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         ref = self.reference_calculate(table, fs)
 
         result_col = self.extract_column(result, f"v__{op}_offset")
-        assert result_col == expected
-        assert result_col == extract_column(ref, f"v__{op}_offset")
+        ref_col = extract_column(ref, f"v__{op}_offset")
+        if op.startswith("pct_change"):
+            assert result_col == pytest.approx(expected)
+            assert result_col == pytest.approx(ref_col)
+        else:
+            assert result_col == expected
+            assert result_col == ref_col
 
     # -- All-null column tests -----------------------------------------------
 
