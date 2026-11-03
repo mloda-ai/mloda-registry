@@ -506,7 +506,7 @@ def test_optional_backends_matches_packages_config_declared_frameworks() -> None
 def _manifest_module_names() -> list[str]:
     """Dotted module names for every manifest.py under the data_operations root."""
     return sorted(
-        str(path.relative_to(_REPO_ROOT).with_suffix("")).replace("/", ".")
+        path.relative_to(_REPO_ROOT).with_suffix("").as_posix().replace("/", ".")
         for path in _DATA_OPERATIONS_ROOT.rglob("manifest.py")
     )
 
