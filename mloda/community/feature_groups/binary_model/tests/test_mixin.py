@@ -530,17 +530,23 @@ class TestBinaryReportedErrors:
         assert caught.value.message == f"MLODA_LICENSE_KEY: {caught.value.reason}"
 
     @pytest.mark.parametrize(
-        ("source", "missing_file"),
+        ("source", "missing_file", "relative_file"),
         [
-            ("MLODA_LICENSE_FILE", False),
-            ("MLODA_LICENSE_FILE", True),
-            ("LICENSE_FILE_OVERRIDE", False),
-            ("LICENSE_FILE_OVERRIDE", True),
-            ("LICENSE_KEY_OVERRIDE", False),
+            ("MLODA_LICENSE_FILE", False, False),
+            ("MLODA_LICENSE_FILE", True, False),
+            ("LICENSE_FILE_OVERRIDE", False, False),
+            ("LICENSE_FILE_OVERRIDE", True, False),
+            ("LICENSE_KEY_OVERRIDE", False, False),
+            pytest.param("LICENSE_FILE_OVERRIDE", True, True, id="relative_file_override"),
         ],
     )
     def test_license_error_names_the_source_used_for_this_run(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, source: LicenseSource, missing_file: bool
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        source: LicenseSource,
+        missing_file: bool,
+        relative_file: bool,
     ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.setenv("MLODA_LICENSE_KEY", valid_license_token([PLUGIN_ID]))
@@ -548,9 +554,12 @@ class TestBinaryReportedErrors:
         expired = expired_license_token([PLUGIN_ID])
         if not missing_file:
             license_path.write_text(expired, encoding="utf-8")
+        if relative_file:
+            monkeypatch.chdir(tmp_path)
+        override_file = license_path.name if relative_file else str(license_path)
 
         class _LicenseSourceModel(_NoLicenseStubModel):
-            LICENSE_FILE_OVERRIDE = str(license_path) if source == "LICENSE_FILE_OVERRIDE" else None
+            LICENSE_FILE_OVERRIDE = override_file if source == "LICENSE_FILE_OVERRIDE" else None
             LICENSE_KEY_OVERRIDE = expired if source == "LICENSE_KEY_OVERRIDE" else None
 
         if source == "MLODA_LICENSE_FILE":
