@@ -610,7 +610,7 @@ class TestBinaryReportedErrors:
         class _ChangingLicenseModel(_NoLicenseStubModel):
             LICENSE_KEY_OVERRIDE = expired_license_token([PLUGIN_ID])
 
-        real_run = mixin.run_binary
+        real_run = transport.run_binary
 
         def change_source_during_run(*args: Any, **kwargs: Any) -> bytes:
             monkeypatch.setattr(_ChangingLicenseModel, "LICENSE_KEY_OVERRIDE", None)
