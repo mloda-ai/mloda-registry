@@ -26,6 +26,8 @@ from mloda.testing.binary_model.conformance import (
     COLUMN_TYPES,
     DATA_ERROR,
     DATA_FREE_MARKER,
+    LICENSE_INVALID,
+    LICENSE_MISSING,
     USAGE_ERROR,
     BinaryModelConformanceBase,
     HashOperationConformanceMixin,
@@ -67,6 +69,43 @@ _FLOAT_SCHEMA_VERSION_MARKER = "marker-float-schema-version-license-text"
 
 
 class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConformanceBase):
+    @pytest.mark.parametrize("case", ["no_source", "key", "file", "missing_file", "directory"])
+    def test_simulated_binary_license_errors_include_reason_and_source(
+        self, valid_config_path: Path, tmp_path: Path, case: str
+    ) -> None:
+        environment: dict[str, str] = {}
+        source = None
+        code = LICENSE_INVALID
+        reason = "license token is not a PASETO v4.public token"
+        message = reason
+        if case == "no_source":
+            code = LICENSE_MISSING
+            reason = message = "no license source set (MLODA_LICENSE_FILE or MLODA_LICENSE_KEY)"
+        elif case == "key":
+            source = _LICENSE_KEY
+            environment[source] = self.tampered_unparseable_text
+            message = f"{source}: {reason}"
+        else:
+            source = _LICENSE_FILE
+            license_path = tmp_path / "license file"
+            environment[source] = str(license_path)
+            if case == "file":
+                license_path.write_text(self.tampered_unparseable_text, encoding="utf-8")
+                message = f"{source}: {reason}"
+            elif case == "missing_file":
+                code = LICENSE_MISSING
+                reason = "not found"
+                message = f"{source} {license_path}: {reason}"
+            else:
+                license_path.mkdir()
+                reason = "not a regular file"
+                message = f"{source} {license_path}: {reason}"
+        result = self._kit_run_with_config(valid_config_path, self.platform_env(environment))
+        error = assert_error_response(result, code)
+        assert error["reason"] == reason
+        assert error["source"] == source
+        assert error["message"] == message
+
     def test_simulated_binary_input_invalid_utf8_is_data_error(
         self, valid_config_path: Path, valid_license_env: dict[str, str]
     ) -> None:
@@ -359,6 +398,33 @@ def test_assert_error_response_rejects_boolean_true_code() -> None:
     result = subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b'{"code": true, "message": "m"}\n')
     with pytest.raises(AssertionError):
         assert_error_response(result, 1)
+
+
+@pytest.mark.parametrize("code", [LICENSE_MISSING, LICENSE_INVALID])
+def test_assert_error_response_accepts_legacy_license_error_without_optional_fields(code: int) -> None:
+    payload = {"code": code, "message": "MLODA_LICENSE_FILE: license rejected"}
+    result = subprocess.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=json.dumps(payload).encode())
+    assert assert_error_response(result, code) == payload
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"reason": None}, id="null_reason"),
+        pytest.param({"reason": 42}, id="non_string_reason"),
+        pytest.param({"reason": ""}, id="empty_reason"),
+        pytest.param({"reason": "x" * 1025}, id="oversized_reason"),
+        pytest.param({"source": "unknown"}, id="unknown_source"),
+        pytest.param({"source": []}, id="non_string_source"),
+    ],
+)
+def test_assert_error_response_rejects_invalid_optional_license_fields(fields: dict[str, Any]) -> None:
+    payload = {"code": LICENSE_INVALID, "message": "license rejected", **fields}
+    result = subprocess.CompletedProcess(
+        args=[], returncode=LICENSE_INVALID, stdout=b"", stderr=json.dumps(payload).encode()
+    )
+    with pytest.raises(AssertionError):
+        assert_error_response(result, LICENSE_INVALID)
 
 
 def test_assert_not_rejected_with_rejects_float_code_equal_to_returncode() -> None:

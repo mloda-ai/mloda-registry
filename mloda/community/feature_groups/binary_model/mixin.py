@@ -9,8 +9,9 @@ verifying the binary's output against the contract before it reaches the caller.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping, Sequence
-from typing import Any, BinaryIO, ClassVar, Literal
+from typing import Any, BinaryIO, ClassVar
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -21,14 +22,15 @@ from mloda.community.feature_groups.binary_model.errors import (
     BinaryModelError,
     BinaryUsageError,
     DataError,
+    LicenseInvalidError,
+    LicenseMissingError,
     OutputContractError,
     UnsupportedError,
 )
+from mloda.community.feature_groups.binary_model.errors import LicenseSource as LicenseSource
 from mloda.community.feature_groups.binary_model.transport import InvocationDirectory, minimal_environment, run_binary
 
 logger = logging.getLogger(__name__)
-
-LicenseSource = Literal["MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY", "LICENSE_FILE_OVERRIDE", "LICENSE_KEY_OVERRIDE"]
 
 _STRING_CELL_BYTE_LIMIT = 2**31 - 1
 
@@ -334,11 +336,21 @@ class BinaryModelMixin:
     def license_source(cls) -> LicenseSource | None:
         """The source the binary reads its license from, never its value (contract: License); a fallback
         added in an overridden ``binary_environment`` is not seen."""
-        environment = cls._forwarded_environment()
-        if "MLODA_LICENSE_FILE" in environment:
-            return "LICENSE_FILE_OVERRIDE" if cls.LICENSE_FILE_OVERRIDE else "MLODA_LICENSE_FILE"
-        if "MLODA_LICENSE_KEY" in environment:
-            return "LICENSE_KEY_OVERRIDE" if cls.LICENSE_KEY_OVERRIDE else "MLODA_LICENSE_KEY"
+        return cls._license_source_from_environment(cls._forwarded_environment())
+
+    @classmethod
+    def _license_source_from_environment(cls, environment: Mapping[str, str]) -> LicenseSource | None:
+        """Identify the selected source; an override counts only while its forwarded value is unchanged."""
+        if environment.get("MLODA_LICENSE_FILE"):
+            if cls.LICENSE_FILE_OVERRIDE and environment["MLODA_LICENSE_FILE"] == os.path.abspath(
+                cls.LICENSE_FILE_OVERRIDE
+            ):
+                return "LICENSE_FILE_OVERRIDE"
+            return "MLODA_LICENSE_FILE"
+        if environment.get("MLODA_LICENSE_KEY"):
+            if cls.LICENSE_KEY_OVERRIDE and environment["MLODA_LICENSE_KEY"] == cls.LICENSE_KEY_OVERRIDE:
+                return "LICENSE_KEY_OVERRIDE"
+            return "MLODA_LICENSE_KEY"
         return None
 
     @classmethod
@@ -418,10 +430,12 @@ class BinaryModelMixin:
         }
 
         with InvocationDirectory() as invocation:
+            environment = cls.binary_environment()
+            license_source = cls._license_source_from_environment(environment)
             try:
                 output_bytes = run_binary(
                     resolved.argv,
-                    cls.binary_environment(),
+                    environment,
                     config,
                     lambda sink: _write_ipc_stream(
                         outgoing, cls.MAX_BATCH_BYTES, sink, max_batch_rows=cls.MAX_BATCH_ROWS
@@ -432,6 +446,8 @@ class BinaryModelMixin:
                     invocation_dir=invocation.path,
                 )
             except BinaryModelError as exc:
+                if isinstance(exc, (LicenseMissingError, LicenseInvalidError)):
+                    exc.source = license_source
                 logger.debug(
                     "binary %s version %s failed with code %s",
                     resolved.capabilities.plugin_id,

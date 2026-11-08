@@ -25,6 +25,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     UnsupportedError,
     error_from_exit,
 )
+from mloda.community.feature_groups.binary_model.mixin import LicenseSource
 
 # (error class, expected CODE): every subclass, including the two mixin-initiated ones
 # (``BinaryTerminatedError``, ``OutputContractError``) that share code 6 with
@@ -92,6 +93,79 @@ def test_error_class_by_code_matches_contract_exit_code_constants(
 
 def _stderr_line(code: int, message: str) -> bytes:
     return (json.dumps({"code": code, "message": message}) + "\n").encode("utf-8")
+
+
+@pytest.mark.parametrize("error_class", [LicenseMissingError, LicenseInvalidError])
+def test_license_error_constructor_keeps_message_only_compatibility(
+    error_class: type[LicenseMissingError] | type[LicenseInvalidError],
+) -> None:
+    exc = error_class("license rejected: contact the issuer")
+    assert exc.reason == "license rejected: contact the issuer"
+    assert exc.source is None
+    assert exc.message == str(exc) == exc.args[0] == "license rejected: contact the issuer"
+
+
+@pytest.mark.parametrize("code", [contract.LICENSE_MISSING, contract.LICENSE_INVALID])
+@pytest.mark.parametrize(
+    ("message", "reason", "source"),
+    [
+        pytest.param("no license source set", "no license source set", None, id="no_source"),
+        pytest.param(
+            "MLODA_LICENSE_KEY: license expired: renew it",
+            "license expired: renew it",
+            "MLODA_LICENSE_KEY",
+            id="key",
+        ),
+        pytest.param("MLODA_LICENSE_FILE: invalid token", "invalid token", "MLODA_LICENSE_FILE", id="file"),
+        pytest.param(
+            "MLODA_LICENSE_FILE /tmp/my license.txt: not found", "not found", "MLODA_LICENSE_FILE", id="file_path"
+        ),
+        pytest.param("issuer: license rejected", "issuer: license rejected", None, id="unrecognized_prefix"),
+    ],
+)
+def test_license_error_legacy_message_exposes_reason_and_source(
+    code: int, message: str, reason: str, source: LicenseSource | None
+) -> None:
+    exc = error_from_exit(code, _stderr_line(code, message))
+    assert isinstance(exc, (LicenseMissingError, LicenseInvalidError))
+    assert exc.reason == reason
+    assert exc.source == source
+    assert exc.message == str(exc) == message
+
+
+@pytest.mark.parametrize("code", [contract.LICENSE_MISSING, contract.LICENSE_INVALID])
+def test_license_error_prefers_structured_fields_without_parsing_message(code: int) -> None:
+    message = "validation failed for the supplied credential"
+    reason = "license expired: renew it — 更新"
+    stderr = json.dumps({"code": code, "message": message, "reason": reason, "source": "MLODA_LICENSE_KEY"}).encode(
+        "utf-8"
+    )
+    exc = error_from_exit(code, stderr)
+    assert isinstance(exc, (LicenseMissingError, LicenseInvalidError))
+    assert exc.reason == reason
+    assert exc.source == "MLODA_LICENSE_KEY"
+    assert exc.message == str(exc) == message
+
+
+@pytest.mark.parametrize("reason, source", [(None, []), (42, "unknown source"), ("", False)])
+def test_license_error_invalid_optional_fields_do_not_break_legacy_mapping(reason: object, source: object) -> None:
+    message = "MLODA_LICENSE_FILE: license expired"
+    stderr = json.dumps({"code": 3, "message": message, "reason": reason, "source": source}).encode("utf-8")
+    exc = error_from_exit(3, stderr)
+    assert isinstance(exc, LicenseInvalidError)
+    assert exc.reason == "license expired"
+    assert exc.source == "MLODA_LICENSE_FILE"
+    assert exc.message == message
+
+
+@pytest.mark.parametrize("reason", ["☃" * 500, "\ud800"], ids=["oversized_utf8", "lone_surrogate"])
+def test_license_error_structured_reason_respects_message_safety_bounds(reason: str) -> None:
+    stderr = json.dumps({"code": 3, "message": "license invalid", "reason": reason}).encode("utf-8")
+    exc = error_from_exit(3, stderr)
+    assert isinstance(exc, LicenseInvalidError)
+    assert exc.reason == contract.truncate_message(reason)
+    assert len(exc.reason.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
+    assert exc.message == "license invalid"
 
 
 @pytest.mark.parametrize("code", [1, 2, 3, 4, 5, 6])

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     # Imported inside the run-path functions so --version and --capabilities skip the pyarrow import.
     import pyarrow as pa
 
+from mloda.community.feature_groups.binary_model.errors import LicenseSource
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
     CONTRACT_VERSION,
@@ -169,11 +170,15 @@ class _CliError(Exception):
     always run through ``_truncate_message`` so every error path respects the 1024-byte cap, since
     several messages interpolate caller-controlled data whose length is not otherwise bounded."""
 
-    def __init__(self, code: int, message: str) -> None:
+    def __init__(
+        self, code: int, message: str, *, reason: str | None = None, source: LicenseSource | None = None
+    ) -> None:
         message = _truncate_message(message)
         super().__init__(message)
         self.code = code
         self.message = message
+        self.reason = message if reason is None else _truncate_message(reason)
+        self.source = source
 
 
 class _ReservedConformanceInternalError(Exception):
@@ -270,22 +275,38 @@ def _parse_run_args(args: list[str]) -> _RunArgs:
     )
 
 
-def _license_source() -> tuple[str, str]:
+def _license_source() -> tuple[LicenseSource, str]:
     """Return (source_name, token_text), the first of MLODA_LICENSE_FILE / MLODA_LICENSE_KEY set
     to a non-empty value (contract: License). Raises code 2 if neither is usable."""
     file_value = os.environ.get("MLODA_LICENSE_FILE", "")
     if file_value:
         path = Path(file_value)
         if not path.exists():
-            raise _CliError(LICENSE_MISSING, f"MLODA_LICENSE_FILE {file_value}: not found")
+            raise _CliError(
+                LICENSE_MISSING,
+                f"MLODA_LICENSE_FILE {file_value}: not found",
+                reason="not found",
+                source="MLODA_LICENSE_FILE",
+            )
         if not path.is_file():
-            raise _CliError(LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not a regular file")
+            raise _CliError(
+                LICENSE_INVALID,
+                f"MLODA_LICENSE_FILE {file_value}: not a regular file",
+                reason="not a regular file",
+                source="MLODA_LICENSE_FILE",
+            )
         try:
             return "MLODA_LICENSE_FILE", path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             # UnicodeDecodeError isn't an OSError, but undecodable content is "set but unusable"
             # (contract: License), same as any other unreadable-content failure: code 3, not a crash.
-            raise _CliError(LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not readable ({exc})") from exc
+            reason = f"not readable ({exc})"
+            raise _CliError(
+                LICENSE_INVALID,
+                f"MLODA_LICENSE_FILE {file_value}: {reason}",
+                reason=reason,
+                source="MLODA_LICENSE_FILE",
+            ) from exc
 
     key_value = os.environ.get("MLODA_LICENSE_KEY", "")
     if key_value:
@@ -313,7 +334,7 @@ def _check_license(binary: FakeBinary) -> None:
             release_date=RELEASE_DATE,
         )
     except license_token.LicenseVerificationError as exc:
-        raise _CliError(LICENSE_INVALID, f"{source_name}: {exc.reason}") from exc
+        raise _CliError(LICENSE_INVALID, f"{source_name}: {exc.reason}", reason=exc.reason, source=source_name) from exc
     if verified.in_grace:
         print(f"{source_name}: license accepted inside its grace window", file=sys.stderr)
 
@@ -623,8 +644,11 @@ def _dispatch(binary: FakeBinary, argv: list[str]) -> int:
     )
 
 
-def _emit_error(code: int, message: str) -> None:
-    print(json.dumps({"code": code, "message": message}), file=sys.stderr)
+def _emit_error(code: int, message: str, *, reason: str | None = None, source: LicenseSource | None = None) -> None:
+    payload: dict[str, Any] = {"code": code, "message": message}
+    if code in (LICENSE_MISSING, LICENSE_INVALID):
+        payload.update(reason=message if reason is None else reason, source=source)
+    print(json.dumps(payload), file=sys.stderr)
 
 
 def _reconfigure_streams_utf8_lf() -> None:
@@ -646,7 +670,7 @@ def main(binary: FakeBinary = EXAMPLE_BINARY) -> int:
     try:
         return _dispatch(binary, sys.argv[1:])
     except _CliError as exc:
-        _emit_error(exc.code, exc.message)
+        _emit_error(exc.code, exc.message, reason=exc.reason, source=exc.source)
         return exc.code
     except Exception as exc:
         # Only the exception's class name is reported, never str(exc), which is unbounded and

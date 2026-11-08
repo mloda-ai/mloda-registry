@@ -510,14 +510,111 @@ class TestBinaryReportedErrors:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseMissingError):
+        with pytest.raises(LicenseMissingError) as caught:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert caught.value.source is None
+        assert (
+            caught.value.reason
+            == caught.value.message
+            == "no license source set (MLODA_LICENSE_FILE or MLODA_LICENSE_KEY)"
+        )
 
     def test_expired_license_raises_license_invalid_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError):
+        with pytest.raises(LicenseInvalidError) as caught:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert caught.value.source == "MLODA_LICENSE_KEY"
+        assert caught.value.reason.startswith("license expired:")
+        assert caught.value.message == f"MLODA_LICENSE_KEY: {caught.value.reason}"
+
+    @pytest.mark.parametrize(
+        ("source", "missing_file"),
+        [
+            ("MLODA_LICENSE_FILE", False),
+            ("MLODA_LICENSE_FILE", True),
+            ("LICENSE_FILE_OVERRIDE", False),
+            ("LICENSE_FILE_OVERRIDE", True),
+            ("LICENSE_KEY_OVERRIDE", False),
+        ],
+    )
+    def test_license_error_names_the_source_used_for_this_run(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, source: LicenseSource, missing_file: bool
+    ) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+        monkeypatch.setenv("MLODA_LICENSE_KEY", valid_license_token([PLUGIN_ID]))
+        license_path = tmp_path / "license.txt"
+        expired = expired_license_token([PLUGIN_ID])
+        if not missing_file:
+            license_path.write_text(expired, encoding="utf-8")
+
+        class _LicenseSourceModel(_NoLicenseStubModel):
+            LICENSE_FILE_OVERRIDE = str(license_path) if source == "LICENSE_FILE_OVERRIDE" else None
+            LICENSE_KEY_OVERRIDE = expired if source == "LICENSE_KEY_OVERRIDE" else None
+
+        if source == "MLODA_LICENSE_FILE":
+            monkeypatch.setenv("MLODA_LICENSE_FILE", str(license_path))
+        elif source == "LICENSE_KEY_OVERRIDE":
+            monkeypatch.setenv("MLODA_LICENSE_FILE", str(tmp_path / "ignored-ambient-file"))
+        table = pa.table({"col_a": ["alpha"]})
+        error_class = LicenseMissingError if missing_file else LicenseInvalidError
+        with pytest.raises(error_class) as caught:
+            _LicenseSourceModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert caught.value.source == source
+        if missing_file:
+            assert caught.value.reason == "not found"
+            assert caught.value.message == f"MLODA_LICENSE_FILE {license_path}: not found"
+        else:
+            assert caught.value.reason.startswith("license expired:")
+            channel = "MLODA_LICENSE_KEY" if source == "LICENSE_KEY_OVERRIDE" else "MLODA_LICENSE_FILE"
+            assert caught.value.message == f"{channel}: {caught.value.reason}"
+
+    @pytest.mark.parametrize("replace_override", [False, True], ids=["fallback", "replaced_override"])
+    def test_license_error_source_sees_subclass_environment(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, replace_override: bool
+    ) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+        fallback_path = tmp_path / "fallback-license.txt"
+
+        class _FallbackLicenseModel(_NoLicenseStubModel):
+            LICENSE_FILE_OVERRIDE = str(tmp_path / "unused-license.txt") if replace_override else None
+
+            @classmethod
+            def binary_environment(cls) -> dict[str, str]:
+                environment = super().binary_environment()
+                environment["MLODA_LICENSE_FILE"] = str(fallback_path)
+                return environment
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(LicenseMissingError) as caught:
+            _FallbackLicenseModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert caught.value.source == "MLODA_LICENSE_FILE"
+        assert caught.value.reason == "not found"
+        assert caught.value.message == f"MLODA_LICENSE_FILE {fallback_path}: not found"
+
+    def test_license_error_source_is_snapshotted_before_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+
+        class _ChangingLicenseModel(_NoLicenseStubModel):
+            LICENSE_KEY_OVERRIDE = expired_license_token([PLUGIN_ID])
+
+        real_run = mixin.run_binary
+
+        def change_source_during_run(*args: Any, **kwargs: Any) -> bytes:
+            monkeypatch.setattr(_ChangingLicenseModel, "LICENSE_KEY_OVERRIDE", None)
+            monkeypatch.setenv("MLODA_LICENSE_FILE", "/changed-after-launch/license.txt")
+            return real_run(*args, **kwargs)
+
+        monkeypatch.setattr(mixin, "run_binary", change_source_during_run)
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(LicenseInvalidError) as caught:
+            _ChangingLicenseModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert caught.value.source == "LICENSE_KEY_OVERRIDE"
+        assert caught.value.reason.startswith("license expired:")
+        assert caught.value.message == f"MLODA_LICENSE_KEY: {caught.value.reason}"
 
     def test_hanging_binary_raises_binary_terminated_error(self) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)

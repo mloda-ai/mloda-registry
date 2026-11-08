@@ -37,7 +37,7 @@ import pytest
 
 from mloda.community.feature_groups.binary_model import binary
 from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
-from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, reported_error
+from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, is_license_source, reported_error
 from mloda.community.feature_groups.binary_model.mixin import classify_column_type
 from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.testing.binary_model import (
@@ -184,7 +184,8 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     """Assert the process exited with ``expected_code`` and stderr's last line is a parseable error
     object with a matching, non-empty ``message`` within the contract's size caps (``message`` <=
     ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, stderr <= ``STDERR_SOFT_CAP_BYTES`` (64 KiB))
-    (contract: Errors, Data handling). Returns the parsed error object."""
+    (contract: Errors, Data handling). Optional license ``reason`` and ``source`` fields are
+    checked when present; legacy errors need not supply them. Returns the parsed error object."""
     assert result.returncode == expected_code, (
         f"expected exit code {expected_code}, got {result.returncode}; stderr={result.stderr!r}"
     )
@@ -199,6 +200,16 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     assert len(result.stderr) <= STDERR_SOFT_CAP_BYTES, (
         f"stderr exceeds the {STDERR_SOFT_CAP_BYTES}-byte soft cap: {len(result.stderr)} bytes"
     )
+    if expected_code in (LICENSE_MISSING, LICENSE_INVALID):
+        if "reason" in error:
+            reason = error["reason"]
+            assert isinstance(reason, str) and reason, f"license error reason must be a non-empty string: {error!r}"
+            assert len(reason.encode("utf-8")) <= MESSAGE_MAX_BYTES, (
+                f"license error reason exceeds the {MESSAGE_MAX_BYTES}-byte cap"
+            )
+        if "source" in error:
+            source = error["source"]
+            assert source is None or is_license_source(source), f"license error source is not recognized: {error!r}"
     assert reported_error(result.returncode, result.stderr) is not None, (
         f"error object is not a mixin-parseable error (the mixin would treat it as unparseable): {error!r}"
     )
