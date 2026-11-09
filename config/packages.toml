@@ -34,8 +34,9 @@ py_typed = true
 # enterprise bundle. mloda-testing[binary-model] (the simulated binary and the conformance kit) is a dev
 # dependency only: nothing under mloda/community or mloda/enterprise imports mloda.testing at runtime.
 # The contract rules (constants, line/stream parsing) live in the mixin's own
-# mloda.community.feature_groups.binary_model.contract; mloda-testing[binary-model] takes them from
-# the mixin package, never the reverse.
+# mloda.community.feature_groups.binary_model.contract, and the license token module lives in
+# mloda.enterprise.licensing; mloda-testing[binary-model] takes both from those packages (the mixin
+# package and mloda-enterprise[ed25519]), never the reverse.
 
 [packages.mloda-community-binary-model]
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"
@@ -353,7 +354,8 @@ optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry
 py_typed = true
 
 # mloda-testing[binary-model] pins the mixin package (the kit checks binaries with the mixin's own
-# parsers), and every other package names mloda-testing only in a dev extra.
+# parsers) and mloda-enterprise[ed25519] (the license token module), and every other package names
+# mloda-testing only in a dev extra.
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
@@ -361,5 +363,5 @@ keywords = ["testing", "pytest"]
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow>=14.0.1"]
 path = "mloda/testing"
 published = true
-optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.36,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community-binary-model>={version}"] }
+optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.36,<2"], binary-model = ["pyarrow>=25", "mloda-enterprise[ed25519]>={version}", "mloda-community-binary-model>={version}"] }
 py_typed = true

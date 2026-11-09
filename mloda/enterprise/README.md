@@ -4,7 +4,7 @@ All enterprise plugins for mloda. Source-available: free for development, testin
 
 Extras:
 
-- `[ed25519]` Ed25519 manifest signer
+- `[ed25519]` Ed25519 manifest signer, and license token signing and verification
 - `[otel]` OTel audit log sink
 - `[openlineage]` lineage facets extender
 - `[anonymizer]` the anonymizer wheel and pyarrow

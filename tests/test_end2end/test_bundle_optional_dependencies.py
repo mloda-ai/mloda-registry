@@ -222,6 +222,20 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
         )
 
 
+def test_mloda_enterprise_wheel_packages_include_the_licensing_package() -> None:
+    """Nothing imports mloda.enterprise.licensing during release verification, so the wheel list must carry it."""
+    _shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    expected = "mloda.enterprise.licensing"
+
+    computed = gen.compute_wheel_packages(packages["mloda-enterprise"], packages)
+    assert expected in computed, f"the generator's mloda-enterprise wheel packages lack {expected!r}: {computed!r}"
+
+    assert _ENTERPRISE_PYPROJECT.is_file(), f"committed pyproject not found at {_ENTERPRISE_PYPROJECT}"
+    committed = load_toml(_ENTERPRISE_PYPROJECT)["tool"]["setuptools"]["packages"]
+    assert expected in committed, f"the committed mloda-enterprise wheel packages lack {expected!r}: {committed!r}"
+
+
 @pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_generated_pyproject_lists_distribution_only_under_optional_extra(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
