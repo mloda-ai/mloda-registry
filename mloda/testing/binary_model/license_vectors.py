@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from mloda.testing.binary_model.license_token import TOKEN_SCHEMA_VERSION, sign_license_token
+from mloda.enterprise.licensing.license_token import TOKEN_SCHEMA_VERSION, sign_license_token
 
 # =============================================================================
 # The published test keypair (spec: Keys, kid, rotation)
@@ -18,7 +18,7 @@ from mloda.testing.binary_model.license_token import TOKEN_SCHEMA_VERSION, sign_
 TEST_KID = "test-2026-01"
 
 # DELIBERATELY PUBLIC, TEST-ONLY keypair: the private seed below is published on purpose so any
-# consumer can re-sign vectors. It must NEVER appear in a release build's key map; int-045's
+# consumer can re-sign vectors. It must NEVER appear in a release build's key map; the
 # release checks assert the test kid's absence (spec: Keys, kid, rotation).
 TEST_SECRET_SEED = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 TEST_PUBLIC_KEY = bytes.fromhex("03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8")

@@ -38,7 +38,7 @@ mloda-enterprise-lineage = "mloda.enterprise.extenders.lineage.manifest:EXTENDER
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.enterprise", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.lineage", "mloda.enterprise.feature_groups.anonymizer", "mloda.enterprise.feature_groups.binary_example"]
+packages = ["mloda.enterprise", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.lineage", "mloda.enterprise.feature_groups.anonymizer", "mloda.enterprise.feature_groups.binary_example", "mloda.enterprise.licensing"]
 
 [tool.setuptools.package-data]
 "mloda.enterprise" = ["py.typed"]

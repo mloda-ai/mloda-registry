@@ -1,5 +1,5 @@
-"""Tests for ``mloda.testing.binary_model.license_token``: the PASETO v4.public sign/verify layer
-and the claim-level license verifier defined by the license token specification (int-043).
+"""Tests for ``mloda.enterprise.licensing.license_token``: the PASETO v4.public sign/verify layer
+and the claim-level license verifier defined by the license token specification.
 
 The sign/verify layer is pinned against the official PASETO v4.public test vectors 4-S-1 to 4-S-3,
 embedded verbatim below; Ed25519 signing is deterministic, so ``sign_v4_public`` must reproduce the
@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from mloda.testing.binary_model.license_token import (
+from mloda.enterprise.licensing.license_token import (
     TOKEN_SCHEMA_VERSION,
     LicenseVerificationError,
     VerifiedLicense,

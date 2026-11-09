@@ -546,13 +546,15 @@ def test_synthetic_mloda_testing_package_gets_no_self_entry() -> None:
 
 
 def test_mloda_testing_gets_source_entry_for_its_optional_binary_model_dependency() -> None:
-    """mloda-testing's extra names mloda-community-binary-model, a sibling only in an extra: it needs a source or uv will not lock."""
+    """mloda-testing's extra names mloda-enterprise and mloda-community-binary-model, siblings only in an extra: each needs a source or uv will not lock."""
     shared, packages_config = gen.load_configs()
 
     sources = _generated_uv_sources("mloda-testing", packages_config["packages"], shared)
 
-    expected = {"mloda-community-binary-model": _WORKSPACE}
-    assert sources == expected, f"expected only the mloda-community-binary-model source, got {sources!r}"
+    expected = {"mloda-enterprise": _WORKSPACE, "mloda-community-binary-model": _WORKSPACE}
+    assert sources == expected, (
+        f"expected the mloda-enterprise and mloda-community-binary-model sources, got {sources!r}"
+    )
 
 
 def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.MonkeyPatch) -> None:

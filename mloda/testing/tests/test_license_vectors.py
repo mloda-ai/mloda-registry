@@ -5,12 +5,15 @@ spec: Keys, kid, rotation)."""
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mloda.testing.binary_model.license_token import LicenseVerificationError, verify_license_token
+from mloda.enterprise.licensing import license_token as enterprise_license_token
+from mloda.enterprise.licensing.license_token import LicenseVerificationError, verify_license_token
+from mloda.testing.binary_model import license_token as kit_license_token
 from mloda.testing.binary_model.license_vectors import (
     COMPACT_TIMESTAMP_TOKEN,
     EXPIRED_TOKEN,
@@ -195,3 +198,22 @@ class TestVerification:
             WRONG_PLUGIN_TOKEN, keys=TEST_PUBLIC_KEYS, plugin_id=OTHER_PLUGIN_ID, now=NOW_2026
         )
         assert result.in_grace is False
+
+
+def test_kit_license_token_path_is_a_pure_reexport_of_the_enterprise_module() -> None:
+    """The old kit path re-exports every public name of the new module as the same object."""
+    shim = kit_license_token
+    new = enterprise_license_token
+    public = {
+        name
+        for name, obj in vars(new).items()
+        if not name.startswith("_") and not inspect.ismodule(obj) and _defined_in(obj, new.__name__)
+    }
+    assert set(shim.__all__) == public
+    for name in shim.__all__:
+        assert getattr(shim, name) is getattr(new, name), name
+
+
+def _defined_in(obj: object, module_name: str) -> bool:
+    """True for objects defined in ``module_name``; plain constants have no module and count as defined."""
+    return getattr(obj, "__module__", module_name) == module_name

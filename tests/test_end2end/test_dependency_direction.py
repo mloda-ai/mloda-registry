@@ -459,6 +459,14 @@ def test_consumers_name_the_binary_model_package_instead_of_the_bundle() -> None
     assert mixin in extra, f"mloda-testing: the binary-model extra must name {mixin}, got {extra!r}"
 
 
+def test_mloda_testing_binary_model_extra_pins_the_enterprise_license_token_extra() -> None:
+    """The raw spec is compared: ``_dep_name`` strips extras and would miss a dropped ``[ed25519]``."""
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    extra = packages["mloda-testing"].get("optional_dependencies", {}).get("binary-model", [])
+    spec = "mloda-enterprise[ed25519]>={version}"
+    assert spec in extra, f"mloda-testing: the binary-model extra must contain {spec!r}, got {extra!r}"
+
+
 def _is_mloda_testing_import(node: ast.AST) -> bool:
     """True for an Import whose dotted name starts with 'mloda.testing', or an ImportFrom whose
     module starts with 'mloda.testing'. No exemption for function scope or TYPE_CHECKING blocks:

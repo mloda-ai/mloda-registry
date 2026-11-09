@@ -236,7 +236,7 @@ py_typed = true
 | `pip install mloda-community[openlineage]` | The bundle plus `mloda-community-openlineage` (owned by the bundle, so a bare install skips it) |
 | `pip install mloda-community[german-ledger]` | The bundle plus `mloda-community-german-ledger` (owned by the bundle, so a bare install skips it) |
 | `pip install mloda-community[all]` | The bundle plus both extenders and german-ledger: `[all]` installs every optional capability of the bundle |
-| `pip install mloda-enterprise[ed25519]` | The bundle plus the Ed25519 manifest signer's dependency |
+| `pip install mloda-enterprise[ed25519]` | The bundle plus the dependency of the Ed25519 manifest signer and the license token module |
 | `pip install mloda-enterprise[otel]` | The bundle plus the OTel audit log sink's dependency |
 | `pip install mloda-enterprise[openlineage]` | The bundle plus the OpenLineage emitter the lineage facets extender builds on |
 | `pip install mloda-enterprise[anonymizer]` | The bundle plus the anonymizer wheel (`mloda-anonymizer-binary`) and pyarrow |
@@ -357,8 +357,10 @@ member's `dev` extra (`--all-packages` plus `extras = dev`), so root
 
 For a plugin that ships only inside `mloda-community` or `mloda-enterprise` (today `cryptography`
 behind `mloda-enterprise[ed25519]` and `opentelemetry-api` behind `mloda-enterprise[otel]`, both
-used by `mloda-enterprise-audit`). A plugin with entry points must load without the dependency;
-one without may require it on import:
+used by `mloda-enterprise-audit`; `cryptography` also by the license token module,
+`mloda.enterprise.licensing.license_token`, which has no entry points and requires the extra on
+import). A plugin with entry points must load without the dependency; one without may require it on
+import:
 
 1. Add the extra to the bundle's `optional_dependencies` in `config/packages.toml`. For
    `mloda-community`, also add it to the `all` extra.
