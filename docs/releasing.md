@@ -120,6 +120,27 @@ Conventional commits determine the bump. This project deviates from the standard
 only `minor:` bumps the minor version, everything else (`feat:`, `fix:`, `docs:`,
 `chore:`, `ci:`) is a patch. See `.releaserc.yaml`.
 
+## Following a core minor
+
+The registry releases within a day of a core minor reaching PyPI, with `core_dependency` moved to it.
+This is a maintainer commitment; nothing triggers or enforces it. Published packages cap `mloda` below
+the next minor, so until then an unpinned install stays on the previous core, and pinning the new core
+either fails to resolve or silently falls back to an old uncapped bundle.
+
+1. In `config/shared.toml`, move both bounds of `core_dependency` (`mloda>=X.Y.0,<X.(Y+1).0`, with a
+   higher floor if the change needs a later patch). Mirror any extra core changed in
+   `config/packages.toml`.
+2. Run `python scripts/generate_pyproject.py` and
+   [relock `uv.lock`](packaging.md#add-a-test-only-dependency) in the same PR, again after any later
+   config change: the gate installs the lock with `--frozen`, so a stale lock tests the old core.
+   `mloda` is exempt from the `exclude-newer` window, so a new minor locks right away.
+3. Fix what the gate reports. Move the guides' links at the previous core tag to the new one and check
+   the paths still exist there.
+4. Merge with a `minor:` title and commit. Any other type ships the new cap as a patch release.
+5. Dispatch Release. Once that run has succeeded,
+   [dispatch the verification workflow](#post-release-verification): it tests the latest GitHub
+   release, which exists before its wheels reach PyPI.
+
 ## Required secrets
 
 | Secret | Purpose |
