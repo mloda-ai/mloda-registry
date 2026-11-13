@@ -111,7 +111,7 @@ record_match_rejection(
 ```
 
 - Record only when ownership is established but the content fails (right suffix, missing column; valid credentials, declined feature). Plain non-matches stay silent.
-- A `NamePolicy.DECLARED` group owns its declared names and prefixes, so record a reason when an unpointed `find_sources` finds no source for one (core records the pointed case). A derived group that is the only match for its name skips the input-chain check (see [Feature Matching](14-feature-matching.md#how-it-works)) and fails at this input, where without a recorded reason the error names no cause.
+- When a request reaches a `NamePolicy.DECLARED` route (searched, or unlocked by its `required_options`) for a name it declares and `find_sources` finds no source, core records `<Group> found no source serving '<name>'` (pointed or not). So a DECLARED reader records in `find_sources` only for a more specific, domain-worded reason; the first recording per owner wins. A derived group that is the only match for its name skips the input-chain check (see [Feature Matching](14-feature-matching.md#how-it-works)) and fails at this input, whose recorded reason names the cause.
 - Never raise to decline. A raise marked with `escalate_match_abort` propagates; any other raise ends matching for that candidate. Record, then return a falsy value.
 - The first recording per owner wins, and recorded reasons are discarded when the group ultimately matches. Name the group and the concrete source in the reason.
 - Recording outside an engine-opened window is a no-op; in tests use `collect_match_rejections`.
@@ -167,7 +167,64 @@ features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/
 
 ### Audit Identity
 
-Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging.
+Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups publish a URI path parameter region (`;...`) as `;***`, so an override that returns a URI should build it from `match.source` (already cut) rather than from the raw access.
+
+## Families of Sibling Sources
+
+A base that implements `find_sources` and `load_neutral` is concrete, so its class name is a pointer key and a `feature_group=` scope for every subclass; an abstract base drops out of both, so `feature_group="Base"` covers the family only when the base is concrete.
+
+A class-name pointer on a derived request forwards to every input (see [Input-feature forwarding](26-input-feature-forwarding.md)). Under that pointer a `NamePolicy.CHECKED` sibling whose source lacks the column fails the request, even when another sibling has it; a `NamePolicy.DECLARED` sibling records `'x' is not a name <Group> declares` and declines. A family serving a fixed set of columns uses `DECLARED`.
+
+For picking a sibling by the credential slot it finds, and an abstract base whose leaves never compete, see [Way 3](28-backend-families.md#way-3-reader-delegation-sibling-readers).
+
+```python
+from typing import Any, ClassVar
+
+from mloda.provider import ClaimRoute, FeatureSet, NamePolicy, SourceFeatureGroup, SourceMatch
+from mloda.steward import resolve_feature
+from mloda.user import DataAccessCollection, Feature, Options, PluginCollector
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+
+class StationFG(SourceFeatureGroup):
+    COLUMNS: ClassVar[frozenset[str]] = frozenset()
+    CLAIM_ROUTES = (ClaimRoute("station", NamePolicy.DECLARED, False),)
+
+    @classmethod
+    def declared_names(cls) -> frozenset[str]:
+        return cls.COLUMNS
+
+    @classmethod
+    def find_sources(
+        cls,
+        route: ClaimRoute,
+        feature_name: str,
+        options: Options,
+        data_access_collection: DataAccessCollection | None,
+    ) -> list[SourceMatch]:
+        return [SourceMatch(source=cls.__name__)]
+
+    @classmethod
+    def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any:
+        return {"value": [1]}
+
+
+class TemperatureFG(StationFG):
+    COLUMNS = frozenset({"temperature"})
+
+
+class WindFG(StationFG):
+    COLUMNS = frozenset({"wind_speed"})
+
+
+def test_family_pointer_reaches_the_sibling_that_declares_the_name() -> None:
+    family = PluginCollector.enabled_feature_groups({StationFG, TemperatureFG, WindFG})
+    scoped = Feature("wind_speed", feature_group=StationFG)
+    pointed = Feature("wind_speed", options={"StationFG": "station-7"})
+    for feature in (scoped, pointed):
+        result = resolve_feature(feature, plugin_collector=family, compute_frameworks={PythonDictFramework})
+        assert result.feature_group is WindFG, result.error
+```
 
 ## Required Declarations
 
