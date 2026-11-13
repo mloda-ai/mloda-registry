@@ -72,7 +72,9 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
     @classmethod
     def _read_key(cls, handle: object) -> str:
         """The key field of the named credential; errors never echo the value."""
-        value = read_credential(str(handle)).get("key")
+        if not isinstance(handle, str) or not handle:
+            raise BinaryUsageError(f"{cls.KEY_HANDLE} must be a non-empty string")
+        value = read_credential(handle).get("key")
         key = value.strip() if isinstance(value, str) else ""
         if not _KEY_PATTERN.fullmatch(key):
             raise BinaryUsageError(

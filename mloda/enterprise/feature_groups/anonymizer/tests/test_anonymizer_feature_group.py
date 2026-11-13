@@ -14,7 +14,6 @@ import pyarrow as pa
 import pytest
 from mloda.provider import (
     ApiDataFG,
-    CredentialFieldMissing,
     CredentialReadRefused,
     FeatureSet,
     PropertySpec,
@@ -163,6 +162,7 @@ class TestPropertyMapping:
         spec = AnonymizerFeatureGroup.PROPERTY_MAPPING[AnonymizerFeatureGroup.KEY_HANDLE]
         assert isinstance(spec, type(credential_handle_spec("x")))
         assert spec.required_fields == ("key",)
+        assert spec.strict_validation
 
     def test_binary_plugin_id_is_anonymizer_binary(self) -> None:
         assert AnonymizerFeatureGroup.BINARY_PLUGIN_ID == "anonymizer_binary"
@@ -302,7 +302,7 @@ class TestCalculateFeatureKeyRejections:
         assert "12345" not in str(excinfo.value)
 
     def test_missing_key_field_raises_without_echoing_other_values(self) -> None:
-        with pytest.raises((BinaryUsageError, CredentialFieldMissing)) as excinfo:
+        with pytest.raises(BinaryUsageError) as excinfo:
             self._calculate({"other": "sentinel-value-not-to-leak"})
         assert "sentinel-value-not-to-leak" not in str(excinfo.value)
 
@@ -322,6 +322,21 @@ class TestCalculateFeatureKeyRejections:
         assert not runs
         assert malformed_key not in str(excinfo.value)
         assert KEY_HANDLE not in str(excinfo.value)
+
+    @pytest.mark.parametrize("handle", [12345, ""])
+    def test_non_str_handle_raises_without_echoing_it(self, key_handle: str, handle: Any) -> None:
+        table = pa.table({"email": ["alpha"]})
+        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=handle))
+        with pytest.raises(BinaryUsageError) as excinfo:
+            StubAnonymizer.calculate_feature(table, feature_set)
+        assert "12345" not in str(excinfo.value)
+
+    def test_handle_not_in_the_open_scope_is_refused(self) -> None:
+        table = pa.table({"email": ["alpha"]})
+        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value="some-other-handle"))
+        with credentials_scope({KEY_HANDLE: {"key": KNOWN_ANSWER_KEY}}):
+            with pytest.raises(CredentialReadRefused):
+                StubAnonymizer.calculate_feature(table, feature_set)
 
     def test_read_outside_a_credentials_scope_is_refused(self) -> None:
         table = pa.table({"email": ["alpha"]})

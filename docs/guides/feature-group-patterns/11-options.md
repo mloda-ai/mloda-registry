@@ -22,7 +22,7 @@ How to pass configuration to features and feature groups.
 
 **Default**: When you pass a dict without specifying `group=` or `context=`, it goes to **group**. This means `Options({"algo": "kmeans"})` is equivalent to `Options(group={"algo": "kmeans"})`. Be explicit when you need context-only parameters.
 
-Secrets never go in options; see [Secrets](#secrets).
+Secrets never go in options (see [Secrets](#secrets)).
 
 **Fixed at prepare**: A prepared session keeps the group and context options its features had at `mloda.prepare`, and `session.run()` takes new data, not new options, so a changed option needs a new `prepare` (see [Realtime Execution](24-realtime.md)). What the group reads during each run, such as the file an environment variable points to (its name given in a context option), picks up changes without one. A key declared with `property_spec(..., runtime=True)` is a runtime parameter: a run may replace its value with `session.run(parameters={key: value})`, for that run only.
 
