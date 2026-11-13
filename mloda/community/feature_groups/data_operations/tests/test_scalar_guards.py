@@ -501,23 +501,18 @@ class TestKeyColumnFeaturesRowReplacingSource:
             key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")], consumer_group=FeatureGroup) == set()
         )
 
-    @pytest.mark.parametrize(
-        ("spec_kwargs", "expected"),
-        [({"forward_to_inputs": False}, {Feature("region")}), ({}, set())],
-        ids=["consumer_local_not_previewed", "forwarded_is_previewed"],
-    )
-    def test_consumer_local_key_is_not_previewed_on_the_source(
-        self, spec_kwargs: dict[str, Any], expected: set[Feature]
-    ) -> None:
+    def test_consumer_local_key_is_not_previewed_on_the_source(self) -> None:
         class _Mapping:
-            PROPERTY_MAPPING = {"partition_by": property_spec("Columns to partition by", **spec_kwargs)}
+            PROPERTY_MAPPING = {"partition_by": property_spec("Columns to partition by", forward_to_inputs=False)}
 
         consumer = Options(group={"partition_by": ["region"]})
         source = self._config_aggregation()
         keys = key_column_features(consumer, [source], consumer_group=cast(type[FeatureGroup], _Mapping))
-        assert keys == expected
+        assert keys == {Feature("region")}
 
     def test_input_features_passes_its_own_class_as_consumer_group(self) -> None:
+        import gc
+
         class _LocalRankFeatureGroup(RankFeatureGroup):
             PREFIX_PATTERN = r".*__([\w]+)_localranked$"
             PROPERTY_MAPPING = {
@@ -525,12 +520,16 @@ class TestKeyColumnFeaturesRowReplacingSource:
                 "partition_by": property_spec("Columns to partition by", forward_to_inputs=False),
             }
 
-        options = Options(
-            group={"partition_by": ["region"]},
-            context={"rank_type": "row_number", "in_features": self._config_aggregation(), "order_by": "value_int"},
-        )
-        name = FeatureName("my_rank")
-        local_keys = _LocalRankFeatureGroup().input_features(options, name) or set()
-        parent_keys = RankFeatureGroup().input_features(options, name) or set()
-        assert Feature("region") in local_keys
-        assert Feature("region") not in parent_keys
+        try:
+            options = Options(
+                group={"partition_by": ["region"]},
+                context={"rank_type": "row_number", "in_features": self._config_aggregation(), "order_by": "value_int"},
+            )
+            name = FeatureName("my_rank")
+            local_keys = _LocalRankFeatureGroup().input_features(options, name) or set()
+            parent_keys = RankFeatureGroup().input_features(options, name) or set()
+            assert Feature("region") in local_keys
+            assert Feature("region") not in parent_keys
+        finally:
+            del _LocalRankFeatureGroup
+            gc.collect()

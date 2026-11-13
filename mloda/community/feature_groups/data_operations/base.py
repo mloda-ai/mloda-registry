@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.user import Feature, FeatureName, Options
@@ -360,7 +360,8 @@ class KeyColumnInputsMixin:
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         sources = super().input_features(options, feature_name) or set()  # type: ignore[misc]
-        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS, consumer_group=type(self))  # type: ignore[arg-type]
+        consumer_group = cast(type[FeatureGroup], type(self))
+        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS, consumer_group=consumer_group)
 
 
 def name_matches_prefix(cls: Any, feature_name: Any) -> bool:
