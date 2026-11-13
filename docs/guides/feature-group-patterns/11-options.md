@@ -18,9 +18,9 @@ How to pass configuration to features and feature groups.
 
 **Context** options carry metadata that doesn't affect grouping. Features with different context but same group are still batched together, except on context keys passed down from a consumer (see [Which Features Share a Call](12-calculate-feature.md#which-features-share-a-call)). Use context for input feature references (`in_features`), debug flags, logging levels, runtime hints, or the path of a store the group keeps beside its features (or the name of an environment variable holding it; see [Side Stores](20-versioning.md#side-stores)). Context does not split calls, so put the path in group options if one run may name different stores.
 
-**Group values**: A group option value may be any hashable object with value equality (e.g. a frozen dataclass), not only a name or primitive. Dicts, lists and sets are walked; an unhashable object falls back to its `repr`, and a default `repr` includes the address, so equal objects split.
-
 **Default**: When you pass a dict without specifying `group=` or `context=`, it goes to **group**. This means `Options({"algo": "kmeans"})` is equivalent to `Options(group={"algo": "kmeans"})`. Be explicit when you need context-only parameters.
+
+**Group values**: A group option value may be any hashable object with value equality (e.g. a frozen dataclass), not only a name or primitive. Dicts, lists, tuples and sets are walked; an unhashable object falls back to its `repr`, and a default `repr` includes the address, so equal objects split.
 
 Secrets never go in options (see [Secrets](#secrets)).
 
@@ -61,7 +61,7 @@ The push is one hop: an input feature does not push the keys on to its own input
 A key that a consumer and its input both read is declared on the group the user requests:
 
 - The input group reads the forwarded value from `feature.options` without declaring it
-- Declaring it in both `PROPERTY_MAPPING`s logs a warning once per run (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md))
+- Declaring it in both `PROPERTY_MAPPING`s logs a warning once per run
 - The requested group must not stop it forwarding (e.g. `forward_group_exclude` on that key)
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
@@ -88,7 +88,7 @@ class Guide11Token(DataCreatorFeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        token = read_credential(features.get_sorted_features()[0].options.get("guide11_token_handle"))["token"]
+        token = read_credential(features.get_options_key("guide11_token_handle"))["token"]
         return {"guide11_token_length": [len(token)]}
 
 
@@ -96,15 +96,15 @@ result = mloda.run_all(
     [Feature("guide11_token_length", Options(group={"guide11_token_handle": "api"}))],
     compute_frameworks=["PandasDataFrame"],
     plugin_collector=PluginCollector.enabled_feature_groups({Guide11Token}),
-    data_access_collection=DataAccessCollection(credentials={"api": Credential(token="s3cret")}),
+    data_access_collection=DataAccessCollection(credentials={"api": Credential(token="s3cret-token")}),
 )
-assert result[0]["guide11_token_length"].tolist() == [6]
+assert result[0]["guide11_token_length"].tolist() == [12]
 ```
 
 - A secret never enters options, which mloda hashes and echoes; options carry only the handle name
 - `credential_handle_spec` declares a strict group option; `required_fields` names the fields the credential must have
 - The steward registers `Credential(...)` in the `DataAccessCollection` (see [Credentials](17-data-connection-matching.md#credentials)); the group reads it with `read_credential` inside `calculate_feature`
-- Planning fails naming the option and the handle, never a value; the group rejects an unusable value without echoing it
+- Planning fails naming the option and the handle; a handle is a public name shown in errors and explain, so never paste a secret in its place
 - Rotate per run with `session.run(credentials=...)`; test with `credentials_scope({handle: {...}})`
 - Real implementation: `AnonymizerFeatureGroup`; see core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding)
 

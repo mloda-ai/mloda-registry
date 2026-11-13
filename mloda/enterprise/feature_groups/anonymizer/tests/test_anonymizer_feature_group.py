@@ -279,7 +279,7 @@ class TestCalculateFeature:
 
 
 class TestCalculateFeatureKeyRejections:
-    """The error never echoes the handle name nor a rejected key value."""
+    """The error never echoes a rejected key value."""
 
     def _calculate(self, credential: dict[str, Any]) -> pa.Table:
         table = pa.table({"email": ["alpha"]})
@@ -324,12 +324,20 @@ class TestCalculateFeatureKeyRejections:
         assert KEY_HANDLE not in str(excinfo.value)
 
     @pytest.mark.parametrize("handle", [12345, ""])
-    def test_non_str_handle_raises_without_echoing_it(self, key_handle: str, handle: Any) -> None:
+    def test_invalid_handle_raises_naming_the_option(self, key_handle: str, handle: Any) -> None:
         table = pa.table({"email": ["alpha"]})
         feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=handle))
         with pytest.raises(BinaryUsageError) as excinfo:
             StubAnonymizer.calculate_feature(table, feature_set)
+        assert AnonymizerFeatureGroup.KEY_HANDLE in str(excinfo.value)
+
+    def test_non_str_handle_raises_without_echoing_it(self, key_handle: str) -> None:
+        table = pa.table({"email": ["alpha"]})
+        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=12345))
+        with pytest.raises(BinaryUsageError) as excinfo:
+            StubAnonymizer.calculate_feature(table, feature_set)
         assert "12345" not in str(excinfo.value)
+        assert AnonymizerFeatureGroup.KEY_HANDLE in str(excinfo.value)
 
     def test_handle_not_in_the_open_scope_is_refused(self) -> None:
         table = pa.table({"email": ["alpha"]})
@@ -443,14 +451,25 @@ class TestIntegration:
                 plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
             )
 
-    def test_a_key_pasted_into_the_handle_option_is_not_echoed_by_planning(self) -> None:
-        pasted = KNOWN_ANSWER_KEY
+    def _plan_with_handle(self, handle: str) -> ValueError:
         with pytest.raises(ValueError) as excinfo:
             mloda.run_all(
-                [_config_feature("pseudonymized_email", key_handle_value=pasted)],
+                [_config_feature("pseudonymized_email", key_handle_value=handle)],
                 compute_frameworks=[PyArrowTable],
                 api_data={"AnonymizerData": {"email": ["alpha"]}},
                 data_access_collection=_key_collection(),
                 plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
             )
-        assert pasted not in str(excinfo.value)
+        return excinfo.value
+
+    def test_a_registered_key_pasted_into_the_handle_option_is_masked_by_planning(self) -> None:
+        assert KNOWN_ANSWER_KEY not in str(self._plan_with_handle(KNOWN_ANSWER_KEY))
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="mloda core names the handle in its plan-time error, so a key pasted as a handle is echoed",
+    )
+    def test_an_unregistered_key_pasted_into_the_handle_option_is_not_echoed_by_planning(self) -> None:
+        pasted = "ab" * 32
+        assert pasted != KNOWN_ANSWER_KEY
+        assert pasted not in str(self._plan_with_handle(pasted))
