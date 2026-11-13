@@ -104,7 +104,27 @@ def test_full_pipeline():
     assert "my_feature" in result[0]
 ```
 
-`run_all()` returns a list of result frames, one per compute framework and feature set, so index into it before asserting on columns.
+`run_all()` returns one frame per step that computed a requested feature. Features of one group that share a call (see [which features share a call](12-calculate-feature.md#which-features-share-a-call)) share a frame; each chain link, other group and other compute framework adds one. Pick a frame with `result.frame_for("name")` (pass a `Feature` with its options when a name has several frames). `run_all` and prepared sessions have no limit on groups or features per run; only the CLI/MCP request contract caps a request at 50 features.
+
+### Level 3: Timing a Step
+
+`result.step_durations` holds one `StepDuration(feature_group, step_uuid, duration_seconds)` per completed feature group step, so a test can enforce a per-step budget without patching `calculate_feature`.
+
+```python
+def test_my_feature_within_budget():
+    result = mloda.run_all(
+        [Feature.not_typed("my_feature")],
+        compute_frameworks=[PythonDictFramework],
+        plugin_collector=PluginCollector.enabled_feature_groups({MyFeature}),
+    )
+    steps = {step.step_uuid: step for step in result.plan}
+    entries = [e for e in result.step_durations if e.feature_group == MyFeature.get_class_name()]
+    assert entries
+    for entry in entries:
+        assert entry.duration_seconds < 5.0, steps[entry.step_uuid].feature_names
+```
+
+The duration covers the `calculate_feature` call only, so on a lazy framework (`PolarsLazyDataFrame`, `DuckDBFramework`) it measures building the frame, not executing it; see [the mloda API doc](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/mloda-api.md).
 
 ### Level 3 Only: The Empty-Result Contract
 
