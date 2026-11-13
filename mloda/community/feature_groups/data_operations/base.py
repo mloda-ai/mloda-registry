@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import copy
 import re
 from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -300,16 +299,10 @@ def assert_single_grid(grids: dict[Any, list[str]], describe: Callable[[Any], st
 _ROW_REPLACING_GROUPS: list[Any] = []
 
 
-def _is_row_replacing_output(source: Feature, consumer: Options) -> bool:
+def _is_row_replacing_output(source: Feature, consumer: Options, consumer_group: type[FeatureGroup]) -> bool:
     """True if the source, as forwarded from the consumer, is a row-replacing output (also via prefix or nesting)."""
-    forwarded = copy.copy(source.options)
     try:
-        forwarded.inherit_from(
-            consumer,
-            forward_group=source.forward_group,
-            forward_group_exclude=source.forward_group_exclude,
-            inherit_context_keys=source.inherit_context_keys,
-        )
+        forwarded = source.options_forwarded_from(consumer, consumer_group)
     except ValueError:
         # Core raises this forwarding conflict itself when it merges the options, so this check must not raise first.
         forwarded = source.options
@@ -321,7 +314,8 @@ def _is_row_replacing_output(source: Feature, consumer: Options) -> bool:
         if group.match_feature_group_criteria(source.name, forwarded):
             return True
     if DefaultOptionKeys.in_features in forwarded:
-        return any(_is_row_replacing_output(nested, forwarded) for nested in forwarded.get_in_features())
+        # The in-between group is unknown here, so its consumer-local keys are not modeled.
+        return any(_is_row_replacing_output(nested, forwarded, FeatureGroup) for nested in forwarded.get_in_features())
     return False
 
 
@@ -329,6 +323,8 @@ def key_column_features(
     options: Options,
     sources: Iterable[Feature],
     keys: Iterable[str] = (PARTITION_BY, "order_by", "time_column", MASK_KEY),
+    *,
+    consumer_group: type[FeatureGroup],
 ) -> set[Feature]:
     """Plain features for the ``keys`` columns in ``options`` (single column refs), none if a source is on a row-replacing frame."""
     keys = tuple(keys)
@@ -346,7 +342,7 @@ def key_column_features(
 
     sources = list(sources)
     # The reducing step's own frame already carries its key columns.
-    if any(_is_row_replacing_output(source, options) for source in sources):
+    if any(_is_row_replacing_output(source, options, consumer_group) for source in sources):
         return set()
     taken = {str(source.name) for source in sources}
     return {Feature(name) for name in dict.fromkeys(names) if name not in taken}
@@ -364,7 +360,7 @@ class KeyColumnInputsMixin:
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         sources = super().input_features(options, feature_name) or set()  # type: ignore[misc]
-        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS)
+        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS, consumer_group=type(self))  # type: ignore[arg-type]
 
 
 def name_matches_prefix(cls: Any, feature_name: Any) -> bool:

@@ -148,7 +148,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup)
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         source_feature = self._extract_source_features(Feature(str(feature_name), options=options))[0]
         sources = {Feature(source_feature)}
-        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS)
+        return sources | key_column_features(options, sources, self.KEY_COLUMN_OPTIONS, consumer_group=type(self))
 
     # Kept: the source comes only from the name; a config-only feature must raise, not fall back to in_features.
     @classmethod
