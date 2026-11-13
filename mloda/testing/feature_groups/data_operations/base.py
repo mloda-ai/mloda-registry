@@ -24,7 +24,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import Implementation
+from mloda.provider import DivergenceKind, Implementation
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, result_column_names
@@ -39,6 +39,19 @@ _SUPPORTED_SET_ATTRS: tuple[str, ...] = (
     "supported_offset_types",
     "supported_rank_types",
 )
+
+
+def divergent_subtypes(implementation: Any) -> frozenset[str]:
+    """Subtypes the Implementation's non-GAP ``divergences`` records name; a scopeless record covers the universe."""
+    covered: set[str] = set()
+    for record in implementation.divergences:
+        if record.kind is DivergenceKind.GAP:
+            continue
+        if record.subtypes:
+            covered |= record.subtypes
+        elif not record.outputs:
+            covered |= implementation.feature_group.subtype_universe()
+    return frozenset(covered)
 
 
 class DataOpsTestBase(ABC):
@@ -183,12 +196,12 @@ class DataOpsTestBase(ABC):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """Agg types where this framework pins a known NaN divergence instead of the policy.
 
-        Default: the ``divergent`` set of the Implementation under test, empty for any other plugin.
+        Default: the subtypes its ``divergences`` name for the Implementation under test, empty for any other plugin.
         Read by ``NanPolicyTestMixin.test_mixin_nan_policy``; see docs/guides/data-operation-patterns/known-divergences.md.
         """
         impl = cls.implementation_class()
         if isinstance(impl, type) and issubclass(impl, Implementation):
-            return frozenset(impl.divergent)
+            return divergent_subtypes(impl)
         return frozenset()
 
     # -- Cross-framework comparison --------------------------------------------

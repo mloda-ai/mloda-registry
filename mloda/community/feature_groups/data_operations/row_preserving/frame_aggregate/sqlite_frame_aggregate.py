@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
@@ -47,11 +47,20 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
     # rejected by ``accepts``. See known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
     supported = frozenset(_SQLITE_AGG_FUNCS)
-    divergent = {
-        "sum": "skips NaN",
-        "avg": "skips NaN",
-        "count": "does not count NaN",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"sum", "avg"}),
+            reason="skips NaN",
+        ),
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"count"}),
+            reason="does not count NaN",
+        ),
+    )
 
     @classmethod
     def calculate(

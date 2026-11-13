@@ -151,13 +151,13 @@ def replaces_rows(cls) -> bool:
     return True
 ```
 
-A consumer reading the output together with an unchanged input column, or with another `replaces_rows()` output, needs a `Link` (see [Joining a replaces_rows() Output](08-links-joins.md#joining-a-replaces_rows-output)). Without the flag such a consumer either fails only at run time with `MissingInputFeatureError`, which does not name the cause, or, when the output keeps the row count, silently reads misaligned rows. For a runnable check see [Refusing a Consumer of a Row-Replacing Output](10-testing-guide.md#refusing-a-consumer-of-a-row-replacing-output) and mloda's [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
+A consumer reading the output together with an unchanged input column, or with another `replaces_rows()` output, needs a `Link` (see [Joining a replaces_rows() Output](08-links-joins.md#joining-a-replaces_rows-output)). Without the flag such a consumer either fails only at run time with `MissingInputFeatureError`, which does not name the cause, or, when the output keeps the row count, silently reads misaligned rows. For a runnable check see [Refusing a Consumer of a Row-Replacing Output](10-testing-guide.md#refusing-a-consumer-of-a-row-replacing-output) and mloda's [result contract](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
 
 ## Reporting Failed Rows
 
 When a row got no value (a lookup miss, a parse failure), call `report_failed_rows(column, rows, reason)` from `mloda.provider` instead of returning a silent null. `reason` is a short code matching `[A-Za-z0-9_.-]{1,64}`, never row data (anything else raises `ValueError`). `rows` are positions in the group's own output.
 
-A direct call outside a run is a no-op. In every run, streams included, the entries reach `HookContext.failed_rows` and the extenders; `run()` and `run_all()` also return them in `RunResult.failed_rows`. The extenders turn them into counts and reason codes: `mloda.failed_rows.*` span attributes, the `mloda.step.failed_rows` counter, the `mlodaFailedRows` lineage facet and the audit `failed_rows` key. Positions never leave the process. See the core [result contract](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
+A direct call outside a run is a no-op. In every run, streams included, the entries reach `HookContext.failed_rows` and the extenders; `run()` and `run_all()` also return them in `RunResult.failed_rows`. The extenders turn them into counts and reason codes: `mloda.failed_rows.*` span attributes, the `mloda.step.failed_rows` counter, the `mlodaFailedRows` lineage facet and the audit `failed_rows` key. Positions never leave the process. See the core [result contract](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/chapter1/feature-groups.md#5-the-result-contract).
 
 ```python
 from typing import Any

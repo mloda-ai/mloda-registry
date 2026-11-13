@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
@@ -40,13 +40,20 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
     # point of running inside pandas. They are rejected by ``accepts``. See
     # known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
-    divergent = {
-        "sum": "skips NaN",
-        "avg": "skips NaN",
-        "count": "does not count NaN",
-        "std": "skips NaN",
-        "var": "skips NaN",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"sum", "avg", "std", "var"}),
+            reason="skips NaN",
+        ),
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"count"}),
+            reason="does not count NaN",
+        ),
+    )
 
     @classmethod
     def calculate(

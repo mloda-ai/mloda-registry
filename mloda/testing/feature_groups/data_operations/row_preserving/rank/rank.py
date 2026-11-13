@@ -24,7 +24,7 @@ import pytest
 from mloda.provider import FeatureSet
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -145,9 +145,9 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
         PyArrow >= 25 (the reference), DuckDB and Polars rank NaN and None as two
         nulls-last tiers (NaN before None). An implementation that ties them into one
-        run declares ``rank``, ``dense_rank`` or ``percent_rank`` in its ``divergent``.
+        run declares ``rank``, ``dense_rank`` or ``percent_rank`` in its ``divergences``.
         """
-        return not {"rank", "dense_rank", "percent_rank"} & set(cls.implementation_class().divergent)
+        return not {"rank", "dense_rank", "percent_rank"} & divergent_subtypes(cls.implementation_class())
 
     # -- Reference implementation override --------------------------------------------
 

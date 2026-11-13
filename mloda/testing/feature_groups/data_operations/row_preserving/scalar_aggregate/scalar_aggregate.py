@@ -72,7 +72,7 @@ NAN_POLICY_SCALAR: dict[str, list[float]] = {
     "var_samp": [float("nan")] * 7,
 }
 
-# Known per-backend divergence, declared by the Implementation's ``divergent``: pandas and
+# Known per-backend divergence, declared by the Implementation's ``divergences``: pandas and
 # SQLite can't tell NaN from null, so both skip it in sum/avg/count; pandas also
 # skips NaN in std/var.
 NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {

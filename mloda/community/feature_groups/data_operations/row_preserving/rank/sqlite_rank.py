@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -52,11 +52,14 @@ _SQLITE_RANK_FUNCS: dict[str, str] = {
 class SqliteRank(Implementation[RankFeatureGroup]):
     feature_group = RankFeatureGroup
     compute_framework = SqliteFramework
-    divergent = {
-        "rank": "sqlite3 stores NaN as NULL, so they tie",
-        "dense_rank": "sqlite3 stores NaN as NULL, so they tie",
-        "percent_rank": "sqlite3 stores NaN as NULL, so they tie",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
+            reason="sqlite3 stores NaN as NULL, so they tie",
+        ),
+    )
 
     @classmethod
     def calculate(

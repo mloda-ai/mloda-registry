@@ -333,7 +333,7 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
 
 
 def _make_impl(
-    divergent: dict[str, str] | None = None,
+    divergences: tuple[Any, ...] | None = None,
     accepts: Callable[..., bool] | None = None,
     supported: frozenset[str] | None = None,
 ) -> tuple[Any, Any]:
@@ -352,8 +352,9 @@ def _make_impl(
         def calculate(cls, group: Any, data: Any, features: Any, framework: Any) -> Any:
             return ("implementation", group, data)
 
-    if divergent is not None:
-        _ProbeImpl.divergent = divergent
+    if divergences is not None:
+        # Post-hoc assignment bypasses core's subtype-universe validation, since _ProbeGroup declares no SUBTYPES.
+        _ProbeImpl.divergences = divergences
     if accepts is not None:
         _ProbeImpl.accepts = classmethod(accepts)  # type: ignore[method-assign, assignment]
     if supported is not None:
@@ -369,18 +370,26 @@ def _probe_impl_names() -> list[str]:
 
 def _with_probe_impl(
     check: Callable[[Any, Any], None],
-    divergent: dict[str, str] | None = None,
+    divergences: tuple[Any, ...] | None = None,
     accepts: Callable[..., bool] | None = None,
     supported: frozenset[str] | None = None,
 ) -> None:
     """Run ``check(group, impl)`` on a throwaway pair, then drop it and assert the probe is unregistered."""
-    group, impl = _make_impl(divergent, accepts, supported)
+    group, impl = _make_impl(divergences, accepts, supported)
     try:
         check(group, impl)
     finally:
         del group, impl
         gc.collect()
     assert not _probe_impl_names()
+
+
+def _records(*subtypes: str) -> tuple[Any, ...]:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    return (
+        Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, subtypes=frozenset(subtypes), reason="skips NaN"),
+    )
 
 
 def _stub_for(impl: Any, *, reference: bool) -> type[_StubDataOpsTestBase]:
@@ -416,14 +425,14 @@ def test_nan_divergent_agg_types_default_reads_the_implementation_divergent() ->
     def check(_: Any, impl: Any) -> None:
         assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset({"sum", "mean"})
 
-    _with_probe_impl(check, {"sum": "skips NaN", "mean": "skips NaN"})
+    _with_probe_impl(check, _records("sum", "mean"))
 
 
 def test_nan_divergent_agg_types_default_is_empty_for_an_implementation_without_divergence() -> None:
     def check(_: Any, impl: Any) -> None:
         assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset()
 
-    _with_probe_impl(check, {})
+    _with_probe_impl(check, ())
 
 
 def test_nan_divergent_agg_types_default_is_empty_for_a_non_implementation() -> None:
@@ -611,3 +620,61 @@ def test_implementation_import_fails_unless_the_dependency_is_declared() -> None
         _Stub._implementation(missing._replace(dependency="no_such_dependency"))
     with pytest.raises(ModuleNotFoundError):
         _Stub._implementation(missing._replace(dependency="pytest"))
+
+
+# -- divergent_subtypes ---------------------------------------------------------
+
+
+def test_divergent_subtypes_unions_the_subtypes_of_non_gap_records() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+
+    records = (
+        *_records("sum"),
+        Divergence(kind=DivergenceKind.TYPE, cause=Cause.BACKEND, subtypes=frozenset({"mean"}), reason="type"),
+    )
+
+    def check(_: Any, impl: Any) -> None:
+        assert divergent_subtypes(impl) == frozenset({"sum", "mean"})
+
+    _with_probe_impl(check, records)
+
+
+def test_divergent_subtypes_ignores_gap_and_outputs_records() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+
+    records = (
+        Divergence(kind=DivergenceKind.GAP, cause=Cause.BACKEND, subtypes=frozenset({"sum"}), reason="gap"),
+        Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, outputs=frozenset({"o"}), reason="out"),
+    )
+
+    def check(_: Any, impl: Any) -> None:
+        assert divergent_subtypes(impl) == frozenset()
+
+    _with_probe_impl(check, records)
+
+
+def test_divergent_subtypes_is_empty_without_records() -> None:
+    from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+
+    def check(_: Any, impl: Any) -> None:
+        assert divergent_subtypes(impl) == frozenset()
+
+    _with_probe_impl(check, ())
+
+
+def test_divergent_subtypes_record_without_scope_covers_the_whole_universe() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+
+    records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="all"),)
+
+    def check(group: Any, impl: Any) -> None:
+        group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
+        assert divergent_subtypes(impl) == frozenset({"sum", "mean", "min"})
+
+    _with_probe_impl(check, records)

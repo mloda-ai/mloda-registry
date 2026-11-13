@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
@@ -34,13 +34,20 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
 
     feature_group = ResampleFeatureGroup
     compute_framework = PandasDataFrame
-    divergent = {
-        "sum": "skips NaN; null for an all-NaN bucket",
-        "mean": "skips NaN; null for an all-NaN bucket",
-        "count": "does not count NaN",
-        "min": "skips NaN; null for an all-NaN bucket",
-        "max": "skips NaN; null for an all-NaN bucket",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"sum", "mean", "min", "max"}),
+            reason="skips NaN; null for an all-NaN bucket",
+        ),
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"count"}),
+            reason="does not count NaN",
+        ),
+    )
 
     @classmethod
     def calculate(

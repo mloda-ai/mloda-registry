@@ -2,7 +2,7 @@
 
 A family subclasses ``OperationGroupTestBase`` and fills the hooks; the concrete tests check
 behaviour: one concrete group, one Implementation per framework, declared ``supported`` and
-``divergent``, subtype resolution and the entry-point manifest.
+the ``divergences`` records, subtype resolution and the entry-point manifest.
 
 Usage::
 
@@ -23,6 +23,7 @@ import pytest
 from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, Implementation, OperationFeatureGroup
 from mloda.user import Options
 
+from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 
@@ -40,7 +41,7 @@ class ImplSpec(NamedTuple):
     framework_module: str
     framework_name: str
     supported: frozenset[str] | None = None
-    divergent: frozenset[str] = frozenset()
+    divergent: frozenset[str] = frozenset()  # subtypes the Implementation's ``divergences`` records name
     dependency: str | None = None
 
 
@@ -62,7 +63,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     @classmethod
     @abstractmethod
     def implementations(cls) -> list[ImplSpec]:
-        """Every shipped Implementation, with its expected ``supported`` and ``divergent``."""
+        """Every shipped Implementation, with its expected ``supported`` and divergent subtypes."""
 
     @classmethod
     @abstractmethod
@@ -214,20 +215,20 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
-        assert set(self._implementation(spec).divergent) == spec.divergent
+        assert divergent_subtypes(self._implementation(spec)) == spec.divergent
 
     def test_divergent_is_inside_the_universe_with_a_reason(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
-        divergent = self._implementation(spec).divergent
-        assert set(divergent) <= self.group_class().subtype_universe()
-        assert all(isinstance(reason, str) and reason for reason in divergent.values())
+        implementation = self._implementation(spec)
+        assert divergent_subtypes(implementation) <= self.group_class().subtype_universe()
+        assert all(isinstance(record.reason, str) and record.reason for record in implementation.divergences)
 
     def test_divergent_aliases_diverge_together(self, impl_id: str) -> None:
         """An alias shares its target's behaviour, so a backend that diverges on one diverges on the other."""
         if not self.alias_pairs():
             pytest.skip("no alias pairs declared")
         spec = self._spec(impl_id)
-        divergent = self._implementation(spec).divergent
+        divergent = divergent_subtypes(self._implementation(spec))
         for first, second in self.alias_pairs():
             assert (first in divergent) == (second in divergent)
 

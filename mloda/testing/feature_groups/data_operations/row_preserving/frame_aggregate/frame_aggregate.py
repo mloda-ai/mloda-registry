@@ -169,7 +169,7 @@ NAN_POLICY_FRAME_KINDS: dict[str, tuple[str, dict[str, list[float]]]] = {
     "expanding": ("val__expanding_{agg_type}", NAN_POLICY_CUMULATIVE_EXPANDING),
 }
 
-# Known per-backend divergences, declared by the Implementation's ``divergent``: pandas and
+# Known per-backend divergences, declared by the Implementation's ``divergences``: pandas and
 # SQLite can't tell NaN from null, so both skip it in sum/avg/count; pandas also
 # skips it in std/var (SQLite has no frame std/var support).
 NAN_DIVERGENT_ROLLING_3: dict[str, list[float]] = {
