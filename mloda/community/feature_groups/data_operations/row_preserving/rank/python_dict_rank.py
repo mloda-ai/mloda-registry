@@ -37,7 +37,7 @@ class PythonDictRank(Implementation[RankFeatureGroup]):
             cause=Cause.OTHER,
             subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
             reason="ties NaN with null in order_by",
-            docs="docs/guides/data-operation-patterns/known-divergences.md",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pythondict-pandas-and-sqlite-rank-tie-none-and-nan-in-order-value-runs-pyarrow--25-duckdb-and-polars-rank-them-apart",
         ),
     )
 
