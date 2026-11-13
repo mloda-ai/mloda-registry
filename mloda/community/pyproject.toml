@@ -7,21 +7,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community"
-version = "0.12.0"
+version = "0.13.0"
 description = "All community plugins for mloda"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 keywords = ["mloda", "mloda-plugin", "feature-engineering", "data-operations", "opentelemetry", "openlineage", "gdpdu", "datev"]
 classifiers = ["Intended Audience :: Developers", "Intended Audience :: Science/Research", "Operating System :: OS Independent", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only", "Programming Language :: Python :: 3.11", "Programming Language :: Python :: 3.12", "Programming Language :: Python :: 3.13", "Programming Language :: Python :: 3.14", "Topic :: Scientific/Engineering :: Artificial Intelligence", "Topic :: Software Development :: Libraries :: Python Modules", "Typing :: Typed"]
-dependencies = ["mloda>=0.20.0,<0.21.0", "mloda-community-extenders-shared==0.12.0", "mloda-community-example==0.12.0", "mloda-community-example-a==0.12.0", "mloda-community-binary-model==0.12.0", "mloda-community-data-operations==0.12.0", "mloda-community-aggregation==0.12.0", "mloda-community-rank==0.12.0", "mloda-community-offset==0.12.0", "mloda-community-window-aggregation==0.12.0", "mloda-community-frame-aggregate==0.12.0", "mloda-community-scalar-aggregate==0.12.0", "mloda-community-scalar-arithmetic==0.12.0", "mloda-community-point-arithmetic==0.12.0", "mloda-community-datetime==0.12.0", "mloda-community-string==0.12.0", "mloda-community-binning==0.12.0", "mloda-community-percentile==0.12.0", "mloda-community-time-bucketization==0.12.0", "mloda-community-ffill==0.12.0", "mloda-community-ema==0.12.0", "mloda-community-sessionization==0.12.0", "mloda-community-resample==0.12.0", "mloda-community-lookup==0.12.0"]
+dependencies = ["mloda>=0.20.0,<0.21.0", "mloda-community-extenders-shared==0.13.0", "mloda-community-example==0.13.0", "mloda-community-example-a==0.13.0", "mloda-community-binary-model==0.13.0", "mloda-community-data-operations==0.13.0", "mloda-community-aggregation==0.13.0", "mloda-community-rank==0.13.0", "mloda-community-offset==0.13.0", "mloda-community-window-aggregation==0.13.0", "mloda-community-frame-aggregate==0.13.0", "mloda-community-scalar-aggregate==0.13.0", "mloda-community-scalar-arithmetic==0.13.0", "mloda-community-point-arithmetic==0.13.0", "mloda-community-datetime==0.13.0", "mloda-community-string==0.13.0", "mloda-community-binning==0.13.0", "mloda-community-percentile==0.13.0", "mloda-community-time-bucketization==0.13.0", "mloda-community-ffill==0.13.0", "mloda-community-ema==0.13.0", "mloda-community-sessionization==0.13.0", "mloda-community-resample==0.13.0", "mloda-community-lookup==0.13.0"]
 requires-python = ">=3.11,<3.15"
 
 [project.optional-dependencies]
-otel = ["mloda-community-otel==0.12.0"]
-openlineage = ["mloda-community-openlineage==0.12.0"]
-german-ledger = ["mloda-community-german-ledger==0.12.0"]
-all = ["mloda-community-otel==0.12.0", "mloda-community-openlineage==0.12.0", "mloda-community-german-ledger==0.12.0"]
+otel = ["mloda-community-otel==0.13.0"]
+openlineage = ["mloda-community-openlineage==0.13.0"]
+german-ledger = ["mloda-community-german-ledger==0.13.0"]
+all = ["mloda-community-otel==0.13.0", "mloda-community-openlineage==0.13.0", "mloda-community-german-ledger==0.13.0"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
