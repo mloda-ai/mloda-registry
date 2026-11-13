@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
@@ -26,11 +26,14 @@ _PANDAS_RANK_METHODS: dict[str, str] = {
 class PandasRank(Implementation[RankFeatureGroup]):
     feature_group = RankFeatureGroup
     compute_framework = PandasDataFrame
-    divergent = {
-        "rank": "float64 cannot tell NaN from null, so they tie",
-        "dense_rank": "float64 cannot tell NaN from null, so they tie",
-        "percent_rank": "float64 cannot tell NaN from null, so they tie",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
+            reason="float64 cannot tell NaN from null, so they tie",
+        ),
+    )
 
     @classmethod
     def calculate(

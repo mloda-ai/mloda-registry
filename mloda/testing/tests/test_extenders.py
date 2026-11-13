@@ -137,6 +137,20 @@ class TestMakeHookContextDefaults:
         assert context.compute_framework_name == "PyArrowTable"
         assert context.run_id is None
 
+    def test_new_field_defaults_equal_the_hook_context_defaults(self) -> None:
+        context = make_hook_context()
+        for name in (
+            "divergences",
+            "contract_version",
+            "allowed_variants",
+            "credential_handles",
+            "bound_credential_handle",
+            "credentials_read",
+        ):
+            field = next(f for f in dataclasses.fields(HookContext) if f.name == name)
+            default = field.default_factory() if field.default_factory is not dataclasses.MISSING else field.default
+            assert getattr(context, name) == default, name
+
     def test_keywords_mirror_hook_context_fields(self) -> None:
         """Guards that a HookContext field added upstream stays reachable through the helper."""
         helper_keywords = set(inspect.signature(make_hook_context).parameters)
@@ -158,6 +172,17 @@ class TestMakeHookContextOverrides:
     def test_feature_names_override(self) -> None:
         context = make_hook_context(feature_names=("other_feature",))
         assert context.feature_names == ("other_feature",)
+
+    def test_divergences_override(self) -> None:
+        from mloda.provider import Cause, Divergence, DivergenceKind
+
+        records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="r"),)
+        context = make_hook_context(divergences=records)
+        assert context.divergences == records
+
+    def test_contract_version_override(self) -> None:
+        context = make_hook_context(contract_version=2)
+        assert context.contract_version == 2
 
     def test_run_id_override(self) -> None:
         context = make_hook_context(run_id="run-123")

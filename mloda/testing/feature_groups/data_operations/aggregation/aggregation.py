@@ -128,7 +128,7 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "std_samp": {"A": float("nan"), "B": float("nan")},
     "var_samp": {"A": float("nan"), "B": float("nan")},
 }
-# Known per-backend divergences, declared by the implementation's ``divergent``: pandas' mode()
+# Known per-backend divergences, declared by the implementation's ``divergences``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
 # both skip it in sum/avg/count; pandas also skips NaN in std/var.
 NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {

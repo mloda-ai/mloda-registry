@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -22,7 +22,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 class SqlitePointArithmetic(Implementation[PointArithmeticFeatureGroup]):
     feature_group = PointArithmeticFeatureGroup
     compute_framework = SqliteFramework
-    divergent = {"divide": "returns NULL on divide by zero"}
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"divide"}),
+            reason="returns NULL on divide by zero",
+        ),
+    )
 
     @classmethod
     def calculate(

@@ -92,7 +92,7 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "std_samp": [float("nan")] * 7,
     "var_samp": [float("nan")] * 7,
 }
-# Known per-backend divergences, declared by the implementation's ``divergent``: pandas' mode()
+# Known per-backend divergences, declared by the implementation's ``divergences``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
 # both skip it in sum/avg/count; pandas also skips NaN in std/var.
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {

@@ -23,7 +23,7 @@ _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_typed_install.py"
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 
 # PyArrowAggregation is an Implementation: the probe reveals and miscalls `calculate`, which the leaf itself
-# defines, and misassigns `supported`, which the leaf declares. Inherited names (e.g. `divergent`) would prove less.
+# defines, and misassigns `supported`, which the leaf declares. Inherited names (e.g. `divergences`) would prove less.
 _PROBE_MODULE = "mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation"
 _PROBE_LEAF = "mloda-community-aggregation"
 _PROBE_BASE = "mloda-community-data-operations"

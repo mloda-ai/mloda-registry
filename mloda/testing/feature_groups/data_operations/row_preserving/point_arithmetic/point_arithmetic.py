@@ -22,7 +22,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
@@ -153,12 +153,12 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     @classmethod
     def divide_zero_propagates_inf(cls) -> bool:
-        """Whether divide-by-zero produces IEEE-754 inf/nan, read from the Implementation's ``divergent``.
+        """Whether divide-by-zero produces IEEE-754 inf/nan, read from the Implementation's ``divergences``.
 
-        An Implementation that lists ``divide`` as divergent (SQLite: no IEEE-754
+        An Implementation that names ``divide`` in a divergence record (SQLite: no IEEE-754
         storage, NULL for divide-by-zero rows) does not propagate inf.
         """
-        return "divide" not in cls.implementation_class().divergent
+        return "divide" not in divergent_subtypes(cls.implementation_class())
 
     # -- Concrete tests -----------------------------------------------------
 

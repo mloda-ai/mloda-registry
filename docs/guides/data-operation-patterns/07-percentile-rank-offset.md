@@ -35,7 +35,7 @@ All rows of the same `service` share the same P95 value. Percentiles use the fra
 
 ## Rank
 
-`RankFeatureGroup` assigns each row a rank within its partition. It is one `OperationFeatureGroup` (shared `rank` loop, `SUBTYPES` on `rank_type`) with `Implementation` classes such as `PandasRank`; there is no PyArrow implementation. `PandasRank`, `SqliteRank` and `PythonDictRank` declare `divergent` for `rank`, `dense_rank` and `percent_rank` (None and NaN `order_by` values tie), so with several frameworks enabled a request runs on a non-divergent one when it can.
+`RankFeatureGroup` assigns each row a rank within its partition. It is one `OperationFeatureGroup` (shared `rank` loop, `SUBTYPES` on `rank_type`) with `Implementation` classes such as `PandasRank`; there is no PyArrow implementation. `PandasRank`, `SqliteRank` and `PythonDictRank` declare `divergences` for `rank`, `dense_rank` and `percent_rank` (None and NaN `order_by` values tie), so with several frameworks enabled a request runs on a non-divergent one when it can.
 
 | Pattern | Example |
 |---|---|

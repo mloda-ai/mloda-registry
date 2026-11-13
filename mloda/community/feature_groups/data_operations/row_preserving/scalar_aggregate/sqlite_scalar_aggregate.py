@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -29,12 +29,20 @@ class SqliteScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
     feature_group = ScalarAggregateFeatureGroup
     compute_framework = SqliteFramework
     supported = frozenset(_SQLITE_AGG_FUNCS)
-    divergent = {
-        "sum": "skips NaN",
-        "avg": "skips NaN",
-        "mean": "skips NaN",
-        "count": "does not count NaN",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"sum", "avg", "mean"}),
+            reason="skips NaN",
+        ),
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"count"}),
+            reason="does not count NaN",
+        ),
+    )
 
     @classmethod
     def calculate(

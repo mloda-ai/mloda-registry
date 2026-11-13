@@ -180,8 +180,9 @@ class TestResampleOperationGroup(OperationGroupTestBase):
     def test_divergence_applies_exactly_where_sum_is_divergent(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
         impl = self._implementation(spec)
-        divergence = impl.divergence(ResampleFeatureGroup, "val__resample_1_day_sum", Options())
-        assert (divergence is not None) == ("sum" in spec.divergent)
+        assert bool(impl.divergences_for(ResampleFeatureGroup, "val__resample_1_day_sum", Options())) == (
+            "sum" in spec.divergent
+        )
 
 
 class TestResampleOpConfig:

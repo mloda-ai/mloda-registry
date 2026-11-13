@@ -35,10 +35,14 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 
 - `parallelization_modes`: override parallelization per run
 - `flight_server`: Arrow Flight server for distributed execution
-- `artifacts`: a previous run's `get_artifacts()`; matching feature groups switch to load mode
+- `artifacts`: a previous run's `RunResult.artifacts` (`session.run().artifacts`, or `stream.artifacts` once a `stream_run()` stream is exhausted); keys must be in `session.artifact_inputs`, else it raises; matching feature groups switch to load mode
+- `credentials`: `{handle: Credential | dict}` replacing declared handles' values for this run only
+- `parameters`: `{key: value}` replacing declared runtime parameters for this run only
 - `carrier`: W3C trace-context carrier forwarded to every hook context; may differ per call
 - `child_bootstrap`: picklable no-argument callable run once in each `MULTIPROCESSING` worker before its first command
 - `graceful_shutdown_timeout`: seconds (default 2.0), shared by a `MULTIPROCESSING` worker's extenders, for their `close()` before the worker is terminated, see [Pickle Compatibility](../11-create-extender.md#pickle-compatibility)
+
+A prepared session keeps no per-run state, so threads can share it and call `run()` concurrently.
 
 Extenders are not a `session.run()` parameter (passing `function_extender` there raises `TypeError`). Pass them to `mloda.prepare(...)` instead; they apply to every `session.run()` of that session.
 

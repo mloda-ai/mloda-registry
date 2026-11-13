@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
@@ -29,19 +29,26 @@ _SUPPORTED_AGG_TYPES = {*PANDAS_AGG_FUNCS.keys(), "mode"}
 class PandasAggregation(Implementation[AggregationFeatureGroup]):
     feature_group = AggregationFeatureGroup
     compute_framework = PandasDataFrame
-    divergent = {
-        "sum": "skips NaN",
-        "avg": "skips NaN",
-        "mean": "skips NaN",
-        "std": "skips NaN",
-        "var": "skips NaN",
-        "std_pop": "skips NaN",
-        "var_pop": "skips NaN",
-        "std_samp": "skips NaN",
-        "var_samp": "skips NaN",
-        "count": "does not count NaN",
-        "mode": "does not count NaN as a value",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"sum", "avg", "mean", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}),
+            reason="skips NaN",
+        ),
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"count"}),
+            reason="does not count NaN",
+        ),
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"mode"}),
+            reason="does not count NaN as a value",
+        ),
+    )
 
     @classmethod
     def calculate(

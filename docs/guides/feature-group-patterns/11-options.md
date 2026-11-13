@@ -20,7 +20,7 @@ How to pass configuration to features and feature groups.
 
 **Default**: When you pass a dict without specifying `group=` or `context=`, it goes to **group**. This means `Options({"algo": "kmeans"})` is equivalent to `Options(group={"algo": "kmeans"})`. Be explicit when you need context-only parameters.
 
-**Fixed at prepare**: A prepared session keeps the group and context options its features had at `mloda.prepare`, and `session.run()` takes new data, not new options, so a changed option needs a new `prepare` (see [Realtime Execution](24-realtime.md)). What the group reads during each run, such as the file an environment variable points to (its name given in a context option), picks up changes without one.
+**Fixed at prepare**: A prepared session keeps the group and context options its features had at `mloda.prepare`, and `session.run()` takes new data, not new options, so a changed option needs a new `prepare` (see [Realtime Execution](24-realtime.md)). What the group reads during each run, such as the file an environment variable points to (its name given in a context option), picks up changes without one. A key declared with `property_spec(..., runtime=True)` is a runtime parameter: a run may replace its value with `session.run(parameters={key: value})`, for that run only.
 
 **Per-option state**: A long-lived process that prepares again when options change can keep expensive per-option state (an analyzer, a loaded model) across sessions in a module-level cache keyed by the option values it depends on, e.g. `functools.lru_cache(maxsize=...)` on a loader called with hashable values (a `tuple` or `frozenset`, not a list); `maxsize` bounds it by evicting the least recently used. Concurrent calls share it, so the cached object must be safe to use from several threads, and a simultaneous miss may run the loader twice (see [Which Features Share a Call](12-calculate-feature.md#which-features-share-a-call)).
 
@@ -52,7 +52,7 @@ feature = Feature(
 )
 ```
 
-The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
+The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
 
@@ -171,7 +171,7 @@ assert result[0]["guide11_price__shift_1"].tolist()[1:] == [1, 2]
 - `_resolve_operation` and `value_for` still return the captured text
 - Keep the converter pure and cheap, as it runs on every resolution
 
-See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
+See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
 
 ### Annotate with ClassVar
 

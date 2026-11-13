@@ -91,7 +91,7 @@ class YourOpFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 The group owns:
 
 - The base order: mixins first, `OperationFeatureGroup` last, so the mixin's matcher runs before the bare `FeatureGroup` one.
-- The feature-name regex, `PROPERTY_MAPPING`, and `SUBTYPES` (the key `supported` and `divergent` are keyed by).
+- The feature-name regex, `PROPERTY_MAPPING`, and `SUBTYPES` (the keys `supported` and `divergences` use).
 - The shared loop as a classmethod that takes the framework step as a keyword-only callable. It defines no step itself and no `compute_framework_rule`: the frameworks are the ones its Implementations serve.
 - Extraction of source column, operation, and any options from `Options(context=...)`.
 - The shared `assert_source_columns_present` presence guard, called once per feature before any per-backend dtype guard.
@@ -137,7 +137,7 @@ class PyArrowYourOp(Implementation[YourOpFeatureGroup]):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
-Every family has this shape; the reference each family compares against is listed in [Reference implementation pattern](03-reference-implementation.md#how-the-comparison-works). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergent`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
+Every family has this shape; the reference each family compares against is listed in [Reference implementation pattern](03-reference-implementation.md#how-the-comparison-works). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergences`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 
@@ -180,7 +180,7 @@ The test method calls `_compare_with_reference`, which runs both the Implementat
 
 One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 
-The group's shape gets its own test in `{category}/{your_op}/tests/test_base.py`: subclass `OperationGroupTestBase` (`mloda/testing/feature_groups/data_operations/operation_group.py`) and fill its hooks. It checks the base order, `SUBTYPES`, that the loop is on the group and the step only on the Implementations, each Implementation's framework pair, `supported` and `divergent`, and the manifest:
+The group's shape gets its own test in `{category}/{your_op}/tests/test_base.py`: subclass `OperationGroupTestBase` (`mloda/testing/feature_groups/data_operations/operation_group.py`) and fill its hooks. It checks the base order, `SUBTYPES`, that the loop is on the group and the step only on the Implementations, each Implementation's framework pair, `supported` and `divergences`, and the manifest:
 
 ```py
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
@@ -252,9 +252,9 @@ One file per framework, each an `Implementation[YourOpFeatureGroup]`, plus the m
 
 Each sets `feature_group` and `compute_framework`, makes `calculate` the one-liner through `group.apply_your_op`, and implements `_compute_your_op` with its native primitives. For row-preserving ops, respect the row-order invariant. SQL `window()` keeps input order, so call it directly; DuckDB implementations wrap only a non-window reordering step (raw SQL, joins) in `preserve_row_order` (see [the row-preserving contract](02-row-preserving-contract.md)).
 
-A framework that cannot run an op, or differs from the reference on one, declares `supported` / `divergent` on its Implementation (see [Framework-Specific](../feature-group-patterns/09-framework-specific.md#complete-example)).
+A framework that cannot run an op, or differs from the reference on one, declares `supported` / `divergences` on its Implementation (see [Framework-Specific](../feature-group-patterns/09-framework-specific.md#complete-example)).
 
-Reject an op the framework cannot run natively through `supported`; do not compute it in Python inside the Implementation. Examples: `aggregation/sqlite_aggregation.py` (both), `point_arithmetic/sqlite_point_arithmetic.py` (`divergent` only).
+Reject an op the framework cannot run natively through `supported`; do not compute it in Python inside the Implementation. Examples: `aggregation/sqlite_aggregation.py` (both), `point_arithmetic/sqlite_point_arithmetic.py` (`divergences` only).
 
 `manifest.py` lists the group and every Implementation through `load_plugin_classes`, so a backend whose optional framework is missing is skipped. Copy `row_preserving/binning/manifest.py`.
 
@@ -323,7 +323,7 @@ class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
 
 `MaskTestMixin` adds inherited test methods covering a missing mask column, equal, AND-combined, `is_in`, greater-than, fully-masked, no-mask-baseline, and missing-value (null and NaN) scenarios. See [Masking](../feature-group-patterns/25-masking.md) for the full user-facing spec.
 
-If the new op has a documented NaN policy (see [the reference-implementation guide](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)), wire it up to `NanPolicyTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/nan_policy.py`) instead of writing a bespoke `test_nan_policy_*` method. Override `nan_policy_cases` (case id -> expected value, required) and `nan_policy_feature_name` (case id -> feature name, required); `nan_policy_agg_type` defaults to the case id, `nan_policy_feature_set` defaults to partitioning by `"grp"`, `nan_policy_divergent_cases` defaults to no divergences, and `nan_policy_extract_values` defaults to a plain list column. A divergent case only applies for a concrete framework test class that names its agg type (via `nan_policy_agg_type`) in that class's `nan_divergent_agg_types()`, which by default is the Implementation's shipped `divergent` keys (empty for a plain FeatureGroup subclass); a framework with no divergence for the op does not need to override `nan_policy_divergent_cases` at all. The default skip hook calls `_skip_if_unsupported`, which needs a `supported_*` set on the base (e.g. `supported_agg_types`); ops without one (resample, percentile) must override `nan_policy_skip_if_unsupported` instead.
+If the new op has a documented NaN policy (see [the reference-implementation guide](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)), wire it up to `NanPolicyTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/nan_policy.py`) instead of writing a bespoke `test_nan_policy_*` method. Override `nan_policy_cases` (case id -> expected value, required) and `nan_policy_feature_name` (case id -> feature name, required); `nan_policy_agg_type` defaults to the case id, `nan_policy_feature_set` defaults to partitioning by `"grp"`, `nan_policy_divergent_cases` defaults to no divergences, and `nan_policy_extract_values` defaults to a plain list column. A divergent case only applies for a concrete framework test class that names its agg type (via `nan_policy_agg_type`) in that class's `nan_divergent_agg_types()`, which by default is the subtypes of the Implementation's shipped `divergences` (empty for a plain FeatureGroup subclass); a framework with no divergence for the op does not need to override `nan_policy_divergent_cases` at all. The default skip hook calls `_skip_if_unsupported`, which needs a `supported_*` set on the base (e.g. `supported_agg_types`); ops without one (resample, percentile) must override `nan_policy_skip_if_unsupported` instead.
 
 A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/case_parametrization.py`) and declares its fixture in `_case_fixtures`, rather than defining its own `pytest_generate_tests`; `mixins/tests/test_mixin_isolation.py` enforces this structurally.
 
@@ -339,4 +339,4 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 - [Row-preserving contract](02-row-preserving-contract.md) - The invariant row-preserving ops must honor.
 - [Reference implementation pattern](03-reference-implementation.md) - Why PyArrow goes first.
 - [Supported ops per framework](04-supported-ops.md) - Mechanics of the `supported_ops` override.
-- [Framework-Specific](../feature-group-patterns/09-framework-specific.md) - `OperationFeatureGroup`, `Implementation`, `supported` and `divergent`.
+- [Framework-Specific](../feature-group-patterns/09-framework-specific.md) - `OperationFeatureGroup`, `Implementation`, `supported` and `divergences`.

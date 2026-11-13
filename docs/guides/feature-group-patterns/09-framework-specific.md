@@ -14,7 +14,7 @@
 | `Implementation.feature_group` / `compute_framework` | The pair it serves; required, checked at class definition |
 | `Implementation.calculate(group, data, features, framework)` | Runs the feature; call the group's shared loop |
 | `Implementation.supported` | `frozenset` of subtypes it can run; `None` (default) = all |
-| `Implementation.divergent` | `{subtype: reason}` where it differs from the reference result |
+| `Implementation.divergences` | Tuple of `Divergence` records where it differs from the reference result |
 | `Feature(..., implementation=...)` | Pin by class, qualified `module:Class` string, bare name (only if unique among loaded classes) or list of these |
 
 ## Complete Example
@@ -102,21 +102,24 @@ class ValueSource(DataCreatorFeatureGroup):
 
 `FeatureChainParserMixin` (Pattern 3) is what makes the group match `value__doubled`; `OperationFeatureGroup` alone does not.
 
-Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.19.1/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)):
+Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)):
 
 ```py
-from mloda.provider import Implementation
+from mloda.provider import Cause, Divergence, DivergenceKind, Implementation
 
 
 class LimitedImplementation(Implementation[MyOperationGroup]):
     feature_group = MyOperationGroup
     compute_framework = PyArrowTable
     supported = frozenset({"sum", "min", "max"})  # other subtypes: this framework is not offered
-    divergent = {"sum": "skips NaN"}  # runs, but differs from the reference for sum
+    # runs, but differs from the reference for sum
+    divergences = (
+        Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, subtypes=frozenset({"sum"}), reason="skips NaN"),
+    )
 ```
 
 - `supported`: a feature whose subtype is outside the set is not offered on that framework. Reject up front; do not compute the result in Python inside the backend.
-- `divergent`: a declared, accepted difference from the reference. When several frameworks are enabled, non-divergent implementations rank before cost.
+- `divergences`: declared, accepted differences from the reference (`kind`, `cause`, `subtypes` or `outputs`, one-line `reason`). When several frameworks are enabled, every kind except `GAP` ranks the implementation below a matching one without it.
 
 ## Pin an Implementation
 
@@ -140,7 +143,7 @@ assert arrow_out["value__doubled"].to_pylist() == [2, 4]
 
 ## Reference Contract and Divergence
 
-`divergent` is measured against a reference contract documented on the group, keyed by the subtypes it declares in `SUBTYPES`. Implementations that follow the contract declare nothing:
+`divergences` is measured against a reference contract documented on the group, keyed by the subtypes it declares in `SUBTYPES`. Implementations that follow the contract declare nothing:
 
 ```python
 from collections.abc import Callable
@@ -150,7 +153,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from mloda.provider import (
+    Cause,
     ComputeFramework,
+    Divergence,
+    DivergenceKind,
     FeatureChainParserMixin,
     FeatureSet,
     Implementation,
@@ -194,7 +200,11 @@ class ColumnTotal(FeatureChainParserMixin, OperationFeatureGroup):
 class PandasColumnTotal(Implementation[ColumnTotal]):
     feature_group = ColumnTotal
     compute_framework = PandasDataFrame
-    divergent = {"sum": "skips NaN in sum"}
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE, cause=Cause.BACKEND, subtypes=frozenset({"sum"}), reason="skips NaN in sum"
+        ),
+    )
 
     @classmethod
     def calculate(
@@ -245,7 +255,7 @@ With Pandas and PyArrow both enabled, a sum runs on PyArrow with the reason `pre
 Feature("price__sum_total", implementation="PandasColumnTotal")
 ```
 
-The pinned step records `pinned; runs a version that differs: skips NaN in sum`. The pin is part of the feature's identity and is not passed to input features. An unknown or ambiguous name, a disabled implementation, a conflict with `compute_framework=` or a wrong entry count raises `ImplementationPinError` (a `ValueError`). A steward disables one implementation with `PluginCollector.add_disabled_implementation_classes`. See core's [Operation Groups](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/in_depth/compute-framework-integration.md#operation-groups-one-group-one-implementation-per-framework).
+The pinned step records `pinned; runs a version that differs: skips NaN in sum`. The pin is part of the feature's identity and is not passed to input features. An unknown or ambiguous name, a disabled implementation, a conflict with `compute_framework=` or a wrong entry count raises `ImplementationPinError` (a `ValueError`). A steward disables one implementation with `PluginCollector.add_disabled_implementation_classes`. See core's [Operation Groups](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/compute-framework-integration.md#operation-groups-one-group-one-implementation-per-framework).
 
 ## Test
 
@@ -308,15 +318,15 @@ class PandasOnlyGroup(FeatureGroup):
 | File | Description |
 |------|-------------|
 | [aggregation/base.py](../../../mloda/community/feature_groups/data_operations/aggregation/base.py) | `AggregationFeatureGroup`, the group and its shared `aggregate` loop |
-| [aggregation/pandas_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py) | `PandasAggregation`, with `divergent` |
+| [aggregation/pandas_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py) | `PandasAggregation`, with `divergences` |
 | [aggregation/pyarrow_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/pyarrow_aggregation.py) | `PyArrowAggregation`, with `supported` |
-| [aggregation/sqlite_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/sqlite_aggregation.py) | `SqliteAggregation`, with `supported` and `divergent` |
+| [aggregation/sqlite_aggregation.py](../../../mloda/community/feature_groups/data_operations/aggregation/sqlite_aggregation.py) | `SqliteAggregation`, with `supported` and `divergences` |
 | [window_aggregation/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/base.py) | `WindowAggregationFeatureGroup`, the group and its shared `aggregate` loop |
 | [point_arithmetic/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/base.py) | `PointArithmeticFeatureGroup`, shared loop with two keyword-only callables |
-| [point_arithmetic/sqlite_point_arithmetic.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py) | `SqlitePointArithmetic`, with `divergent` |
+| [point_arithmetic/sqlite_point_arithmetic.py](../../../mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py) | `SqlitePointArithmetic`, with `divergences` |
 | [row_preserving/rank/base.py](../../../mloda/community/feature_groups/data_operations/row_preserving/rank/base.py) | `RankFeatureGroup`, shared `rank` loop, `SUBTYPES` with parametric families |
 | [string/sqlite_string.py](../../../mloda/community/feature_groups/data_operations/string/sqlite_string.py) | `SqliteStringOps`, with `supported` |
-| [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.19.1/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
+| [core aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Core's group, shared loop |
 
 ## Combines With
 

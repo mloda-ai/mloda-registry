@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -31,11 +31,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 class PythonDictRank(Implementation[RankFeatureGroup]):
     feature_group = RankFeatureGroup
     compute_framework = PythonDictFramework
-    divergent = {
-        "rank": "ties NaN with null in order_by",
-        "dense_rank": "ties NaN with null in order_by",
-        "percent_rank": "ties NaN with null in order_by",
-    }
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.OTHER,
+            subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
+            reason="ties NaN with null in order_by",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pythondict-pandas-and-sqlite-rank-tie-none-and-nan-in-order-value-runs-pyarrow--25-duckdb-and-polars-rank-them-apart",
+        ),
+    )
 
     @classmethod
     def calculate(

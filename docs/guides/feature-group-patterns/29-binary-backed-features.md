@@ -154,7 +154,7 @@ class StubExample(BinaryExampleFeatureGroup):
     LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
 ```
 
-A subclass that matches the same features takes over its parent wherever its module is imported ([matching process](https://github.com/mloda-ai/mloda/blob/0.19.1/docs/docs/in_depth/feature-group-matching.md#matching-process)); an entry point imports it in every environment that installs the package. Keep stubs in test modules and name the class a test means with `PluginCollector.enabled_feature_groups`. This also matters because the kit's `binary-model` extra installs the `mloda-enterprise` bundle, whose entry points make its FeatureGroups discoverable: a copy of the Complete Example would otherwise match alongside the real group (`Multiple feature groups found`).
+A subclass that matches the same features takes over its parent wherever its module is imported ([matching process](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/feature-group-matching.md#matching-process)); an entry point imports it in every environment that installs the package. Keep stubs in test modules and name the class a test means with `PluginCollector.enabled_feature_groups`. This also matters because the kit's `binary-model` extra installs the `mloda-enterprise` bundle, whose entry points make its FeatureGroups discoverable: a copy of the Complete Example would otherwise match alongside the real group (`Multiple feature groups found`).
 
 Other license states come from the same module: `expired_license_token`, `in_grace_license_token` and `expiring_license_token(plugins, left=timedelta(hours=6))`, which signs `exp = now + left` for testing a pre-expiry notice.
 

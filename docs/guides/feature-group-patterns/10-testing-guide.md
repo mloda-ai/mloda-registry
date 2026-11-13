@@ -189,13 +189,13 @@ Use when upstream features are slow (API calls, ML inference) or you need contro
 
 ## Operation Groups: Conformance to the Reference Contract
 
-Test that each result differs from the reference exactly where `divergent` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#reference-contract-and-divergence) (in the same namespace, not imported again).
+Test that each result differs from the reference exactly where `divergences` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#reference-contract-and-divergence) (in the same namespace, not imported again).
 
 ```py
 import math
 from typing import Any
 
-from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, DivergenceKind, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -204,8 +204,8 @@ import pytest
 VALUES = [1.0, math.nan, 3.0]
 
 EXPECTED = {
-    PandasColumnTotal: {"sum": "skips NaN in sum"},
-    PyArrowColumnTotal: {},
+    PandasColumnTotal: {"sum"},
+    PyArrowColumnTotal: set(),
 }
 
 
@@ -223,6 +223,10 @@ class Guide10Prices(DataCreatorFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[Any]]:
         return {PandasDataFrame}
+
+
+def declared(implementation: Any) -> set[str]:
+    return {s for r in implementation.divergences for s in r.subtypes or () if r.kind is not DivergenceKind.GAP}
 
 
 def is_missing(value: Any) -> bool:
@@ -244,7 +248,7 @@ def same(a: Any, b: Any) -> bool:
 @pytest.mark.parametrize("implementation", [PandasColumnTotal, PyArrowColumnTotal])
 @pytest.mark.parametrize("op", ["sum", "max"])
 def test_result_differs_from_the_reference_exactly_when_declared(implementation, op):
-    assert dict(implementation.divergent) == EXPECTED[implementation]
+    assert declared(implementation) == EXPECTED[implementation]
     name = f"guide10_price__{op}_total"
     result = mloda.run_all(
         [Feature(name, implementation=implementation)],
@@ -253,10 +257,10 @@ def test_result_differs_from_the_reference_exactly_when_declared(implementation,
     )[0][name]
     value = list(result.to_pylist() if hasattr(result, "to_pylist") else result)[0]
     differs = not same(value, reference(op, VALUES))
-    assert differs == (op in implementation.divergent)
+    assert differs == (op in declared(implementation))
 ```
 
-Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.19.1/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
+Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.20.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
 
 ## Locking a Shipped Plan
 
@@ -285,7 +289,7 @@ def test_recipe_plan_matches_lock() -> None:
     check_plan_lock(plan, LOCK)
 ```
 
-`check_plan_lock` never writes: it raises `PlanLockMismatchError` with a diff when the plan drifts, or with the content to write when the lock is missing. Regenerate with `UPDATE_PLAN_LOCKS=1 pytest ...` (the test's own switch, not an mloda setting), review the diff and commit the lock file. The lock records each feature group, reader and framework by `module:qualname`, so moving a class or upgrading mloda can change it too (mloda 0.16.0 moved the lock format to 5, adding input wiring and join keys, so rewrite each lock once after upgrading); they must live in an importable module, since `write_plan_lock` refuses classes defined in `__main__`.
+`check_plan_lock` never writes: it raises `PlanLockMismatchError` with a diff when the plan drifts, or with the content to write when the lock is missing. Regenerate with `UPDATE_PLAN_LOCKS=1 pytest ...` (the test's own switch, not an mloda setting), review the diff and commit the lock file. The lock records each feature group, reader and framework by `module:qualname`, so moving a class or upgrading mloda can change it too (mloda 0.16.0 moved the lock format to 5, adding input wiring and join keys, and mloda 0.20.0 moved it to 9, so rewrite each lock once after upgrading); they must live in an importable module, since `write_plan_lock` refuses classes defined in `__main__`.
 
 ## Refusing a Consumer of a Row-Replacing Output
 
