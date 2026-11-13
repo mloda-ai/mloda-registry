@@ -260,19 +260,25 @@ The full expired/in-grace/valid license state machine is covered against the rea
 | Option | Meaning |
 |--------|---------|
 | `pseudonymization_algorithm` | Strict; only `hmac_sha256` |
-| `pii_key_env` | Name of the environment variable that holds the key (64 hex characters) |
+| `pii_key_handle` | Credential handle whose `key` field holds the key (64 hex characters); a group option |
 | `in_features` | The single source column |
 
-The key stays in an environment variable and never goes into Options, which mloda hashes and echoes. So `pii_key_env` is neither strict nor guarded, and errors never name the variable or echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
+The key never goes into Options, which mloda hashes and echoes: register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. `pii_key_handle` replaces the former `pii_key_env`. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
 ```python
 feature = Feature(
     "pseudonymized_email",
-    Options(context={"pseudonymization_algorithm": "hmac_sha256", "pii_key_env": "PII_KEY", "in_features": "email"}),
+    Options(
+        group={"pii_key_handle": "pii-key"},
+        context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"},
+    ),
 )
+access = DataAccessCollection(
+    credentials={"pii-key": Credential(key=os.environ["PII_KEY"])}
+)  # pass as data_access_collection=
 ```
 
-The string form `email__hmac_sha256_pseudonymized` works with `pii_key_env` in the context. `pip install "mloda-enterprise[anonymizer]"` brings the wheel and pyarrow.
+The string form `email__hmac_sha256_pseudonymized` works with `pii_key_handle` in the group options. `pip install "mloda-enterprise[anonymizer]"` brings the wheel and pyarrow.
 
 The key is the raw 32-byte HMAC key (64 hex); the binary does no key derivation. To get the same tokens as the `anonymizer-rs` tool, pass the key it derives from its master key file (HKDF-SHA256, no salt, info `anonymizer-rs-anon`, over the file's raw bytes); hex-encoding a 32-byte master key file itself passes the format check but its tokens never match.
 

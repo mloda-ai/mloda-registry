@@ -22,15 +22,15 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiDataFG, FeatureSet
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.provider import ApiDataFG, FeatureSet, credentials_scope
+from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.binary_model.contract import CONTRACT_VERSION
@@ -48,7 +48,7 @@ from tests.test_binary_model_real.probe_classification import (
     probe_environment,
 )
 
-_ANONYMIZER_KEY_ENV = "REAL_WHEEL_ANONYMIZER_PII_KEY"
+_ANONYMIZER_KEY_HANDLE = "real-wheel-anonymizer-pii-key"
 
 
 class _ExampleTestLicense(BinaryExampleFeatureGroup):
@@ -99,11 +99,8 @@ _CASES: dict[str, _Case] = {
         make_feature=lambda: Feature(
             "pseudonymized",
             Options(
-                context={
-                    "pseudonymization_algorithm": "hmac_sha256",
-                    "pii_key_env": _ANONYMIZER_KEY_ENV,
-                    "in_features": "email",
-                }
+                group={"pii_key_handle": _ANONYMIZER_KEY_HANDLE},
+                context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"},
             ),
         ),
         expected=lambda rows: compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY),
@@ -124,13 +121,12 @@ _accepts_test_key: dict[str, bool] = {}
 
 
 @pytest.fixture(params=list(_CASES))
-def real_case(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> _RealCase:
-    """Skips unless the case's wheel is installed; sets a valid anonymizer key so a missing key never
-    masks the license error a test asserts."""
+def real_case(request: pytest.FixtureRequest) -> Iterator[_RealCase]:
+    """Skips unless the case's wheel is installed; opens a credentials scope with a valid anonymizer key so a
+    missing key never masks the license error a test asserts."""
     case = _CASES[request.param]
     module = pytest.importorskip(case.module)
     binary_path: Path = module.binary_path()
-    monkeypatch.setenv(_ANONYMIZER_KEY_ENV, KNOWN_ANSWER_KEY)
 
     def accepts_test_key() -> bool:
         if case.module not in _accepts_test_key:
@@ -139,7 +135,8 @@ def real_case(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -
             )
         return _accepts_test_key[case.module]
 
-    return _RealCase(case, binary_path, case.production_class.BINARY_PLUGIN_ID, accepts_test_key)
+    with credentials_scope({_ANONYMIZER_KEY_HANDLE: {"key": KNOWN_ANSWER_KEY}}):
+        yield _RealCase(case, binary_path, case.production_class.BINARY_PLUGIN_ID, accepts_test_key)
 
 
 def _single_feature(case: _Case) -> tuple[Feature, FeatureSet]:
@@ -207,6 +204,9 @@ def _run_end_to_end(case: _Case, feature_class: type[BinaryExampleFeatureGroup] 
         [feature],
         compute_frameworks=[PyArrowTable],
         api_data={"BinaryRealWheelData": rows},
+        data_access_collection=DataAccessCollection(
+            credentials={_ANONYMIZER_KEY_HANDLE: Credential(key=KNOWN_ANSWER_KEY)}
+        ),
         plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, feature_class}),
     )
     expected = case.expected(rows)

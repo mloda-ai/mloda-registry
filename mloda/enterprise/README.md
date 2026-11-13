@@ -19,10 +19,12 @@ Platforms: Linux x86_64 and aarch64, macOS x86_64 and arm64, Windows x86_64, Pyt
 
 License key: every run of a binary-backed plugin needs a key issued by mloda, for an evaluation (request one at https://mloda.ai/enterprise) or under a license agreement, read from the first of these that is set: `MLODA_LICENSE_FILE` (path to the key file), `MLODA_LICENSE_KEY` (the token itself). After `exp` a key keeps working for its grace days with a WARNING in the log; renew before. Without a usable key the feature still resolves and the run fails with `LicenseMissingError` or `LicenseInvalidError`; no other plugin takes its place. Development and testing use the simulated binary and test tokens signed with the published test key from `mloda-testing[binary-model]` instead (see the guide linked below).
 
-Key: generate it once with `python -c "import secrets; print(secrets.token_hex(32))"`, store it as a secret and export it as `PII_KEY` (the env var `pii_key_env` names). Keep it stable, a new key gives unrelated pseudonyms.
+Key: generate it once with `python -c "import secrets; print(secrets.token_hex(32))"`, store it as a secret and export it as `PII_KEY`, and register it under a credential handle that the `pii_key_handle` option names. Keep it stable, a new key gives unrelated pseudonyms. `pii_key_handle` replaces the former `pii_key_env`.
 
 ```python
-from mloda.user import Feature, Options, PluginLoader, mloda
+import os
+
+from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginLoader, mloda
 
 PluginLoader.all()
 
@@ -31,16 +33,14 @@ result = mloda.run_all(
         Feature(
             "pseudonymized_email",
             Options(
-                context={
-                    "pseudonymization_algorithm": "hmac_sha256",
-                    "pii_key_env": "PII_KEY",
-                    "in_features": "email",
-                }
+                group={"pii_key_handle": "pii-key"},
+                context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"},
             ),
         )
     ],
     compute_frameworks=["PyArrowTable"],
     api_data={"customers": {"email": ["ada@example.com", None]}},
+    data_access_collection=DataAccessCollection(credentials={"pii-key": Credential(key=os.environ["PII_KEY"])}),
 )
 print(result[0])
 ```
