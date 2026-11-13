@@ -111,7 +111,7 @@ record_match_rejection(
 ```
 
 - Record only when ownership is established but the content fails (right suffix, missing column; valid credentials, declined feature). Plain non-matches stay silent.
-- When a request reaches a `NamePolicy.DECLARED` route (searched, or unlocked by its `required_options`) for a name it declares and `find_sources` finds no source, core records `<Group> found no source serving '<name>'` for an unpointed request (a pointed one gets core's own `was pointed at but found no source` reason). So a DECLARED reader records in `find_sources` only for a more specific, domain-worded reason. A derived group that is the only match for its name skips the input-chain check (see [Feature Matching](14-feature-matching.md#how-it-works)) and fails at this input, whose recorded reason names the cause.
+- When a request reaches a `NamePolicy.DECLARED` route (searched, or unlocked by its `required_options`) for a name it declares and `find_sources` finds no source, core records a reason: `<Group> found no source serving '<name>'` unpointed, `<Group> was pointed at but found no source for '<name>'` under an explicit pointer (a class-name options key, or `feature_group=` naming the group). A `feature_group=` scope naming a concrete family base records nothing. So record in `find_sources` only for a more specific, domain-worded reason, or under a base scope. A derived group that is the only match for its name skips the input-chain check (see [Feature Matching](14-feature-matching.md#how-it-works)) and fails at this input, whose recorded reason names the cause.
 - Never raise to decline. A raise marked with `escalate_match_abort` propagates; any other raise ends matching for that candidate. Record, then return a falsy value.
 - The first recording per owner wins, and recorded reasons are discarded when the group ultimately matches. Name the group and the concrete source in the reason.
 - Recording outside an engine-opened window is a no-op; in tests use `collect_match_rejections`.
@@ -167,13 +167,13 @@ features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/
 
 ### Audit Identity
 
-Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups publish a URI path parameter region (`;...`) as `;***`, so an override that returns a URI should build it from `match.source` (already cut) rather than from the raw access.
+Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
 
 ## Families of Sibling Sources
 
 A base that implements `find_sources` and `load_neutral` is concrete, so its class name is a pointer key and a `feature_group=` scope for every subclass; an abstract base drops out of both, so `feature_group="Base"` covers the family only when the base is concrete.
 
-A class-name pointer on a derived request forwards to every input (see [Input-feature forwarding](26-input-feature-forwarding.md)). Under that pointer a `NamePolicy.CHECKED` sibling whose source lacks the column fails the request, even when another sibling has it; a `NamePolicy.DECLARED` sibling records `'x' is not a name <Group> declares` and declines. A family serving a fixed set of columns uses `DECLARED`.
+A class-name pointer on a derived request forwards to every input (see [Input-feature forwarding](26-input-feature-forwarding.md#caveat-a-forwarded-source-pointer-reaches-every-input)). Under that pointer a `NamePolicy.CHECKED` sibling whose source lacks the column fails the request, even when another sibling has it; a `NamePolicy.DECLARED` sibling records `'x' is not a name <Group> declares` and declines. A family serving a fixed set of columns uses `DECLARED`.
 
 For picking a sibling by the credential slot it finds, and an abstract base whose leaves never compete, see [Way 3](28-backend-families.md#way-3-reader-delegation-sibling-readers).
 
@@ -206,7 +206,7 @@ class StationFG(SourceFeatureGroup):
 
     @classmethod
     def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any:
-        return {"value": [1]}
+        return {name: [1] for name in features.get_all_names()}
 
 
 class TemperatureFG(StationFG):
