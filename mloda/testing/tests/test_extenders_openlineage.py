@@ -400,9 +400,9 @@ def _make_rewriting_identity_host(rewrite_identity: Callable[[HookContext, tuple
 
 
 class TestQueryStringIdentityContract:
-    """Proves the query-string, user-information and path-parameter contract test fails for an extender that publishes the raw
-    identity, keeps its user information (whole or with only the password masked), publishes a sanitized raw
-    identity, or drops it."""
+    """Proves the URI identity contract test fails for an extender that publishes the raw identity, keeps its user
+    information (whole or with only the password masked), publishes a sanitized raw path, cuts path parameters but
+    records the raw path, or drops the identity."""
 
     @pytest.mark.parametrize(
         ("rewrite_identity", "match"),
