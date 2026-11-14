@@ -268,7 +268,7 @@ The full expired/in-grace/valid license state machine is covered against the rea
 | `pii_key_handle` | Credential handle whose `key` field holds the key (64 hex characters); a group option |
 | `in_features` | The single source column |
 
-Register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
+Register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key; a key with leading or trailing whitespace is refused, so strip one read from a file: `Credential(key=Path("pii.key").read_text().strip())`, and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
 ```python
 feature = Feature(

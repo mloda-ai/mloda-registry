@@ -11,6 +11,7 @@ from typing import Any, ClassVar
 import pyarrow as pa
 from mloda.provider import (
     ComputeFramework,
+    CoreDeclineCode,
     DefaultOptionKeys,
     FeatureChainParserMixin,
     FeatureGroup,
@@ -19,6 +20,7 @@ from mloda.provider import (
     escalate_match_abort,
     property_spec,
     read_credential,
+    record_match_rejection,
 )
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -37,6 +39,7 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
     OUTPUT_KEY = "result"
     ALGORITHM = "pseudonymization_algorithm"
     KEY_HANDLE = "pii_key_handle"
+    # Remove two minor releases after the first release that ships pii_key_handle.
     REMOVED_KEY_ENV = "pii_key_env"
 
     PREFIX_PATTERN = r".+__(hmac_sha256)_pseudonymized$"
@@ -71,7 +74,13 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
                         f"DataAccessCollection and name its handle in the group option {cls.KEY_HANDLE}."
                     )
                 )
-        return super().match_feature_group_criteria(feature_name, options, data_access_collection)
+        matched = super().match_feature_group_criteria(feature_name, options, data_access_collection)
+        # Recorded after super so its own rejection (e.g. an unsupported algorithm) wins the first-record slot.
+        if not matched and options.get(cls.ALGORITHM) is not None and options.get(cls.KEY_HANDLE) is None:
+            record_match_rejection(
+                cls.__name__, f"{cls.KEY_HANDLE} is not set", code=CoreDeclineCode.REQUIRED_OPTION_ABSENT
+            )
+        return matched
 
     @classmethod
     def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
@@ -80,18 +89,23 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
             if algorithm is None:
                 raise BinaryUsageError(f"{cls.ALGORITHM} is required")
             source = cls._extract_single_source_feature(feature)
-            key = cls._read_key(feature.options.get(cls.KEY_HANDLE))
+            key = cls._read_key(feature.options.get(cls.KEY_HANDLE), feature.name)
             result = cls.run_binary_model(data, [source], algorithm, {"key": key}, {cls.OUTPUT_KEY: feature.name})
             data = data.append_column(feature.name, result.column(feature.name))
         return data
 
     @classmethod
-    def _read_key(cls, handle: str) -> str:
+    def _read_key(cls, handle: str, feature_name: str) -> str:
         """The key field of the named credential; errors never echo the value."""
         value = read_credential(handle)["key"]
-        key = value.strip() if isinstance(value, str) else ""
-        if not _KEY_PATTERN.fullmatch(key):
+        prefix = (
+            f"The 'key' field of credential '{handle}' ({cls.KEY_HANDLE}) for feature '{feature_name}' must be "
+            "64 hex characters"
+        )
+        if isinstance(value, str) and value != value.strip():
             raise BinaryUsageError(
-                f"The 'key' field of the credential named by {cls.KEY_HANDLE} must be 64 hex characters"
+                f"{prefix}, but it has leading or trailing whitespace: strip it before registering the Credential"
             )
-        return key
+        if not isinstance(value, str) or not _KEY_PATTERN.fullmatch(value):
+            raise BinaryUsageError(prefix)
+        return value

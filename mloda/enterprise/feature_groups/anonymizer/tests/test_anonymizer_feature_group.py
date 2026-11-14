@@ -8,17 +8,25 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 from mloda.provider import (
     ApiDataFG,
+    ComputeFramework,
+    DefaultOptionKeys,
+    FeatureChainParserMixin,
+    FeatureGroup,
     FeatureSet,
     PropertySpec,
     credential_handle_spec,
     credentials_scope,
+    property_spec,
 )
+from mloda.steward import write_plan_lock
 from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -96,12 +104,25 @@ def _matches(name: str, options: Options) -> bool:
     return bool(AnonymizerFeatureGroup.match_feature_group_criteria(name, options))
 
 
-def _is_rejected(name: str, options: Options) -> bool:
-    """A strict spec may reject by returning False or by raising ``ValueError`` (``PropertyValueRejection``)."""
-    try:
-        return not _matches(name, options)
-    except ValueError:
-        return True
+class _AnonChainUpper(FeatureChainParserMixin, FeatureGroup):
+    """Minimal consumer of an anonymizer column, to chain a feature on top of it."""
+
+    PREFIX_PATTERN = r".+__anon_chain_upper$"
+    RECOGNITION_ONLY_PATTERN = True
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+    PROPERTY_MAPPING = {DefaultOptionKeys.in_features: property_spec("Source column")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
+        for feature in features.features:
+            source = cls._extract_single_source_feature(feature)
+            data = data.append_column(feature.name, pc.utf8_upper(data.column(source)))
+        return data
 
 
 def _result_column(results: list[Any], name: str) -> list[Any]:
@@ -184,25 +205,27 @@ class TestMatchFeatureGroupCriteria:
             group={"pii_key_handle": KEY_HANDLE},
             context={"pseudonymization_algorithm": "md5", "in_features": "email"},
         )
-        assert _is_rejected("pseudonymized_email", options)
+        assert not _matches("pseudonymized_email", options)
 
     def test_rejects_missing_key_handle_on_the_config_path(self) -> None:
+        # The user-facing error comes from core at resolution time (Level 3).
         options = Options(context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"})
-        assert _is_rejected("pseudonymized_email", options)
+        assert not _matches("pseudonymized_email", options)
 
     def test_rejects_missing_key_handle_on_the_string_path(self) -> None:
-        assert _is_rejected("email__hmac_sha256_pseudonymized", Options())
+        # The user-facing error comes from core at resolution time (Level 3).
+        assert not _matches("email__hmac_sha256_pseudonymized", Options())
 
     def test_rejects_two_in_features(self) -> None:
         options = Options(
             group={"pii_key_handle": KEY_HANDLE},
             context={"pseudonymization_algorithm": "hmac_sha256", "in_features": ["email", "phone"]},
         )
-        assert _is_rejected("pseudonymized_email", options)
+        assert not _matches("pseudonymized_email", options)
 
     def test_rejects_bare_class_name_request_with_no_options(self) -> None:
         feature = Feature("AnonymizerFeatureGroup")
-        assert _is_rejected(feature.name, feature.options)
+        assert not _matches(feature.name, feature.options)
 
 
 class TestManifest:
@@ -246,13 +269,8 @@ class TestCalculateFeature:
         assert pa.types.is_list(out.type)
         _assert_list_utf8_pseudonymized(out.to_pylist())
 
-    def test_key_with_surrounding_whitespace_is_stripped(self) -> None:
-        table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
-        with credentials_scope({KEY_HANDLE: {"key": KNOWN_ANSWER_KEY + "\n"}}):
-            result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
-        assert result.column("pseudonymized_email").to_pylist() == [KNOWN_ANSWER_DIGEST]
-
     def test_two_features_in_one_feature_set_each_use_their_own_key(self) -> None:
+        # Unit guard: the engine splits different handles into separate steps, so run_all never builds this set.
         key_a, key_b = KNOWN_ANSWER_KEY, "22" * 32
         rows_a: list[str | None] = ["alpha", None]
         rows_b: list[str | None] = ["beta", "gamma"]
@@ -268,7 +286,7 @@ class TestCalculateFeature:
         table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
         with caplog.at_level(logging.DEBUG):
             StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
-        assert caplog.records, "fixture assumption: DEBUG logging captured at least one record"
+        assert caplog.records, "with no captured record the key check below would pass vacuously"
         assert all(KNOWN_ANSWER_KEY not in record.getMessage() for record in caplog.records)
 
 
@@ -283,20 +301,31 @@ class TestCalculateFeatureKeyRejections:
     def test_non_str_key_raises_without_echoing_it(self) -> None:
         with pytest.raises(BinaryUsageError) as excinfo:
             self._calculate({"key": 12345})
-        assert "12345" not in str(excinfo.value)
+        message = str(excinfo.value)
+        assert "12345" not in message
+        assert all(name in message for name in (KEY_HANDLE, "pii_key_handle", "pseudonymized_email"))
 
     @pytest.mark.parametrize(
-        ("key", "secrets"),
+        ("key", "reason", "secrets"),
         [
-            ("", ()),
-            ("  \n", ()),
-            ("11" * 31 + "1", ("11" * 31 + "1",)),
-            ("11" * 31 + "zz", ("11" * 31 + "zz",)),
-            ("11" * 33, ("11" * 33,)),
+            pytest.param("", "64 hex characters", (), id="empty"),
+            pytest.param("  \n", "whitespace", (), id="whitespace-only"),
+            pytest.param("11" * 31 + "1", "64 hex characters", ("11" * 31 + "1",), id="odd-length"),
+            pytest.param("11" * 31 + "zz", "64 hex characters", ("11" * 31 + "zz",), id="non-hex"),
+            pytest.param("11" * 33, "64 hex characters", ("11" * 33,), id="too-long"),
+            pytest.param(
+                KNOWN_ANSWER_KEY + "\n",
+                "whitespace",
+                (KNOWN_ANSWER_KEY, KNOWN_ANSWER_KEY + "\n"),
+                id="trailing-newline",
+            ),
+            pytest.param(" " + KNOWN_ANSWER_KEY, "whitespace", (KNOWN_ANSWER_KEY,), id="leading-space"),
+            pytest.param("\t" + KNOWN_ANSWER_KEY + "\r\n", "whitespace", (KNOWN_ANSWER_KEY,), id="both-sides"),
+            pytest.param(" " + "11" * 31 + "zz", "whitespace", ("11" * 31 + "zz",), id="padded-and-non-hex"),
         ],
     )
     def test_malformed_key_raises_before_the_binary_runs_without_echoing_it(
-        self, monkeypatch: pytest.MonkeyPatch, key: str, secrets: tuple[str, ...]
+        self, monkeypatch: pytest.MonkeyPatch, key: str, reason: str, secrets: tuple[str, ...]
     ) -> None:
         runs: list[int] = []
 
@@ -306,9 +335,11 @@ class TestCalculateFeatureKeyRejections:
 
         monkeypatch.setattr(mixin, "run_binary", recording_run_binary)
         with pytest.raises(BinaryUsageError) as excinfo:
-            self._calculate({"key": key + "\n"})
+            self._calculate({"key": key})
+        message = str(excinfo.value)
         assert not runs
-        assert all(secret not in str(excinfo.value) for secret in secrets)
+        assert all(name in message for name in (reason, KEY_HANDLE, "pii_key_handle", "pseudonymized_email"))
+        assert all(secret not in message for secret in secrets)
 
 
 class TestCalculateFeatureRejections:
@@ -394,11 +425,18 @@ class TestIntegration:
                 ),
             ),
             Feature("email__hmac_sha256_pseudonymized", Options(context={"pii_key_env": LEFTOVER_ENV_VALUE})),
+            Feature(
+                "pseudonymized_email",
+                Options(
+                    group={"pii_key_env": LEFTOVER_ENV_VALUE},
+                    context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"},
+                ),
+            ),
         ],
-        ids=["config", "string"],
+        ids=["config", "string", "group"],
     )
     def test_leftover_pii_key_env_is_refused_naming_the_replacement(self, feature: Feature) -> None:
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(ValueError) as excinfo:
             mloda.run_all(
                 [feature],
                 compute_frameworks=[PyArrowTable],
@@ -410,3 +448,90 @@ class TestIntegration:
         assert "pii_key_env" in message
         assert "pii_key_handle" in message
         assert LEFTOVER_ENV_VALUE not in message
+
+    @pytest.mark.parametrize(
+        "feature",
+        [
+            Feature(
+                "pseudonymized_email",
+                Options(context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"}),
+            ),
+            Feature("email__hmac_sha256_pseudonymized"),
+        ],
+        ids=["config", "string"],
+    )
+    def test_missing_key_handle_is_refused_naming_the_option(self, feature: Feature) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[PyArrowTable],
+                api_data={"AnonymizerData": {"email": ["alpha"]}},
+                data_access_collection=_key_collection(),
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+            )
+        assert "requires credential handle option 'pii_key_handle', which is not set" in str(excinfo.value)
+
+    def test_other_algorithm_without_handle_still_reports_the_algorithm(self) -> None:
+        feature = Feature(
+            "pseudonymized_email",
+            Options(context={"pseudonymization_algorithm": "md5", "in_features": "email"}),
+        )
+        with pytest.raises(Exception) as excinfo:
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[PyArrowTable],
+                api_data={"AnonymizerData": {"email": ["alpha"]}},
+                data_access_collection=_key_collection(),
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+            )
+        message = str(excinfo.value)
+        assert "md5" in message or "pseudonymization_algorithm" in message
+        assert "requires credential handle option" not in message
+
+    def test_padded_key_is_refused_end_to_end_without_echoing_it(self) -> None:
+        collection = DataAccessCollection(credentials={KEY_HANDLE: Credential(key=KNOWN_ANSWER_KEY + "\n")})
+        with pytest.raises(BinaryUsageError) as excinfo:
+            mloda.run_all(
+                [_config_feature("pseudonymized_email")],
+                compute_frameworks=[PyArrowTable],
+                api_data={"AnonymizerData": {"email": ["alpha"]}},
+                data_access_collection=collection,
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+            )
+        message = str(excinfo.value)
+        assert "whitespace" in message
+        assert KEY_HANDLE in message
+        assert KNOWN_ANSWER_KEY not in message
+
+    def test_chained_feature_on_top_of_the_pseudonym_column(self) -> None:
+        rows: dict[str, list[Any]] = {"email": ["alpha", None, "gamma"]}
+        feature = Feature(
+            "email__hmac_sha256_pseudonymized__anon_chain_upper", Options(group={"pii_key_handle": KEY_HANDLE})
+        )
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks=[PyArrowTable],
+            api_data={"AnonymizerData": rows},
+            data_access_collection=_key_collection(),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer, _AnonChainUpper}),
+        )
+        expected = [
+            None if v is None else v.upper()
+            for v in compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
+        ]
+        assert _result_column(results, "email__hmac_sha256_pseudonymized__anon_chain_upper") == expected
+
+    def test_plan_and_plan_lock_name_the_handle_never_the_key(self, tmp_path: Path) -> None:
+        plan = mloda.explain(
+            [_config_feature("pseudonymized_email")],
+            compute_frameworks=[PyArrowTable],
+            api_data={"AnonymizerData": {"email": ["alpha"]}},
+            data_access_collection=_key_collection(),
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+        )
+        lock_path = tmp_path / "plan.lock"
+        write_plan_lock(plan, lock_path)
+        lock_text = lock_path.read_text()
+        assert KNOWN_ANSWER_KEY not in str(plan)
+        assert KNOWN_ANSWER_KEY not in lock_text
+        assert KEY_HANDLE in lock_text
