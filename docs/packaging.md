@@ -56,7 +56,7 @@ classifiers = ["Intended Audience :: Developers", "Operating System :: OS Indepe
 [defaults]
 license = "Apache-2.0"
 core_dependency = "mloda>=0.11.0,<0.12.0"
-optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
+optional_dependencies = { dev = ["mloda-testing[pyarrow]", "pytest>=9.0.3"] }
 ```
 
 Keywords are the shared base followed by each package's own, deduplicated. Classifiers are the shared ones, plus `Typing :: Typed` for `py_typed` packages and for packages whose path sits under a `py_typed` package they depend on (directly or transitively, extras excluded). There is no `License ::` classifier because the SPDX `license` is emitted. `tox -e check-classifiers` (run in CI) checks every generated classifier against `trove-classifiers`.
@@ -154,6 +154,8 @@ backslashes from bypassing nested-package exclusions and placing a separately pa
 in its parent's wheel.
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
+
+The kit `mloda-testing` itself gets `pyarrow` as an extra (`mloda-testing[pyarrow]`), which the default dev extra of every other package names.
 
 ## Package hierarchy
 

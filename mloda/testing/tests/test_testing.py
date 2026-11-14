@@ -14,6 +14,7 @@ from mloda.steward import Extender, ExtenderHook
 
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
+from mloda.testing.import_isolation import block_root, evict_package
 
 
 def test_feature_group_test_base_import() -> None:
@@ -30,6 +31,74 @@ def test_import_does_not_load_pytest_outside_pytest() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "False"
+
+
+_WITHOUT_PYARROW_PROBE = """
+import sys
+
+sys.modules["pyarrow"] = None
+
+from typing import Any
+
+import mloda.testing
+import mloda.testing.feature_group_shape
+import mloda.testing.framework_adapter
+import mloda.testing.operation_group_shape
+import mloda.testing.typed_data
+from mloda.provider import FeatureGroup, FeatureSet
+from mloda.user import DataType, Feature, FeatureName, Options
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+from mloda.testing.compute_framework_shape import check_compute_framework_shape
+from mloda.testing.feature_group_shape import check_feature_group_shape
+from mloda.testing.typed_data import TypedTestData
+
+
+class DoubledFeature(FeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"x_doubled"}
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature.not_typed("x")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"x_doubled": [None if v is None else v * 2 for v in data["x"]]}
+
+
+group = check_feature_group_shape(DoubledFeature, input_data=TypedTestData({"x": (DataType.INT64, [1, 2, 3])}))
+framework = check_compute_framework_shape(PythonDictFramework)
+print(group.failures, framework.failures, sys.modules["pyarrow"])
+"""
+
+
+def test_kit_works_without_pyarrow() -> None:
+    """With pyarrow blocked, the pyarrow-free kit modules import and the PythonDict shape checks pass."""
+    result = subprocess.run([sys.executable, "-c", _WITHOUT_PYARROW_PROBE], capture_output=True, text=True)  # nosec
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "() () None"
+
+
+@pytest.mark.parametrize(
+    ("module", "guarded_package"),
+    [
+        ("mloda.testing.feature_groups.data_operations.base", "mloda.testing.feature_groups.data_operations"),
+        ("mloda.testing.extenders.contract", "mloda.testing.extenders"),
+    ],
+)
+def test_pyarrow_guarded_package_skips_without_pyarrow(
+    monkeypatch: pytest.MonkeyPatch, module: str, guarded_package: str
+) -> None:
+    """A module under a pyarrow-guarded package is skipped, not an ImportError, when pyarrow is missing."""
+    evict_package(monkeypatch, guarded_package)
+    block_root(monkeypatch, "pyarrow")
+    with pytest.raises(pytest.skip.Exception, match=r"requires mloda-testing\[pyarrow\]"):
+        importlib.import_module(module)
 
 
 def test_contract_mixin_assert_reports_compared_values() -> None:
@@ -53,21 +122,9 @@ def test_contract_mixin_assert_reports_compared_values() -> None:
         _Host().test_contract_call_returns_wrapped_result_unchanged()
 
 
-# Core modules not mirrored yet.
-_NOT_REEXPORTED = frozenset(
-    {"mloda._testing.value_fit", "mloda._testing.source.reclaim", "mloda._testing.compute_framework"}
-)
-
-
-def _is_not_reexported(name: str) -> bool:
-    return any(name == excluded or name.startswith(excluded + ".") for excluded in _NOT_REEXPORTED)
-
-
 def _core_testing_modules() -> list[str]:
     names = [m.name for m in pkgutil.walk_packages(mloda._testing.__path__, "mloda._testing.")]
-    return sorted(
-        name for name in names if not _is_not_reexported(name) and not name.rsplit(".", 1)[-1].startswith("_")
-    )
+    return sorted(name for name in names if not name.rsplit(".", 1)[-1].startswith("_"))
 
 
 def _public_names_defined(module_name: str) -> set[str]:

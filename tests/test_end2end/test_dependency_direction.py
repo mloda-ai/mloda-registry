@@ -28,6 +28,8 @@ from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
+_SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
+_TESTING_PYPROJECT = _REPO_ROOT / "mloda" / "testing" / "pyproject.toml"
 
 gen = load_script("generate_pyproject", _REPO_ROOT / "scripts" / "generate_pyproject.py")
 
@@ -497,6 +499,38 @@ def test_consumers_name_the_binary_model_package_instead_of_the_bundle() -> None
         _dep_name(dep) for dep in packages["mloda-testing"].get("optional_dependencies", {}).get("binary-model", [])
     ]
     assert mixin in extra, f"mloda-testing: the binary-model extra must name {mixin}, got {extra!r}"
+
+
+def test_mloda_testing_has_no_hard_pyarrow_dependency() -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    names = [_dep_name(dep) for dep in packages["mloda-testing"].get("dependencies", [])]
+    assert "pyarrow" not in names, f"mloda-testing: pyarrow must be an extra, not a dependency, got {names!r}"
+
+
+@pytest.mark.parametrize("extra", ["pyarrow", "otel", "openlineage", "binary-model", "dev"])
+def test_mloda_testing_extra_carries_pyarrow(extra: str) -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    deps = packages["mloda-testing"].get("optional_dependencies", {}).get(extra)
+    assert deps is not None, f"mloda-testing: no extra {extra!r}"
+    assert "pyarrow" in [_dep_name(dep) for dep in deps], (
+        f"mloda-testing: the {extra} extra must name pyarrow, got {deps!r}"
+    )
+
+
+def test_shared_default_dev_extra_installs_mloda_testing_with_pyarrow() -> None:
+    dev = load_toml(_SHARED_CONFIG)["defaults"]["optional_dependencies"]["dev"]
+    assert "mloda-testing[pyarrow]" in dev, (
+        f"the shared default dev extra must name mloda-testing[pyarrow], got {dev!r}"
+    )
+    assert "mloda-testing" not in dev, f"the bare mloda-testing would drop the pyarrow extra, got {dev!r}"
+
+
+def test_generated_mloda_testing_pyproject_does_not_depend_on_itself() -> None:
+    project = load_toml(_TESTING_PYPROJECT)["project"]
+    specs = list(project.get("dependencies", []))
+    for deps in project.get("optional-dependencies", {}).values():
+        specs.extend(deps)
+    assert [spec for spec in specs if _dep_name(spec) == "mloda-testing"] == []
 
 
 def test_mloda_testing_binary_model_extra_pins_the_enterprise_license_token_extra() -> None:

@@ -780,3 +780,84 @@ def test_divergent_subtypes_record_without_scope_covers_the_whole_universe() -> 
         assert divergent_subtypes(impl) == frozenset({"sum", "mean", "min"})
 
     _with_probe_impl(check, records)
+
+
+# -- OperationGroupTestBase.test_operation_group_shape ---------------------------
+
+
+def _operation_group_host(group: Any, impl: Any) -> Any:
+    from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+
+    group.CONTRACT_VERSION = "1"
+
+    class _Host(OperationGroupTestBase):
+        @classmethod
+        def group_class(cls) -> Any:
+            return group
+
+        @classmethod
+        def backend_package(cls) -> str:
+            return "mloda.testing"
+
+        @classmethod
+        def implementations(cls) -> list[ImplSpec]:
+            return [ImplSpec("probe", "unused", "_ProbeImpl", "unused", "Unused")]
+
+        @classmethod
+        def _implementation(cls, spec: ImplSpec) -> Any:
+            return impl
+
+        @classmethod
+        def subtype_key(cls) -> str | None:
+            return None
+
+        @classmethod
+        def loop_method(cls) -> str:
+            return "calculate_feature"
+
+        @classmethod
+        def compute_method(cls) -> str:
+            return "_compute_group"
+
+        @classmethod
+        def probe_feature_set(cls) -> Any:
+            return helpers.make_feature_set("f")
+
+        @classmethod
+        def name_probes(cls) -> list[tuple[str, str]]:
+            return []
+
+        @classmethod
+        def option_probes(cls) -> list[tuple[str, Any, str]]:
+            return []
+
+    return _Host()
+
+
+def test_operation_group_shape_passes_for_a_clean_implementation() -> None:
+    def check(group: Any, impl: Any) -> None:
+        _operation_group_host(group, impl).test_operation_group_shape()
+
+    _with_probe_impl(check, ())
+
+
+def test_operation_group_shape_fails_for_a_supported_subtype_outside_the_universe() -> None:
+    def check(group: Any, impl: Any) -> None:
+        with pytest.raises(pytest.fail.Exception, match=r"outside the subtype universe"):
+            _operation_group_host(group, impl).test_operation_group_shape()
+
+    _with_probe_impl(check, supported=frozenset({"not_a_subtype"}))
+
+
+def test_operation_group_shape_fails_for_a_divergence_record_without_a_reason() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="skips NaN"),)
+
+    def check(group: Any, impl: Any) -> None:
+        for record in impl.divergences:
+            object.__setattr__(record, "reason", "")
+        with pytest.raises(AssertionError, match="reason"):
+            _operation_group_host(group, impl).test_operation_group_shape()
+
+    _with_probe_impl(check, records)

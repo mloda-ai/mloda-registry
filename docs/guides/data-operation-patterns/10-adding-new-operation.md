@@ -188,7 +188,7 @@ Shipped modules under `mloda/testing/` may not import `mloda.community` or `mlod
 
 One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 
-The group's shape gets its own test in `{category}/{your_op}/tests/test_base.py`: subclass `OperationGroupTestBase` (`mloda/testing/feature_groups/data_operations/operation_group.py`) and fill its hooks. It checks the base order, `SUBTYPES`, that the loop is on the group and the step only on the Implementations, each Implementation's framework pair, `supported` and `divergences`, and the manifest:
+The group's shape gets its own test in `{category}/{your_op}/tests/test_base.py`: subclass `OperationGroupTestBase` (`mloda/testing/feature_groups/data_operations/operation_group.py`) and fill its hooks. It checks the base order, `SUBTYPES`, that the loop is on the group and the step only on the Implementations, each Implementation's framework pair, `supported` and `divergences`, and the manifest. The claim hygiene (supported and divergences inside the universe, aliases, declines, `CONTRACT_VERSION`) is core's operation group shape check; override `shape_probe()` when the subtype is resolver-based and an Implementation restricts `supported`:
 
 ```py
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase

@@ -414,6 +414,8 @@ The `_schemaURL` of the `mloda` facet and of the community `mloda*` facets point
 
 `mloda-testing` ships five test mixins plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior:
 
+The contract mixin and the runners need `mloda-testing[pyarrow]` (the `otel` and `openlineage` extras carry it); without it the tests are skipped.
+
 - `ExtenderContractTestMixin` (`mloda.testing.extenders.contract`), for every extender
 - `OtelExtenderTestMixin` (`mloda.testing.extenders.otel`, install `mloda-testing[otel]`), for extenders that emit OTel spans
 - `OpenLineageExtenderTestMixin` (`mloda.testing.extenders.openlineage`, install `mloda-testing[openlineage]`), for extenders that emit OpenLineage RunEvents
