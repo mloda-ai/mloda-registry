@@ -424,7 +424,9 @@ The OTel and OpenLineage mixins both enforce the same observability mandate: a w
 
 ### ExtenderContractTestMixin
 
-Required host hooks: `extender_class`, `make_extender`, `own_failure`, `has_backend_sink`. Hosts implementing `ExtenderContractTestMixin` directly must declare `has_backend_sink()` as `False` for an extender type without an external backend or `True` for one that supports an external backend. This describes the extender type's capability regardless of whether the current instance has a configured sink. `OtelExtenderTestMixin` and `OpenLineageExtenderTestMixin` already provide `True`.
+Required host hook: `plugin` (the extender class), or override `extender_class`. The mixin is a core `ConformanceSuite`: a misspelled hook name fails at class creation with `HookError`, and redefining or skip-marking a contract test needs a `switched_off = {"<test>": Cause.<X>}` entry (`from mloda.provider import Cause`), else `SwitchedOffError`.
+
+Defaults: `make_extender` builds `plugin()` and, when `raise_on_error` is given, sets it on the instance; `own_failure` patches the extender's `__call__` to raise (refused with `NotImplementedError` when `has_backend_sink()` is `True`, since the sink tests would then pass without touching a sink); `has_backend_sink` is `False`. Override `has_backend_sink` to `True` for an extender type that supports an external backend, whether or not the current instance has a sink configured. `OtelExtenderTestMixin` and `OpenLineageExtenderTestMixin` already provide `True`. Any other hook a host needs and does not provide raises `NotImplementedError` naming the host and the hook.
 
 Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no warning-only mode, such as a gate declaring `never_fall_back`; the `run_all` wrapped-failure test then uses the default `raise_on_error`), `context_identity` (a dict of `tenant_id` / `project_id` / `principal` for an identity-gated extender; carried by every contract context and `run_all`; defaults to empty), `supports_pickled_sink_capture` plus `injected_sink_capture` (`True` when a picklable injected sink survives pickling; defaults to `False`), `supports_unpicklable_sink_degrade` plus `make_unpicklable_sink_extender` (`True` when the host trial-pickles its sink and drops+warns instead of hard-failing pickling; defaults to `False`), `sink_noun` (the word the drop-warning uses for the sink, e.g. `"tracer_provider"`; `None` skips noun-specific assertions), `unpicklable_sink_failure_type` (the pickle-failure exception type name the drop-warning names; defaults to `"TypeError"`, correct for a sink holding a `threading.Lock`).
 
@@ -435,36 +437,18 @@ A host with `has_backend_sink() == True` must also implement `make_injected_and_
 A host outside this repo that opts into `supports_real_worker_sink()` must supply its own `flight_server` fixture; the published `mloda-testing` does not ship one.
 
 ```py
-from contextlib import AbstractContextManager
-from typing import Any
-from unittest.mock import patch
-
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 
 
 class TestMyExtenderContract(ExtenderContractTestMixin):
-    @classmethod
-    def extender_class(cls) -> type[MyExtender]:
-        return MyExtender
-
-    @classmethod
-    def has_backend_sink(cls) -> bool:
-        return False
-
-    def make_extender(self, *, raise_on_error: bool | None = None) -> MyExtender:
-        if raise_on_error is None:
-            return MyExtender()
-        return MyExtender(raise_on_error=raise_on_error)
-
-    def own_failure(self) -> AbstractContextManager[Any]:
-        return patch.object(MyExtender, "__call__", side_effect=RuntimeError("boom"))
+    plugin = MyExtender
 ```
 
 Observability extenders that default to warning-only override `raise_on_error_default()` to return False.
 
-`extender_class` names the class under test. `make_extender` returns an instance wired to an in-memory backend, never a real network sink. `own_failure` makes the extender's own code fail (not the wrapped function) so the fallback path is exercised; it must fault both a direct call and a path `run_all` reaches.
+`plugin` names the class under test. Override `make_extender` when the extender needs constructor arguments; it must return an instance wired to an in-memory backend, never a real network sink. Override `own_failure` when the default does not fault the extender's own code (not the wrapped function), as for any extender with a sink; it must fault both a direct call and a path `run_all` reaches.
 
-The `run_all` own-failure and injected-sink tests go through `run_value_int`, which fires `FEATURE_GROUP_MATCHED`, `FEATURE_GROUP_CALCULATE_FEATURE` and `VALIDATE_OUTPUT_FEATURE` but never `INPUT_DATA_LOAD`, `JOIN` or `VALIDATE_INPUT_FEATURE`. A host whose extender wraps only unfired hooks cannot pass them, whatever `own_failure()` does (a missing warning, a bare `DID NOT RAISE`, or an empty sink probe), so it overrides `test_contract_run_all_own_failure_falls_back_when_raise_on_error_false` and `test_contract_run_all_own_failure_propagates_when_raise_on_error_true` by name, plus `test_contract_run_all_emits_into_the_exact_injected_sink` when `has_backend_sink()` is `True` (and its real-worker counterpart when `supports_real_worker_sink()` is). In the overrides, run `run_csv_feature` (fires `INPUT_DATA_LOAD`; `prepare_csv_feature` prepares the same run without executing it) or `run_two_features` (fires `VALIDATE_INPUT_FEATURE`) instead, both in `mloda.testing.extenders.runners`; `run_joined_features` (same module) fires `JOIN` (an inner join of two PyArrow sources); both it and `run_two_features` forward `parallelization_modes` and `flight_server` like `run_csv_feature`, so under `MULTIPROCESSING` the `JOIN` and `VALIDATE_INPUT_FEATURE` hooks run in a real worker. A host's own runner needs module-level feature groups there, since core refuses to send a function-local one (or a link to one) to a worker; give them a distinctive class-name prefix (as the `MlodaTesting*` fixtures do), since the default matcher also matches the class name.
+The `run_all` tests pick their runner from `wraps()`: `run_value_int` when the extender wraps `FEATURE_GROUP_CALCULATE_FEATURE`, `FEATURE_GROUP_MATCHED` or `VALIDATE_OUTPUT_FEATURE`, else `run_two_features` for `VALIDATE_INPUT_FEATURE`, `run_joined_features` for `JOIN`, and `run_credentialed_uri_feature` for `INPUT_DATA_LOAD` or `INPUT_DATA_MATCH`, all in `mloda.testing.extenders.runners`. A host needs no override for them. Under `MULTIPROCESSING` the runners forward `parallelization_modes` and `flight_server`; a host's own runner needs module-level feature groups, since core refuses to send a function-local one (or a link to one) to a worker, with a distinctive class-name prefix (as the `MlodaTesting*` fixtures do), since the default matcher also matches the class name.
 
 An autouse fixture enters `verified_context` with `context_identity` around every test (a no-op when empty); host tests that build their own hook context use `contract_context()`, which carries the same identity. The OTel and OpenLineage mixin tests still build some hook contexts without it, so an identity-gated extender cannot host those mixins yet.
 
@@ -482,12 +466,12 @@ The mixin pins:
 - when `supports_unpicklable_sink_degrade()` is `True`: an unpicklable injected sink is dropped and warned about exactly once across repeated pickling, and the resulting copy still wraps a call
 - `run_all` round trips (one success, one wrapped failure)
 - a `run_all` round trip through a CSV load (`run_csv_feature`, fires `INPUT_DATA_LOAD`) returns the loaded column unchanged, so an extender that changes the loaded CSV data fails it
-- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration and emits into it, not merely looks it up (skipped when `ambient_sink_captured` returns `None`); an injected sink ignores ambient configuration entirely; a `run_all` under `SYNC` or `THREADING` (no real subprocess, so core never pickles the extender) reaches the exact injected sink object, with no drop-warning logged; a pickled `use_sdk_defaults=True` copy still resolves the sink from ambient configuration. Hosts for extenders with no external sink must explicitly return `False` from `has_backend_sink()` to skip these tests; omitting the declaration raises `NotImplementedError`
+- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration and emits into it, not merely looks it up (skipped when `ambient_sink_captured` returns `None`); an injected sink ignores ambient configuration entirely; a `run_all` under `SYNC` or `THREADING` (no real subprocess, so core never pickles the extender) reaches the exact injected sink object, with no drop-warning logged; a pickled `use_sdk_defaults=True` copy still resolves the sink from ambient configuration. Hosts for extenders with no external sink leave `has_backend_sink()` at its default `False`, which skips these tests
 - when `supports_real_worker_sink()` is `True`: a real spawned `MULTIPROCESSING` worker reaches the exact injected sink (a marker file exists), with no drop-warning logged; if `supports_unpicklable_sink_degrade()` is also `True`, an unpicklable injected sink degrades gracefully there too (the run still completes, and a drop-warning is logged from the parent process, where core's own preflight pickle check runs before the worker is ever spawned)
 
 ### OtelExtenderTestMixin
 
-Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names`, `expected_span_name(context)` (per-context name, defaults to the `expected_span_names()` entry for the hook; override it when a name depends on the context, such as `calculate <FeatureGroup>`) and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test).
+Install `mloda-testing[otel]`. Host provides `plugin` (or `extender_class`) and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names`, `expected_span_name(context)` (per-context name, defaults to the `expected_span_names()` entry for the hook; override it when a name depends on the context, such as `calculate <FeatureGroup>`) and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test).
 
 `own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
@@ -498,9 +482,7 @@ from mloda.testing.extenders.otel import OtelExtenderTestMixin
 
 
 class TestMyOtelExtenderContract(OtelExtenderTestMixin):
-    @classmethod
-    def extender_class(cls) -> type[MyOtelExtender]:
-        return MyOtelExtender
+    plugin = MyOtelExtender
 
     def make_otel_extender(
         self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None
@@ -520,7 +502,7 @@ The mixin pins:
 - an interrupt (a `BaseException` that is not an `Exception`) leaves the span status unset, sets `mloda.cancel.type` instead of `error.type`, and never leaks the exception message
 - when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string and user information of a nested load's raw data access (`args[0]`) never reach any span attribute; a load nested inside a calculate call is a child of that calculate span
 
-A host that must record the raw URI overrides `test_otel_input_data_load_query_string_never_reaches_span_attributes` by name.
+A host that must record the raw URI redefines `test_otel_input_data_load_query_string_never_reaches_span_attributes` and declares it in `switched_off` with a `Cause`.
 
 Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`; `records=True` on either writes one JSON record per span, with ids and attributes, instead of a bare name), `read_span_records` (parses those records back).
 
@@ -534,13 +516,13 @@ There is no metrics counterpart of `OtelExtenderTestMixin`. A metrics extender h
 - `RebuildingMetricCaptureProvider`: picklable provider for `make_real_worker_extender_and_marker`, writes metric names to the marker file only on `force_flush()`, so `close()` must flush
 - `FileMetricExporter`: the marker-file exporter behind it
 
-Implement `extender_class`, `make_extender`, `own_failure`, `raise_on_error_default` (`False`), `has_backend_sink` (`True`), `sink_resolution_spy` (return `meter_provider_resolution_spy()`), `ambient_sink_captured`, `make_extender_with_sink_probe`, `make_injected_and_sdk_defaults_extender`, `sink_noun` (`"meter_provider"`), `ambient_provider_getter` (`"opentelemetry.metrics.get_meter_provider"`) and `flushed_signal` (`"metrics"`).
+Implement `plugin` (or `extender_class`), `make_extender`, `own_failure`, `raise_on_error_default` (`False`), `has_backend_sink` (`True`), `sink_resolution_spy` (return `meter_provider_resolution_spy()`), `ambient_sink_captured`, `make_extender_with_sink_probe`, `make_injected_and_sdk_defaults_extender`, `sink_noun` (`"meter_provider"`), `ambient_provider_getter` (`"opentelemetry.metrics.get_meter_provider"`) and `flushed_signal` (`"metrics"`).
 
 Optional on top: `expected_hooks`, `sink_probe_expected_content` (metric names the probe and a real worker's marker must contain, such as `{"mloda.step.duration"}`), `supports_unpicklable_sink_degrade` with `make_unpicklable_sink_extender`, and `supports_real_worker_sink` with `make_real_worker_extender_and_marker` (needs a `flight_server` fixture, see above). [`TestOtelMetricsExtenderContract`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/tests/test_otel_metrics_extender.py) is the full host; its `ProviderWarningTestMixin` base is internal to this repo and not part of `mloda-testing`.
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. Optional: `calculate_run_events(events)` returns only the events of the calculate runs (the default drops the root-job parent run events); override it in a host that also emits other runs, such as nested validation runs, so the `run_all` tests that count COMPLETE events or inputs ignore them. A subclass of `OpenLineageExtender` can call `assert_openlineage_extender_seams(MyExtender, OpenLineageExtender)` to check that the subclass body keeps the declared seams and touches no other private base member (`MyExtender` must be constructible with no arguments).
+Install `mloda-testing[openlineage]`. Host provides `plugin` (or `extender_class`) and `make_openlineage_extender(client, *, raise_on_error=None)`. Optional: `calculate_run_events(events)` returns only the events of the calculate runs (the default drops the root-job parent run events); override it in a host that also emits other runs, such as nested validation runs, so the `run_all` tests that count COMPLETE events or inputs ignore them. A subclass of `OpenLineageExtender` can call `assert_openlineage_extender_seams(MyExtender, OpenLineageExtender)` to check that the subclass body keeps the declared seams and touches no other private base member (`MyExtender` must be constructible with no arguments).
 
 ```py
 from openlineage.client.client import OpenLineageClient
@@ -549,9 +531,7 @@ from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin
 
 
 class TestMyOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
-    @classmethod
-    def extender_class(cls) -> type[MyOpenLineageExtender]:
-        return MyOpenLineageExtender
+    plugin = MyOpenLineageExtender
 
     def make_openlineage_extender(
         self, client: OpenLineageClient, *, raise_on_error: bool | None = None
@@ -578,7 +558,7 @@ The mixin pins:
 - a calculate step's runId equals `step_run_id(...)` (see [Run correlation](#run-correlation)); its events carry an `mlodaStep` run facet with the context's feature group version, plugin version, compute framework, and each COMPLETE output an `outputStatistics` facet with the context's `rows_out` (a host that does not subclass `OpenLineageExtender` must emit these, the `processingEngine` facet and `mlodaPlan` too)
 - with a recording OpenTelemetry span current, the step's START and terminal events carry an `mlodaTrace` run facet with that span's ids, and none otherwise (see [Traces and lineage](12-export-telemetry.md#traces-and-lineage))
 
-Record the context's `data_access_identity`, not `args[0]`: a host that records the raw data access fails, and so does one that drops the identity, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, or `user:password@` in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.
+Record the context's `data_access_identity`, not `args[0]`: a host that records the raw data access fails, and so does one that drops the identity, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, or `user:password@` in a published dataset name is a credential leak; a host that must publish the raw URI redefines `test_openlineage_input_data_load_query_string_never_reaches_events` and declares it in `switched_off` with a `Cause`.
 
 `RecordingTransport`, `LockHoldingTransport`, `FileTransport` (writes emitted event types to a marker file, for `make_real_worker_extender_and_marker`) and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 

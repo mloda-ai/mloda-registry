@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 import pyarrow as pa
 import pytest
+from mloda._testing.suite import ConformanceSuite
 
 from mloda.community.feature_groups.binary_model import binary
 from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
@@ -262,7 +263,7 @@ def run_binary_with_transport(
 # =============================================================================
 
 
-class BinaryModelConformanceBase:
+class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
     """Every contract-generic conformance check, plus the class attributes / overridable methods a
     subclass needs to point the whole kit at a different binary/contract.
 
@@ -1618,7 +1619,7 @@ class BinaryModelConformanceBase:
 # =============================================================================
 
 
-class HashOperationConformanceMixin(BinaryModelConformanceBase):
+class HashOperationConformanceMixin(BinaryModelConformanceBase, suite_base=True):
     """Every check specific to the "hash" operation's shape. Mixed in alongside
     ``BinaryModelConformanceBase`` to assemble a full conformance suite for a binary whose worked
     example is "hash".
@@ -1883,7 +1884,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
 # =============================================================================
 
 
-class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
+class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase, suite_base=True):
     """Every check specific to "hmac_sha256": a required 64-hex ``key``, one utf8 input column, lowercase-hex
     utf8 output, nulls stay null. Subclass order matches ``HashOperationConformanceMixin``: mixin first."""
 

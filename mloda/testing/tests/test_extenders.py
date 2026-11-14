@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import inspect
 import logging
 import pickle  # nosec
 import threading
@@ -139,27 +138,23 @@ class TestMakeHookContextDefaults:
 
     def test_new_field_defaults_equal_the_hook_context_defaults(self) -> None:
         context = make_hook_context()
-        for name in (
-            "divergences",
-            "contract_version",
-            "allowed_variants",
-            "credential_handles",
-            "bound_credential_handle",
-            "credentials_read",
-        ):
-            field = next(f for f in dataclasses.fields(HookContext) if f.name == name)
+        kit_defaults = {
+            "hook",
+            "feature_group_class",
+            "feature_group_version",
+            "feature_names",
+            "compute_framework_name",
+        }
+        for field in dataclasses.fields(HookContext):
+            if field.name in kit_defaults:
+                continue
             default = field.default_factory() if field.default_factory is not dataclasses.MISSING else field.default
-            assert getattr(context, name) == default, name
+            assert getattr(context, field.name) == default, field.name
 
-    def test_keywords_mirror_hook_context_fields(self) -> None:
-        """Guards that a HookContext field added upstream stays reachable through the helper."""
-        helper_keywords = set(inspect.signature(make_hook_context).parameters)
-        # HookContext is a kw_only dataclass with no init=False fields, so every field is constructor-settable.
-        hook_context_fields = {field.name for field in dataclasses.fields(HookContext) if field.init}
-
-        assert helper_keywords == hook_context_fields, (
-            f"make_hook_context keywords {helper_keywords} vs HookContext fields {hook_context_fields}"
-        )
+    def test_unknown_keyword_raises_type_error(self) -> None:
+        unknown: dict[str, Any] = {"not_a_hook_context_field": 1}
+        with pytest.raises(TypeError):
+            make_hook_context(**unknown)
 
 
 class TestMakeHookContextOverrides:
@@ -533,6 +528,65 @@ class TestFailingFeatureGroup:
         assert "unavailable" not in recorder.versions
 
 
+class _BareExtender(Extender):
+    """Pass-through Extender wrapping CALCULATE only, with no __init__."""
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+
+class _BareLoadOnlyExtender(Extender):
+    """Pass-through Extender wrapping INPUT_DATA_LOAD only, with no __init__; counts calls on the class."""
+
+    fired = 0
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.INPUT_DATA_LOAD}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        type(self).fired += 1
+        return func(*args, **kwargs)
+
+
+class TestPassThroughExtenderContract(ExtenderContractTestMixin):
+    """Done-when: a bare pass-through Extender is covered by declaring `plugin` alone."""
+
+    plugin = _BareExtender
+
+
+class TestLoadOnlyExtenderContract(ExtenderContractTestMixin):
+    """A load-only Extender is covered by `plugin` alone; the runner follows wraps()."""
+
+    plugin = _BareLoadOnlyExtender
+
+    def test_run_all_contract_tests_fire_the_wrapped_hook(self) -> None:
+        _BareLoadOnlyExtender.fired = 0
+        self.test_contract_run_all_leaves_result_unchanged()
+        assert _BareLoadOnlyExtender.fired >= 1
+
+
+class TestMissingPluginNamesTheHook:
+    def test_extender_class_names_host_and_hook(self) -> None:
+        class _NoPluginHost(ExtenderContractTestMixin):
+            pass
+
+        with pytest.raises(NotImplementedError, match="_NoPluginHost") as excinfo:
+            _NoPluginHost.extender_class()
+        assert "plugin" in str(excinfo.value)
+
+
+class TestMakeExtenderDefault:
+    def test_raise_on_error_is_set_on_the_instance(self) -> None:
+        class _Host(ExtenderContractTestMixin):
+            plugin = _BareExtender
+
+        for value in (True, False):
+            assert _Host().make_extender(raise_on_error=value).raise_on_error is value
+
+
 class TestProbeExtenderContract(ExtenderContractTestMixin):
     """Self-test: _ProbeExtender must satisfy every contract test the mixin defines."""
 
@@ -635,22 +689,39 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
         assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
 
 
-class TestHasBackendSinkMustBeDeclared:
-    def test_default_raises_not_implemented_error(self) -> None:
-        with pytest.raises(NotImplementedError):
-            ExtenderContractTestMixin.has_backend_sink()
+class TestHasBackendSinkDefault:
+    def test_default_is_false(self) -> None:
+        assert ExtenderContractTestMixin.has_backend_sink() is False
 
-    def test_undeclared_host_errors_instead_of_skipping_sink_gated_test(self) -> None:
+    def test_undeclared_host_errors_naming_the_missing_hook(self) -> None:
         class _UndeclaredHost(ExtenderContractTestMixin):
+            pass
+
+        with pytest.raises(NotImplementedError, match="extender_class"):
+            _UndeclaredHost().test_contract_run_all_leaves_result_unchanged()
+
+    def test_undeclared_sink_hook_errors_naming_host_and_hook(self) -> None:
+        class _SinkHost(ExtenderContractTestMixin):
+            plugin = _BareExtender
+
             @classmethod
-            def extender_class(cls) -> type[Extender]:
-                return _ProbeExtender
+            def has_backend_sink(cls) -> bool:
+                return True
 
-            def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
-                return _ProbeExtender(sink=[])
+        with pytest.raises(NotImplementedError, match="_SinkHost") as excinfo:
+            _SinkHost().test_contract_unconfigured_extender_emits_nothing_in_run_all()
+        assert "sink_resolution_spy" in str(excinfo.value)
 
-        with pytest.raises(NotImplementedError):
-            _UndeclaredHost().test_contract_unconfigured_extender_emits_nothing()
+    def test_sink_host_without_own_failure_is_refused(self) -> None:
+        class _SinkHost(ExtenderContractTestMixin):
+            plugin = _BareExtender
+
+            @classmethod
+            def has_backend_sink(cls) -> bool:
+                return True
+
+        with pytest.raises(NotImplementedError, match="own_failure"):
+            _SinkHost().own_failure()
 
 
 class TestDataChangingExtenderFailsContract:
@@ -1166,3 +1237,52 @@ class TestProviderFlushTestMixinLoggerFilterIsNotVacuous:
     def test_warnings_on_another_logger_fail_the_returns_false_test(self, caplog: pytest.LogCaptureFixture) -> None:
         with pytest.raises(AssertionError):
             _OtherLoggerProbeHost().test_close_logs_a_warning_when_force_flush_returns_false(caplog)
+
+
+def _kit_classes() -> list[Any]:
+    from mloda.testing.binary_model.conformance import (
+        BinaryModelConformanceBase,
+        HashOperationConformanceMixin,
+        HmacSha256OperationConformanceMixin,
+    )
+
+    kits: list[tuple[Any, str]] = [
+        (ExtenderContractTestMixin, "has_backend_sinks"),
+        (ProviderFlushTestMixin, "make_flushr"),
+        (ProviderCloseTestMixin, "make_flushr"),
+        (BinaryModelConformanceBase, "valid_license_txt"),
+        (HashOperationConformanceMixin, "valid_license_txt"),
+        (HmacSha256OperationConformanceMixin, "valid_license_txt"),
+    ]
+    try:
+        from mloda.testing.extenders.otel import OtelExtenderTestMixin
+
+        kits.append((OtelExtenderTestMixin, "make_otel_extendr"))
+    except ImportError:
+        pass
+    try:
+        from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin
+
+        kits.append((OpenLineageExtenderTestMixin, "make_openlineage_extendr"))
+    except ImportError:
+        pass
+    return [pytest.param(kit, name, id=kit.__name__) for kit, name in kits]
+
+
+class TestKitsAreSuites:
+    @pytest.mark.parametrize(("kit", "near_miss"), _kit_classes())
+    def test_misspelled_hook_on_a_host_raises_hook_error(self, kit: type, near_miss: str) -> None:
+        from mloda._testing.suite import HookError
+
+        with pytest.raises(HookError):
+            type("TestMisspelledHost", (kit,), {near_miss: lambda self: None})
+
+    def test_redefining_a_contract_test_without_a_cause_raises_switched_off_error(self) -> None:
+        from mloda._testing.suite import SwitchedOffError
+
+        with pytest.raises(SwitchedOffError):
+            type(
+                "TestRedefinedHost",
+                (ExtenderContractTestMixin,),
+                {"plugin": _BareExtender, "test_contract_extender_pickles": lambda self: None},
+            )

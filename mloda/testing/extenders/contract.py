@@ -8,8 +8,10 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from mloda._testing.suite import ConformanceSuite
 from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, verified_context
 from mloda.user import ParallelizationMode
 
@@ -21,24 +23,58 @@ from mloda.testing.extenders.runners import (
     run_credentialed_uri_feature,
     run_csv_feature,
     run_failing_feature,
+    run_joined_features,
+    run_two_features,
     run_value_int,
 )
 
+_VALUE_INT_HOOKS = {
+    ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+    ExtenderHook.FEATURE_GROUP_MATCHED,
+    ExtenderHook.VALIDATE_OUTPUT_FEATURE,
+}
+_LOAD_HOOKS = {ExtenderHook.INPUT_DATA_LOAD, ExtenderHook.INPUT_DATA_MATCH}
 
-class ExtenderContractTestMixin:
-    """Contract every Extender keeps. Host provides extender_class, make_extender and own_failure."""
+
+def _unset(host: Any, hook: str) -> NotImplementedError:
+    return NotImplementedError(f"{host.__name__} must provide {hook}")
+
+
+class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
+    """Contract every Extender keeps. A host sets `plugin` (or overrides extender_class); own_failure is needed for sinks."""
 
     @classmethod
     def extender_class(cls) -> type[Extender]:
-        raise NotImplementedError
+        plugin: type[Extender] | None = getattr(cls, "plugin", None)
+        if plugin is None:
+            raise _unset(cls, "plugin or extender_class")
+        return plugin
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         """Return an instance wired to an in-memory backend (no network); None means the extender's own default."""
-        raise NotImplementedError
+        extender = self.extender_class()()
+        if raise_on_error is not None:
+            extender.raise_on_error = raise_on_error
+        return extender
 
     def own_failure(self) -> AbstractContextManager[Any]:
         """A context manager making the extender's OWN instrumentation raise RuntimeError, direct and via run_all."""
-        raise NotImplementedError
+        if self.has_backend_sink():
+            raise _unset(type(self), "own_failure")
+        return patch.object(self.extender_class(), "__call__", side_effect=RuntimeError("own failure"))
+
+    def _run_all(self, *extenders: Extender, **kwargs: Any) -> tuple[list[Any], list[Any]]:
+        """Run the runner whose hooks match wraps(); return (values, expected)."""
+        wraps = self.make_extender().wraps()
+        if wraps & _VALUE_INT_HOOKS:
+            return run_value_int(*extenders, **kwargs), expected_value_int()
+        if ExtenderHook.VALIDATE_INPUT_FEATURE in wraps:
+            return run_two_features(*extenders, **kwargs), [2, 3]
+        if ExtenderHook.JOIN in wraps:
+            return sorted(run_joined_features(*extenders, **kwargs)), [110, 220]
+        if wraps & _LOAD_HOOKS:
+            return run_credentialed_uri_feature(*extenders, **kwargs), [1, 3]
+        raise AssertionError(f"no run_all runner fires any of {sorted(h.name for h in wraps)}")
 
     @classmethod
     def raise_on_error_default(cls) -> bool:
@@ -66,7 +102,7 @@ class ExtenderContractTestMixin:
 
     @classmethod
     def has_backend_sink(cls) -> bool:
-        raise NotImplementedError
+        return False
 
     @classmethod
     def sink_noun(cls) -> str | None:
@@ -89,7 +125,7 @@ class ExtenderContractTestMixin:
         return self.extender_class()(use_sdk_defaults=True)  # type: ignore[call-arg]
 
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
-        raise NotImplementedError
+        raise _unset(type(self), "make_injected_and_sdk_defaults_extender")
 
     @classmethod
     def injected_and_sdk_defaults_sink_survives_pickling(cls) -> bool:
@@ -101,7 +137,7 @@ class ExtenderContractTestMixin:
 
     def make_unpicklable_sink_extender(self) -> Extender:
         """Return an instance wired to a sink that cannot survive plain pickling."""
-        raise NotImplementedError
+        raise _unset(type(self), "make_unpicklable_sink_extender")
 
     @classmethod
     def supports_unpicklable_sink_degrade(cls) -> bool:
@@ -112,7 +148,7 @@ class ExtenderContractTestMixin:
         return nullcontext()
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
-        raise NotImplementedError
+        raise _unset(type(self), "sink_resolution_spy")
 
     def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
         """What the ambient sink(s) that sink_resolution_spy() handed out captured, read after the
@@ -125,7 +161,7 @@ class ExtenderContractTestMixin:
         callable returning whatever that exact sink instance captured. Must be per-instance state
         (built alongside the extender), never shared/class-level state, or the identity test below
         is vacuous."""
-        raise NotImplementedError
+        raise _unset(type(self), "make_extender_with_sink_probe")
 
     def sink_probe_expected_content(self) -> set[str] | None:
         """Content make_extender_with_sink_probe()'s captured sink, or a real worker's marker file,
@@ -145,7 +181,7 @@ class ExtenderContractTestMixin:
 
     def injected_sink_capture(self) -> AbstractContextManager[list[Any]]:
         """Context yielding a list of what a picklable, injected sink actually received after the pickle round trip."""
-        raise NotImplementedError
+        raise _unset(type(self), "injected_sink_capture")
 
     @classmethod
     def supports_real_worker_sink(cls) -> bool:
@@ -158,7 +194,7 @@ class ExtenderContractTestMixin:
     def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
         """Return an extender wired to a file-backed sink under tmp_path, plus the marker file path a
         real spawned worker's emission writes to. Only called when supports_real_worker_sink() is True."""
-        raise NotImplementedError
+        raise _unset(type(self), "make_real_worker_extender_and_marker")
 
     @classmethod
     def supports_real_worker_buffered_sink(cls) -> bool:
@@ -171,7 +207,7 @@ class ExtenderContractTestMixin:
         """Return an extender wired to a buffered sink under tmp_path (the sink writes its marker only
         on flush/close, never on emit), plus the marker file path. Only called when
         supports_real_worker_buffered_sink() is True."""
-        raise NotImplementedError
+        raise _unset(type(self), "make_real_worker_buffered_extender_and_marker")
 
     def context_hook(self) -> ExtenderHook:
         """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""
@@ -265,7 +301,8 @@ class ExtenderContractTestMixin:
                     composite(lambda a, b: a + b, 3, 4)
 
     def test_contract_run_all_leaves_result_unchanged(self) -> None:
-        assert run_value_int(self.make_extender()) == expected_value_int()
+        values, expected = self._run_all(self.make_extender())
+        assert values == expected
 
     def test_contract_run_all_input_data_load_leaves_result_unchanged(self, tmp_path: Path) -> None:
         values = run_csv_feature(tmp_path, self.make_extender())
@@ -396,7 +433,8 @@ class ExtenderContractTestMixin:
         counting = CountingExtender()
         with self.own_failure():
             with caplog.at_level(logging.WARNING):
-                assert run_value_int(extender, counting) == expected_value_int()
+                values, expected = self._run_all(extender, counting)
+                assert values == expected
         assert counting.calls >= 1
         name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
@@ -408,7 +446,7 @@ class ExtenderContractTestMixin:
         extender = self.make_extender(raise_on_error=True)
         with self.own_failure():
             with pytest.raises(RuntimeError):
-                run_value_int(extender)
+                self._run_all(extender)
 
     def test_contract_unconfigured_extender_emits_nothing(self) -> None:
         if not self.has_backend_sink():
@@ -433,7 +471,8 @@ class ExtenderContractTestMixin:
         extender = self.make_unconfigured_extender()
 
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
-            assert run_value_int(extender) == expected_value_int()
+            values, expected = self._run_all(extender)
+            assert values == expected
             assert spy == []
 
     def test_contract_sdk_defaults_resolves_sink(self) -> None:
@@ -497,8 +536,8 @@ class ExtenderContractTestMixin:
         extender, probe = self.make_extender_with_sink_probe()
         name = self.extender_class().__name__
         with caplog.at_level(logging.WARNING):
-            values = run_value_int(extender, parallelization_modes={mode})
-        assert values == expected_value_int()
+            values, expected_values = self._run_all(extender, parallelization_modes={mode})
+        assert values == expected_values
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings == [], warnings
         assert probe(), "no observation reached the injected sink; identity was not preserved"
@@ -515,10 +554,10 @@ class ExtenderContractTestMixin:
         extender, marker_path = self.make_real_worker_extender_and_marker(tmp_path)
         name = self.extender_class().__name__
         with caplog.at_level(logging.WARNING):
-            values = run_value_int(
+            values, expected_values = self._run_all(
                 extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
             )
-        assert values == expected_value_int()
+        assert values == expected_values
         assert marker_path.exists(), "no marker written; the spawned worker never emitted through the injected sink"
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings == [], warnings
@@ -537,10 +576,10 @@ class ExtenderContractTestMixin:
         extender = self.make_unpicklable_sink_extender()
         name = self.extender_class().__name__
         with caplog.at_level(logging.WARNING):
-            values = run_value_int(
+            values, expected_values = self._run_all(
                 extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
             )
-        assert values == expected_value_int()
+        assert values == expected_values
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings, "expected a drop-and-warn message when the injected sink could not survive pickling"
 
@@ -555,10 +594,10 @@ class ExtenderContractTestMixin:
         extender, marker_path = self.make_real_worker_buffered_extender_and_marker(tmp_path)
         name = self.extender_class().__name__
         with caplog.at_level(logging.WARNING):
-            values = run_value_int(
+            values, expected_values = self._run_all(
                 extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
             )
-        assert values == expected_value_int()
+        assert values == expected_values
         assert marker_path.exists(), (
             "no marker written; the spawned worker's graceful exit never flushed the buffered sink via close()"
         )

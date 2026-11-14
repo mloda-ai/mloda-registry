@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, patch
 
 import pytest
+from mloda._testing.suite import ConformanceSuite
 from mloda.steward import CloseContext, Extender
 
 
@@ -58,14 +59,14 @@ def blocking_flush_provider() -> Iterator[Mock]:
         release.set()
 
 
-class ProviderFlushTestMixin:
+class ProviderFlushTestMixin(ConformanceSuite, suite_base=True):
     """Flush cases for an object that flushes one provider within close_timeout via flush_on_close. Hooks:
     make_flusher, flush, flush_noun, flushed_signal; optional provider_in_effect, flush_logger_name.
     Cases keep their test_close_* names so extender hosts keep their test ids. Must not import opentelemetry."""
 
     def make_flusher(self, provider: Any) -> Any:
         """Build the flushing object (it has a close_timeout attribute) for provider."""
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} must provide make_flusher")
 
     def provider_in_effect(self, provider: Any) -> AbstractContextManager[Any]:
         """Scope in which provider is the one the flusher flushes; a no-op when make_flusher injects it."""
@@ -73,17 +74,17 @@ class ProviderFlushTestMixin:
 
     def flush(self, flusher: Any) -> None:
         """Call the flusher's flush entry point."""
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} must provide flush")
 
     @classmethod
     def flush_noun(cls) -> str:
         """The noun the failure warning uses ('failed to flush <noun>: ErrorType')."""
-        raise NotImplementedError
+        raise NotImplementedError(f"{cls.__name__} must provide flush_noun")
 
     @classmethod
     def flushed_signal(cls) -> str:
         """The word the not-flushed warning uses for what a flush drains ('spans', 'metrics')."""
-        raise NotImplementedError
+        raise NotImplementedError(f"{cls.__name__} must provide flushed_signal")
 
     @classmethod
     def flush_logger_name(cls) -> str | None:
@@ -225,7 +226,7 @@ class ProviderFlushTestMixin:
         assert any(name in message and "Error" in message for message in self._warnings(caplog)), self._warnings(caplog)
 
 
-class ProviderCloseTestMixin(ProviderFlushTestMixin):
+class ProviderCloseTestMixin(ProviderFlushTestMixin, suite_base=True):
     """close() contract for an extender that flushes one provider (constructor kwarg sink_noun()) within
     close_timeout. Reuses ExtenderContractTestMixin's extender_class, sink_noun, make_unconfigured_extender and
     make_sdk_defaults_extender; the flush cases and flushed_signal come from ProviderFlushTestMixin, this class
@@ -246,7 +247,7 @@ class ProviderCloseTestMixin(ProviderFlushTestMixin):
     @classmethod
     def ambient_provider_getter(cls) -> str:
         """Patch target of the ambient provider lookup, e.g. 'opentelemetry.metrics.get_meter_provider'."""
-        raise NotImplementedError
+        raise NotImplementedError(f"{cls.__name__} must provide ambient_provider_getter")
 
     @classmethod
     def flush_noun(cls) -> str:
