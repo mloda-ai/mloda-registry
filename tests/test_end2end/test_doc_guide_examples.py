@@ -20,6 +20,7 @@ except the docs in ``SKIPPED_DOCS``.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib
 import json
@@ -69,6 +70,10 @@ FRAMEWORK_SPECIFIC_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patter
 TESTING_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "10-testing-guide.md"
 REFERENCE_CONTRACT_HEADING = "## Reference Contract and Divergence"
 REFERENCE_CONTRACT_MODULE = "guide_09_reference_contract"
+OPTIONS_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "11-options.md"
+CREDENTIAL_EXAMPLE = (
+    REPO_ROOT / "mloda" / "community" / "feature_groups" / "example" / "credential_example_feature_group.py"
+)
 CONFORMANCE_HEADING = "## Operation Groups: Conformance to the Reference Contract"
 
 _FENCE_RE = re.compile(r"```(json|python|py)\n(.*?)```", re.DOTALL)
@@ -496,6 +501,18 @@ def test_conformance_section_test_passes_against_the_operation_group_example() -
             conformance_test(**kwargs)
             calls += 1
     assert calls > 0, "the Conformance section test was never called"
+
+
+def test_secrets_section_shows_the_credential_example_module_source() -> None:
+    """Guide 11's Secrets block is the credential example module minus its docstring."""
+    module = ast.parse(CREDENTIAL_EXAMPLE.read_text(encoding="utf-8"))
+    docstring = module.body[0]
+    assert isinstance(docstring, ast.Expr) and isinstance(getattr(docstring, "value", None), ast.Constant)
+    lines = CREDENTIAL_EXAMPLE.read_text(encoding="utf-8").splitlines()
+    source = "\n".join(lines[docstring.end_lineno :]).strip()
+    section = _section(OPTIONS_GUIDE.read_text(encoding="utf-8"), "## Secrets", ("\n## ",))
+    blocks = [m.group(2).strip() for m in _FENCE_RE.finditer(section) if m.group(1) == "python"]
+    assert source in blocks, "the Secrets section needs a python block equal to the example module source"
 
 
 _DOC_GLOBS = ("*.md", "docs/**/*.md", "mloda/**/*.md")

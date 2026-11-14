@@ -271,6 +271,10 @@ The full expired/in-grace/valid license state machine is covered against the rea
 Register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
 ```python
+import os
+
+from mloda.user import Credential, DataAccessCollection, Feature, Options
+
 feature = Feature(
     "pseudonymized_email",
     Options(
