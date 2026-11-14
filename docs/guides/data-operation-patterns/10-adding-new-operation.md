@@ -149,7 +149,7 @@ Every family has this shape; the reference each family compares against is liste
 
 Every family test base inherits a check of the group's `CONTRACT_VERSION` against `contract_version()` (default 1); override it when the family's contract version moves.
 
-File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`. These test bases need `mloda-testing[pyarrow]`; tests importing them are skipped without it, so import them from test modules, not a `conftest.py`.
+File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`. These test bases need `mloda-testing[pyarrow]`; without it, a test module or fixture importing them is skipped. Anywhere else, including a `conftest.py` that pytest loads at startup (the root one, or one on the path passed to pytest), a `-p` plugin or a script, the import raises `ModuleNotFoundError` naming the extra, so import the kit inside fixtures, not at the top of a `conftest.py`.
 
 ```py
 from typing import Any
