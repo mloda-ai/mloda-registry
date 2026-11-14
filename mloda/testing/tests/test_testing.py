@@ -5,7 +5,6 @@ import importlib
 import importlib.util
 import os
 import pkgutil
-import re
 import subprocess  # nosec
 import sys
 from pathlib import Path
@@ -139,7 +138,9 @@ print("ok")
 
 def test_pyarrow_guard_raises_module_not_found_outside_pytest() -> None:
     """Outside pytest the guard raises ModuleNotFoundError."""
-    result = subprocess.run([sys.executable, "-c", _OUTSIDE_PYTEST_PROBE], capture_output=True, text=True)  # nosec
+    result = subprocess.run(  # nosec
+        [sys.executable, "-c", _OUTSIDE_PYTEST_PROBE], capture_output=True, text=True, timeout=120
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "ok"
 
@@ -175,6 +176,7 @@ def _run_pytest_without_pyarrow(project: Path, files: dict[str, str]) -> subproc
     ini = project / "empty.ini"
     ini.write_text("[pytest]\n")
     env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")}
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     command = [
         sys.executable,
         "-c",
@@ -190,7 +192,7 @@ def _run_pytest_without_pyarrow(project: Path, files: dict[str, str]) -> subproc
         "-rs",
         str(project),
     ]
-    return subprocess.run(command, capture_output=True, text=True, env=env)  # nosec
+    return subprocess.run(command, capture_output=True, text=True, env=env, timeout=120)  # nosec
 
 
 def test_pyarrow_guard_in_root_conftest_is_a_usage_error(tmp_path: Path) -> None:
@@ -209,8 +211,8 @@ def test_pyarrow_guard_skips_during_collection_and_tests(tmp_path: Path) -> None
     skip_lines = [line for line in output.splitlines() if line.startswith("SKIPPED")]
     assert all("requires mloda-testing[pyarrow]" in line for line in skip_lines), skip_lines
     assert any("test_fixture.py" in line for line in skip_lines), skip_lines
-    counts = [int(m.group(1)) for line in skip_lines if (m := re.match(r"SKIPPED \[(\d+)\]", line))]
-    assert sum(counts) == 3, skip_lines  # fixture test, top-level module, sub directory
+    summary = output.strip().splitlines()[-1]
+    assert "3 skipped" in summary, summary  # fixture test, top-level module, sub directory
 
 
 def test_contract_mixin_assert_reports_compared_values() -> None:
