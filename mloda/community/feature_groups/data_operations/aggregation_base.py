@@ -1,6 +1,6 @@
 """Shared skeleton for the aggregation feature-group families.
 
-The aggregation, window-aggregation, scalar-aggregate, and frame-aggregate
+The aggregation, window-aggregation, and scalar-aggregate
 families share the same aggregation-type extraction machinery: they parse the
 same aggregation names out of the feature name or options, validate them against
 a canonical aggregation-type table, and declare INT64 for counting ops. Issue
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
+from mloda.provider import FeatureChainParser, FeatureChainParserMixin
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
@@ -50,8 +50,7 @@ AGGREGATION_TYPES: dict[str, str] = {
 }
 
 
-# Released aggregation-family leaves subclass this alone, so it keeps FeatureGroup.
-class AggregationFeatureGroupBase(KeyColumnInputsMixin, FeatureChainParserMixin, FeatureGroup):
+class AggregationFeatureGroupBase(KeyColumnInputsMixin, FeatureChainParserMixin):
     AGGREGATION_TYPE = "aggregation_type"
 
     #: Canonical aggregation-type table. Subclasses override to advertise their

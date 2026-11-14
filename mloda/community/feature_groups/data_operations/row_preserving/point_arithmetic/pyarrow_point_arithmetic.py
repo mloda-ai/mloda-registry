@@ -10,8 +10,8 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pyarrow_mixin import (
-    PyArrowArithmeticMixin,
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pyarrow_numeric_source import (
+    pyarrow_non_numeric_descriptor,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
@@ -34,7 +34,7 @@ class PyArrowPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
         return group.apply_arithmetic(
             data,
             features,
-            non_numeric=PyArrowArithmeticMixin._non_numeric_descriptor,
+            non_numeric=pyarrow_non_numeric_descriptor,
             compute_arithmetic=cls._compute_arithmetic,
         )
 

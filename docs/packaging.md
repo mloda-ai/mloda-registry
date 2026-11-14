@@ -98,6 +98,9 @@ the placeholder. Every release regenerates `pyproject.toml`, so a leaf always re
 the base built from the same commit. The mloda core floor (`core_dependency`) is
 unaffected: it stays a real, hand-set minimum in `shared.toml`.
 
+The floor runs one way: a base release makes no compatibility promise to leaves released
+before it, so an older leaf installed against a newer base is unsupported and may fail to import.
+
 The same rule covers `optional_dependencies`: a sibling entry there may also be listed
 bare, as `"{published_children}"` expands to. The generator refuses any dependency string
 left carrying an unexpanded placeholder after expansion. `{version}` is only accepted in

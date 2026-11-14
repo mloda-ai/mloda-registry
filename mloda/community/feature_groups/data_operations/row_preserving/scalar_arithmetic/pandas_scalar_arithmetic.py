@@ -9,7 +9,9 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pandas_mixin import PandasArithmeticMixin
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pandas_numeric_source import (
+    pandas_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,
@@ -31,7 +33,7 @@ class PandasScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
         return group.apply_arithmetic(
             data,
             features,
-            non_numeric=PandasArithmeticMixin._non_numeric_descriptor,
+            non_numeric=pandas_non_numeric_descriptor,
             compute_arithmetic=cls._compute_arithmetic,
         )
 

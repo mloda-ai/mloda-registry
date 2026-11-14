@@ -11,8 +11,8 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import SQL_ARITHMETIC_OPS
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_mixin import (
-    SqliteArithmeticMixin,
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_numeric_source import (
+    sqlite_non_numeric_descriptor,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
@@ -42,7 +42,7 @@ class SqlitePointArithmetic(Implementation[PointArithmeticFeatureGroup]):
         return group.apply_arithmetic(
             data,
             features,
-            non_numeric=SqliteArithmeticMixin._non_numeric_descriptor,
+            non_numeric=sqlite_non_numeric_descriptor,
             compute_arithmetic=cls._compute_arithmetic,
         )
 
