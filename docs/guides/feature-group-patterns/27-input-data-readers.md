@@ -319,7 +319,28 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-Core's source-group conformance suites ([mloda/_testing/source](https://github.com/mloda-ai/mloda/tree/0.20.0/mloda/_testing/source)) are non-public, so read them for what a group must keep. Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
+Conformance suites for source groups live in `mloda.testing.source`. Mix in the one that fits the base class: `SourceFeatureGroupTestMixin` (`source_suite`), `ReadFileFGTestMixin` (`read_file_suite`), `ReadDBFGTestMixin` (`read_db_suite`) or `ReadDocumentFGTestMixin` (`read_document_suite`). `loads_into_framework_suite` and `column_discovery_suite` add further checks. A host for `SensorCsvFG` (its `load_neutral` must really parse the file; the sketch above stubs it):
+
+```py
+from pathlib import Path
+from typing import Any
+
+from mloda.testing.source.read_file_suite import ReadFileFGTestMixin
+
+
+class TestSensorCsvFG(ReadFileFGTestMixin):
+    feature_group_class = SensorCsvFG
+    present_column = "pm10_value"
+    missing_column = "no_such_column"
+
+    def write_file(self, path: Path, columns: dict[str, list[Any]]) -> None:
+        names = list(columns)
+        rows = zip(*(columns[name] for name in names))
+        lines = ["#sensor-schema " + ",".join(names), *(",".join(str(v) for v in row) for row in rows)]
+        path.write_text("\n".join(lines) + "\n")
+```
+
+Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 
 ```python
 from mloda.steward import resolve_feature

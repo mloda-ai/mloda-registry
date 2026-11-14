@@ -30,6 +30,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
     config_frame_options,
     time_frame_options,
 )
+from mloda.testing.operation_group_shape import Probe
 
 
 class TestPatternParsing:
@@ -1004,6 +1005,10 @@ class TestFrameAggregateOperationGroup(OperationGroupTestBase):
     @classmethod
     def group_class(cls) -> Any:
         return FrameAggregateFeatureGroup
+
+    @classmethod
+    def shape_probe(cls) -> Probe:
+        return lambda subtype: ("my_result", config_frame_options(subtype, "rolling"))
 
     @classmethod
     def backend_package(cls) -> str:

@@ -96,3 +96,8 @@ def evict_package(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
     for name in candidates:
         monkeypatch.setitem(sys.modules, name, None)
         monkeypatch.delitem(sys.modules, name, raising=False)
+
+
+def require_pyarrow() -> None:
+    """Skip the importing module unless pyarrow is installed (the ``mloda-testing[pyarrow]`` extra)."""
+    pytest.importorskip("pyarrow", reason="requires mloda-testing[pyarrow]")

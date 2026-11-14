@@ -32,6 +32,7 @@ from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.operation_group_shape import Probe, assert_operation_group_shape
 
 
 class ImplSpec(NamedTuple):
@@ -109,6 +110,11 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         return []
 
     @classmethod
+    def shape_probe(cls) -> Probe | None:
+        """Needed only when the subtype is resolver-based and an Implementation restricts ``supported``."""
+        return None
+
+    @classmethod
     def universe(cls) -> frozenset[str] | None:
         """The exact ``subtype_universe()``; ``frozenset()`` asserts ``SUBTYPES is None``. Default: not pinned."""
         return None
@@ -139,6 +145,15 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     @classmethod
     def _spec(cls, impl_id: str) -> ImplSpec:
         return next(spec for spec in cls.implementations() if spec.id == impl_id)
+
+    @classmethod
+    def _installed_specs(cls) -> list[ImplSpec]:
+        """The specs whose optional dependency is absent or installed."""
+        return [
+            spec
+            for spec in cls.implementations()
+            if spec.dependency is None or importlib.util.find_spec(spec.dependency) is not None
+        ]
 
     @classmethod
     def _implementation(cls, spec: ImplSpec) -> Any:
@@ -215,12 +230,6 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         spec = self._spec(impl_id)
         assert self._implementation(spec).supported == spec.supported
 
-    def test_supported_stays_inside_the_universe(self, impl_id: str) -> None:
-        """A typo in supported cannot silently hide a real subtype."""
-        spec = self._spec(impl_id)
-        supported = self._implementation(spec).supported
-        assert supported is None or supported <= self.group_class().subtype_universe()
-
     def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
         implementation = self._implementation(spec)
@@ -228,20 +237,21 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         records = implementation.divergences
         assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
 
-    def test_divergent_is_inside_the_universe_with_a_reason(self, impl_id: str) -> None:
-        spec = self._spec(impl_id)
-        implementation = self._implementation(spec)
-        assert divergent_subtypes(implementation) <= self.group_class().subtype_universe()
-        assert all(isinstance(record.reason, str) and record.reason for record in implementation.divergences)
-
-    def test_divergent_aliases_diverge_together(self, impl_id: str) -> None:
-        """An alias shares its target's behaviour, so a backend that diverges on one diverges on the other."""
-        if not self.alias_pairs():
-            pytest.skip("no alias pairs declared")
-        spec = self._spec(impl_id)
-        divergent = divergent_subtypes(self._implementation(spec))
-        for first, second in self.alias_pairs():
-            assert (first in divergent) == (second in divergent)
+    def test_operation_group_shape(self) -> None:
+        specs = self._installed_specs()
+        if not specs:
+            pytest.skip("no listed implementation is installed")
+        implementations = [self._implementation(spec) for spec in specs]
+        assert_operation_group_shape(self.group_class(), self.alias_pairs(), self.shape_probe())
+        universe = self.group_class().subtype_universe()
+        # Core's check sees only Implementations that serve a framework and accepts an empty reason on a
+        # NOT_IMPLEMENTED record, so the kit keeps these per listed Implementation.
+        for implementation in implementations:
+            supported = implementation.supported
+            assert supported is None or supported <= universe
+            assert divergent_subtypes(implementation) <= universe
+            for record in implementation.divergences:
+                assert isinstance(record.reason, str) and record.reason, f"{implementation.__name__}: empty reason"
 
     def test_universe_is_the_declared_set(self) -> None:
         if self.universe() is None:
@@ -269,11 +279,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         group = self.group_class()
         assert group in feature_groups
         listed = {cls.__name__ for cls in feature_groups if issubclass(cls, Implementation)}
-        expected = {
-            spec.name
-            for spec in self.implementations()
-            if spec.dependency is None or importlib.util.find_spec(spec.dependency) is not None
-        }
+        expected = {spec.name for spec in self._installed_specs()}
         assert listed == expected
         implementations: list[Any] = [cls for cls in feature_groups if cls is not group]
         assert all(cls.feature_group is group for cls in implementations)

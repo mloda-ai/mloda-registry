@@ -793,7 +793,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -818,7 +818,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -873,7 +873,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -898,7 +898,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -941,7 +941,7 @@ all = [
     { name = "mloda-community-window-aggregation" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 
@@ -966,7 +966,7 @@ requires-dist = [
     { name = "mloda-community-string", marker = "extra == 'all'" },
     { name = "mloda-community-time-bucketization", marker = "extra == 'all'" },
     { name = "mloda-community-window-aggregation", marker = "extra == 'all'" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "all"]
@@ -987,7 +987,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1012,7 +1012,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1039,7 +1039,7 @@ all = [
     { name = "polars" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 pandas = [
@@ -1052,7 +1052,7 @@ polars = [
 [package.metadata]
 requires-dist = [
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1074,7 +1074,7 @@ all = [
     { name = "mloda-community-example-a" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 
@@ -1082,7 +1082,7 @@ dev = [
 requires-dist = [
     { name = "mloda", specifier = ">=0.20.0,<0.21.0" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "all"]
@@ -1097,14 +1097,14 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda-community-example", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -1119,14 +1119,14 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.20.0,<0.21.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -1147,7 +1147,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1172,7 +1172,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1201,7 +1201,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1223,7 +1223,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'", specifier = ">=2.2" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.2" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.38" },
@@ -1246,14 +1246,14 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.20.0,<0.21.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pyarrow", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1275,7 +1275,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1300,7 +1300,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1329,7 +1329,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1351,7 +1351,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1437,7 +1437,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1456,7 +1456,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1483,7 +1483,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1508,7 +1508,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1537,7 +1537,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1559,7 +1559,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1587,7 +1587,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1609,7 +1609,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1637,7 +1637,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1662,7 +1662,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1691,7 +1691,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1716,7 +1716,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1745,7 +1745,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1770,7 +1770,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1799,7 +1799,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1824,7 +1824,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1853,7 +1853,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1878,7 +1878,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -1907,7 +1907,7 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 duckdb = [
@@ -1932,7 +1932,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'all'", specifier = "<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "<3" },
     { name = "mloda-community-data-operations", specifier = ">=0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.21" },
@@ -2121,14 +2121,14 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["pyarrow"] },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.20.0,<0.21.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
+    { name = "mloda-testing", extras = ["pyarrow"], marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -2187,7 +2187,6 @@ version = "0.13.0"
 source = { editable = "mloda/testing" }
 dependencies = [
     { name = "mloda" },
-    { name = "pyarrow" },
     { name = "pytest" },
 ]
 
@@ -2198,13 +2197,19 @@ binary-model = [
     { name = "pyarrow" },
 ]
 dev = [
+    { name = "pyarrow" },
     { name = "pytest" },
 ]
 openlineage = [
     { name = "openlineage-python" },
+    { name = "pyarrow" },
 ]
 otel = [
     { name = "opentelemetry-sdk" },
+    { name = "pyarrow" },
+]
+pyarrow = [
+    { name = "pyarrow" },
 ]
 
 [package.metadata]
@@ -2214,12 +2219,15 @@ requires-dist = [
     { name = "mloda-enterprise", extras = ["ed25519"], marker = "extra == 'binary-model'", editable = "mloda/enterprise" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
-    { name = "pyarrow", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'binary-model'", specifier = ">=25" },
+    { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'openlineage'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'otel'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "otel", "openlineage", "binary-model"]
+provides-extras = ["dev", "pyarrow", "otel", "openlineage", "binary-model"]
 
 [[package]]
 name = "mypy"

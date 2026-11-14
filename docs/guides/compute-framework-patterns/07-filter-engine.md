@@ -96,7 +96,7 @@ class MyFilterEngine(BaseFilterEngine):
         return [row for row in data if row.get(col) in present or (keep_missing and _is_missing(row.get(col)))]
 ```
 
-`filter_feature.name` is the resolved column name. `FilterEngineTestMixin` runs the shared contract suite against an engine; see the [Testing Guide](09-testing-guide.md).
+`filter_feature.name` is the resolved column name. `FilterEngineSuite` (`mloda.testing.compute_framework.filter_suite`) runs the shared contract suite against an engine; see the [Testing Guide](09-testing-guide.md).
 
 ## Timezone Validation (Opt-In)
 

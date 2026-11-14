@@ -51,6 +51,7 @@ _FRAMEWORK_TEST_MODULES = {
     "opentelemetry.sdk": "mloda.testing.tests.test_extenders_otel",
     "pandas": "mloda.community.feature_groups.data_operations.aggregation.tests.test_pandas",
     "polars": "mloda.community.feature_groups.data_operations.aggregation.tests.test_polars_lazy",
+    "pyarrow": "mloda.testing.feature_groups.data_operations.base",
 }
 
 
