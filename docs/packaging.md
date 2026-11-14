@@ -98,9 +98,6 @@ the placeholder. Every release regenerates `pyproject.toml`, so a leaf always re
 the base built from the same commit. The mloda core floor (`core_dependency`) is
 unaffected: it stays a real, hand-set minimum in `shared.toml`.
 
-The floor runs one way: a base release makes no compatibility promise to leaves released
-before it, so an older leaf installed against a newer base is unsupported and may fail to import.
-
 The same rule covers `optional_dependencies`: a sibling entry there may also be listed
 bare, as `"{published_children}"` expands to. The generator refuses any dependency string
 left carrying an unexpanded placeholder after expansion. `{version}` is only accepted in
@@ -118,6 +115,10 @@ marker) is a patch release, which `~=` admits. A PR that changes the seam tables
 Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders-shared>={version}"`
 because its runtime code uses only public names from it and subclasses none of its classes
 (`tests/test_end2end/test_dependency_direction.py` guards this). A `~=` there would also cap the `mloda-community` bundle, which pins that package exactly. Subclassing a class built for it (`BinaryModelMixin`, through its public ClassVars and `run_binary_model`) counts as public use, so `mloda-community-binary-model` is also a `>=` floor.
+
+A floor runs one way: a base release makes no compatibility promise to leaves released before it.
+An older leaf installed against a newer base is unsupported; it may fail to import or stop
+registering as a FeatureGroup.
 
 Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
 sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships

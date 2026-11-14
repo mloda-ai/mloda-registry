@@ -11,7 +11,7 @@ from typing import Any
 import polars as pl
 
 
-def polars_non_numeric_descriptor(data: Any, source_col: str) -> Any | None:
+def polars_non_numeric_descriptor(data: pl.LazyFrame, source_col: str) -> Any | None:
     """Return the column dtype when ``source_col`` is NON-numeric, else ``None``.
 
     Booleans count as NON-numeric.

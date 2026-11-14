@@ -11,7 +11,7 @@ from typing import Any
 import pyarrow as pa
 
 
-def pyarrow_non_numeric_descriptor(data: Any, source_col: str) -> Any | None:
+def pyarrow_non_numeric_descriptor(data: pa.Table, source_col: str) -> Any | None:
     """Return the column type when ``source_col`` is NON-numeric, else ``None``.
 
     Booleans count as NON-numeric.

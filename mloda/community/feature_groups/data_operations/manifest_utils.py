@@ -1,4 +1,4 @@
-"""Still needed: backends top-import optional frameworks, so manifests must skip the ones not installed.
+"""Load a manifest's backends one by one, skipping those whose optional framework is not installed.
 
 A data_operations plugin package ships one Implementation per compute
 framework. Each Implementation module top-imports its framework (pandas, polars,

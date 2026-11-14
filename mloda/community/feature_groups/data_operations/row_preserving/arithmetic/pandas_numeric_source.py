@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 
 
-def pandas_non_numeric_descriptor(data: Any, source_col: str) -> Any | None:
+def pandas_non_numeric_descriptor(data: pd.DataFrame, source_col: str) -> Any | None:
     """Return the column dtype when ``source_col`` is NON-numeric, else ``None``.
 
     Booleans count as NON-numeric.
