@@ -136,10 +136,6 @@ class TestRankOperationGroup(OperationGroupTestBase):
         ]
 
     @classmethod
-    def variants(cls) -> frozenset[str]:
-        return frozenset({"nan_as_null"})
-
-    @classmethod
     def subtype_key(cls) -> str:
         return "rank_type"
 

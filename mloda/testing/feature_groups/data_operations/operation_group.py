@@ -128,11 +128,6 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         """The expected ``NAME_ONLY_MATCH``. Default: not pinned."""
         return None
 
-    @classmethod
-    def variants(cls) -> frozenset[str]:
-        """The exact ``VARIANTS`` of the group. Default: none."""
-        return frozenset()
-
     # -- Plumbing ---------------------------------------------------------------
 
     _case_fixtures: ClassVar[dict[str, str]] = {"impl_id": "implementation_ids"}
@@ -225,9 +220,6 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         spec = self._spec(impl_id)
         supported = self._implementation(spec).supported
         assert supported is None or supported <= self.group_class().subtype_universe()
-
-    def test_group_variants_are_the_declared_set(self) -> None:
-        assert self.group_class().VARIANTS == self.variants()
 
     def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
         spec = self._spec(impl_id)

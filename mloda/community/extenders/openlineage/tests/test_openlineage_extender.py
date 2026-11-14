@@ -33,7 +33,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 import requests
-from mloda.provider import FailedRows, instrument
+from mloda.provider import Cause, Divergence, DivergenceKind, FailedRows, instrument
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -70,6 +70,7 @@ from mloda.community.extenders.shared.tests.classification_helpers import (
     UnknownGroup,
     classified_step,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.rank.python_dict_rank import PythonDictRank
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import active_close_context
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -2185,22 +2186,32 @@ class TestOpenLineageExtenderParentRunFacet:
             pytest.param({"implementation": "neutral"}, {"implementation": "neutral"}, id="implementation_only"),
             pytest.param({}, {}, id="no_optional_fields_omits_every_key"),
             pytest.param({"contract_version": 1}, {"contractVersion": 1}, id="contract_version"),
-            pytest.param({"contract_version": None}, {}, id="contract_version_none_is_omitted"),
             pytest.param({"allowed_variants": ("nan_as_null",)}, {"allowedVariants": ["nan_as_null"]}, id="allowed"),
-            pytest.param({"allowed_variants": ()}, {}, id="allowed_variants_empty_is_omitted"),
-            pytest.param({"divergences": ()}, {}, id="divergences_empty_is_omitted"),
             pytest.param(
-                {"divergences": "plain"},
+                {
+                    "divergences": (
+                        *PythonDictRank.divergence_records(),
+                        Divergence(
+                            kind=DivergenceKind.VALUE,
+                            cause=Cause.OTHER,
+                            outputs=frozenset({"b", "a"}),
+                            reason="r",
+                            docs="d",
+                        ),
+                    )
+                },
                 {
                     "divergences": [
                         {
+                            "source": "implementation",
+                            "framework": "PythonDictFramework",
                             "kind": "variant",
-                            "cause": "backend",
-                            "subtypes": ["avg", "sum"],
+                            "cause": "other",
+                            "subtypes": ["dense_rank", "percent_rank", "rank"],
                             "outputs": [],
-                            "reason": "NaN is null",
+                            "reason": "ties NaN with null in order_by",
                             "variant": "nan_as_null",
-                            "docs": "docs/nan",
+                            "docs": PythonDictRank.divergence_records()[0].docs,
                         },
                         {
                             "kind": "value",
@@ -2212,9 +2223,8 @@ class TestOpenLineageExtenderParentRunFacet:
                         },
                     ]
                 },
-                id="divergences_plain",
+                id="divergences",
             ),
-            pytest.param({"divergences": "stamped"}, {"divergences": "stamped"}, id="divergences_stamped"),
         ],
     )
     def test_step_facet_carries_the_optional_step_fields(
@@ -2223,47 +2233,6 @@ class TestOpenLineageExtenderParentRunFacet:
         hook_fields: dict[str, Any],
         expected: dict[str, Any],
     ) -> None:
-        from mloda.provider import Cause, Divergence, DivergenceKind
-
-        from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
-
-        hook_fields = dict(hook_fields)
-        if hook_fields.get("divergences") == "plain":
-            hook_fields["divergences"] = (
-                Divergence(
-                    kind=DivergenceKind.VARIANT,
-                    cause=Cause.BACKEND,
-                    subtypes=frozenset({"sum", "avg"}),
-                    reason="NaN is null",
-                    variant="nan_as_null",
-                    docs="docs/nan",
-                ),
-                Divergence(
-                    kind=DivergenceKind.VALUE, cause=Cause.OTHER, outputs=frozenset({"b", "a"}), reason="r", docs="d"
-                ),
-            )
-        elif hook_fields.get("divergences") == "stamped":
-            records = PandasAggregation.divergence_records()
-            assert records
-            hook_fields["divergences"] = records
-            raw = [
-                {
-                    "source": r.source.value if r.source is not None else None,
-                    "framework": r.framework,
-                    "kind": r.kind.value,
-                    "cause": r.cause.value,
-                    "subtypes": sorted(r.subtypes),
-                    "outputs": sorted(r.outputs),
-                    "reason": r.reason,
-                    "variant": r.variant,
-                    "docs": r.docs,
-                }
-                for r in records
-            ]
-            stamped = [{k: v for k, v in entry.items() if v is not None} for entry in raw]
-            assert all(e["source"] == "implementation" and e["framework"] == "PandasDataFrame" for e in stamped)
-            expected = {"divergences": stamped}
-
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
 

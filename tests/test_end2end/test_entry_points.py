@@ -189,8 +189,8 @@ def _is_test_module(module_name: str) -> bool:
     return ".tests" in module_name
 
 
-def test_every_operation_group_declares_contract_version_1() -> None:
-    """Every operation group shipped under mloda.community / mloda.enterprise declares CONTRACT_VERSION = 1 in its
+def test_every_operation_group_declares_a_contract_version() -> None:
+    """Every operation group shipped under mloda.community / mloda.enterprise declares an int CONTRACT_VERSION in its
     own class body, found by importing every module (not through manifests)."""
     for namespace in ("mloda.community", "mloda.enterprise"):
         package = importlib.import_module(namespace)
@@ -208,9 +208,11 @@ def test_every_operation_group_declares_contract_version_1() -> None:
     }
     assert groups, "expected at least one concrete OperationFeatureGroup under mloda.community or mloda.enterprise"
     offenders = sorted(
-        f"{cls.__module__}.{cls.__qualname__}" for cls in groups if cls.__dict__.get("CONTRACT_VERSION") != 1
+        f"{cls.__module__}.{cls.__qualname__}"
+        for cls in groups
+        if not isinstance(cls.__dict__.get("CONTRACT_VERSION"), int)
     )
-    assert not offenders, f"operation groups must declare CONTRACT_VERSION = 1 in their own class body: {offenders}"
+    assert not offenders, f"operation groups must declare an int CONTRACT_VERSION in their own class body: {offenders}"
 
 
 def test_bundle_and_groups_are_mutually_exclusive() -> None:

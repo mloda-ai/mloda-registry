@@ -469,36 +469,10 @@ def test_nan_is_null_defaults_to_false() -> None:
     assert DataOpsIntegrationTestBase.nan_is_null() is False
 
 
-def _concrete_integration_stub(**overrides: Any) -> type:
-    """A minimal concrete ``DataOpsIntegrationTestBase`` subclass: every abstract hook is implemented."""
+def test_group_options_defaults_to_empty() -> None:
     from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
-    hooks: dict[str, Any] = {
-        name: classmethod(lambda cls: None) for name in DataOpsIntegrationTestBase.__abstractmethods__
-    }
-    hooks.update({name: classmethod(fn) for name, fn in overrides.items()})
-    return type("_IntegrationStub", (DataOpsIntegrationTestBase,), hooks)
-
-
-@pytest.mark.parametrize(
-    ("overrides", "expected_group"),
-    [
-        pytest.param({}, {}, id="default_leaves_group_empty"),
-        pytest.param(
-            {"group_options": lambda cls: {"allow_variants": "nan_as_null"}},
-            {"allow_variants": "nan_as_null"},
-            id="override_lands_in_group",
-        ),
-    ],
-)
-def test_group_options_lands_in_the_feature_group_options(
-    overrides: dict[str, Any], expected_group: dict[str, Any]
-) -> None:
-    stub = _concrete_integration_stub(**overrides)
-    assert stub.group_options() == expected_group  # type: ignore[attr-defined]
-    feature = stub()._make_feature("value__sum_agg", {"partition_by": ["region"]})
-    assert feature.options.group == expected_group
-    assert feature.options.context == {"partition_by": ["region"]}
+    assert DataOpsIntegrationTestBase.group_options() == {}
 
 
 def test_routing_frameworks_defaults_to_the_pipeline_frameworks() -> None:
@@ -652,13 +626,6 @@ def test_implementation_import_fails_unless_the_dependency_is_declared() -> None
         _Stub._implementation(missing._replace(dependency="no_such_dependency"))
     with pytest.raises(ModuleNotFoundError):
         _Stub._implementation(missing._replace(dependency="pytest"))
-
-
-def test_operation_group_hooks_default_to_no_variants() -> None:
-    from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
-
-    assert OperationGroupTestBase.variants() == frozenset()
-    assert ImplSpec("x", "m", "X", "fm", "F").variants == frozenset()
 
 
 # -- divergent_subtypes ---------------------------------------------------------

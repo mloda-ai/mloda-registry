@@ -377,33 +377,23 @@ class TestImplementationPin:
         with pytest.raises(ImplementationPinError, match="names several loaded classes"):
             self._aggregation_step([feature], [PyArrowTable, PandasDataFrame], self._collector())
 
-    @pytest.mark.parametrize(
-        ("pin", "frameworks", "match"),
-        [
-            pytest.param(True, [PyArrowTable, "pandas"], r"(?s)(?=.*allow_variants)(?=.*nan_as_null)", id="pinned"),
-            pytest.param(False, ["pandas"], "allow_variants", id="pandas_only"),
-        ],
-    )
-    def test_variant_implementation_without_the_option_is_refused(
-        self, pin: bool, frameworks: list[Any], match: str
-    ) -> None:
-        """PandasAggregation is a nan_as_null variant: without allow_variants, pinning it or running Pandas-only fails."""
+    def test_pinned_variant_implementation_without_the_option_is_refused(self) -> None:
+        """PandasAggregation is a nan_as_null variant: pinning it without allow_variants fails."""
         pytest.importorskip("pandas")
-        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-
         from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
 
-        frameworks = [PandasDataFrame if f == "pandas" else f for f in frameworks]
         options = Options(context={"partition_by": ["region"]})
-        if pin:
-            feature = Feature("value_int__sum_agg", options=options, implementation=PandasAggregation)
-            with pytest.raises(FeatureResolutionError, match=match):
-                self._aggregation_step([feature], frameworks, self._collector())
-        else:
-            collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
-            feature = Feature("value_int__sum_agg", options=options)
-            with pytest.raises(FeatureResolutionError, match=match):
-                mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=collector)
+        feature = Feature("value_int__sum_agg", options=options, implementation=PandasAggregation)
+        with pytest.raises(FeatureResolutionError, match=r"(?s)(?=.*allow_variants)(?=.*nan_as_null)"):
+            self._aggregation_step([feature], [PyArrowTable, PandasDataFrame], self._collector())
+
+    def test_pandas_only_without_the_option_is_refused(self) -> None:
+        """Running Pandas-only without allow_variants fails: the only candidate is a nan_as_null variant."""
+        pytest.importorskip("pandas")
+        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        feature = Feature("value_int__sum_agg", options=Options(context={"partition_by": ["region"]}))
+        with pytest.raises(FeatureResolutionError, match="allow_variants"):
+            mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=collector)
 
 
 class TestIntegrationMultipleFeatures:
