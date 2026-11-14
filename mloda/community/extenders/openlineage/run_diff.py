@@ -18,6 +18,9 @@ _STEP_FIELDS = {
     "pluginVersion": 0,
     "implementation": 0,
     "implementationVersion": 0,
+    "contractVersion": 0,
+    "divergences": 0,
+    "allowedVariants": 0,
     "computeFramework": 0,
     "inputFeatures": 1,
     "loadedDatasets": 1,
@@ -193,11 +196,15 @@ def _step(events: list[dict[str, Any]]) -> _Step:
     first_out = outputs[0] if outputs else {}
     stats = _dict(_dict(first_out.get("outputFacets")).get("outputStatistics"))
     features = step_facet.get("featureNames")
+    variants = step_facet.get("allowedVariants")
     values: dict[str, Any] = {
         "featureGroupVersion": step_facet.get("featureGroupVersion"),
         "pluginVersion": step_facet.get("pluginVersion"),
         "implementation": step_facet.get("implementation"),
         "implementationVersion": step_facet.get("implementationVersion"),
+        "contractVersion": step_facet.get("contractVersion"),
+        "divergences": tuple(_dicts(step_facet.get("divergences"))),
+        "allowedVariants": tuple(sorted(str(v) for v in variants)) if isinstance(variants, list) else (),
         "computeFramework": step_facet.get("computeFramework"),
         "inputFeatures": tuple(sorted(str(i.get("name")) for i in plain)),
         "loadedDatasets": tuple(sorted(_loaded_dataset(i) for i in loaded)),

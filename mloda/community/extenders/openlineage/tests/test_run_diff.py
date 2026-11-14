@@ -168,6 +168,14 @@ class TestRunDiffRunLevelChanges:
 
 _RECORDED = object()
 _PLUS_ONE_SCHEMA = (("MlodaTestingValueIntPlusOne", "int"),)
+_DIVERGENCE: dict[str, Any] = {
+    "kind": "variant",
+    "cause": "other",
+    "subtypes": ["rank"],
+    "outputs": [],
+    "reason": "ties NaN with null in order_by",
+    "variant": "nan_as_null",
+}
 _STEP_CHANGES: list[Any] = [
     pytest.param(
         None,
@@ -180,6 +188,24 @@ _STEP_CHANGES: list[Any] = [
         lambda e: _facets(e)["mlodaStep"].update(pluginVersion="p2"),
         {"pluginVersion": (_RECORDED, "p2")},
         id="pluginVersion",
+    ),
+    pytest.param(
+        None,
+        lambda e: _facets(e)["mlodaStep"].update(contractVersion=2),
+        {"contractVersion": (_RECORDED, 2)},
+        id="contractVersion",
+    ),
+    pytest.param(
+        None,
+        lambda e: _facets(e)["mlodaStep"].update(divergences=[_DIVERGENCE]),
+        {"divergences": ((), (_DIVERGENCE,))},
+        id="divergences",
+    ),
+    pytest.param(
+        None,
+        lambda e: _facets(e)["mlodaStep"].update(allowedVariants=["z_variant", "nan_as_null"]),
+        {"allowedVariants": ((), ("nan_as_null", "z_variant"))},
+        id="allowedVariants",
     ),
     pytest.param(
         None,
@@ -564,6 +590,9 @@ class TestRunDiffOddShapes:
             lambda e: e["outputs"][0].update(outputFacets="not-a-dict"),
             lambda e: e.update(inputs=["junk", 3, None]),
             lambda e: e["outputs"][0]["facets"]["schema"].update(fields="oops"),
+            lambda e: _facets(e)["mlodaStep"].update(
+                contractVersion=[1], allowedVariants="oops", divergences=[1, {"a": [1]}]
+            ),
         ],
         ids=[
             "job-null",
@@ -574,13 +603,19 @@ class TestRunDiffOddShapes:
             "output-facets-field",
             "input-items",
             "schema-fields",
+            "step-contract-fields",
         ],
     )
     def test_a_valid_json_event_of_an_odd_shape_never_raises(self, recorded: Events, edit: Edit) -> None:
         odd = _variant(recorded, edit, job=_PLUS_ONE, kind="COMPLETE")
 
-        assert isinstance(diff_run_events(recorded, odd), RunDiff)
-        assert isinstance(diff_run_events(odd, recorded), RunDiff)
+        forward = diff_run_events(recorded, odd)
+        backward = diff_run_events(odd, recorded)
+
+        assert isinstance(forward, RunDiff)
+        assert isinstance(backward, RunDiff)
+        assert isinstance(str(forward), str)
+        assert isinstance(str(backward), str)
 
 
 class TestRunDiffRootHandling:
