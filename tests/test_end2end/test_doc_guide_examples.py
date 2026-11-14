@@ -67,6 +67,7 @@ WAY_3_MODULE = "guide_28_way_3"
 TEST_HEADING = "\n## Test\n"
 FRAMEWORK_SPECIFIC_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "09-framework-specific.md"
 TESTING_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "10-testing-guide.md"
+INPUT_DATA_READERS_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "27-input-data-readers.md"
 REFERENCE_CONTRACT_HEADING = "## Reference Contract and Divergence"
 REFERENCE_CONTRACT_MODULE = "guide_09_reference_contract"
 CONFORMANCE_HEADING = "## Operation Groups: Conformance to the Reference Contract"
@@ -229,6 +230,33 @@ def _load_namespace(heading: str, module: str, guide: Path = BACKEND_FAMILIES_GU
     namespace: dict[str, Any] = {"__name__": module}
     exec(code, namespace)  # nosec
     return namespace
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.example.org:8443/airdata/v4",
+        "https://api.reader:userinfo-secret@api.example.org:8443/airdata/v4",
+        "https://api.example.org:8443/airdata/v4?token=query-secret",
+        "https://api.example.org:8443/airdata/v4#fragment-secret",
+        "https://api.example.org:8443/airdata/v4;token=path-secret",
+        "https://api.reader:userinfo-secret@api.example.org:8443/airdata/v4;token=path-secret"
+        "?token=query-secret#fragment-secret",
+    ],
+    ids=["ordinary", "userinfo", "query", "fragment", "path-parameter", "combined"],
+)
+def test_http_source_guide_keeps_credentials_in_access_only(url: str) -> None:
+    namespace = _load_namespace("## Non-File / HTTP Sources", "guide_27_http", INPUT_DATA_READERS_GUIDE)
+    reader = namespace["UbaAirFG"]
+    (match,) = reader.find_sources(reader.CLAIM_ROUTES[0], "pm10_value", Options(group={"UbaAirFG": url}), None)
+    assert match.access == url
+    assert match.source.startswith("https://api.example.org:8443/airdata/v4")
+    if url == "https://api.example.org:8443/airdata/v4":
+        assert match.source == url
+    for secret in ("api.reader", "userinfo-secret", "query-secret", "fragment-secret", "path-secret"):
+        assert secret not in match.source
+    assert "?" not in match.source
+    assert "#" not in match.source
 
 
 def load_way_2_usage_feature() -> Feature:

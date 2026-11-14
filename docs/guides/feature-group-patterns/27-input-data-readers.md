@@ -128,7 +128,7 @@ A source FeatureGroup is the root group: write the behavior you want (its own `c
 ```python
 from typing import Any
 
-from mloda.provider import ClaimRoute, FeatureSet, NamePolicy, SourceFeatureGroup, SourceMatch
+from mloda.provider import ClaimRoute, FeatureSet, NamePolicy, SourceFeatureGroup, SourceMatch, scrub_credentials
 from mloda.user import DataAccessCollection, Feature, Options
 
 
@@ -146,7 +146,7 @@ class UbaAirFG(SourceFeatureGroup):
         url = options.get("UbaAirFG")
         if not (isinstance(url, str) and url.startswith("https://api.")):
             return []
-        return [SourceMatch(source=url.split("?")[0], access=url)]
+        return [SourceMatch(source=scrub_credentials(url).split("?")[0].split("#")[0], access=url)]
 
     @classmethod
     def load_neutral(
