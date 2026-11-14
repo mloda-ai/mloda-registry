@@ -40,6 +40,11 @@ def expected_value_int() -> list[Any]:
     return PyArrowDataOpsTestDataCreator.get_raw_data()["value_int"]
 
 
+def expected_plus_one() -> list[Any]:
+    """Expected column of run_two_features: expected_value_int() plus one (None stays None)."""
+    return [None if v is None else v + 1 for v in expected_value_int()]
+
+
 def run_value_int(
     *extenders: Extender,
     parallelization_modes: set[ParallelizationMode] | None = None,

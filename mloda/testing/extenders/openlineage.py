@@ -265,11 +265,11 @@ def _mloda_plan_field(event: RunEvent, name: str) -> Any:
     return (_run_facet(event, "mlodaPlan") or {}).get(name)
 
 
-class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
+class OpenLineageExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
     """Contract for OpenLineage-emitting extenders. Host provides extender_class and make_openlineage_extender."""
 
     def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} must provide make_openlineage_extender")
 
     @classmethod
     def raise_on_error_default(cls) -> bool:

@@ -333,11 +333,11 @@ def _injected_sink_capture() -> Iterator[list[Any]]:
         yield _ClassAccumulatorSpanExporter.captured
 
 
-class OtelExtenderTestMixin(ExtenderContractTestMixin):
+class OtelExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
     """Contract for extenders that emit OTel spans. Host provides extender_class and make_otel_extender."""
 
     def make_otel_extender(self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None) -> Extender:
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} must provide make_otel_extender")
 
     @classmethod
     def expected_span_names(cls) -> dict[ExtenderHook, str] | None:

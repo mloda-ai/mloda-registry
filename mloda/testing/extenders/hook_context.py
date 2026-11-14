@@ -2,122 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import Any
 
-from mloda.steward import ExtenderHook, HookContext, OutputSchema
-
-if TYPE_CHECKING:
-    from uuid import UUID
-
-    from mloda.provider import Divergence, FailedRows, SourceFeatureGroup
-    from mloda.steward import AsOfJoinConfig
-
-# Mirrors HookContext.input_check; core does not export the alias.
-InputCheck = Literal["checked", "skipped_source", "skipped_empty"]
+from mloda.steward import ExtenderHook, HookContext
 
 
-def make_hook_context(
-    *,
-    hook: ExtenderHook = ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
-    feature_group_class: str | None = "mloda.testing.DummyFeatureGroup",
-    feature_group_version: str | None = "1",
-    plugin_version: str | None = None,
-    feature_names: tuple[str, ...] = ("value_int",),
-    specialized_from: tuple[str, ...] = (),
-    input_features: frozenset[str] | None = None,
-    input_feature_edges: dict[str, tuple[str, ...]] | None = None,
-    compute_framework_name: str | None = "PyArrowTable",
-    rows_in: int | None = None,
-    rows_out: int | None = None,
-    output_schema: OutputSchema | None = None,
-    duration_seconds: float | None = None,
-    status: str | None = None,
-    run_id: str | None = None,
-    plan_id: str | None = None,
-    structure_hash: str | None = None,
-    step_uuid: UUID | None = None,
-    data_access_identity: str | None = None,
-    data_access_identity_is_fallback: bool | None = None,
-    tenant_id: str | None = None,
-    project_id: str | None = None,
-    principal: str | None = None,
-    carrier: dict[str, str] | None = None,
-    worker_index: int | None = None,
-    data_access_format: str | None = None,
-    data_access_dataset_version: str | None = None,
-    data_access_loader: str | None = None,
-    implementation: str | None = None,
-    implementation_version: str | None = None,
-    join_type: str | None = None,
-    join_keys: tuple[str, ...] | None = None,
-    asof_config: AsOfJoinConfig | None = None,
-    join_left_feature_group: str | None = None,
-    join_right_feature_group: str | None = None,
-    plan_feature_count: int | None = None,
-    plan_node_count: int | None = None,
-    plan_depth: int | None = None,
-    declared_attributes: dict[str, str | int | float | bool] | None = None,
-    reader_class: type[SourceFeatureGroup] | None = None,
-    result_attributes: dict[str, str | int | float | bool] | None = None,
-    input_check: InputCheck | None = None,
-    failed_rows: tuple[FailedRows, ...] = (),
-    divergences: tuple[Divergence, ...] = (),
-    contract_version: int | None = None,
-    allowed_variants: tuple[str, ...] = (),
-    credential_handles: tuple[str, ...] = (),
-    bound_credential_handle: str | None = None,
-    credentials_read: tuple[str, ...] = (),
-) -> HookContext:
-    """Build a HookContext test fixture; every keyword lands on the result, except that core filters
-    declared_attributes and result_attributes to portable scalars."""
-    return HookContext(
-        hook=hook,
-        feature_group_class=feature_group_class,
-        feature_group_version=feature_group_version,
-        plugin_version=plugin_version,
-        feature_names=feature_names,
-        specialized_from=specialized_from,
-        input_features=input_features,
-        input_feature_edges=input_feature_edges,
-        compute_framework_name=compute_framework_name,
-        rows_in=rows_in,
-        rows_out=rows_out,
-        output_schema=output_schema,
-        duration_seconds=duration_seconds,
-        status=status,
-        run_id=run_id,
-        plan_id=plan_id,
-        structure_hash=structure_hash,
-        step_uuid=step_uuid,
-        data_access_identity=data_access_identity,
-        data_access_identity_is_fallback=data_access_identity_is_fallback,
-        tenant_id=tenant_id,
-        project_id=project_id,
-        principal=principal,
-        carrier=carrier,
-        worker_index=worker_index,
-        data_access_format=data_access_format,
-        data_access_dataset_version=data_access_dataset_version,
-        data_access_loader=data_access_loader,
-        implementation=implementation,
-        implementation_version=implementation_version,
-        join_type=join_type,
-        join_keys=join_keys,
-        asof_config=asof_config,
-        join_left_feature_group=join_left_feature_group,
-        join_right_feature_group=join_right_feature_group,
-        plan_feature_count=plan_feature_count,
-        plan_node_count=plan_node_count,
-        plan_depth=plan_depth,
-        declared_attributes=declared_attributes,
-        reader_class=reader_class,
-        result_attributes=result_attributes,
-        input_check=input_check,
-        failed_rows=failed_rows,
-        divergences=divergences,
-        contract_version=contract_version,
-        allowed_variants=allowed_variants,
-        credential_handles=credential_handles,
-        bound_credential_handle=bound_credential_handle,
-        credentials_read=credentials_read,
-    )
+def make_hook_context(**overrides: Any) -> HookContext:
+    """Build a HookContext from the kit defaults merged under the overrides; mypy does not check the keywords."""
+    defaults: dict[str, Any] = {
+        "hook": ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+        "feature_group_class": "mloda.testing.DummyFeatureGroup",
+        "feature_group_version": "1",
+        "feature_names": ("value_int",),
+        "compute_framework_name": "PyArrowTable",
+    }
+    return HookContext(**{**defaults, **overrides})
