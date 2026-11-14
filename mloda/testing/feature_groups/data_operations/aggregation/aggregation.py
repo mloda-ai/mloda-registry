@@ -1082,6 +1082,23 @@ class AggregationTestBase(
         assert result_map[("C", "X")] == 15
         assert result_map[(None, "X")] == -10
 
+    def test_first_keeps_leading_nan(self) -> None:
+        """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
+        self._skip_if_unsupported("first")
+        nan = float("nan")
+        table = pa.table({"grp": ["a", "a"], "val": pa.array([nan, 1.0], type=pa.float64())})
+        feature_name = "val__first_agg"
+        fs = make_feature_set(feature_name, ["grp"])
+
+        ref = self.reference_calculate(table, fs)
+        reference = _build_result_map(ref.column("grp").to_pylist(), ref.column(feature_name).to_pylist())
+        assert reference == pytest.approx({"a": nan}, nan_ok=True)
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        actual = _build_result_map(self.extract_column(result, "grp"), self.extract_column(result, feature_name))
+        expected = {"a": 1.0 if "first" in self.nan_divergent_agg_types() else nan}
+        assert actual == pytest.approx(expected, nan_ok=True)
+
     # -- Unsupported operation raises ----------------------------------------
 
     def test_unsupported_aggregation_type_raises(self) -> None:

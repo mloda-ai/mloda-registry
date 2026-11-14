@@ -800,6 +800,27 @@ class WindowAggregationTestBase(
             expected = reference if self.orders_nan_before_none() else tied
             assert self.extract_column(result, feature_name) == expected
 
+    def test_first_keeps_leading_nan(self) -> None:
+        """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
+        if "first" not in self.supported_agg_types():
+            return
+        nan = float("nan")
+        table = pa.table(
+            {
+                "g": ["a", "a"],
+                "o": pa.array([1.0, 2.0], type=pa.float64()),
+                "v": pa.array([nan, 1.0], type=pa.float64()),
+            }
+        )
+        feature_name = "v__first_window"
+        fs = make_feature_set(feature_name, ["g"], order_by="o")
+
+        assert self._ref_column(table, fs, feature_name) == pytest.approx([nan, nan], nan_ok=True)
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [1.0, 1.0] if "first" in self.nan_divergent_agg_types() else [nan, nan]
+        assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
+
     def _ref_column(self, table: pa.Table, fs: FeatureSet, feature_name: str) -> list[Any]:
         column: list[Any] = self.reference_calculate(table, fs).column(feature_name).to_pylist()
         return column
