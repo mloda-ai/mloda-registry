@@ -1,6 +1,6 @@
-"""This manifest swallows a missing community emitter on purpose: PluginLoader re-raises a missing ``mloda.*``
-module (its root equals the entry point's own), so an unguarded import would break every enterprise plugin on an
-install without the extra.
+"""The manifest guards a missing community emitter instead of using a ``mloda.optional_dependencies`` marker: the
+mloda-enterprise bundle ships this leaf, so a bare install lacks the extra by design, and a marker skip would make
+PluginLoader log a WARNING in every such process. The guard logs DEBUG with the install hint.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ _EXTENDER_MODULE = f"{_PACKAGE}.lineage_extender"
 _EXTENDER_NAME = "LineageFacetsExtender"
 _COMMUNITY = "mloda.community.extenders.openlineage"
 _SHARED = "mloda.community.extenders.shared"
+_EXTRA = "mloda-enterprise[openlineage]"
 
 # Community emitter unavailable: its package is missing, or openlineage-python (or attr, only installed through it) is.
 _MISSING_ROOTS = [_COMMUNITY, "openlineage", "attr"]
@@ -29,16 +30,22 @@ _MISSING_ROOTS = [_COMMUNITY, "openlineage", "attr"]
 _ENTRY_POINT = importlib.metadata.EntryPoint(
     name="mloda-enterprise-lineage", value=f"{_MANIFEST}:EXTENDERS", group="mloda.extenders"
 )
+_AUDIT_MANIFEST = "mloda.enterprise.extenders.audit.manifest"
+_AUDIT_ENTRY_POINT = importlib.metadata.EntryPoint(
+    name="mloda-enterprise-audit", value=f"{_AUDIT_MANIFEST}:EXTENDERS", group="mloda.extenders"
+)
+_AUDIT_KEY = "mloda.enterprise.extenders.audit.audit_extender:AuditExtender"
+_PLUGIN_LOADER_LOGGER = "mloda.core.abstract_plugins.plugin_loader.plugin_loader"
 
 
-def _only_the_lineage_entry_point() -> importlib.metadata.EntryPoints:
-    return importlib.metadata.EntryPoints([_ENTRY_POINT])
+def _the_lineage_and_audit_entry_points() -> importlib.metadata.EntryPoints:
+    return importlib.metadata.EntryPoints([_ENTRY_POINT, _AUDIT_ENTRY_POINT])
 
 
 def _stub_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Serve only the lineage entry point; clear the class-level scan cache so a cached real scan cannot bypass
-    the stub and the stubbed scan is not left behind."""
-    monkeypatch.setattr(importlib.metadata, "entry_points", _only_the_lineage_entry_point)
+    """Serve only the lineage and audit entry points; clear the class-level scan cache so a cached real scan cannot
+    bypass the stub and the stubbed scan is not left behind."""
+    monkeypatch.setattr(importlib.metadata, "entry_points", _the_lineage_and_audit_entry_points)
     monkeypatch.setattr(PluginLoader, "_entry_point_scan", None)
 
 
@@ -107,23 +114,27 @@ def test_package_import_does_not_import_openlineage_or_the_extender(monkeypatch:
 
 @pytest.mark.parametrize("missing_root", _MISSING_ROOTS)
 def test_plugin_loader_skips_the_entry_point_quietly_when_the_community_emitter_is_missing(
-    missing_root: str, monkeypatch: pytest.MonkeyPatch
+    missing_root: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The discovery break the guard prevents: without it PluginLoader re-raises the missing ``mloda.*``
-    module (own root ``mloda``) and no extender registers on an install without the extra."""
+    """A bare enterprise install lacks the extra by design: the lineage leaf is skipped at DEBUG with the install
+    hint, no WARNING, and the other enterprise extenders still register."""
     _cold_import_without(monkeypatch, missing_root)
-
     _stub_entry_points(monkeypatch)
 
-    keys = PluginLoader().load_entry_points(group="mloda.extenders")
+    with caplog.at_level(logging.DEBUG):
+        keys = PluginLoader().load_entry_points(group="mloda.extenders")
 
-    assert keys == []
+    assert _AUDIT_KEY in keys
+    assert not [k for k in keys if k.startswith(f"{_PACKAGE}.")]
+    loud = [r for r in caplog.records if r.name in (_PLUGIN_LOADER_LOGGER, _MANIFEST) and r.levelno >= logging.WARNING]
+    assert loud == []
+    debugs = [r.getMessage() for r in caplog.records if r.name == _MANIFEST and r.levelno == logging.DEBUG]
+    assert any(_EXTRA in m for m in debugs)
 
 
 _COMMUNITY_DIST = "mloda-community-openlineage"
 _ENTERPRISE_DIST = "mloda-enterprise"
 _ENTERPRISE_VERSION = "1.4.2"
-_EXTRA = "mloda-enterprise[openlineage]"
 
 
 def _fake_versions(monkeypatch: pytest.MonkeyPatch, versions: dict[str, str | None]) -> None:
@@ -199,7 +210,7 @@ def test_plugin_loader_registers_nothing_when_the_community_minor_differs(monkey
 
     keys = PluginLoader().load_entry_points(group="mloda.extenders")
 
-    assert keys == []
+    assert keys == [_AUDIT_KEY]
 
 
 def test_importing_the_extender_directly_raises_when_the_community_minor_differs(
