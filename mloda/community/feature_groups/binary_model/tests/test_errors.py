@@ -376,6 +376,9 @@ def test_reported_error_malformed_or_mismatched_returns_none(returncode: int, st
 # -- an optional ``reason`` on the error object of codes 2 and 3 --
 
 
+_NO_REASON = object()  # sentinel: the payload omits the ``reason`` key
+
+
 def _stderr_line_with_reason(code: int, message: str, reason: object) -> bytes:
     return (json.dumps({"code": code, "message": message, "reason": reason}) + "\n").encode("utf-8")
 
@@ -390,21 +393,17 @@ def test_error_from_exit_uses_a_reported_reason_and_keeps_the_message(code: int)
 
 
 @pytest.mark.parametrize("code", [2, 3])
-@pytest.mark.parametrize("reason", ["", 5, None, ["x"]], ids=["empty", "int", "null", "list"])
+@pytest.mark.parametrize("reason", ["", 5, None, ["x"], _NO_REASON], ids=["empty", "int", "null", "list", "absent"])
 def test_error_from_exit_ignores_an_empty_or_non_string_reason(code: int, reason: object) -> None:
     """Passes on arrival: the fallback keeps ``reason == message``."""
-    exc = error_from_exit(code, _stderr_line_with_reason(code, "boom", reason))
+    if reason is _NO_REASON:
+        stderr = _stderr_line(code, "boom")
+    else:
+        stderr = _stderr_line_with_reason(code, "boom", reason)
+    exc = error_from_exit(code, stderr)
     assert isinstance(exc, LicenseError)
     assert exc.reason == "boom"
     assert exc.message == "boom"
-
-
-@pytest.mark.parametrize("code", [2, 3])
-def test_error_from_exit_without_a_reason_uses_the_message(code: int) -> None:
-    """Passes on arrival."""
-    exc = error_from_exit(code, _stderr_line(code, "boom"))
-    assert isinstance(exc, LicenseError)
-    assert exc.reason == "boom"
 
 
 @pytest.mark.parametrize("code", [1, 4, 5, 6])

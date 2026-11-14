@@ -538,26 +538,26 @@ class TestBinaryReportedErrors:
         assert excinfo.value.source == "MLODA_LICENSE_KEY"
         assert "MLODA_LICENSE" not in excinfo.value.reason
 
-    def test_reported_reason_field_is_used_and_the_message_is_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "mode, expected_message",
+        [
+            ("license_reason_field", "MLODA_LICENSE_KEY (canonical): token expired"),
+            ("license_prefix_no_reason", "MLODA_LICENSE_KEY: token expired"),
+        ],
+        ids=["reported_reason", "prefix_stripped"],
+    )
+    def test_license_reason_is_reported_or_stripped_from_the_message(
+        self, monkeypatch: pytest.MonkeyPatch, mode: str, expected_message: str
+    ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        model = _faulty_model("license_reason_field", LICENSE_KEY_OVERRIDE=valid_license_token([FAULTY_PLUGIN_ID]))
+        model = _faulty_model(mode, LICENSE_KEY_OVERRIDE=valid_license_token([FAULTY_PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(LicenseInvalidError) as excinfo:
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert excinfo.value.reason == "token expired"
-        assert excinfo.value.message == "MLODA_LICENSE_KEY (canonical): token expired"
-        assert str(excinfo.value) == "MLODA_LICENSE_KEY (canonical): token expired"
-
-    def test_prefixed_message_without_reason_field_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
-        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        model = _faulty_model("license_prefix_no_reason", LICENSE_KEY_OVERRIDE=valid_license_token([FAULTY_PLUGIN_ID]))
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.reason == "token expired"
-        assert excinfo.value.message == "MLODA_LICENSE_KEY: token expired"
+        assert excinfo.value.message == expected_message
+        assert str(excinfo.value) == expected_message
 
     @pytest.mark.parametrize("per_call", [False, True], ids=["class_attribute", "per_call_keyword"])
     def test_hanging_binary_raises_binary_terminated_error(self, per_call: bool) -> None:
