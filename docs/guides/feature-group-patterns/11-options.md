@@ -72,7 +72,7 @@ Never put a secret in options: they are hashed, locked and shown in `explain()`.
 - **Normalizing**: core masks the exact registered value in errors and logs. A form the plugin derives (stripped, decoded) is not masked, so never echo it.
 - **Reading**: `read_credential(handle)` works inside `calculate_feature` (and an artifact saver) only; extenders take their key otherwise (see [Secrets for extenders](../11-create-extender.md#secrets)).
 - **Rotation**: `session.run(credentials={handle: Credential(...)})` replaces the value for one run; `prepare` already needs a credential with the required fields under every declared handle.
-- **Tests**: `credentials_scope({handle: {field: value}})` opens the read window around a direct `calculate_feature` call, but does not check that the group declares the handle, so keep one `run_all` test with `data_access_collection=` next to it.
+- **Tests**: `credentials_scope({handle: {field: value}})` opens the read window around a direct `calculate_feature` call but does not check that the group declares the handle, so keep one `run_all` test with `data_access_collection=` too.
 - **Forwarding**: a consumer that declares the same handle key sets it on its input explicitly (see [A Credential Handle the Input Reads Too](26-input-feature-forwarding.md#a-credential-handle-the-input-reads-too)).
 
 `CredentialExampleFeatureGroup` (`mloda-community-example`) signs one column with the `key` field of the credential its `signing_key_handle` option names:

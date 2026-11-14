@@ -148,7 +148,6 @@ class SignatureCheck(FeatureGroup):
         return {"signature_ok"}
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        # The declared handle does not forward: hand it to the input that reads it.
         return {Feature("email"), Feature("email__hmac_signed", Options(group={KEY: options.get(KEY)}))}
 
     @classmethod
