@@ -16,6 +16,7 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import ResampleTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import EmaTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import FfillTestBase
@@ -708,13 +709,7 @@ def test_capability_hook_rejects_skips_an_unrestricted_implementation_without_pr
 
 
 def test_implementation_import_fails_unless_the_dependency_is_declared() -> None:
-    from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
-
-    class _Stub(OperationGroupTestBase):
-        @classmethod
-        def backend_package(cls) -> str:
-            return "mloda.testing"
-
+    _Stub = _OperationGroupStub
     missing = ImplSpec("x", "no_such_module", "X", "m", "M")
     with pytest.raises(ModuleNotFoundError):
         _Stub._implementation(missing)
@@ -785,51 +780,55 @@ def test_divergent_subtypes_record_without_scope_covers_the_whole_universe() -> 
 # -- OperationGroupTestBase.test_operation_group_shape ---------------------------
 
 
-def _operation_group_host(group: Any, impl: Any) -> Any:
-    from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+class _OperationGroupStub(OperationGroupTestBase):
+    """Concrete hooks for a throwaway group; a host adds ``group_class`` and ``implementations``."""
 
+    @classmethod
+    def backend_package(cls) -> str:
+        return "mloda.testing"
+
+    @classmethod
+    def subtype_key(cls) -> str | None:
+        return None
+
+    @classmethod
+    def loop_method(cls) -> str:
+        return "calculate_feature"
+
+    @classmethod
+    def compute_method(cls) -> str:
+        return "_compute_group"
+
+    @classmethod
+    def probe_feature_set(cls) -> Any:
+        return helpers.make_feature_set("f")
+
+    @classmethod
+    def name_probes(cls) -> list[tuple[str, str]]:
+        return []
+
+    @classmethod
+    def option_probes(cls) -> list[tuple[str, Any, str]]:
+        return []
+
+
+def _operation_group_host(group: Any, impl: Any, specs: list[ImplSpec] | None = None) -> Any:
+    """A host whose specs without a ``dependency`` resolve to ``impl``; a ``dependency`` takes the real loader."""
     group.CONTRACT_VERSION = "1"
+    listed = specs or [ImplSpec("probe", "unused", "_ProbeImpl", "unused", "Unused")]
 
-    class _Host(OperationGroupTestBase):
+    class _Host(_OperationGroupStub):
         @classmethod
         def group_class(cls) -> Any:
             return group
 
         @classmethod
-        def backend_package(cls) -> str:
-            return "mloda.testing"
-
-        @classmethod
         def implementations(cls) -> list[ImplSpec]:
-            return [ImplSpec("probe", "unused", "_ProbeImpl", "unused", "Unused")]
+            return listed
 
         @classmethod
         def _implementation(cls, spec: ImplSpec) -> Any:
-            return impl
-
-        @classmethod
-        def subtype_key(cls) -> str | None:
-            return None
-
-        @classmethod
-        def loop_method(cls) -> str:
-            return "calculate_feature"
-
-        @classmethod
-        def compute_method(cls) -> str:
-            return "_compute_group"
-
-        @classmethod
-        def probe_feature_set(cls) -> Any:
-            return helpers.make_feature_set("f")
-
-        @classmethod
-        def name_probes(cls) -> list[tuple[str, str]]:
-            return []
-
-        @classmethod
-        def option_probes(cls) -> list[tuple[str, Any, str]]:
-            return []
+            return super()._implementation(spec) if spec.dependency else impl
 
     return _Host()
 
@@ -852,7 +851,8 @@ def test_operation_group_shape_fails_for_a_supported_subtype_outside_the_univers
 def test_operation_group_shape_fails_for_a_divergence_record_without_a_reason() -> None:
     from mloda.provider import Cause, Divergence, DivergenceKind
 
-    records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="skips NaN"),)
+    # NOT_IMPLEMENTED is the one cause core accepts without a reason, so only the kit's own assert rejects it.
+    records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.NOT_IMPLEMENTED, reason="skips NaN"),)
 
     def check(group: Any, impl: Any) -> None:
         for record in impl.divergences:
@@ -861,3 +861,16 @@ def test_operation_group_shape_fails_for_a_divergence_record_without_a_reason() 
             _operation_group_host(group, impl).test_operation_group_shape()
 
     _with_probe_impl(check, records)
+
+
+def test_operation_group_shape_checks_installed_specs_when_another_backend_is_missing() -> None:
+    specs = [
+        ImplSpec("missing", "unused", "_MissingImpl", "unused", "Unused", dependency="no_such_dependency"),
+        ImplSpec("probe", "unused", "_ProbeImpl", "unused", "Unused"),
+    ]
+
+    def check(group: Any, impl: Any) -> None:
+        with pytest.raises(pytest.fail.Exception, match=r"outside the subtype universe"):
+            _operation_group_host(group, impl, specs).test_operation_group_shape()
+
+    _with_probe_impl(check, supported=frozenset({"not_a_subtype"}))

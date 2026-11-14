@@ -8,7 +8,7 @@ Test your compute framework with mloda's conformance suites instead of hand-writ
 **Where**: `mloda.testing` (`compute_framework_shape`, `framework_adapter`, `typed_data`, `compute_framework.*_suite`).
 **How**: Write a `FrameworkAdapter` for your framework, then subclass the suites that apply and set `adapter_class`.
 
-The Arrow-backed adapters need `pip install "mloda-testing[pyarrow]"`; `PythonDictAdapter` does not.
+`FrameworkAdapter.from_typed` builds an Arrow table by default, so a custom adapter needs `pip install "mloda-testing[pyarrow]"` unless it overrides `from_typed` (as `PythonDictAdapter` does).
 
 ## Start With the Shape Check
 
@@ -159,7 +159,9 @@ class TestMyOutputSchema(OutputSchemaSuite):
     def empty_schema_frame(self, adapter: FrameworkAdapter) -> Any:
         return my_lib.DataFrame()
 
-    def test_duplicate_column_names_collapse_to_one_entry(self) -> None:
+    def test_duplicate_column_names_collapse_to_one_entry(
+        self, adapter: FrameworkAdapter, framework_instance: Any
+    ) -> None:
         pytest.skip("frames cannot hold duplicate column names")
 ```
 

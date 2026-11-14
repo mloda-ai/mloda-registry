@@ -147,6 +147,15 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         return next(spec for spec in cls.implementations() if spec.id == impl_id)
 
     @classmethod
+    def _installed_specs(cls) -> list[ImplSpec]:
+        """The specs whose optional dependency is absent or installed."""
+        return [
+            spec
+            for spec in cls.implementations()
+            if spec.dependency is None or importlib.util.find_spec(spec.dependency) is not None
+        ]
+
+    @classmethod
     def _implementation(cls, spec: ImplSpec) -> Any:
         """The Implementation class; skips only when its declared dependency is missing, else imports strictly."""
         path = f"{cls.backend_package()}.{spec.module}"
@@ -229,11 +238,20 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
 
     def test_operation_group_shape(self) -> None:
-        implementations = [self._implementation(spec) for spec in self.implementations()]
+        specs = self._installed_specs()
+        if not specs:
+            pytest.skip("no listed implementation is installed")
+        implementations = [self._implementation(spec) for spec in specs]
+        assert_operation_group_shape(self.group_class(), self.alias_pairs(), self.shape_probe())
+        universe = self.group_class().subtype_universe()
+        # Core's check sees only Implementations that serve a framework and accepts an empty reason on a
+        # NOT_IMPLEMENTED record, so the kit keeps these per listed Implementation.
         for implementation in implementations:
+            supported = implementation.supported
+            assert supported is None or supported <= universe
+            assert divergent_subtypes(implementation) <= universe
             for record in implementation.divergences:
                 assert isinstance(record.reason, str) and record.reason, f"{implementation.__name__}: empty reason"
-        assert_operation_group_shape(self.group_class(), self.alias_pairs(), self.shape_probe())
 
     def test_universe_is_the_declared_set(self) -> None:
         if self.universe() is None:
@@ -261,11 +279,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         group = self.group_class()
         assert group in feature_groups
         listed = {cls.__name__ for cls in feature_groups if issubclass(cls, Implementation)}
-        expected = {
-            spec.name
-            for spec in self.implementations()
-            if spec.dependency is None or importlib.util.find_spec(spec.dependency) is not None
-        }
+        expected = {spec.name for spec in self._installed_specs()}
         assert listed == expected
         implementations: list[Any] = [cls for cls in feature_groups if cls is not group]
         assert all(cls.feature_group is group for cls in implementations)

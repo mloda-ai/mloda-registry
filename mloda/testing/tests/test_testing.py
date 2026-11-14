@@ -38,13 +38,13 @@ import sys
 
 sys.modules["pyarrow"] = None
 
+import importlib
 from typing import Any
 
 import mloda.testing
-import mloda.testing.feature_group_shape
-import mloda.testing.framework_adapter
-import mloda.testing.operation_group_shape
-import mloda.testing.typed_data
+
+for kit_module in sys.argv[1:]:
+    importlib.import_module(kit_module)
 from mloda.provider import FeatureGroup, FeatureSet
 from mloda.user import DataType, Feature, FeatureName, Options
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
@@ -71,15 +71,20 @@ class DoubledFeature(FeatureGroup):
         return {"x_doubled": [None if v is None else v * 2 for v in data["x"]]}
 
 
-group = check_feature_group_shape(DoubledFeature, input_data=TypedTestData({"x": (DataType.INT64, [1, 2, 3])}))
+group = check_feature_group_shape(
+    DoubledFeature, input_data=TypedTestData({"x": (DataType.INT64, [1, 2, 3])}), require_run=True
+)
 framework = check_compute_framework_shape(PythonDictFramework)
+assert not [name for name in sys.modules if name.startswith("pyarrow.")]
 print(group.failures, framework.failures, sys.modules["pyarrow"])
 """
 
 
 def test_kit_works_without_pyarrow() -> None:
-    """With pyarrow blocked, the pyarrow-free kit modules import and the PythonDict shape checks pass."""
-    result = subprocess.run([sys.executable, "-c", _WITHOUT_PYARROW_PROBE], capture_output=True, text=True)  # nosec
+    """With pyarrow blocked, every mirror of a core testing module imports and the PythonDict shape checks pass."""
+    mirrors = [name.replace("mloda._testing", "mloda.testing", 1) for name in _core_testing_modules()]
+    command = [sys.executable, "-c", _WITHOUT_PYARROW_PROBE, *mirrors]
+    result = subprocess.run(command, capture_output=True, text=True)  # nosec
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "() () None"
 
