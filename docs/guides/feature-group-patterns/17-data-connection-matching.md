@@ -168,9 +168,10 @@ DataAccessCollection(credentials=Credential({"sqlite": "/data/app.db"}))
 DataAccessCollection(credentials=[Credential(host="h"), {"host": "h2"}])
 ```
 
-`Credential` becomes a `RegisteredCredential` at registration (a dict subclass with a redacted
-repr, so `is_valid_credentials` still receives a mapping). `match_credentials` must return this
-entry, not a copy.
+A registered credential (a `Credential` or a plain dict) is stored as a
+`RegisteredCredential` (a dict subclass with a redacted repr, so
+`is_valid_credentials` still receives a mapping). `match_credentials` must return
+this entry, not a copy.
 
 A named-form value that is not a mapping (for example
 `credentials={"prod": "dsn-string"}`) now raises `ValueError` at construction
@@ -178,8 +179,9 @@ instead of silently mis-matching later. Keep the handle and make the value a
 mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
 `credentials={"prod": Credential(dsn="dsn-string")}`. A bare
 `credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
-slot, so a later handle lookup for `"prod"` would no longer find it. An auto-named slot is recorded as
-`<unnamed>` in the plan, lock and hook contexts and no handle option can name it, so register under a name.
+slot, so a later handle lookup for `"prod"` would no longer find it. An auto-named slot is
+recorded as `<unnamed>` in the plan, lock and hook contexts and no
+`credential_handle_spec` option can name it, so register under a name.
 
 Resolver ambiguity errors redact credential values (keys stay visible, values render
 as `***`), so secrets stay out of logs and tracebacks.
