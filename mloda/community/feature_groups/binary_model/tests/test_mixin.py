@@ -560,21 +560,6 @@ class TestBinaryReportedErrors:
         assert "MLODA_LICENSE" not in excinfo.value.reason
         assert excinfo.value.message.endswith(excinfo.value.reason)
 
-    def test_expired_ambient_license_file_reports_source_and_reason(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        license_path = tmp_path / "license.txt"
-        license_path.write_text(expired_license_token([PLUGIN_ID]), encoding="utf-8")
-        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        monkeypatch.setenv("MLODA_LICENSE_FILE", str(license_path))
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
-            _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.source == "MLODA_LICENSE_FILE"
-        assert excinfo.value.reason
-        assert "MLODA_LICENSE" not in excinfo.value.reason
-        assert excinfo.value.message.endswith(excinfo.value.reason)
-
     def test_hanging_binary_raises_binary_terminated_error(self) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
         table = pa.table({"col_a": ["alpha"]})
@@ -901,23 +886,51 @@ class TestLicenseOverrides:
 
         assert _LicenseSourceModel.license_source() == expected
 
-    def test_expired_license_file_override_reports_source_and_stripped_reason(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("channel", "expected_source"),
+        [
+            pytest.param("ambient_file", "MLODA_LICENSE_FILE", id="ambient_license_file"),
+            pytest.param("ambient_key", "MLODA_LICENSE_KEY", id="ambient_license_key"),
+            pytest.param("file_override", "LICENSE_FILE_OVERRIDE", id="license_file_override"),
+            pytest.param("key_override", "LICENSE_KEY_OVERRIDE", id="license_key_override"),
+            pytest.param("binary_environment", None, id="binary_environment_has_no_source"),
+        ],
+    )
+    def test_expired_license_reports_source_and_stripped_reason(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, channel: str, expected_source: LicenseSource | None
     ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+        token = expired_license_token([PLUGIN_ID])
         license_path = tmp_path / "license.txt"
-        license_path.write_text(expired_license_token([PLUGIN_ID]), encoding="utf-8")
+        license_path.write_text(token, encoding="utf-8")
+        is_file_channel = channel in ("ambient_file", "file_override", "binary_environment")
 
-        class _ExpiredFileOverrideModel(_NoLicenseStubModel):
-            LICENSE_FILE_OVERRIDE = str(license_path)
+        class _ExpiredLicenseModel(_NoLicenseStubModel):
+            if channel == "file_override":
+                LICENSE_FILE_OVERRIDE = str(license_path)
+            elif channel == "key_override":
+                LICENSE_KEY_OVERRIDE = token
+            elif channel == "binary_environment":
+
+                @classmethod
+                def binary_environment(cls) -> dict[str, str]:
+                    return transport.minimal_environment(license_file=str(license_path))
+
+        if channel == "ambient_file":
+            monkeypatch.setenv("MLODA_LICENSE_FILE", str(license_path))
+        elif channel == "ambient_key":
+            monkeypatch.setenv("MLODA_LICENSE_KEY", token)
 
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(LicenseInvalidError) as excinfo:
-            _ExpiredFileOverrideModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.source == "LICENSE_FILE_OVERRIDE"
-        assert str(license_path) not in excinfo.value.reason
+            _ExpiredLicenseModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source == expected_source
+        assert excinfo.value.reason
         assert "MLODA_LICENSE" not in excinfo.value.reason
+        assert excinfo.value.message.endswith(excinfo.value.reason)
+        if is_file_channel:
+            assert str(license_path) not in excinfo.value.reason
 
     def test_missing_license_file_override_reports_source_and_path_stripped_reason(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -935,43 +948,6 @@ class TestLicenseOverrides:
         assert excinfo.value.source == "LICENSE_FILE_OVERRIDE"
         assert str(missing) in excinfo.value.message
         assert excinfo.value.reason == "not found"
-
-    def test_expired_license_key_override_reports_source_and_stripped_reason(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
-        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-
-        class _ExpiredKeyOverrideModel(_NoLicenseStubModel):
-            LICENSE_KEY_OVERRIDE = expired_license_token([PLUGIN_ID])
-
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
-            _ExpiredKeyOverrideModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.source == "LICENSE_KEY_OVERRIDE"
-        assert excinfo.value.reason
-        assert "MLODA_LICENSE" not in excinfo.value.reason
-
-    def test_binary_environment_license_override_has_no_source_but_a_stripped_reason(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
-        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        license_path = tmp_path / "license.txt"
-        license_path.write_text(expired_license_token([PLUGIN_ID]), encoding="utf-8")
-
-        class _EnvOverrideModel(_NoLicenseStubModel):
-            @classmethod
-            def binary_environment(cls) -> dict[str, str]:
-                return transport.minimal_environment(license_file=str(license_path))
-
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
-            _EnvOverrideModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.source is None
-        assert excinfo.value.reason
-        assert "MLODA_LICENSE" not in excinfo.value.reason
-        assert str(license_path) not in excinfo.value.reason
 
     def test_license_source_ignores_a_binary_environment_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
