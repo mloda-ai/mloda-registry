@@ -1,7 +1,5 @@
 """Tests for CredentialExampleFeatureGroup (guide 11, Secrets)."""
 
-import hashlib
-import hmac
 from typing import Any
 
 from mloda.provider import DataCreatorFeatureGroup, FeatureSet, credentials_scope
@@ -15,14 +13,12 @@ from mloda.testing.feature_group_shape import assert_feature_group_shape
 KEY = "example-signing-key"
 HANDLE = "example-signing-handle"
 EMAILS: list[str | None] = ["a@example.com", None]
-
-
-def _signed(key: str, values: list[str | None]) -> list[str | None]:
-    return [None if v is None else hmac.new(key.encode(), v.encode(), hashlib.sha256).hexdigest() for v in values]
+DIGEST = "86c777b5aa5df370810ded5d15fc5552ede68b28d9906d9e27b5aa7b31291284"  # HMAC-SHA256 of "a@example.com" under KEY
+EXPECTED: list[str | None] = [DIGEST, None]
 
 
 class EmailSource(DataCreatorFeatureGroup):
-    """Provides an ``email`` column for the end-to-end run."""
+    """Provides an ``email`` column."""
 
     @classmethod
     def feature_names_supported(cls) -> set[str]:
@@ -38,12 +34,9 @@ class EmailSource(DataCreatorFeatureGroup):
 
 
 class TestCredentialExampleFeatureGroup(FeatureGroupTestBase):
-    """Test CredentialExampleFeatureGroup using FeatureGroupTestBase."""
-
     feature_group_class = CredentialExampleFeatureGroup
 
     def test_feature_group_shape(self) -> None:
-        """Verify the group passes core's plain FeatureGroup shape check."""
         assert_feature_group_shape(
             CredentialExampleFeatureGroup,
             base_options=Options(group={"signing_key_handle": "h"}),
@@ -54,6 +47,9 @@ class TestCredentialExampleFeatureGroup(FeatureGroupTestBase):
         options = Options(group={"signing_key_handle": "h"})
         assert CredentialExampleFeatureGroup.match_feature_group_criteria("email__hmac_signed", options)
 
+    def test_refuses_name_without_handle_option(self) -> None:
+        assert not CredentialExampleFeatureGroup.match_feature_group_criteria("email__hmac_signed", Options())
+
     def test_compute_framework_rule_is_python_dict(self) -> None:
         assert CredentialExampleFeatureGroup.compute_framework_rule() == {PythonDictFramework}
 
@@ -62,8 +58,7 @@ class TestCredentialExampleFeatureGroup(FeatureGroupTestBase):
         feature_set = _feature_set(feature)
         with credentials_scope({HANDLE: {"key": KEY}}):
             result = CredentialExampleFeatureGroup.calculate_feature({"email": list(EMAILS)}, feature_set)
-        assert result["email__hmac_signed"] == _signed(KEY, EMAILS)
-        assert result["email__hmac_signed"][1] is None
+        assert result["email__hmac_signed"] == EXPECTED
 
     def test_run_all_signs_the_column(self) -> None:
         feature = Feature("email__hmac_signed", Options(group={"signing_key_handle": HANDLE}))
@@ -74,7 +69,7 @@ class TestCredentialExampleFeatureGroup(FeatureGroupTestBase):
             data_access_collection=DataAccessCollection(credentials={HANDLE: Credential(key=KEY)}),
         )
         signed = [r["email__hmac_signed"] for r in results if "email__hmac_signed" in r]
-        assert signed == [_signed(KEY, EMAILS)]
+        assert signed == [EXPECTED]
 
 
 def _feature_set(*features: Feature) -> FeatureSet:
