@@ -213,7 +213,7 @@ Run both over every concrete sibling. A new backend that forgets to trim its sur
 
 ## Chaining a Family Member onto an Upstream Family
 
-A member that consumes another family's feature (graph RAG over a `knowledge_graph` source) takes the upstream's name as an option and forwards everything except its own keys (`Feature(str(source), forward_group_exclude=FAMILY_OPTION_KEYS)`), so the upstream selects its own sibling from the forwarded discriminator. Context keys do not forward by default. See [Input-feature forwarding](26-input-feature-forwarding.md#worked-example-a-connector-consuming-a-source-feature).
+A member that consumes another family's feature (graph RAG over a `knowledge_graph` source) takes the upstream's name as an option and forwards everything except its own keys (`Feature(str(source), forward_group_exclude=FAMILY_OPTION_KEYS)`), so the upstream selects its own sibling from the forwarded discriminator. Alternatively, the member's base declares its own keys with `property_spec(..., forward_to_inputs=False)`, which keeps them off every input, bare strings included, with no exclude per child. Never mark the upstream's discriminator this way (see [Consumer-local keys](26-input-feature-forwarding.md#consumer-local-keys-forward_to_inputsfalse)). Context keys do not forward by default. See [Input-feature forwarding](26-input-feature-forwarding.md#worked-example-a-connector-consuming-a-source-feature).
 
 ## Test
 
