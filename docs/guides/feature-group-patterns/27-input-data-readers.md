@@ -203,7 +203,7 @@ class KeyedUbaAirFG(UbaAirFG):  # UbaAirFG from above
         return match.access.credentials
 ```
 
-The inherited `load_neutral` reads `match.access.url` with `match.access.credentials["uba_token"]`; see [Credentials](#credentials-bound-at-match-time-or-read-at-run-time) for why the entry must not be a copy.
+This group's `load_neutral` (elided) reads `match.access.url` with `match.access.credentials["uba_token"]`; see [Credentials](#credentials-bound-at-match-time-or-read-at-run-time) for why the entry must not be a copy.
 
 ### Audit Identity
 

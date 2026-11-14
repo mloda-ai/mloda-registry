@@ -98,7 +98,7 @@ Options(context={"tenant": "acme"}, propagate_context_keys=frozenset({"tenant"})
 
 ## Consumer-Local Keys: forward_to_inputs=False
 
-The consumer that owns a key can declare it once instead of excluding it on every child, as an alternative to the example's `forward_group_exclude={"top_k"}`. It filters group keys only, so declare the spec with `context=False`; bare-string children are covered too, and a child's explicit `forward_group` allowlist naming the key still brings it back. `child.options_forwarded_from(consumer_options, LocalTopKConnector)` previews what the child receives (a copy; nothing is mutated and a conflict raises as in planning).
+The consumer that owns a key can declare it once instead of excluding it on every child with `forward_group_exclude`, as the example above does. It filters group keys only, so declare the spec with `context=False`; a child's explicit `forward_group` allowlist naming the key still brings it back. `child.options_forwarded_from(consumer_options, LocalTopKConnector)` previews what the child receives.
 
 ```python
 from mloda.provider import property_spec
@@ -120,7 +120,7 @@ If a forwarded group key already exists on the child with a **different** value,
 
 ## Caveat: Bare-String Children Cannot Carry Directives
 
-The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string. A consumer-local key declared `forward_to_inputs=False` stays off a bare-string child too, since it needs no directive on the child.
+The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no child-side way (no directive) to carve a key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string. The consumer-side exception: a key the consumer declares `forward_to_inputs=False` stays off a bare-string child too.
 
 ## Test
 
