@@ -428,6 +428,10 @@ class BinaryModelMixin:
         }
 
         env = cls.binary_environment()
+        forwarded = cls._forwarded_environment()
+        source = (
+            cls.license_source() if all(env.get(name) == forwarded.get(name) for name in _LICENSE_ENV_NAMES) else None
+        )
         with InvocationDirectory() as invocation:
             try:
                 output_bytes = run_binary(
@@ -451,9 +455,7 @@ class BinaryModelMixin:
                 )
                 if isinstance(exc, LicenseError):
                     exc.reason = license_reason(exc.message, env)
-                    forwarded = cls._forwarded_environment()
-                    if all(env.get(name) == forwarded.get(name) for name in _LICENSE_ENV_NAMES):
-                        exc.source = cls.license_source()
+                    exc.source = source
                 raise
 
         logger.debug(

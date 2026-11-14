@@ -60,8 +60,9 @@ def _resolve_executable_path(candidate: str, path: str) -> Path:
     naming), or raise ``BinaryNotInstalledError`` / ``BinaryNotRunnableError``. Made absolute with
     ``os.path.abspath``, not a symlink-following resolve: a symlinked interpreter (a venv's own
     launcher, used as a test stand-in binary) must stay invocable as the symlink, since
-    dereferencing it would drop the venv context that makes it resolvable at all. A bare name (no path separator) is looked up
-    only via ``path``, the resolved environment's own ``PATH``, never the parent process's."""
+    dereferencing it would drop the venv context that makes it resolvable at all. A bare name (no path
+    separator) is looked up only via ``path``, the resolved environment's own ``PATH``, never the parent
+    process's."""
     if os.sep in candidate or (os.altsep is not None and os.altsep in candidate):
         resolved = Path(os.path.abspath(candidate))
     else:
