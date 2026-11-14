@@ -88,6 +88,8 @@ class PercentileFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Oper
         )
     """
 
+    CONTRACT_VERSION = 1
+
     KEY_COLUMN_OPTIONS = ("partition_by", "mask")
 
     PERCENTILE = "percentile"

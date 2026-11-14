@@ -18,7 +18,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.user import DataType, Feature, Options, PluginCollector, mloda
+from mloda.user import DataType, Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -44,6 +44,9 @@ from mloda.testing.feature_groups.data_operations.mixins.operation_group_integra
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
+
+# Pandas serves the NaN-divergent subtypes only when a feature allows this variant.
+NAN_AS_NULL = {"allow_variants": "nan_as_null"}
 
 
 class TestAggregationIntegration(
@@ -326,7 +329,7 @@ class TestImplementationPin:
     def _feature(**kwargs: Any) -> Feature:
         return Feature(
             "value_int__sum_agg",
-            options=Options(context={"partition_by": ["region"]}),
+            options=Options(group=NAN_AS_NULL, context={"partition_by": ["region"]}),
             **kwargs,
         )
 
@@ -373,6 +376,24 @@ class TestImplementationPin:
         feature = self._feature(implementation="PandasAggregation")
         with pytest.raises(ImplementationPinError, match="names several loaded classes"):
             self._aggregation_step([feature], [PyArrowTable, PandasDataFrame], self._collector())
+
+    def test_pinned_variant_implementation_without_the_option_is_refused(self) -> None:
+        """PandasAggregation is a nan_as_null variant: pinning it without allow_variants fails."""
+        pytest.importorskip("pandas")
+        from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
+
+        options = Options(context={"partition_by": ["region"]})
+        feature = Feature("value_int__sum_agg", options=options, implementation=PandasAggregation)
+        with pytest.raises(FeatureResolutionError, match=r"(?s)(?=.*allow_variants)(?=.*nan_as_null)"):
+            self._aggregation_step([feature], [PyArrowTable, PandasDataFrame], self._collector())
+
+    def test_pandas_only_without_the_option_is_refused(self) -> None:
+        """Running Pandas-only without allow_variants fails: the only candidate is a nan_as_null variant."""
+        pytest.importorskip("pandas")
+        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
+        feature = Feature("value_int__sum_agg", options=Options(context={"partition_by": ["region"]}))
+        with pytest.raises(FeatureResolutionError, match="allow_variants"):
+            mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=collector)
 
 
 class TestIntegrationMultipleFeatures:
@@ -513,12 +534,12 @@ class TestIntegrationMultipleFeatures:
                 [
                     Feature(
                         "value_int__sum_agg",
-                        options=Options(context={"partition_by": ["region"]}),
+                        options=Options(group=NAN_AS_NULL, context={"partition_by": ["region"]}),
                         data_type=DataType.INT64,
                     ),
                     Feature(
                         "value_int__max_agg",
-                        options=Options(context={"partition_by": ["region"]}),
+                        options=Options(group=NAN_AS_NULL, context={"partition_by": ["region"]}),
                         data_type=DataType.DOUBLE,
                     ),
                 ],
@@ -529,12 +550,12 @@ class TestIntegrationMultipleFeatures:
                 [
                     Feature(
                         "value_int__sum_agg",
-                        options=Options(context={"partition_by": ["region"]}),
+                        options=Options(group=NAN_AS_NULL, context={"partition_by": ["region"]}),
                         data_type=DataType.DOUBLE,
                     ),
                     Feature(
                         "region__count_agg",
-                        options=Options(context={"partition_by": ["region"]}),
+                        options=Options(group=NAN_AS_NULL, context={"partition_by": ["region"]}),
                         data_type=DataType.INT64,
                     ),
                 ],
@@ -565,7 +586,7 @@ class TestIntegrationMultipleFeatures:
     @pytest.mark.parametrize("frameworks", [[PandasDataFrame, PyArrowTable], [PandasDataFrame]])
     def test_same_name_data_type_pair_computes_in_two_steps(self, frameworks: list[Any]) -> None:
         """A same-name pair that differs only in data type yields two frames, each holding the reduced column."""
-        options = Options(context={"partition_by": ["region"]})
+        options = Options(group=NAN_AS_NULL, context={"partition_by": ["region"]})
         features = [
             Feature("value_int__sum_agg", options=options, data_type=DataType.INT32),
             Feature("value_int__sum_agg", options=options, data_type=DataType.INT64),
@@ -580,7 +601,7 @@ class TestIntegrationMultipleFeatures:
         """A chained name whose input is an output of the same group is one FeatureSet and must not raise."""
         name = "value_int__sum_agg__max_agg"
         context = {"partition_by": ["region"]}
-        options = Options(context=context, cascade_context_keys=frozenset(context))
+        options = Options(group=NAN_AS_NULL, context=context, cascade_context_keys=frozenset(context))
         plugin_collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
         results = mloda.run_all(
             [Feature(name, options=options)], compute_frameworks=[PandasDataFrame], plugin_collector=plugin_collector
@@ -593,7 +614,8 @@ class TestIntegrationMultipleFeatures:
         inner = Feature(
             "my_sum",
             options=Options(
-                context={"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
+                group=NAN_AS_NULL,
+                context={"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]},
             ),
         )
         outer = Feature(

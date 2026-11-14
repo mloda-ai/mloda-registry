@@ -53,6 +53,11 @@ class TestRankIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegration
         return PandasDataFrame
 
     @classmethod
+    def group_options(cls) -> dict[str, Any]:
+        # Pandas serves rank and dense_rank only when the feature allows the NaN variant.
+        return {"allow_variants": "nan_as_null"}
+
+    @classmethod
     def several_frameworks(cls) -> list[type[Any]]:
         pytest.importorskip("polars")
         from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame

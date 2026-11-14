@@ -20,7 +20,14 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar, NamedTuple
 
 import pytest
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, Implementation, OperationFeatureGroup
+from mloda.provider import (
+    DivergenceKind,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    Implementation,
+    OperationFeatureGroup,
+)
 from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
@@ -43,6 +50,7 @@ class ImplSpec(NamedTuple):
     supported: frozenset[str] | None = None
     divergent: frozenset[str] = frozenset()  # subtypes the Implementation's ``divergences`` records name
     dependency: str | None = None
+    variants: frozenset[str] = frozenset()  # variant names its VARIANT records follow
 
 
 class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
@@ -215,7 +223,10 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
-        assert divergent_subtypes(self._implementation(spec)) == spec.divergent
+        implementation = self._implementation(spec)
+        assert divergent_subtypes(implementation) == spec.divergent
+        records = implementation.divergences
+        assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
 
     def test_divergent_is_inside_the_universe_with_a_reason(self, impl_id: str) -> None:
         spec = self._spec(impl_id)

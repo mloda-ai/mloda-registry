@@ -72,6 +72,9 @@ class MlodaStepRunFacet(RunFacet):
     featureNames: list[str] | None = attr.field(default=None)
     implementation: str | None = attr.field(default=None)
     implementationVersion: str | None = attr.field(default=None)
+    contractVersion: int | None = attr.field(default=None)
+    divergences: list[dict[str, Any]] | None = attr.field(default=None)
+    allowedVariants: list[str] | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:

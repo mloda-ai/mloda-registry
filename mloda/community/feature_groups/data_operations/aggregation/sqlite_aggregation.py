@@ -33,13 +33,15 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
     supported = frozenset(_SQLITE_AGG_FUNCS)
     divergences = (
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"sum", "avg", "mean"}),
             reason="skips NaN",
         ),
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"count"}),
             reason="does not count NaN",

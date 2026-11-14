@@ -330,6 +330,7 @@ class TestScalarAggregateOperationGroup(OperationGroupTestBase):
                     {"sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
                 ),
                 dependency="pandas",
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -355,6 +356,7 @@ class TestScalarAggregateOperationGroup(OperationGroupTestBase):
                 "SqliteFramework",
                 supported=frozenset({"sum", "min", "max", "avg", "mean", "count"}),
                 divergent=frozenset({"sum", "avg", "mean", "count"}),
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "python_dict",

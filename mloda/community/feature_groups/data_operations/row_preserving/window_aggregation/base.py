@@ -117,6 +117,9 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatur
     - ``order_by``: Column to order by (required for first/last)
     """
 
+    CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
+
     SUBTYPES = SubtypeDeclaration(key=WINDOW_AGGREGATION_TYPE)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")

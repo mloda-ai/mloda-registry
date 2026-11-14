@@ -177,11 +177,16 @@ class DataOpsIntegrationTestBase(ABC):
         """Compute frameworks enabled for the pipeline runs. Default: only ``compute_framework_class()``."""
         return [cls.compute_framework_class()]
 
+    @classmethod
+    def group_options(cls) -> dict[str, Any]:
+        """Group options set on every feature built by the kit (e.g. ``allow_variants``). Default: none."""
+        return {}
+
     # -- Helpers --------------------------------------------------------------
 
     def _make_feature(self, name: str, options_context: dict[str, Any]) -> Feature:
-        """Create a Feature with the given name and options context."""
-        return Feature(name, options=Options(context=options_context))
+        """Create a Feature with the given name, group options and options context."""
+        return Feature(name, options=Options(group=self.group_options(), context=options_context))
 
     def _plugin_collector(self, creator: type | None = None) -> PluginCollector:
         """Create a PluginCollector with the feature group and data creator (or ``creator``) enabled."""

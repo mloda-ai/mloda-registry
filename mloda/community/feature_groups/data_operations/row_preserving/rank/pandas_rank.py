@@ -28,7 +28,8 @@ class PandasRank(Implementation[RankFeatureGroup]):
     compute_framework = PandasDataFrame
     divergences = (
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
             reason="float64 cannot tell NaN from null, so they tie",

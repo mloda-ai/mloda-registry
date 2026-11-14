@@ -192,9 +192,11 @@ class TestResampleSplitFeatureSets:
     @pytest.mark.parametrize("frameworks", [[PandasDataFrame, PyArrowTable], [PandasDataFrame]])
     def test_same_name_data_type_pair_computes_in_two_steps(self, frameworks: list[Any]) -> None:
         """A same-name pair that differs only in data type yields two frames, each holding the resampled column."""
+        # Pandas serves the NaN-divergent mean only when the features allow the variant.
+        options = Options(group={"allow_variants": "nan_as_null"}, context=self._CONTEXT)
         features = [
-            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.DOUBLE),
-            Feature(self._MEAN, options=Options(context=self._CONTEXT), data_type=DataType.FLOAT),
+            Feature(self._MEAN, options=options, data_type=DataType.DOUBLE),
+            Feature(self._MEAN, options=options, data_type=DataType.FLOAT),
         ]
         results = self._run(features, frameworks, PandasDataOpsTestDataCreator)
 

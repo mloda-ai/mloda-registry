@@ -52,6 +52,8 @@ AGGREGATION_TYPES = {
 
 
 class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup):
+    CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
     SUBTYPES = SubtypeDeclaration(key=AggregationFeatureGroupBase.AGGREGATION_TYPE)
 
     KEY_COLUMN_OPTIONS = ("mask",)

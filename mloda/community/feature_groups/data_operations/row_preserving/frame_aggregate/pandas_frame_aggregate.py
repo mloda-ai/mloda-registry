@@ -42,13 +42,15 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
     divergences = (
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"sum", "avg", "std", "var"}),
             reason="skips NaN",
         ),
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"count"}),
             reason="does not count NaN",

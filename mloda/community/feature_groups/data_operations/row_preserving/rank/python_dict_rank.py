@@ -33,7 +33,8 @@ class PythonDictRank(Implementation[RankFeatureGroup]):
     compute_framework = PythonDictFramework
     divergences = (
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.OTHER,
             subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
             reason="ties NaN with null in order_by",

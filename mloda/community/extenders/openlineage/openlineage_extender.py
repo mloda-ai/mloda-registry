@@ -13,7 +13,10 @@ import weakref
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mloda.provider import Divergence
 
 from mloda.steward import (
     Extender,
@@ -144,6 +147,27 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
         return state
 
 
+def _divergence_dicts(divergences: Sequence[Divergence]) -> list[dict[str, Any]] | None:
+    """One JSON-ready dict per divergence record in order, None when there are none."""
+    # The dict shape matches the plan lock's divergence records.
+    if not divergences:
+        return None
+    return [
+        {
+            "source": d.source.value if d.source is not None else None,
+            "framework": d.framework,
+            "kind": d.kind.value,
+            "cause": d.cause.value,
+            "subtypes": sorted(d.subtypes),
+            "outputs": sorted(d.outputs),
+            "reason": d.reason,
+            "variant": d.variant,
+            "docs": d.docs,
+        }
+        for d in divergences
+    ]
+
+
 def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
     # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
     from mloda.community.extenders.openlineage._facets import MlodaStepRunFacet
@@ -156,6 +180,9 @@ def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
             featureNames=sorted(context.feature_names),
             implementation=context.implementation,
             implementationVersion=context.implementation_version,
+            contractVersion=context.contract_version,
+            divergences=_divergence_dicts(context.divergences),
+            allowedVariants=sorted(context.allowed_variants) if context.allowed_variants else None,
             producer=producer,
         )
     }

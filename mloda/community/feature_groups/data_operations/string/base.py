@@ -71,6 +71,8 @@ class StringFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     source_col, op)`` to ``transform_string``; it returns the input with the new column appended. SQLite serves only trim and length (``SqliteStringOps.supported``).
     """
 
+    CONTRACT_VERSION = 1
+
     PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
 
     MIN_IN_FEATURES = 1

@@ -107,7 +107,7 @@ class MaskIntegrationTestMixin:
         """Run a single masked feature through the pipeline and return the framework result holding it."""
         ctx = dict(options_ctx)
         ctx["mask"] = mask_spec
-        feature = Feature(name, options=Options(context=ctx))
+        feature = Feature(name, options=Options(group=self.group_options(), context=ctx))  # type: ignore[attr-defined]
         results = mloda.run_all(
             [feature],
             compute_frameworks=self.pipeline_compute_frameworks(),  # type: ignore[attr-defined]

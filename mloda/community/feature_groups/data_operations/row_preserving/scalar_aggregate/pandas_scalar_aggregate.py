@@ -20,13 +20,15 @@ class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
     compute_framework = PandasDataFrame
     divergences = (
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"sum", "avg", "mean", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}),
             reason="skips NaN",
         ),
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"count"}),
             reason="does not count NaN",

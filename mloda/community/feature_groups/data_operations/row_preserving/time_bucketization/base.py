@@ -129,6 +129,8 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGro
     guard to ``bucketize``.
     """
 
+    CONTRACT_VERSION = 1
+
     SUBTYPES = SubtypeDeclaration(universe=TIME_BUCKETIZATION_OPS.keys(), resolver=_resolve_bucket_op_subtype)
 
     MIN_IN_FEATURES = 1

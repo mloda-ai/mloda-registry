@@ -22,6 +22,8 @@ The category decides your naming pattern. See [overview](01-overview.md) for the
 
 ## Step 2: Write the operation group
 
+A new operation group declares `CONTRACT_VERSION = 1` in its class body.
+
 File: `mloda/community/feature_groups/data_operations/{category}/{your_op}/base.py`.
 
 ```py
@@ -50,6 +52,8 @@ YOUR_OPS = {
 
 
 class YourOpFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
+    CONTRACT_VERSION = 1
+
     PREFIX_PATTERN = r".+__(op_a|op_b)$"
 
     MIN_IN_FEATURES = 1
@@ -230,7 +234,7 @@ class TestYourOpOperationGroup(OperationGroupTestBase):
 
 Each `ImplSpec.module` is the module that defines the Implementation. Set `dependency` for an optional backend: a missing dependency skips that spec, while a module that fails to import fails the test.
 
-Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, and `alias_pairs()`.
+Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, `ImplSpec.variants`, and, on `DataOpsIntegrationTestBase`, `group_options()`.
 
 ---
 

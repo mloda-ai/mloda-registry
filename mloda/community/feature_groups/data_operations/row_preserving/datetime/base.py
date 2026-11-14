@@ -90,6 +90,8 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     column appended.
     """
 
+    CONTRACT_VERSION = 1
+
     PREFIX_PATTERN = r".*__(year|month|day|hour|minute|second|dayofweek|is_weekend|quarter)$"
 
     MIN_IN_FEATURES = 1

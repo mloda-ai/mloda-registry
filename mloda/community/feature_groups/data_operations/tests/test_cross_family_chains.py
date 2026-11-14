@@ -38,6 +38,10 @@ def _column(results: list[Any], name: str) -> list[Any]:
     return found[0]
 
 
+# Pandas serves NaN-divergent subtypes only when a feature allows this variant.
+NAN_AS_NULL = {"allow_variants": "nan_as_null"}
+
+
 class TestCrossFamilyChains:
     """Chains across groups that compute today; each is one reducing or row-preserving step per name segment."""
 
@@ -98,7 +102,7 @@ class TestCrossFamilyChains:
     def test_offset_over_resample(self) -> None:
         name = "value_float__resample_1_day_sum__lag_1_offset"
         context = {"time_column": "timestamp", "partition_by": ["region"], "order_by": "timestamp"}
-        options = Options(context=context, cascade_context_keys=frozenset(context))
+        options = Options(group=NAN_AS_NULL, context=context, cascade_context_keys=frozenset(context))
         plugin_collector = enabled_with_implementations(
             {PandasDataOpsTestDataCreator, ResampleFeatureGroup, OffsetFeatureGroup}
         )
@@ -111,7 +115,7 @@ class TestCrossFamilyChains:
     def test_offset_over_offset_over_resample(self) -> None:
         name = "value_float__resample_1_day_sum__lag_1_offset__lag_1_offset"
         context = {"time_column": "timestamp", "partition_by": ["region"], "order_by": "timestamp"}
-        options = Options(context=context, cascade_context_keys=frozenset(context))
+        options = Options(group=NAN_AS_NULL, context=context, cascade_context_keys=frozenset(context))
         plugin_collector = enabled_with_implementations(
             {PandasDataOpsTestDataCreator, ResampleFeatureGroup, OffsetFeatureGroup}
         )
@@ -159,7 +163,7 @@ class TestReducingNextToRowPreserving:
     """A reducing feature and a row-preserving feature from another family in one request both compute."""
 
     def test_aggregation_next_to_window_aggregation(self) -> None:
-        options = Options(context={"partition_by": ["region"]})
+        options = Options(group=NAN_AS_NULL, context={"partition_by": ["region"]})
         features = [Feature("value_int__sum_agg", options=options), Feature("value_int__sum_window", options=options)]
         plugin_collector = enabled_with_implementations(
             {PandasDataOpsTestDataCreator, AggregationFeatureGroup, WindowAggregationFeatureGroup}

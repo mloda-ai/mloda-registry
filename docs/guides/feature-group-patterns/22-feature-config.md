@@ -18,6 +18,7 @@ config = """
     {
         "name": "sales_total",
         "in_features": ["daily_sales"],
+        "group_options": {"allow_variants": "nan_as_null"},
         "context_options": {"window_aggregation_type": "sum", "partition_by": ["customer_id"]}
     }
 ]
@@ -61,7 +62,7 @@ assert any(list(df["sales_total"]) == [3, 3, 5] for df in result if "sales_total
 `implementation` pins an `Implementation` class (one per framework on an operation group) by qualified `module:Class` string. A bare class name works only when it is unique among loaded classes, and core ships Implementations named `PandasAggregation` too, so qualify it. A string array pins one per chained step. Rejects non-strings, empty strings, and the root `FeatureGroup` base name.
 
 ```json
-{ "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "implementation": "mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation:PandasAggregation", "context_options": {"partition_by": ["region"]} }
+{ "name": "sales__sum_agg", "feature_group": "AggregationFeatureGroup", "implementation": "mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation:PandasAggregation", "group_options": {"allow_variants": "nan_as_null"}, "context_options": {"partition_by": ["region"]} }
 ```
 
 ## Window / Rank / Percentile Requests
@@ -71,7 +72,7 @@ Row-preserving `data_operations` (window aggregation, rank, percentile) cannot b
 ```python
 config = """
 [
-    {"name": "steps__sum_window", "context_options": {"partition_by": ["subject_id"]}},
+    {"name": "steps__sum_window", "group_options": {"allow_variants": "nan_as_null"}, "context_options": {"partition_by": ["subject_id"]}},
     {"name": "price__last_window", "context_options": {"partition_by": ["region"], "order_by": "timestamp"}},
     {"name": "sales__row_number_ranked", "context_options": {"partition_by": ["region"], "order_by": "sales"}},
     {"name": "sales__p95_percentile", "context_options": {"partition_by": ["region"]}}

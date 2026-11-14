@@ -44,6 +44,8 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     feature_name, source_col, op, n_bins)`` to the group; it returns the input with the new column appended.
     """
 
+    CONTRACT_VERSION = 1
+
     BINNING_OP = "binning_op"
     N_BINS = "n_bins"
 

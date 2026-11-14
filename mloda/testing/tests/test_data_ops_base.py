@@ -469,6 +469,12 @@ def test_nan_is_null_defaults_to_false() -> None:
     assert DataOpsIntegrationTestBase.nan_is_null() is False
 
 
+def test_group_options_defaults_to_empty() -> None:
+    from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+
+    assert DataOpsIntegrationTestBase.group_options() == {}
+
+
 def test_routing_frameworks_defaults_to_the_pipeline_frameworks() -> None:
     from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
         OperationGroupIntegrationTestMixin,

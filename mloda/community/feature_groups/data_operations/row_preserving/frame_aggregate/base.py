@@ -210,6 +210,9 @@ class FrameAggregateFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, 
     - ``order_by``: Column to order by (required for all frame types)
     """
 
+    CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
+
     SUBTYPES = SubtypeDeclaration(universe=_AGGREGATION_TYPES, resolver=_resolve_frame_agg_type)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by", "mask")

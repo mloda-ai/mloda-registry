@@ -128,6 +128,8 @@ class OffsetFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operatio
     - ``order_by``: Column to order by within each partition
     """
 
+    CONTRACT_VERSION = 1
+
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     MIN_IN_FEATURES = 1

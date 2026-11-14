@@ -115,6 +115,7 @@ class TestResampleOperationGroup(OperationGroupTestBase):
                 "PandasDataFrame",
                 divergent=frozenset({"sum", "mean", "count", "min", "max"}),
                 dependency="pandas",
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",

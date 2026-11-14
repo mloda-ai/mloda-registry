@@ -33,7 +33,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 import requests
-from mloda.provider import FailedRows, instrument
+from mloda.provider import Cause, Divergence, DivergenceKind, FailedRows, instrument
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -47,6 +47,8 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.experimental.aggregated_feature_group.base import AggregatedFeatureGroup
+from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import PyArrowAggregation
 from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG, CsvPyArrowTable
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
@@ -68,6 +70,7 @@ from mloda.community.extenders.shared.tests.classification_helpers import (
     UnknownGroup,
     classified_step,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.rank.python_dict_rank import PythonDictRank
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.flush import active_close_context
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -2173,32 +2176,74 @@ class TestOpenLineageExtenderParentRunFacet:
         assert all(_run_facet(event, "mlodaStep")["featureNames"] == ["a", "b"] for event in transport.events)
 
     @pytest.mark.parametrize(
-        ("implementation", "implementation_version", "expected"),
+        ("hook_fields", "expected"),
         [
-            ("pkg.mod:Impl", "v9", {"implementation": "pkg.mod:Impl", "implementationVersion": "v9"}),
-            ("neutral", None, {"implementation": "neutral"}),
-            (None, None, {}),
+            pytest.param(
+                {"implementation": "pkg.mod:Impl", "implementation_version": "v9"},
+                {"implementation": "pkg.mod:Impl", "implementationVersion": "v9"},
+                id="implementation_and_version",
+            ),
+            pytest.param({"implementation": "neutral"}, {"implementation": "neutral"}, id="implementation_only"),
+            pytest.param({}, {}, id="no_optional_fields_omits_every_key"),
+            pytest.param({"contract_version": 1}, {"contractVersion": 1}, id="contract_version"),
+            pytest.param({"allowed_variants": ("nan_as_null",)}, {"allowedVariants": ["nan_as_null"]}, id="allowed"),
+            pytest.param(
+                {
+                    "divergences": (
+                        *PythonDictRank.divergence_records(),
+                        Divergence(
+                            kind=DivergenceKind.VALUE,
+                            cause=Cause.OTHER,
+                            outputs=frozenset({"b", "a"}),
+                            reason="r",
+                            docs="d",
+                        ),
+                    )
+                },
+                {
+                    "divergences": [
+                        {
+                            "source": "implementation",
+                            "framework": "PythonDictFramework",
+                            "kind": "variant",
+                            "cause": "other",
+                            "subtypes": ["dense_rank", "percent_rank", "rank"],
+                            "outputs": [],
+                            "reason": "ties NaN with null in order_by",
+                            "variant": "nan_as_null",
+                            "docs": PythonDictRank.divergence_records()[0].docs,
+                        },
+                        {
+                            "kind": "value",
+                            "cause": "other",
+                            "subtypes": [],
+                            "outputs": ["a", "b"],
+                            "reason": "r",
+                            "docs": "d",
+                        },
+                    ]
+                },
+                id="divergences",
+            ),
         ],
     )
-    def test_step_facet_carries_the_implementation_fields(
+    def test_step_facet_carries_the_optional_step_fields(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
-        implementation: str | None,
-        implementation_version: str | None,
-        expected: dict[str, str],
+        hook_fields: dict[str, Any],
+        expected: dict[str, Any],
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
 
-        with make_hook_context(
-            run_id=_RUN_A, implementation=implementation, implementation_version=implementation_version
-        ).activate():
+        with make_hook_context(run_id=_RUN_A, **hook_fields).activate():
             extender(lambda: None)
 
+        keys = ("implementation", "implementationVersion", "contractVersion", "divergences", "allowedVariants")
         assert transport.events
         for event in transport.events:
             step = _run_facet(event, "mlodaStep")
-            assert {k: step[k] for k in ("implementation", "implementationVersion") if k in step} == expected
+            assert {k: step[k] for k in keys if k in step} == expected
 
 
 _PLAN_ID = "plan-0001"
@@ -3141,6 +3186,34 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         served = [s for s in steps if s.get("implementation") == expected]
         assert served
         assert all(s.get("implementationVersion") == CsvPyArrowTable.version() for s in served)
+
+    def test_core_operation_group_step_carries_its_contract_version_and_no_divergence_keys(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        results = mloda.run_all(
+            ["value_int__sum_aggr"],
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=PluginCollector.enabled_feature_groups(
+                {PyArrowDataOpsTestDataCreator, AggregatedFeatureGroup}
+            ),
+            function_extender={OpenLineageExtender(client=client)},
+            parallelization_modes={ParallelizationMode.SYNC},
+        )
+
+        assert results
+        steps = [json.loads(Serde.to_json(e))["run"]["facets"].get("mlodaStep", {}) for e in transport.events]
+        aggregated = [
+            s
+            for s in steps
+            if s.get("implementation") == f"{PyArrowAggregation.__module__}:{PyArrowAggregation.__qualname__}"
+        ]
+        assert aggregated
+        for step in aggregated:
+            assert step.get("contractVersion") == 1
+            assert "divergences" not in step
+            assert "allowedVariants" not in step
 
     @pytest.mark.parametrize(
         ("declarations", "expected", "conflicts"),
