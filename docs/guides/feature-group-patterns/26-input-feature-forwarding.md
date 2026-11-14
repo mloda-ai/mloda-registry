@@ -6,15 +6,15 @@ When a feature group declares **another group's** feature in `input_features()`,
 **When**: A feature group consumes a source/corpus/connector feature published by a different group (e.g. a RAG connector consuming a `knowledge_graph` source).
 **Why**: Options set on the consumer forward to input features by default; an upstream that does not recognize a forwarded key rejects the feature.
 **Where**: `input_features()` return values, on the `Feature(...)` objects you construct there.
-**How**: Leave children at the default to inherit everything, or use the typed opt-outs `forward_group`, `forward_group_exclude`, and the context pull/push pair `inherit_context_keys` / `propagate_context_keys`.
+**How**: Leave children at the default to inherit everything, declare a consumer-local key with `property_spec(..., forward_to_inputs=False)`, or use the typed opt-outs `forward_group`, `forward_group_exclude`, and the context pull/push pair `inherit_context_keys` / `propagate_context_keys`.
 
 ## The Default: Group Options Forward
 
-A consumer's **group** options flow onto every input feature by default. **Context** options never flow by default, for an explicit `Feature(...)` child and a bare-string child alike. `in_features` itself never flows.
+A consumer's **group** options flow onto every input feature by default, except keys the consumer declares `forward_to_inputs=False`. **Context** options never flow by default, for an explicit `Feature(...)` child and a bare-string child alike. `in_features` itself never flows.
 
 | Consumer option category | Flows to input features by default? | How to change it |
 |--------------------------|-------------------------------------|------------------|
-| `group` | Yes (all keys) | `forward_group`, `forward_group_exclude` on the child |
+| `group` | Yes (all keys except those the consumer declares `forward_to_inputs=False`) | `forward_to_inputs=False` on the consumer's spec; `forward_group`, `forward_group_exclude` on the child |
 | `context` | No | `inherit_context_keys` (child pull) or `propagate_context_keys` (consumer push) |
 | `in_features` | Never | not configurable |
 
@@ -25,7 +25,7 @@ Feature group(s) eliminated while matching '<feature_name>':
   - <Candidate> (option value): <reason>
 ```
 
-That is the signal to carve the key out with `forward_group_exclude`, an allowlist, or `forward_group=False`.
+That is the signal to carve the key out with `forward_to_inputs=False` on the consumer's spec, `forward_group_exclude`, an allowlist, or `forward_group=False`.
 
 ## Caveat: A Forwarded Source Pointer Reaches Every Input
 
@@ -43,7 +43,7 @@ Set these on the `Feature(...)` you return from `input_features()`:
 | `forward_group=True` | Same as the default. Do **not** stamp this on children: it destroys the `None` sentinel that tells "author said nothing" from "author made a choice". |
 | `forward_group=False` | Inherit **nothing**. Isolates the child from the consumer's group options. |
 | `forward_group={"a", "b"}` | Allowlist: inherit only these group keys. |
-| `forward_group_exclude={"top_k"}` | Forward everything **except** these keys. The fit for a consumer-local selector. |
+| `forward_group_exclude={"top_k"}` | Forward everything **except** these keys. The child-side fit for a consumer-local selector; a consumer that owns the key can use [`forward_to_inputs=False`](#consumer-local-keys-forward_to_inputsfalse) instead. |
 | `inherit_context_keys={"tenant"}` | Pull these **context** keys from the consumer into the child's context. |
 
 `forward_group=False` combined with a non-empty `forward_group_exclude` is contradictory and raises `ValueError`.
@@ -96,13 +96,31 @@ Options(context={"tenant": "acme"}, propagate_context_keys=frozenset({"tenant"})
 
 `inherit_context_keys` (child pull) and `propagate_context_keys` (consumer push) are symmetric; use whichever side owns the decision. See [Options: Context Propagation](11-options.md#context-propagation).
 
+## Consumer-Local Keys: forward_to_inputs=False
+
+The consumer that owns a key can declare it once instead of excluding it on every child with `forward_group_exclude`, as the example above does. It filters group keys only, so declare the spec with `context=False`; a child's explicit `forward_group` allowlist naming the key still brings it back. `child.options_forwarded_from(consumer_options, LocalTopKConnector)` previews what the child receives.
+
+```python
+from mloda.provider import property_spec
+
+
+class LocalTopKConnector(FeatureGroup):
+    PROPERTY_MAPPING = {"top_k": property_spec("Result count", context=False, forward_to_inputs=False)}
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature("knowledge_graph", inherit_context_keys={"tenant"})}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any: ...
+```
+
 ## Conflicts Raise, Equal Values Are a No-Op
 
 If a forwarded group key already exists on the child with a **different** value, forwarding raises `ValueError` (naming the key, both values, and the opt-out remedies). If the child already holds the **same** value, forwarding is a silent no-op. So a child may safely pre-set a key to the value the consumer would forward; it may not silently override it.
 
 ## Caveat: Bare-String Children Cannot Carry Directives
 
-The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
+The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no child-side directive to carve a key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string. The consumer-side exception: a key the consumer declares `forward_to_inputs=False` stays off a bare-string child too.
 
 ## Test
 
@@ -117,6 +135,14 @@ def test_connector_carves_local_key_and_pulls_context():
     assert child.inherit_context_keys == frozenset({"tenant"})
     # Children are left at the default sentinel, not stamped True.
     assert child.forward_group is None
+
+
+def test_consumer_local_key_stays_off_the_input():
+    consumer = Options(group={"backend": "neo4j", "top_k": 5}, context={"tenant": "acme"})
+    child = next(iter(LocalTopKConnector().input_features(consumer, FeatureName("graph_rag_answer"))))
+    forwarded = child.options_forwarded_from(consumer, LocalTopKConnector)
+    assert forwarded.group == {"backend": "neo4j"}
+    assert forwarded.context == {"tenant": "acme"}
 ```
 
 ## Real Implementations
@@ -125,6 +151,8 @@ def test_connector_carves_local_key_and_pulls_context():
 |------|-------------|
 | [test_input_features_forward_group_defaults.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_plugins/feature_group/experimental/test_input_features_forward_group_defaults.py) | Plugin `input_features()` leaving children at the default sentinel; explicit directives preserved |
 | [test_feature_collection_forwarding.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_core/test_abstract_plugins/test_components/test_feature_collection_forwarding.py) | `forward_group` / `forward_group_exclude` allowlist and carve-out semantics |
+| [property_spec.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/property_spec.py) | `property_spec(..., forward_to_inputs=False)`: consumer-local keys |
+| [feature.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/feature.py) | `Feature.options_forwarded_from`: preview what an input receives |
 | [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) | Group vs context, propagation |
 
 ## Combines With
