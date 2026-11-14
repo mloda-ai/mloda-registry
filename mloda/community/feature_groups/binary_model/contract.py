@@ -21,7 +21,7 @@ COLUMN_TYPES = frozenset({"int64", "float64", "utf8", "boolean"})
 # The environment variables that carry the license (contract: License).
 LICENSE_ENV_NAMES = ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")
 
-# Contract "Data handling": an error object's `message` is at most this many UTF-8 bytes.
+# Contract "Data handling": an error object's `message` and `reason` are each at most this many UTF-8 bytes.
 MESSAGE_MAX_BYTES = 1024
 
 # Contract "Errors" table: the exit code each error kind reports.
@@ -32,8 +32,8 @@ UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
 
-# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message`
-# capped at MESSAGE_MAX_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
+# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message` plus a `reason`,
+# each capped at MESSAGE_MAX_BYTES and grown up to about sixfold by `\u` escapes). A longer, out-of-contract
 # error line falls back to BinaryInternalError.
 _STDERR_TAIL_WINDOW_BYTES = 64 * 1024
 

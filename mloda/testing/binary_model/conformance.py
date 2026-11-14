@@ -37,7 +37,7 @@ import pytest
 from mloda._testing.suite import ConformanceSuite
 
 from mloda.community.feature_groups.binary_model import binary
-from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
+from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line, truncate_message
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryUnavailableError,
     LicenseInvalidError,
@@ -173,8 +173,9 @@ def run_binary(
 
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
-    object; earlier lines are free-form diagnostics (contract: Errors). Uses the mixin's own
-    ``contract.last_non_empty_stderr_line``, so this matches its 64 KiB tail window exactly."""
+    object (codes 2 and 3 may add an optional ``"reason"``); earlier lines are free-form diagnostics
+    (contract: Errors). Uses the mixin's own ``contract.last_non_empty_stderr_line``, so this matches
+    its 64 KiB tail window exactly."""
     line = last_non_empty_stderr_line(stderr)
     assert line is not None, f"expected at least one non-empty stderr line, got {stderr!r}"
     try:
@@ -189,7 +190,8 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     """Assert the process exited with ``expected_code`` and stderr's last line is a parseable error
     object with a matching, non-empty ``message`` within the contract's size caps (``message`` <=
     ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, stderr <= ``STDERR_SOFT_CAP_BYTES`` (64 KiB))
-    (contract: Errors, Data handling). Returns the parsed error object."""
+    (contract: Errors, Data handling); a non-null, non-empty ``reason`` on code 2 or 3 is a string
+    within the same cap. Returns the parsed error object."""
     assert result.returncode == expected_code, (
         f"expected exit code {expected_code}, got {result.returncode}; stderr={result.stderr!r}"
     )
@@ -201,6 +203,11 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     assert message_bytes <= MESSAGE_MAX_BYTES, (
         f"error message exceeds the {MESSAGE_MAX_BYTES}-byte cap: {message_bytes} bytes ({message[:200]!r}...)"
     )
+    if expected_code in (LICENSE_MISSING, LICENSE_INVALID) and error.get("reason") not in (None, ""):
+        reason = error["reason"]
+        assert isinstance(reason, str), f"error object reason must be a string: {error!r}"
+        reason_bytes = len(reason.encode("utf-8"))
+        assert reason_bytes <= MESSAGE_MAX_BYTES, f"error reason exceeds the {MESSAGE_MAX_BYTES}-byte cap"
     assert len(result.stderr) <= STDERR_SOFT_CAP_BYTES, (
         f"stderr exceeds the {STDERR_SOFT_CAP_BYTES}-byte soft cap: {len(result.stderr)} bytes"
     )
@@ -674,9 +681,11 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
-    def test_mixin_reports_the_license_source_and_a_reason_for_an_expired_license_file(self, tmp_path: Path) -> None:
+    def test_mixin_reports_the_license_source_and_a_reason_for_an_expired_license_file(
+        self, tmp_path: Path, valid_config_path: Path
+    ) -> None:
         """An expired `LICENSE_FILE_OVERRIDE` raises ``LicenseInvalidError`` with that source and a
-        reason the message ends with (contract: License)."""
+        reason: the binary's reported ``reason`` if any, else one the message ends with (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         config = self.make_config()
         kit = self
@@ -691,6 +700,8 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
                 return kit.platform_env(cls._forwarded_environment())
 
         table = pa.table(self.default_input_rows(), schema=self.default_input_schema())
+        # The direct run below reads the binary's reason for the same license file, so a reported reason
+        # must be deterministic.
         with pytest.raises(LicenseInvalidError) as excinfo:
             _Model.run_binary_model(
                 table,
@@ -702,7 +713,13 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
             )
         assert excinfo.value.source == "LICENSE_FILE_OVERRIDE"
         assert excinfo.value.reason
-        assert excinfo.value.message.endswith(excinfo.value.reason)
+        direct_env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
+        direct = self._kit_run_with_config(valid_config_path, direct_env)
+        reported = stderr_error_object(direct.stderr).get("reason")
+        if isinstance(reported, str) and reported:
+            assert excinfo.value.reason == truncate_message(reported)
+        else:
+            assert excinfo.value.message.endswith(excinfo.value.reason)
 
     def test_license_wrong_plugin_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose `plugins` entitlement list omits this `plugin_id`: exit 3. The message also

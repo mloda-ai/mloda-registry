@@ -449,7 +449,8 @@ class BinaryModelMixin:
                     exc.code,
                 )
                 if isinstance(exc, LicenseError):
-                    exc.reason = license_reason(exc.message, env)
+                    if not exc._reason_reported:
+                        exc.reason = license_reason(exc.message, env)
                     forwarded = cls._forwarded_environment()
                     if all(env.get(name) == forwarded.get(name) for name in LICENSE_ENV_NAMES):
                         exc.source = cls.license_source()
