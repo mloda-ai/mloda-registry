@@ -371,3 +371,53 @@ def test_reported_error_malformed_or_mismatched_returns_none(returncode: int, st
     """A code that isn't a plain int (a float, a bool), doesn't match the returncode, or isn't
     parseable JSON at all must map to ``None``, never raise (contract: Errors)."""
     assert errors.reported_error(returncode, stderr) is None
+
+
+# -- an optional ``reason`` on the error object of codes 2 and 3 --
+
+
+def _stderr_line_with_reason(code: int, message: str, reason: object) -> bytes:
+    return (json.dumps({"code": code, "message": message, "reason": reason}) + "\n").encode("utf-8")
+
+
+@pytest.mark.parametrize("code", [2, 3])
+def test_error_from_exit_uses_a_reported_reason_and_keeps_the_message(code: int) -> None:
+    exc = error_from_exit(code, _stderr_line_with_reason(code, "MLODA_LICENSE_KEY (canonical): expired", "expired"))
+    assert isinstance(exc, LicenseError)
+    assert exc.reason == "expired"
+    assert exc.message == "MLODA_LICENSE_KEY (canonical): expired"
+    assert str(exc) == "MLODA_LICENSE_KEY (canonical): expired"
+
+
+@pytest.mark.parametrize("code", [2, 3])
+@pytest.mark.parametrize("reason", ["", 5, None, ["x"]], ids=["empty", "int", "null", "list"])
+def test_error_from_exit_ignores_an_empty_or_non_string_reason(code: int, reason: object) -> None:
+    """Passes on arrival: the fallback keeps ``reason == message``."""
+    exc = error_from_exit(code, _stderr_line_with_reason(code, "boom", reason))
+    assert isinstance(exc, LicenseError)
+    assert exc.reason == "boom"
+    assert exc.message == "boom"
+
+
+@pytest.mark.parametrize("code", [2, 3])
+def test_error_from_exit_without_a_reason_uses_the_message(code: int) -> None:
+    """Passes on arrival."""
+    exc = error_from_exit(code, _stderr_line(code, "boom"))
+    assert isinstance(exc, LicenseError)
+    assert exc.reason == "boom"
+
+
+@pytest.mark.parametrize("code", [1, 4, 5, 6])
+def test_error_from_exit_ignores_a_reason_on_other_codes(code: int) -> None:
+    """Passes on arrival."""
+    exc = error_from_exit(code, _stderr_line_with_reason(code, "boom", "why"))
+    assert isinstance(exc, ERROR_CLASS_BY_CODE[code])
+    assert exc.message == "boom"
+
+
+@pytest.mark.parametrize("code", [2, 3])
+def test_error_from_exit_caps_an_oversized_reason(code: int) -> None:
+    exc = error_from_exit(code, _stderr_line_with_reason(code, "boom", "\u2603" * 500))
+    assert isinstance(exc, LicenseError)
+    assert exc.reason.startswith("\u2603")
+    assert 0 < len(exc.reason.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES

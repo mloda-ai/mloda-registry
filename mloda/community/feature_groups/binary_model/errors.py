@@ -48,12 +48,13 @@ class BinaryUsageError(BinaryModelError):
 
 
 class LicenseError(BinaryModelError):
-    """Base of the license errors; ``reason`` is the message without its source prefix and ``source``
-    the license source in use, both set by the mixin when known."""
+    """Base of the license errors; ``reason`` is the binary's reported reason, else the message without its
+    source prefix, and ``source`` the license source in use, both set by the mixin when known."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, reason: str | None = None) -> None:
         super().__init__(message)
-        self.reason: str = message
+        self.reason: str = reason or message
+        self._reason_reported: bool = bool(reason)
         self.source: LicenseSource | None = None
 
 
@@ -150,7 +151,11 @@ def reported_error(returncode: int, stderr: bytes) -> BinaryModelError | None:
                 message = payload.get("message")
                 if not isinstance(message, str) or not message:
                     message = _GENERIC_MESSAGE_FALLBACK.format(code=code)
-                return ERROR_CLASS_BY_CODE[code](contract.truncate_message(message))
+                error_class = ERROR_CLASS_BY_CODE[code]
+                reason = payload.get("reason")
+                if issubclass(error_class, LicenseError) and isinstance(reason, str) and reason:
+                    return error_class(contract.truncate_message(message), contract.truncate_message(reason))
+                return error_class(contract.truncate_message(message))
     return None
 
 

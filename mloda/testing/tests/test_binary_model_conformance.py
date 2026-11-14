@@ -26,6 +26,8 @@ from mloda.testing.binary_model.conformance import (
     COLUMN_TYPES,
     DATA_ERROR,
     DATA_FREE_MARKER,
+    LICENSE_INVALID,
+    MESSAGE_MAX_BYTES,
     USAGE_ERROR,
     BinaryModelConformanceBase,
     HashOperationConformanceMixin,
@@ -109,6 +111,18 @@ class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConfo
             timeout=self.binary_timeout_seconds,
         )
         assert_error_response(result, USAGE_ERROR)
+
+    def test_simulated_binary_expired_license_file_error_carries_a_reason(
+        self, valid_config_path: Path, tmp_path: Path
+    ) -> None:
+        """The simulated binary's code 3 error for an expired `MLODA_LICENSE_FILE` carries a
+        ``reason`` that the message ends with (contract: License, Errors)."""
+        license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
+        error = assert_error_response(self._kit_run_with_config(valid_config_path, env), LICENSE_INVALID)
+        reason = error.get("reason")
+        assert isinstance(reason, str) and reason, f"expected a non-empty reason: {error!r}"
+        assert error["message"].endswith(reason)
 
 
 class _OverriddenLicenseVectors(BinaryModelConformanceBase):
@@ -359,6 +373,35 @@ def test_assert_error_response_rejects_boolean_true_code() -> None:
     result = subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b'{"code": true, "message": "m"}\n')
     with pytest.raises(AssertionError):
         assert_error_response(result, 1)
+
+
+def _error_result(code: int, **extra: object) -> subprocess.CompletedProcess[bytes]:
+    line = json.dumps({"code": code, "message": "m", **extra}) + "\n"
+    return subprocess.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=line.encode("utf-8"))
+
+
+@pytest.mark.parametrize("code", [2, 3])
+def test_assert_error_response_accepts_a_valid_reason_or_none(code: int) -> None:
+    """Passes on arrival."""
+    assert_error_response(_error_result(code, reason="expired"), code)
+    assert_error_response(_error_result(code), code)
+
+
+@pytest.mark.parametrize("code", [2, 3])
+@pytest.mark.parametrize(
+    "reason",
+    ["", 5, None, ["x"], "x" * (MESSAGE_MAX_BYTES + 1), "\u2603" * 400],
+    ids=["empty", "int", "null", "list", "over_cap_ascii", "over_cap_utf8"],
+)
+def test_assert_error_response_rejects_a_bad_reason_on_license_codes(code: int, reason: object) -> None:
+    with pytest.raises(AssertionError):
+        assert_error_response(_error_result(code, reason=reason), code)
+
+
+@pytest.mark.parametrize("reason", ["", 5, None, "x" * (MESSAGE_MAX_BYTES + 1)], ids=["empty", "int", "null", "huge"])
+def test_assert_error_response_ignores_a_reason_on_other_codes(reason: object) -> None:
+    """Passes on arrival."""
+    assert_error_response(_error_result(1, reason=reason), 1)
 
 
 def test_assert_not_rejected_with_rejects_float_code_equal_to_returncode() -> None:

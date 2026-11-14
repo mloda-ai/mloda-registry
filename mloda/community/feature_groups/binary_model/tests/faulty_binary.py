@@ -25,8 +25,11 @@ PLUGIN_ID = "faulty_binary"
 VERSION = "0.0.1"
 
 
-def _emit_error(code: int, message: str) -> int:
-    print(json.dumps({"code": code, "message": message}), file=sys.stderr)
+def _emit_error(code: int, message: str, reason: str | None = None) -> int:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if reason is not None:
+        error["reason"] = reason
+    print(json.dumps(error), file=sys.stderr)
     return code
 
 
@@ -218,6 +221,10 @@ def _run(mode: str, args: list[str]) -> int:
         return 0
     if mode == "exit_before_reading":
         return _emit_error(2, "license missing (simulated by faulty_binary exit_before_reading)")
+    if mode == "license_reason_field":
+        return _emit_error(3, "MLODA_LICENSE_KEY (canonical): token expired", reason="token expired")
+    if mode == "license_prefix_no_reason":
+        return _emit_error(3, "MLODA_LICENSE_KEY: token expired")
     if mode == "signal":
         os.kill(os.getpid(), signal.SIGKILL)
         return 6

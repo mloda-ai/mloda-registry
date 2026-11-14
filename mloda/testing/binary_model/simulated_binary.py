@@ -169,11 +169,12 @@ class _CliError(Exception):
     always run through ``_truncate_message`` so every error path respects the 1024-byte cap, since
     several messages interpolate caller-controlled data whose length is not otherwise bounded."""
 
-    def __init__(self, code: int, message: str) -> None:
+    def __init__(self, code: int, message: str, reason: str | None = None) -> None:
         message = _truncate_message(message)
         super().__init__(message)
         self.code = code
         self.message = message
+        self.reason = _truncate_message(reason) if reason else None
 
 
 class _ReservedConformanceInternalError(Exception):
@@ -277,15 +278,19 @@ def _license_source() -> tuple[str, str]:
     if file_value:
         path = Path(file_value)
         if not path.exists():
-            raise _CliError(LICENSE_MISSING, f"MLODA_LICENSE_FILE {file_value}: not found")
+            raise _CliError(LICENSE_MISSING, f"MLODA_LICENSE_FILE {file_value}: not found", "not found")
         if not path.is_file():
-            raise _CliError(LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not a regular file")
+            raise _CliError(
+                LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not a regular file", "not a regular file"
+            )
         try:
             return "MLODA_LICENSE_FILE", path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             # UnicodeDecodeError isn't an OSError, but undecodable content is "set but unusable"
             # (contract: License), same as any other unreadable-content failure: code 3, not a crash.
-            raise _CliError(LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not readable ({exc})") from exc
+            raise _CliError(
+                LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not readable ({exc})", f"not readable ({exc})"
+            ) from exc
 
     key_value = os.environ.get("MLODA_LICENSE_KEY", "")
     if key_value:
@@ -314,7 +319,7 @@ def _check_license(binary: FakeBinary) -> None:
             release_date=RELEASE_DATE,
         )
     except license_token.LicenseVerificationError as exc:
-        raise _CliError(LICENSE_INVALID, f"{source_name}: {exc.reason}") from exc
+        raise _CliError(LICENSE_INVALID, f"{source_name}: {exc.reason}", exc.reason) from exc
     if verified.in_grace:
         print(f"{source_name}: license accepted inside its grace window", file=sys.stderr)
 
@@ -624,8 +629,11 @@ def _dispatch(binary: FakeBinary, argv: list[str]) -> int:
     )
 
 
-def _emit_error(code: int, message: str) -> None:
-    print(json.dumps({"code": code, "message": message}), file=sys.stderr)
+def _emit_error(code: int, message: str, reason: str | None = None) -> None:
+    payload: dict[str, object] = {"code": code, "message": message}
+    if reason is not None:
+        payload["reason"] = reason
+    print(json.dumps(payload), file=sys.stderr)
 
 
 def _reconfigure_streams_utf8_lf() -> None:
@@ -647,7 +655,7 @@ def main(binary: FakeBinary = EXAMPLE_BINARY) -> int:
     try:
         return _dispatch(binary, sys.argv[1:])
     except _CliError as exc:
-        _emit_error(exc.code, exc.message)
+        _emit_error(exc.code, exc.message, exc.reason)
         return exc.code
     except Exception as exc:
         # Only the exception's class name is reported, never str(exc), which is unbounded and
