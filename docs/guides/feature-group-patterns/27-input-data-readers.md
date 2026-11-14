@@ -169,6 +169,14 @@ features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/
 
 Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
 
+## Credentials: Bound at Match Time or Read at Run Time
+
+A source group binds its credential at match time: `find_sources` takes it from a pointer value (`{"SqliteFG": Credential(...)}`) or a collection slot (narrowed by `data_access_handle`) and carries it in `SourceMatch.access`, and `load_neutral` connects with `match.access`. Override `match_credentials(match)` to return the collection entry itself, not a field of it or a copy (`ReadDBFG` already does). Without the override the plan, the lock and hook contexts record no bound handle; with a copy they record `<pointer>` instead of its name. Binding grants no `read_credential`.
+
+A bound value is pinned when the session is prepared, so `session.run(credentials=...)` refuses a named handle a source step binds (only when `match_credentials` returns the entry): a rotated database password needs a new session. Any other group, such as a transform that signs or encrypts loaded rows, declares a `credential_handle_spec` option and reads it with `read_credential` inside `calculate_feature`; that handle takes a per-run value. See [Secrets](11-options.md#secrets) and core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
+
+Bind a credential that opens the source at match time; read one used on loaded rows at run time. Either way the caller reads the environment (`Credential(token=os.environ["API_TOKEN"])`), never an option or credential slot naming an environment variable.
+
 ## Families of Sibling Sources
 
 A base that implements `find_sources` and `load_neutral` is concrete, so its class name is a pointer key and a `feature_group=` scope for every subclass; an abstract base drops out of both, so `feature_group="Base"` covers the family only when the base is concrete.
@@ -295,6 +303,6 @@ A group that overrides `match_feature_group_criteria` or probes through `gated_p
 
 - **Pattern 1 (Root features)**: source groups are the root features that read files, documents and databases
 - **Pattern 17 (Data connection matching)**: `DataAccessCollection` and handles for connection-shaped sources
-- **Pattern 11 (Options)**: option keys and context vs group semantics
+- **Pattern 11 (Options)**: option keys, context vs group semantics, and credential handles a non-source group reads at run time
 - **Pattern 26 (Input-feature option forwarding)**: a forwarded pointer binds every input it reaches
 - **Pattern 28 (Backend families)**: selecting a sibling source group by the credential slot it finds instead of a class-name key
