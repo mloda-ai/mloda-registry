@@ -447,6 +447,46 @@ def test_no_configured_package_names_the_community_bundle_outside_dev() -> None:
     assert violations == [], f"no package may depend on the mloda-community bundle: {violations}"
 
 
+def _mloda_testing_plugin_distribution_violations(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Community or enterprise distributions that mloda-testing names outside its binary-model extra."""
+    cfg = packages.get("mloda-testing", {})
+    specs = {"dependencies": cfg.get("dependencies", [])}
+    for extra, extra_deps in cfg.get("optional_dependencies", {}).items():
+        if extra != "binary-model":
+            specs[f"extra {extra}"] = extra_deps
+    return [
+        f"mloda-testing ({where}): {dep}"
+        for where, deps in specs.items()
+        for dep in deps
+        if _dep_name(dep).startswith(("mloda-community", "mloda-enterprise"))
+    ]
+
+
+def test_mloda_testing_names_no_community_or_enterprise_distribution_outside_binary_model_extra() -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    assert "mloda-testing" in packages, "mloda-testing missing from config/packages.toml"
+    violations = _mloda_testing_plugin_distribution_violations(packages)
+    assert violations == [], f"the test kit must not depend on community or enterprise code: {violations}"
+
+
+def test_mloda_testing_plugin_distribution_violations_are_detected_outside_binary_model_extra() -> None:
+    hard = {"mloda-testing": {"dependencies": ["mloda_community_aggregation>=1"]}}
+    assert _mloda_testing_plugin_distribution_violations(hard) == [
+        "mloda-testing (dependencies): mloda_community_aggregation>=1"
+    ]
+    extra = {"mloda-testing": {"optional_dependencies": {"dev": ["mloda-enterprise[ed25519]>=1"]}}}
+    assert _mloda_testing_plugin_distribution_violations(extra) == [
+        "mloda-testing (extra dev): mloda-enterprise[ed25519]>=1"
+    ]
+    allowed = {
+        "mloda-testing": {
+            "dependencies": ["pyarrow"],
+            "optional_dependencies": {"binary-model": ["mloda-community-binary-model>=1", "mloda-enterprise>=1"]},
+        }
+    }
+    assert _mloda_testing_plugin_distribution_violations(allowed) == []
+
+
 def test_consumers_name_the_binary_model_package_instead_of_the_bundle() -> None:
     packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     mixin = "mloda-community-binary-model"

@@ -16,6 +16,7 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for, make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import RankTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 
 
@@ -157,7 +158,7 @@ class TestRankOperationGroup(OperationGroupTestBase):
 
     @classmethod
     def universe(cls) -> frozenset[str]:
-        return frozenset({"row_number", "rank", "dense_rank", "percent_rank", "ntile", "top", "bottom"})
+        return frozenset(RankTestBase.ALL_RANK_TYPES)
 
     @classmethod
     def name_probes(cls) -> list[tuple[str, str]]:
