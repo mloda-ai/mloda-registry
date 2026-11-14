@@ -607,7 +607,12 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
         userinfo_marker = "SENSITIVE_USERINFO_VALUE_xyz123"
         context_identity = "s3://bucket/key.parquet"
         # A different path than the context identity, so an extender that records raw args[0] is caught too.
-        raw = f"s3://{userinfo_marker}:{userinfo_marker}@bucket/raw/key.parquet?X-Amz-Signature={marker}"
+        param_marker = "SENSITIVE_PATH_PARAM_VALUE_xyz123"
+        encoded_marker = "SENSITIVE_ENCODED_PARAM_VALUE_xyz123"
+        raw = (
+            f"s3://{userinfo_marker}:{userinfo_marker}@bucket/raw;token={param_marker}"
+            f"/sub%3Btoken={encoded_marker}/key.parquet?X-Amz-Signature={marker}"
+        )
 
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
 
@@ -627,6 +632,10 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
                 assert marker not in str(value), span.attributes
                 assert userinfo_marker not in str(value), (
                     f"URI user information reached a span attribute: {span.attributes}"
+                )
+                assert param_marker not in str(value), f"URI path parameter reached a span attribute: {span.attributes}"
+                assert encoded_marker not in str(value), (
+                    f"percent-encoded path parameter reached a span attribute: {span.attributes}"
                 )
             identity_attribute = span.attributes.get("mloda.data_access.identity")
             if identity_attribute is not None:

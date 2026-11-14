@@ -568,8 +568,7 @@ def _make_rewriting_identity_host(rewrite_identity: Callable[[HookContext, tuple
 
 
 class TestQueryStringIdentityContract:
-    """Proves the identity contract test fails for an extender that records the raw data access in a span
-    attribute, or its user information whole or with only the password masked."""
+    """Proves the identity contract test fails for extenders that leak the raw data access into a span."""
 
     @pytest.mark.parametrize(
         ("rewrite_identity", "match"),
@@ -584,6 +583,18 @@ class TestQueryStringIdentityContract:
                 lambda context, args: re.sub(r":[^:@/]+@", ":***@", str(args[0]).partition("?")[0]),
                 "URI user information reached a span attribute",
                 id="masks-password-keeps-username",
+            ),
+            pytest.param(
+                lambda context, args: re.sub(r"//[^/@]*@", "//", str(args[0]).partition("?")[0]),
+                "URI path parameter reached a span attribute",
+                id="records-sanitized-raw-path",
+            ),
+            pytest.param(
+                lambda context, args: re.sub(
+                    r";[^/]*", ";***", re.sub(r"//[^/@]*@", "//", str(args[0]).partition("?")[0])
+                ),
+                "percent-encoded path parameter reached a span attribute",
+                id="cuts-literal-path-parameters-only",
             ),
         ],
     )
