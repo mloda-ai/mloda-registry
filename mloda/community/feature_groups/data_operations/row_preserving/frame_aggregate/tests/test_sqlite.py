@@ -64,7 +64,7 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
     @classmethod
     def supported_time_units(cls) -> set[str]:
         # SQLite's native ``datetime(ts, '-N months')`` rolls over by day-of-month
-        # (Mar 31 -1mo = Mar 3) whereas the reference uses ``relativedelta``
+        # (Mar 31 -1mo = Mar 3) whereas the reference clamps to the month end
         # (= Feb 28). Rather than fall back to a Python loop (which would defeat
         # the point of running inside the SQLite engine), we reject month/year
         # at match time. See known-divergences.md.

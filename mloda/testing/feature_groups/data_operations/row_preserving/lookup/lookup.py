@@ -203,8 +203,10 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def reserved_columns_helper_names(cls) -> set[str]:
         return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_lk0__", "__mloda_lv0__"}
 
-    def unmatched_error(self) -> Any:
-        return feature_group_of(self.implementation_class()).UNMATCHED_ERROR
+    @classmethod
+    def unmatched_error(cls) -> Any:
+        """Exception class the group under test raises for unmatched keys."""
+        return feature_group_of(cls.implementation_class()).UNMATCHED_ERROR
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

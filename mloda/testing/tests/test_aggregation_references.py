@@ -246,7 +246,7 @@ class TestDeclaredTypeAgreesWithReturnDataTypeRule:
 
 
 class TestReferenceScalarAggregateRejectsUnsupported:
-    """The scalar reference rejects agg types outside the family's _SUPPORTED_AGG_TYPES."""
+    """The scalar reference rejects agg types outside the kit's SUPPORTED_SCALAR_AGG_TYPES."""
 
     def test_nunique_raises_value_error(self) -> None:
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (

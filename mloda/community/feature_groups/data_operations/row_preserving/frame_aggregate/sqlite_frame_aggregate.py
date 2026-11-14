@@ -41,9 +41,9 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
     compute_framework = SqliteFramework
     # SQLite has no native calendar-anchored INTERVAL arithmetic: ``datetime(ts, '-N months')``
     # uses fixed-day-of-month rollover (Mar 31 -1mo = Mar 3) which diverges from the
-    # ``dateutil.relativedelta`` semantics (Mar 31 -1mo = Feb 28) used by the reference
-    # implementation. Rather than fall back to Python-side calendar arithmetic (which
-    # would defeat the point of running inside the SQLite engine), month/year units are
+    # month-end clamp the reference applies (Mar 31 -1mo = Feb 28). Rather than fall back to
+    # Python-side calendar arithmetic (which would defeat the point of running inside the SQLite engine),
+    # month/year units are
     # rejected by ``accepts``. See known-divergences.md.
     SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
     supported = frozenset(_SQLITE_AGG_FUNCS)
@@ -176,7 +176,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         Only second/minute/hour/day/week units reach this path. Month/year are
         rejected at ``match_feature_group_criteria`` time via
         ``SUPPORTED_TIME_UNITS`` because SQLite's native month/year arithmetic
-        diverges from ``relativedelta``. See known-divergences.md.
+        diverges from the reference's month-end clamp. See known-divergences.md.
         """
         size = int(frame_size) if frame_size is not None else 1
         unit = str(frame_unit or "day")

@@ -1,4 +1,4 @@
-"""A published-base subclass whose _plugin_collector has no creator parameter must still run."""
+"""Published-base subclasses must still run: a legacy _plugin_collector without a creator, and the family bases."""
 
 from abc import abstractmethod
 from typing import Any

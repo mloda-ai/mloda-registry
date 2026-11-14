@@ -116,6 +116,11 @@ class DataOpsTestBase(ABC):
     def test_group_contract_version_is_the_kit_version(self) -> None:
         group = feature_group_of(self.implementation_class())
         actual = getattr(group, "CONTRACT_VERSION", None)
+        if actual is None:
+            raise AssertionError(
+                f"{group.__name__} declares no CONTRACT_VERSION; declare CONTRACT_VERSION = "
+                f"{self.contract_version()} on the group"
+            )
         assert actual == self.contract_version(), (
             f"{group.__name__}.CONTRACT_VERSION is {actual}, but the kit expects {self.contract_version()}; "
             "override contract_version() once the expected values follow the new contract"

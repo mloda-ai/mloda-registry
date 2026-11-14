@@ -1,4 +1,4 @@
-"""Pure Python reference for frame aggregate: the shared loop with a kernel-backed compute.
+"""Pure Python reference for frame aggregate: runs the loop of the group passed in with a kernel-backed compute.
 
 pa.Table is only the I/O container; grouping, ordering and windowing run on ``to_pylist()`` lists.
 """

@@ -1,4 +1,4 @@
-"""Pure Python reference for scalar aggregate: the shared loop with a kernel-backed compute.
+"""Pure Python reference for scalar aggregate: runs the loop of the group passed in with a kernel-backed compute.
 
 pa.Table is only the I/O container; the aggregate runs on a ``to_pylist()`` list.
 """

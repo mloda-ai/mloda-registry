@@ -380,9 +380,9 @@ def test_group_contract_version_fails_naming_both_versions_on_a_mismatch() -> No
     with pytest.raises(AssertionError) as excinfo:
         _contract_stub(_NewerVersionedPlugin).test_group_contract_version_is_the_kit_version()
     message = str(excinfo.value)
-    assert "2" in message
-    assert "1" in message
-    assert "contract_version" in message
+    assert "CONTRACT_VERSION is 2" in message
+    assert "expects 1" in message
+    assert "contract_version()" in message
 
 
 def test_group_contract_version_passes_when_the_stub_overrides_the_kit_version() -> None:
@@ -392,7 +392,10 @@ def test_group_contract_version_passes_when_the_stub_overrides_the_kit_version()
 def test_group_contract_version_fails_for_a_group_declaring_none() -> None:
     with pytest.raises(AssertionError) as excinfo:
         _contract_stub(_FeatureGroupPlugin).test_group_contract_version_is_the_kit_version()
-    assert "None" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert _FeatureGroupPlugin.__name__ in message
+    assert "declares no CONTRACT_VERSION" in message
+    assert "override" not in message
 
 
 # -- helpers.masked_column ----------------------------------------------------

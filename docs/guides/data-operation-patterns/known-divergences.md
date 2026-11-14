@@ -267,7 +267,7 @@ regression_test:
 <!-- machine-checked
 operation: frame_aggregate
 framework: sqlite, pandas
-condition: month/year calendar units diverge from relativedelta (SQLite) or are unsupported (Pandas)
+condition: month/year calendar units diverge from the reference's month-end clamp (SQLite) or are unsupported (Pandas)
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py

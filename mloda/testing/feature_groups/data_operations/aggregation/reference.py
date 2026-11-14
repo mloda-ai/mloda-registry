@@ -1,4 +1,4 @@
-"""Pure Python reference for aggregation: the shared loop with a kernel-backed compute.
+"""Pure Python reference for aggregation: runs the loop of the group passed in with a kernel-backed compute.
 
 pa.Table is only the I/O container; grouping and aggregation run on ``to_pylist()`` lists.
 """
