@@ -319,7 +319,7 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-The conformance suites for source groups are importable from `mloda.testing.source`. Mix in the one that fits the base class: `SourceFeatureGroupTestMixin` (`source_suite`) for a source group, `ReadFileFGTestMixin` (`read_file_suite`) for `ReadFileFG`, `ReadDBFGTestMixin` (`read_db_suite`) for `ReadDBFG`, `ReadDocumentFGTestMixin` (`read_document_suite`) for `ReadDocumentFG`. `loads_into_framework_suite` and `column_discovery_suite` add the loads-into-framework and column-discovery checks. A host for `SensorCsvFG` (its `load_neutral` must really parse the file for the suite to pass, the sketch above stubs it):
+Conformance suites for source groups live in `mloda.testing.source`. Mix in the one that fits the base class: `SourceFeatureGroupTestMixin` (`source_suite`), `ReadFileFGTestMixin` (`read_file_suite`), `ReadDBFGTestMixin` (`read_db_suite`) or `ReadDocumentFGTestMixin` (`read_document_suite`). `loads_into_framework_suite` and `column_discovery_suite` add further checks. A host for `SensorCsvFG` (its `load_neutral` must really parse the file; the sketch above stubs it):
 
 ```py
 from pathlib import Path
