@@ -149,8 +149,6 @@ binding the wrong source.
 
 ## Credentials
 
-To read a credential from a feature group, see [Secrets](11-options.md#secrets).
-
 Credentials are a resource kind alongside connections, files, and folders, but with one
 twist: a credential *is* a dict, so a bare `{connector_id: slot}` dict collides with the
 named `{handle: value}` form. Wrap each credential slot in the typed `Credential` class

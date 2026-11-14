@@ -20,9 +20,7 @@ How to pass configuration to features and feature groups.
 
 **Default**: When you pass a dict without specifying `group=` or `context=`, it goes to **group**. This means `Options({"algo": "kmeans"})` is equivalent to `Options(group={"algo": "kmeans"})`. Be explicit when you need context-only parameters.
 
-**Group values**: A group option value may be any hashable object with value equality (e.g. a frozen dataclass), not only a name or primitive. Dicts, lists, tuples and sets are walked; an unhashable object falls back to its `repr`, and a default `repr` includes the address, so equal objects split.
-
-Secrets never go in options (see [Secrets](#secrets)).
+**Group values**: any hashable object with value equality (e.g. a frozen dataclass) works, not only names or primitives; a default `repr` includes the address, so unhashable objects split.
 
 **Fixed at prepare**: A prepared session keeps the group and context options its features had at `mloda.prepare`, and `session.run()` takes new data, not new options, so a changed option needs a new `prepare` (see [Realtime Execution](24-realtime.md)). What the group reads during each run, such as the file an environment variable points to (its name given in a context option), picks up changes without one. A key declared with `property_spec(..., runtime=True)` is a runtime parameter: a run may replace its value with `session.run(parameters={key: value})`, for that run only.
 
@@ -58,55 +56,13 @@ feature = Feature(
 
 The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
-A key that a consumer and its input both read is declared on the group the user requests:
-
-- The input group reads the forwarded value from `feature.options` without declaring it
-- Declaring it in both `PROPERTY_MAPPING`s logs a warning once per run
-- The requested group must not stop it forwarding (e.g. `forward_group_exclude` on that key)
+A key that a consumer and its input both read is declared only on the group the user requests; the input reads the forwarded value from `feature.options`, and declaring it on both logs a warning.
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
 
 ## Secrets
 
-```python
-from typing import Any, ClassVar
-
-from mloda.provider import DataCreatorFeatureGroup, FeatureSet, credential_handle_spec, read_credential
-from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, PluginLoader, mloda
-
-PluginLoader.all()
-
-
-class Guide11Token(DataCreatorFeatureGroup):
-    PROPERTY_MAPPING: ClassVar = {
-        "guide11_token_handle": credential_handle_spec("Credential holding the token", required_fields=("token",)),
-    }
-
-    @classmethod
-    def feature_names_supported(cls) -> set[str]:
-        return {"guide11_token_length"}
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        token = read_credential(features.get_options_key("guide11_token_handle"))["token"]
-        return {"guide11_token_length": [len(token)]}
-
-
-result = mloda.run_all(
-    [Feature("guide11_token_length", Options(group={"guide11_token_handle": "api"}))],
-    compute_frameworks=["PandasDataFrame"],
-    plugin_collector=PluginCollector.enabled_feature_groups({Guide11Token}),
-    data_access_collection=DataAccessCollection(credentials={"api": Credential(token="s3cret-token")}),
-)
-assert result[0]["guide11_token_length"].tolist() == [12]
-```
-
-- A secret never enters options, which mloda hashes and echoes; options carry only the handle name
-- `credential_handle_spec` declares a strict group option; `required_fields` names the fields the credential must have
-- The steward registers `Credential(...)` in the `DataAccessCollection` (see [Credentials](17-data-connection-matching.md#credentials)); the group reads it with `read_credential` inside `calculate_feature`
-- Planning fails naming the option and the handle; a handle is a public name shown in errors and explain, so never paste a secret in its place
-- Rotate per run with `session.run(credentials=...)`; test with `credentials_scope({handle: {...}})`
-- Real implementation: `AnonymizerFeatureGroup`; see core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding)
+Never put a secret in options (they are hashed and shown in explain). Declare an option naming a credential handle with `credential_handle_spec`, register the `Credential` in the `DataAccessCollection`, and read it in `calculate_feature` with `read_credential`; test with `credentials_scope`. A handle is a public name, so never paste a secret in its place. Example: `AnonymizerFeatureGroup`; details in core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
 
 ## PROPERTY_MAPPING value space
 
