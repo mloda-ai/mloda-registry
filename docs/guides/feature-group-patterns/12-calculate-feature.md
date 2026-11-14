@@ -100,7 +100,7 @@ The framework's `transform()` accepts two shapes, and which one you return decid
 
 | Return | Meaning |
 |--------|---------|
-| A whole frame | Initial data. Becomes the frame. This is what root features return. |
+| A whole frame | Initial data. Becomes the frame. Returned by root features, by `replaces_rows()` groups, and by a group that returns `data` with its column added. |
 | A single column | Added data. Appended to the existing frame under the requested name. Only valid when the FeatureSet holds exactly one feature. |
 
 | Framework | Whole frame | Single column |
@@ -143,7 +143,7 @@ A row-oriented `list[dict]` is still accepted, but it is not the native shape: `
 
 ### Returning Other Rows: replaces_rows()
 
-Override `replaces_rows()` to return True when the group returns other rows than it receives (an aggregation, a resample or re-basing, a sorted, filtered or deduplicated table). Each step then writes a frame of its own while sibling steps keep reading the unchanged input, so return a new whole frame holding the output and the key column a consumer joins on, and never add columns to `data` or otherwise mutate it. On `PythonDictFramework` that is a fresh dict, the shape the "WRONG" example above warns about for row-preserving groups. The aggregation group in [`aggregation/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/feature_groups/data_operations/aggregation/base.py) is a real example.
+Override `replaces_rows()` to return True when the group returns other rows than it receives (an aggregation, a resample or re-basing, a sorted, filtered or deduplicated table). Each step then writes a frame of its own while sibling steps keep reading the unchanged input, so return a new whole frame holding the output and the key column a consumer joins on (input columns it does not return are not on its frame; consumers reach them through the Link described below), and never add columns to `data` or otherwise mutate it. On `PythonDictFramework` that is a fresh dict, the shape the "WRONG" example above warns about for row-preserving groups. Core handles the flag, not the compute framework, so it works on every built-in framework (and any whose `transform()` accepts a whole frame): return that framework's whole-frame form from the table above. The aggregation group in [`aggregation/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/feature_groups/data_operations/aggregation/base.py) is a real example.
 
 ```py
 @classmethod
