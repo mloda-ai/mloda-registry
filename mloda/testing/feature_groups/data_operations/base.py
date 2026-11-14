@@ -196,7 +196,7 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def nan_policy_table(cls) -> pa.Table:
-        """Shared grp/ts/val fixture for sum/avg/count/median/mode/min/max/std/var NaN-policy tests.
+        """Shared grp/ts/val fixture for sum/avg/count/median/mode/min/max/std/var/nunique/first/last NaN-policy tests.
 
         Consumed by ``NanPolicyTestMixin.test_mixin_nan_policy`` (see
         ``mloda/testing/feature_groups/data_operations/mixins/nan_policy.py``).

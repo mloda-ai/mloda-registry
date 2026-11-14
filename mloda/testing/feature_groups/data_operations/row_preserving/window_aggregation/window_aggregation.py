@@ -91,10 +91,14 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "var_pop": [float("nan")] * 7,
     "std_samp": [float("nan")] * 7,
     "var_samp": [float("nan")] * 7,
+    "nunique": [3] * 7,
+    "first": [2.0] * 3 + [1.0] * 4,
+    "last": [1.0] * 3 + [float("nan")] * 4,
 }
 # Known per-backend divergences, declared by the implementation's ``divergences``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
-# both skip it in sum/avg/count; pandas also skips NaN in std/var.
+# both skip it in sum/avg/count; pandas also skips NaN in std/var, drops it in nunique and
+# skips it in first/last (first equals the policy here because no group starts with NaN).
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
     "sum": [3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0],
@@ -107,6 +111,9 @@ NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "var_pop": [0.25] * 3 + [1.0] * 4,
     "std_samp": [0.5**0.5] * 3 + [2.0**0.5] * 4,
     "var_samp": [0.5] * 3 + [2.0] * 4,
+    "nunique": [2] * 7,
+    "first": [2.0] * 3 + [1.0] * 4,
+    "last": [1.0] * 3 + [3.0] * 4,
 }
 
 # Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
@@ -322,6 +329,13 @@ class WindowAggregationTestBase(
     @classmethod
     def nan_policy_feature_name(cls, case: str) -> str:
         return f"val__{case}_window"
+
+    @classmethod
+    def nan_policy_feature_set(cls, feature_name: str) -> FeatureSet:
+        # first/last are order dependent and need order_by
+        if feature_name.startswith(("val__first_", "val__last_")):
+            return make_feature_set(feature_name, ["grp"], order_by="ts")
+        return make_feature_set(feature_name, ["grp"])
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:

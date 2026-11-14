@@ -33,7 +33,9 @@ class PandasWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             kind=DivergenceKind.VARIANT,
             variant="nan_as_null",
             cause=Cause.BACKEND,
-            subtypes=frozenset({"sum", "avg", "mean", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}),
+            subtypes=frozenset(
+                {"sum", "avg", "mean", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp", "first", "last"}
+            ),
             reason="skips NaN",
         ),
         Divergence(
@@ -47,7 +49,7 @@ class PandasWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             kind=DivergenceKind.VARIANT,
             variant="nan_as_null",
             cause=Cause.BACKEND,
-            subtypes=frozenset({"mode"}),
+            subtypes=frozenset({"mode", "nunique"}),
             reason="does not count NaN as a value",
         ),
         Divergence(

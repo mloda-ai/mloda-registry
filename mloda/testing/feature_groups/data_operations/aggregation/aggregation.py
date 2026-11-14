@@ -127,10 +127,14 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "var_pop": {"A": float("nan"), "B": float("nan")},
     "std_samp": {"A": float("nan"), "B": float("nan")},
     "var_samp": {"A": float("nan"), "B": float("nan")},
+    "nunique": {"A": 3, "B": 3},
+    "first": {"A": 2.0, "B": 1.0},
+    "last": {"A": 1.0, "B": float("nan")},
 }
 # Known per-backend divergences, declared by the implementation's ``divergences``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
-# both skip it in sum/avg/count; pandas also skips NaN in std/var.
+# both skip it in sum/avg/count; pandas also skips NaN in std/var, drops it in nunique and
+# skips it in first/last (first equals the policy here because no group starts with NaN).
 NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "mode": {"A": 2.0, "B": 1.0},
     "sum": {"A": 3.0, "B": 4.0},
@@ -143,6 +147,9 @@ NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "var_pop": {"A": 0.25, "B": 1.0},
     "std_samp": {"A": 0.5**0.5, "B": 2.0**0.5},
     "var_samp": {"A": 0.5, "B": 2.0},
+    "nunique": {"A": 2, "B": 2},
+    "first": {"A": 2.0, "B": 1.0},
+    "last": {"A": 1.0, "B": 3.0},
 }
 
 # (agg_type, needs_skip) for aggregations over the all-null ``score`` column.
