@@ -2175,135 +2175,106 @@ class TestOpenLineageExtenderParentRunFacet:
         assert all(_run_facet(event, "mlodaStep")["featureNames"] == ["a", "b"] for event in transport.events)
 
     @pytest.mark.parametrize(
-        ("implementation", "implementation_version", "expected"),
+        ("hook_fields", "expected"),
         [
-            ("pkg.mod:Impl", "v9", {"implementation": "pkg.mod:Impl", "implementationVersion": "v9"}),
-            ("neutral", None, {"implementation": "neutral"}),
-            (None, None, {}),
+            pytest.param(
+                {"implementation": "pkg.mod:Impl", "implementation_version": "v9"},
+                {"implementation": "pkg.mod:Impl", "implementationVersion": "v9"},
+                id="implementation_and_version",
+            ),
+            pytest.param({"implementation": "neutral"}, {"implementation": "neutral"}, id="implementation_only"),
+            pytest.param({}, {}, id="no_optional_fields_omits_every_key"),
+            pytest.param({"contract_version": 1}, {"contractVersion": 1}, id="contract_version"),
+            pytest.param({"contract_version": None}, {}, id="contract_version_none_is_omitted"),
+            pytest.param({"allowed_variants": ("nan_as_null",)}, {"allowedVariants": ["nan_as_null"]}, id="allowed"),
+            pytest.param({"allowed_variants": ()}, {}, id="allowed_variants_empty_is_omitted"),
+            pytest.param({"divergences": ()}, {}, id="divergences_empty_is_omitted"),
+            pytest.param(
+                {"divergences": "plain"},
+                {
+                    "divergences": [
+                        {
+                            "kind": "variant",
+                            "cause": "backend",
+                            "subtypes": ["avg", "sum"],
+                            "outputs": [],
+                            "reason": "NaN is null",
+                            "variant": "nan_as_null",
+                            "docs": "docs/nan",
+                        },
+                        {
+                            "kind": "value",
+                            "cause": "other",
+                            "subtypes": [],
+                            "outputs": ["a", "b"],
+                            "reason": "r",
+                            "docs": "d",
+                        },
+                    ]
+                },
+                id="divergences_plain",
+            ),
+            pytest.param({"divergences": "stamped"}, {"divergences": "stamped"}, id="divergences_stamped"),
         ],
     )
-    def test_step_facet_carries_the_implementation_fields(
+    def test_step_facet_carries_the_optional_step_fields(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
-        implementation: str | None,
-        implementation_version: str | None,
-        expected: dict[str, str],
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-
-        with make_hook_context(
-            run_id=_RUN_A, implementation=implementation, implementation_version=implementation_version
-        ).activate():
-            extender(lambda: None)
-
-        assert transport.events
-        for event in transport.events:
-            step = _run_facet(event, "mlodaStep")
-            assert {k: step[k] for k in ("implementation", "implementationVersion") if k in step} == expected
-
-    @pytest.mark.parametrize(
-        ("contract_version", "expected"),
-        [(1, {"contractVersion": 1}), (None, {})],
-    )
-    def test_step_facet_carries_the_contract_version(
-        self,
-        ol_capture: tuple[OpenLineageClient, RecordingTransport],
-        contract_version: int | None,
-        expected: dict[str, int],
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-
-        with make_hook_context(run_id=_RUN_A, contract_version=contract_version).activate():
-            extender(lambda: None)
-
-        assert transport.events
-        for event in transport.events:
-            step = _run_facet(event, "mlodaStep")
-            assert {k: step[k] for k in ("contractVersion",) if k in step} == expected
-
-    @pytest.mark.parametrize("stamp", [False, True], ids=["plain", "stamped"])
-    def test_step_facet_carries_the_divergences(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], stamp: bool
+        hook_fields: dict[str, Any],
+        expected: dict[str, Any],
     ) -> None:
         from mloda.provider import Cause, Divergence, DivergenceKind
 
         from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import PandasAggregation
 
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-        variant = Divergence(
-            kind=DivergenceKind.VARIANT,
-            cause=Cause.BACKEND,
-            subtypes=frozenset({"sum", "avg"}),
-            reason="NaN is null",
-            variant="nan_as_null",
-            docs="docs/nan",
-        )
-        value = Divergence(
-            kind=DivergenceKind.VALUE, cause=Cause.OTHER, outputs=frozenset({"b", "a"}), reason="r", docs="d"
-        )
-        records: tuple[Divergence, ...] = (variant, value)
-        if stamp:
+        hook_fields = dict(hook_fields)
+        if hook_fields.get("divergences") == "plain":
+            hook_fields["divergences"] = (
+                Divergence(
+                    kind=DivergenceKind.VARIANT,
+                    cause=Cause.BACKEND,
+                    subtypes=frozenset({"sum", "avg"}),
+                    reason="NaN is null",
+                    variant="nan_as_null",
+                    docs="docs/nan",
+                ),
+                Divergence(
+                    kind=DivergenceKind.VALUE, cause=Cause.OTHER, outputs=frozenset({"b", "a"}), reason="r", docs="d"
+                ),
+            )
+        elif hook_fields.get("divergences") == "stamped":
             records = PandasAggregation.divergence_records()
             assert records
+            hook_fields["divergences"] = records
+            raw = [
+                {
+                    "source": r.source.value if r.source is not None else None,
+                    "framework": r.framework,
+                    "kind": r.kind.value,
+                    "cause": r.cause.value,
+                    "subtypes": sorted(r.subtypes),
+                    "outputs": sorted(r.outputs),
+                    "reason": r.reason,
+                    "variant": r.variant,
+                    "docs": r.docs,
+                }
+                for r in records
+            ]
+            stamped = [{k: v for k, v in entry.items() if v is not None} for entry in raw]
+            assert all(e["source"] == "implementation" and e["framework"] == "PandasDataFrame" for e in stamped)
+            expected = {"divergences": stamped}
 
-        with make_hook_context(run_id=_RUN_A, divergences=records).activate():
-            extender(lambda: None)
-
-        def _expected(r: Divergence) -> dict[str, Any]:
-            raw: dict[str, Any] = {
-                "source": r.source.value if r.source is not None else None,
-                "framework": r.framework,
-                "kind": r.kind.value,
-                "cause": r.cause.value,
-                "subtypes": sorted(r.subtypes),
-                "outputs": sorted(r.outputs),
-                "reason": r.reason,
-                "variant": r.variant,
-                "docs": r.docs,
-            }
-            return {k: v for k, v in raw.items() if v is not None}
-
-        expected = [_expected(r) for r in records]
-        if stamp:
-            assert all(e["source"] == "implementation" and e["framework"] == "PandasDataFrame" for e in expected)
-        else:
-            assert expected[0]["subtypes"] == ["avg", "sum"] and expected[1]["outputs"] == ["a", "b"]
-            assert "source" not in expected[0] and "variant" not in expected[1]
-        assert transport.events
-        for event in transport.events:
-            divergences = _run_facet(event, "mlodaStep")["divergences"]
-            assert divergences == expected
-
-    def test_step_facet_omits_empty_divergences_and_allowed_variants(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
 
-        with make_hook_context(run_id=_RUN_A).activate():
+        with make_hook_context(run_id=_RUN_A, **hook_fields).activate():
             extender(lambda: None)
 
+        keys = ("implementation", "implementationVersion", "contractVersion", "divergences", "allowedVariants")
         assert transport.events
         for event in transport.events:
             step = _run_facet(event, "mlodaStep")
-            assert "divergences" not in step
-            assert "allowedVariants" not in step
-
-    def test_step_facet_carries_the_allowed_variants(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-
-        with make_hook_context(run_id=_RUN_A, allowed_variants=("nan_as_null",)).activate():
-            extender(lambda: None)
-
-        assert transport.events
-        for event in transport.events:
-            assert _run_facet(event, "mlodaStep")["allowedVariants"] == ["nan_as_null"]
+            assert {k: step[k] for k in keys if k in step} == expected
 
 
 _PLAN_ID = "plan-0001"

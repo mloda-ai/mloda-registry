@@ -229,14 +229,12 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     def test_group_variants_are_the_declared_set(self) -> None:
         assert self.group_class().VARIANTS == self.variants()
 
-    def test_variant_records_follow_the_declared_variants(self, impl_id: str) -> None:
-        spec = self._spec(impl_id)
-        records = self._implementation(spec).divergences
-        assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
-
     def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
-        assert divergent_subtypes(self._implementation(spec)) == spec.divergent
+        implementation = self._implementation(spec)
+        assert divergent_subtypes(implementation) == spec.divergent
+        records = implementation.divergences
+        assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
 
     def test_divergent_is_inside_the_universe_with_a_reason(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
