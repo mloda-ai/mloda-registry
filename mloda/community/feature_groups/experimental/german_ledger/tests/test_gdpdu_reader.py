@@ -120,7 +120,7 @@ def _resolve(folders: list[Path], name: str, options: dict[str, str] | None = No
 
 
 def test_a_gdpdu_folder_does_not_claim_a_csv_column_name(tmp_path: Path) -> None:
-    """GdpduReader confirms only `gdpdu_journal`; any other name goes to the reader that has it."""
+    """GdpduReader confirms only `ledger_journal`; any other name goes to the reader that has it."""
     folder = tmp_path / "dossier_c"
     shutil.copytree(HERE / "fixtures" / "dossier_c", folder)
     (folder / "plain.csv").write_text("Kontonummer,Bezeichnung\n4000,Erloese\n", encoding="utf-8")
@@ -142,8 +142,8 @@ def _journal_origins(results: Any) -> list[str]:
     return [
         o
         for t in results
-        if "gdpdu_journal~__origin" in t.column_names
-        for o in t.column("gdpdu_journal~__origin").to_pylist()
+        if "ledger_journal~__origin" in t.column_names
+        for o in t.column("ledger_journal~__origin").to_pylist()
     ]
 
 
@@ -155,7 +155,7 @@ def _journal_origins(results: Any) -> list[str]:
 def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(reader: str, scheme: str) -> None:
     """The sibling reader declines when the other one is pinned, so only the pinned format answers."""
     pin = {reader: str(_twin_pair()[0 if reader == "GdpduReader" else 1])}
-    origins = _journal_origins(_resolve(_twin_pair(), "gdpdu_journal", pin, journals=True))
+    origins = _journal_origins(_resolve(_twin_pair(), "ledger_journal", pin, journals=True))
     assert origins and all(o.startswith(scheme) for o in origins), origins
 
 
@@ -245,7 +245,7 @@ def test_a_host_subclass_of_the_gdpdu_reader_pinned_by_name_stands_the_datev_rea
 
     try:
         gdpdu, datev = _twin_pair()
-        result = claim([gdpdu, datev], "gdpdu_journal", {DatevExtfReader, _HostGdpdu}, {"_HostGdpdu": str(gdpdu)})
+        result = claim([gdpdu, datev], "ledger_journal", {DatevExtfReader, _HostGdpdu}, {"_HostGdpdu": str(gdpdu)})
         assert result.error is None, result.error
         assert result.feature_group is _HostGdpdu, result.feature_group
     finally:
@@ -258,7 +258,7 @@ def test_two_dossiers_of_one_format_in_one_collection_are_refused_naming_the_poi
     for folder in folders:
         shutil.copytree(DOSSIER_A, folder)
     with pytest.raises(Exception) as info:
-        _resolve(folders, "gdpdu_journal", journals=True)
+        _resolve(folders, "ledger_journal", journals=True)
     message = str(info.value)
     assert "several sources" in message, message
     assert 'options={"GdpduReader":' in message, message

@@ -158,6 +158,10 @@ class ChartConflict(Exception):
     """The books name one chart of accounts and the host another."""
 
 
+class ChartNotStated(Exception):
+    """The host requires the books to state their chart, and they do not."""
+
+
 class AccountLengthUnsupported(Exception):
     """A Sachkonto longer than the 4-digit accounts the catalogue states."""
 
@@ -166,12 +170,20 @@ class GrossRevenueRefused(Exception):
     """A revenue leg whose booked amount includes VAT, with no declared net derivation."""
 
 
-def _chart(host: str, table: pa.Table) -> dict[str, range]:
+def _chart_source(table: pa.Table) -> str:
+    """ "books" when the journal has rows and every row states its chart, else "host"."""
+    if "SKR" not in table.column_names or table.num_rows == 0:
+        return "host"
+    return "books" if all(table.column("SKR").to_pylist()) else "host"
+
+
+def _chart(host: str, table: pa.Table, require_stated: bool = False) -> dict[str, range]:
     """The host's chart, checked against whatever the books say about themselves.
 
     A DATEV header may state its SKR (field 27; often empty). Empty leaves the host's word
     as the only one. A stated chart that differs from the host's is refused, not resolved:
-    under the wrong chart, 1200 is a bank balance counted as receivables.
+    under the wrong chart, 1200 is a bank balance counted as receivables. With `require_stated`,
+    books that do not state their chart on every row are refused too.
     """
     if host not in CHARTS:
         raise ValueError(f"host chart {host!r} is not one of {', '.join(repr(c) for c in sorted(CHARTS))}")
@@ -183,6 +195,17 @@ def _chart(host: str, table: pa.Table) -> dict[str, range]:
                 "The same account number means different things in the two charts, so one of "
                 "them is wrong and neither is picked."
             )
+    if require_stated and _chart_source(table) != "books":
+        example = ""
+        if table.num_rows:
+            origins = table.column(GdpduReader.ORIGIN_COLUMN).to_pylist()
+            skr = table.column("SKR").to_pylist() if "SKR" in table.column_names else [None] * len(origins)
+            missing = next((o for o, v in zip(origins, skr) if not v), None)
+            example = f" (e.g. {missing})" if missing else ""
+        raise ChartNotStated(
+            f"REQUIRE_STATED_CHART is set and the books do not state their chart on every row{example}. "
+            f"Without it the host's SKR{host} is assumed."
+        )
     return CHARTS[host]
 
 
@@ -235,7 +258,7 @@ def _fingerprint(chart: str) -> str:
     return hashlib.sha256(json.dumps(whole, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> str:
+def _basis(concept: str, chart: str, chart_source: str, profile: LedgerProfile, signed: bool) -> str:
     """What a concept's values were computed on, as one JSON document riding with the rows."""
     catalogue = CHARTS[chart]
     accounts = catalogue[concept]
@@ -244,6 +267,7 @@ def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> st
             "concept": concept,
             "profile": asdict(profile),
             "chart": f"SKR{chart}",
+            "chart_source": chart_source,
             "catalogue": {
                 "name": CATALOGUE_NAMES[chart],
                 "fingerprint": _fingerprint(chart),
@@ -261,7 +285,7 @@ PARTS = ("value", "origins", "basis")
 class SkrAccountFeatureGroup(FeatureGroup):
     """Maps SKR accounts onto concepts, over the ADMITTED journal only.
 
-    Its one input is `gdpdu_journal__admitted`, so a concept cannot be computed from rows
+    Its one input is `ledger_journal__admitted`, so a concept cannot be computed from rows
     no policy has seen: with no policy configured the input does not resolve.
 
     Each concept returns three columns at row-preserving line grain -- ``name~value``,
@@ -283,6 +307,9 @@ class SkrAccountFeatureGroup(FeatureGroup):
     # once at startup like PROFILES, never an agent-settable Option. It is a property of the
     # books, and a DATEV header that states a different one is refused (see _chart).
     CHART: str = "04"
+
+    # Host configuration like CHART: refuse books that do not state their chart on every row.
+    REQUIRE_STATED_CHART: bool = False
 
     @classmethod
     def feature_names_supported(cls) -> set[str]:
@@ -310,11 +337,14 @@ class SkrAccountFeatureGroup(FeatureGroup):
     @classmethod
     def declared_attributes(cls, features: FeatureSet | None) -> dict[str, str | int | float | bool]:
         """The chart and catalogue in force, for the extender hooks; the profile stays in `~basis`."""
-        return {
+        declared: dict[str, str | int | float | bool] = {
             "chart": f"SKR{cls.CHART}",
             "catalogue": CATALOGUE_NAMES[cls.CHART],
             "catalogue.fingerprint": _fingerprint(cls.CHART),
         }
+        if cls.REQUIRE_STATED_CHART:
+            declared["chart.source"] = "books"
+        return declared
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -334,7 +364,8 @@ class SkrAccountFeatureGroup(FeatureGroup):
         declared = set(table.column_names)
         profile = select_profile(cls.PROFILES, declared)
 
-        catalogue = _chart(cls.CHART, table)
+        catalogue = _chart(cls.CHART, table, cls.REQUIRE_STATED_CHART)
+        chart_source = _chart_source(table)
         _refuse_long_sachkonten(table, profile)
 
         konto = table.column(profile.account_column).to_pylist()
@@ -398,7 +429,9 @@ class SkrAccountFeatureGroup(FeatureGroup):
             # The basis rides at line grain like the stamp, so nothing between here and the
             # total can drop the definition while keeping the numbers it defined.
             signed = SOLL_POSITIVE in conventions
-            out[f"{name}~basis"] = pa.array([_basis(str(name), cls.CHART, profile, signed)] * n, type=pa.string())
+            out[f"{name}~basis"] = pa.array(
+                [_basis(str(name), cls.CHART, chart_source, profile, signed)] * n, type=pa.string()
+            )
 
         # The evidence rides along at the same grain. Dropping it here would let a total be
         # computed from rows whose admissibility nobody established -- the transform must not

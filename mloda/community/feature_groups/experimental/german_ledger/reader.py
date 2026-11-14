@@ -33,7 +33,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 INDEX_NAME = "index.xml"
 
 # The one feature name both readers confirm.
-JOURNAL = "gdpdu_journal"
+JOURNAL = "ledger_journal"
 
 # The citation column the reader adds. A descriptor declaring this name would be silently
 # overwritten by it, so the name is reserved rather than shared.

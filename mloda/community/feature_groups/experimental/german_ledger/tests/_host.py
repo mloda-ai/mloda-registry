@@ -1,7 +1,7 @@
 """A host's admissibility policy, for the end-to-end tests only.
 
 Imported lazily by the tests that run the full chain: importing it is what makes
-`gdpdu_journal__admitted` resolvable, and exactly one configured policy may be live per process.
+`ledger_journal__admitted` resolvable, and exactly one configured policy may be live per process.
 """
 
 from __future__ import annotations

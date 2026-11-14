@@ -657,6 +657,6 @@ def test_a_folder_holding_both_formats_resolves_when_one_reader_is_pinned(tmp_pa
     both = tmp_path / "both"
     shutil.copytree(HERE / "fixtures" / "dossier_a", both)
     shutil.copy(LEDERMANN / "EXTF_Buchungsstapel.csv", both)
-    feature = Feature("gdpdu_journal", Options({reader: str(both)}))
+    feature = Feature("ledger_journal", Options({reader: str(both)}))
     results = _run(both, [feature])
     assert results
