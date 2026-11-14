@@ -675,9 +675,8 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         assert_error_response(result, LICENSE_INVALID)
 
     def test_mixin_reports_the_license_source_and_a_reason_for_an_expired_license_file(self, tmp_path: Path) -> None:
-        """Through ``BinaryModelMixin`` an expired `LICENSE_FILE_OVERRIDE` raises
-        ``LicenseInvalidError`` naming the override as its source, with a non-empty reason that the
-        message ends with (contract: License)."""
+        """An expired `LICENSE_FILE_OVERRIDE` raises ``LicenseInvalidError`` with that source and a
+        reason the message ends with (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         config = self.make_config()
         model = cast(
