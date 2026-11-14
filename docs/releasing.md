@@ -133,7 +133,7 @@ Enforced by:
 
 - commit-lint fails a `core_dependency` change not typed `minor:` (title and a commit).
 - The lock test fails when the locked mloda is outside `core_dependency`.
-- `core-minor-watch.yaml` checks PyPI daily and opens one issue per core minor above the cap.
+- `core-minor-watch.yaml` checks PyPI daily and opens one issue per core minor at or above the cap.
 
 ## Required secrets
 

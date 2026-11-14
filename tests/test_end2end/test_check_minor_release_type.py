@@ -99,6 +99,8 @@ class TestCoreDependency:
             '[project]\nversion = "1"\n',
             "[defaults]\nother = 1\n",
             "[defaults]\ncore_dependency = 5\n",
+            "defaults = 1\n",
+            'defaults = "x"\n',
             '[defaults]\ncore_dependency = ["mloda>=0.20.0"]\n',
             "[defaults\ncore_dependency = ",
         ],
@@ -124,6 +126,8 @@ class TestCoreDependency:
 
 class TestGuards:
     def test_guard_definitions(self) -> None:
+        assert chk.SEAM_GUARD.name == "seam tables"
+        assert chk.CORE_DEPENDENCY_GUARD.name == "core_dependency"
         assert chk.SEAM_GUARD.path == "mloda/testing/extenders/openlineage.py"
         assert chk.SEAM_GUARD.extract is chk.seam_tables
         assert chk.CORE_DEPENDENCY_GUARD.path == "config/shared.toml"
@@ -156,6 +160,7 @@ class TestEvaluate:
         error = chk.evaluate(guard, base, changed, "fix: change", ["fix: change"])
         assert error is not None
         assert "minor:" in error
+        assert guard.name in error
         assert guard.path in error
 
     def test_change_with_minor_title_and_commit_passes(
@@ -185,6 +190,7 @@ class TestEvaluate:
         error = chk.evaluate(guard, base, head, "minor: change", ["minor: change"])
         assert error is not None
         assert "not found" in error
+        assert guard.name in error
         assert guard.path in error
         assert "scripts/check_minor_release_type.py" in error
 

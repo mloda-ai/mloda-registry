@@ -46,9 +46,12 @@ def is_minor(subject: str) -> bool:
 def core_dependency(source: str) -> str | None:
     """Return `[defaults] core_dependency` with whitespace removed, or None if missing or unusable."""
     try:
-        value = tomllib.loads(source).get("defaults", {}).get("core_dependency")
+        defaults = tomllib.loads(source).get("defaults")
     except tomllib.TOMLDecodeError:
         return None
+    if not isinstance(defaults, dict):
+        return None
+    value = defaults.get("core_dependency")
     return re.sub(r"\s+", "", value) if isinstance(value, str) else None
 
 
@@ -59,18 +62,21 @@ _MINOR_REQUIRED = (
 
 
 class Guard(NamedTuple):
+    name: str
     path: str
     extract: Callable[[str], str | None]
     reason: str
 
 
 SEAM_GUARD = Guard(
+    "seam tables",
     SEAM_SOURCE,
     seam_tables,
     "mloda-enterprise[openlineage] pins mloda-community-openlineage~={version}, which accepts patch releases, "
     f"so a seam change must bump the minor. {_MINOR_REQUIRED}",
 )
 CORE_DEPENDENCY_GUARD = Guard(
+    "core_dependency",
     SHARED_CONFIG,
     core_dependency,
     "Published packages cap mloda below the next minor, so moving core_dependency must release a minor. "
@@ -86,7 +92,7 @@ def evaluate(
     head = guard.extract(head_source) if head_source is not None else None
     if head is None:
         return (
-            f"Guarded value not found in {guard.path} at the PR head. "
+            f"{guard.name} not found in {guard.path} at the PR head. "
             "Update scripts/check_minor_release_type.py instead of disabling the check."
         )
     base = guard.extract(base_source) if base_source is not None else None
@@ -94,7 +100,7 @@ def evaluate(
         return None
     if is_minor(pr_title) and any(is_minor(s) for s in subjects):
         return None
-    return f"The guarded value in {guard.path} changed. {guard.reason}"
+    return f"The {guard.name} in {guard.path} changed. {guard.reason}"
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:

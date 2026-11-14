@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -48,11 +49,13 @@ class TestAboveCap:
     def test_latest_against_cap(self, latest: str, expected: bool) -> None:
         assert chk.above_cap(_CAPPED, latest) is expected
 
-    def test_real_shared_cap_with_version_just_below(self) -> None:
+    def test_real_shared_cap_boundaries(self) -> None:
         core = load_toml(_REPO_ROOT / "config" / "shared.toml")["defaults"]["core_dependency"]
-        upper = chk.cap(core)
-        just_below = ".".join(str(n) for n in (*upper[:-2], upper[-2] - 1, 99))
-        assert chk.above_cap(core, just_below) is False
+        cap_version = ".".join(str(n) for n in chk.cap(core))
+        floor = re.search(r">=\s*([0-9][0-9A-Za-z.]*)", core)
+        assert floor is not None
+        assert chk.above_cap(core, cap_version) is True
+        assert chk.above_cap(core, floor.group(1)) is False
 
 
 class TestLatestVersion:

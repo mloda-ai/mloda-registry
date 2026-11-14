@@ -28,7 +28,7 @@ jobs:
           set -euo pipefail
           minor=$(cut -d. -f1,2 <<< "$VERSION")
           export TITLE="mloda $minor is on PyPI: release the registry against it"
-          existing=$(gh issue list --state all --search "$TITLE in:title" --json title --jq '[.[] | select(.title == env.TITLE)] | length')
+          existing=$(gh issue list --state all --limit 100 --search "$TITLE in:title" --json title --jq '[.[] | select(.title == env.TITLE)] | length')
           if [ "$existing" != "0" ]; then
             echo "Issue already exists: $TITLE"
             exit 0

@@ -19,7 +19,6 @@ import re
 from pathlib import Path
 
 from packaging.requirements import Requirement
-from packaging.version import Version
 
 from tests.script_loader import load_script
 from tests.toml_loader import load_toml
@@ -125,7 +124,7 @@ def test_locked_mloda_satisfies_core_dependency() -> None:
     specifier = Requirement(core).specifier
     locked = [p["version"] for p in load_toml(_UV_LOCK).get("package", []) if p.get("name") == "mloda"]
     assert locked, "uv.lock has no [[package]] named 'mloda'."
-    outside = [v for v in locked if Version(v) not in specifier]
+    outside = [v for v in locked if not specifier.contains(v, prereleases=True)]
     assert outside == [], (
         f"uv.lock pins mloda {outside!r}, outside core_dependency {core!r}. Regenerate with "
         '`python scripts/generate_pyproject.py`, then relock with `uv tool run --from "uv==0.13.5" uv lock`.'
