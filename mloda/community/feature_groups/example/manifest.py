@@ -9,7 +9,9 @@ from __future__ import annotations
 from mloda.provider import FeatureGroup
 
 from .community_example_feature_group import CommunityExampleFeatureGroup
+from .credential_example_feature_group import CredentialExampleFeatureGroup
 
 FEATURE_GROUPS: list[type[FeatureGroup]] = [
     CommunityExampleFeatureGroup,
+    CredentialExampleFeatureGroup,
 ]

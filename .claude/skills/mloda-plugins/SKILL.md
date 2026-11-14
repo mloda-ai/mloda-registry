@@ -128,6 +128,9 @@ Q31: Need to define what feature names your FeatureGroup provides (beyond the de
 
 Q32: Is the model a compiled binary (shipped as a wheel, possibly license-gated) that must stay a black box?
     YES → See 29-binary-backed-features
+
+Q33: Does it need a secret (token, key, password) while it runs?
+    YES → See 11-options (Secrets): a credential handle option, read with read_credential
 ```
 
 ### Feature Group Pattern Guides
@@ -146,7 +149,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 08 | `08-links-joins.md` | Join data from multiple feature groups |
 | 09 | `09-framework-specific.md` | Restrict to certain frameworks |
 | 10 | `10-testing-guide.md` | Unit, framework, integration testing; plan locks |
-| 11 | `11-options.md` | Group vs context configuration |
+| 11 | `11-options.md` | Group vs context configuration; secrets by credential handle |
 | 12 | `12-calculate-feature.md` | Core computation method |
 | 13 | `13-feature-naming.md` | Define feature names |
 | 14 | `14-feature-matching.md` | Resolve name to FeatureGroup |
@@ -280,6 +283,9 @@ Q2: Need execution order control?
 
 Q3: Need state with ParallelizationMode.MULTIPROCESSING?
     YES → Use class-level storage (pickle-safe)
+
+Q4: Does it need a secret (a hashing or signing key)?
+    YES → Take it as a constructor argument, see 11-create-extender (Secrets)
 ```
 
 Full guide: `docs/guides/11-create-extender.md`. Running the shipped OTel and OpenLineage extenders against a backend: `docs/guides/12-export-telemetry.md`
