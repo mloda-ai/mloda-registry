@@ -53,6 +53,15 @@ class MlodaFailedRowsOutputDatasetFacet(OutputDatasetFacet):
 
 
 @attr.define
+class MlodaResultOutputDatasetFacet(OutputDatasetFacet):
+    attributes: dict[str, str | int | float | bool] = attr.field()
+
+    @staticmethod
+    def _get_schema() -> str:
+        return _SCHEMA_URL
+
+
+@attr.define
 class MlodaPlanRunFacet(RunFacet):
     planId: str = attr.field()
     structureHash: str | None = attr.field(default=None)

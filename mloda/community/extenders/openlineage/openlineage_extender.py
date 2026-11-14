@@ -27,11 +27,12 @@ from mloda.steward import (
     PlanContext,
     RunContext,
     WarnOncePerInstance,
+    scrub_credentials,
 )
 
 from mloda.community.extenders.openlineage.dataset_naming import load_dataset
 from mloda.community.extenders.shared.classification import CLASSIFICATION_KEY, RunClassifications
-from mloda.community.extenders.shared.declared import readable_declared, same_scalar
+from mloda.community.extenders.shared.declared import declared_scalars, readable_declared, same_scalar
 from mloda.community.extenders.shared.failed_rows import failed_rows_summary
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.provider_sink import drop_unpicklable_provider
@@ -274,7 +275,8 @@ class OpenLineageExtender(Extender):
     Each calculate run also carries an mlodaStep facet (added outside the _calculate_run_facets seam, so a subclass
     cannot drop it there), each COMPLETE output an outputStatistics facet when rows_out is known and an
     mlodaFailedRows facet (counts and reason codes, never positions) when failed rows were reported for it, and the
-    parent run a processingEngine facet."""
+    parent run a processingEngine facet. COMPLETE outputs carry the step's result attributes as an mlodaResult output
+    facet, strings scrubbed."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -667,6 +669,7 @@ class OpenLineageExtender(Extender):
                 else None
             )
             failed_rows = _failed_rows_facets(context, self.producer)
+            result = _result_facets(context, self.producer)
             return [
                 _build_output_dataset(
                     self.dataset_namespace,
@@ -680,7 +683,7 @@ class OpenLineageExtender(Extender):
                         levels.get(name),
                         self.producer,
                     ),
-                    {**(output_statistics or {}), **failed_rows.get(name, {})} or None,
+                    {**(output_statistics or {}), **failed_rows.get(name, {}), **result} or None,
                 )
                 for name in context.feature_names
             ]
@@ -910,6 +913,17 @@ def _failed_rows_facets(context: HookContext, producer: str) -> dict[str, dict[s
             )
         }
     return facets
+
+
+def _result_facets(context: HookContext, producer: str) -> dict[str, Any]:
+    """mlodaResult facet from the step's result attributes (strings scrubbed), or {} when there are none."""
+    from mloda.community.extenders.openlineage._facets import MlodaResultOutputDatasetFacet
+
+    scalars = declared_scalars(context.result_attributes)
+    if not scalars:
+        return {}
+    attributes = {k: scrub_credentials(v) if isinstance(v, str) else v for k, v in scalars.items()}
+    return {"mlodaResult": MlodaResultOutputDatasetFacet(attributes=attributes, producer=producer)}
 
 
 def _build_output_dataset(

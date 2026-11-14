@@ -156,7 +156,7 @@ Pinning one reader by option key also resolves a single folder that holds both f
 - **Result attributes:** once all totals of a step are built, each total's profile, sign,
   chart source, catalogue and catalogue fingerprint are published as
   `<concept>__sources.profile|sign|chart.source|catalogue|catalogue.fingerprint`
-  (OTel `mloda.result.<key>`); a refused step publishes none, and the `~basis` column stays authoritative.
+  (OTel `mloda.result.<key>`); the same keys ride on the `<concept>__sources` step's COMPLETE output datasets as the `mlodaResult` output facet; a refused step publishes none, and the `~basis` column stays authoritative.
 - **Classification:** both readers declare `mloda.data.classification = confidential`, so an
   audit `ClassificationPolicy` needs clearance `confidential` or above; a gate below it is
   refused. `exempt_readers` skips only the plan-time probe, not the run-start check. Raising the
@@ -171,7 +171,7 @@ Pinning one reader by option key also resolves a single folder that holds both f
 `refused`, `unevaluated`, `malformed`, `unstamped`), and say it in the message.
 
 **Mapping to OpenLineage.** The policy step's `mlodaDeclared` output-dataset facet carries
-`policy.verdict` and the concept step's carries the catalogue keys. The reader's
+`policy.verdict` and the concept step's carries the catalogue keys. The total (`<concept>__sources`) step's `mlodaResult` output facet carries the per-run profile, sign, chart source and catalogue keys. The reader's
 `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset. Nothing here
 is tamper-proof: anything inside the process can write these attributes.
 
