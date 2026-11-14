@@ -375,7 +375,7 @@ def _qualname(cls: type) -> str:
 
 
 @pytest.mark.parametrize("extender", ["community", "enterprise"])
-def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(extender: str) -> None:
+def test_a_policy_verdict_and_a_catalogue_reach_the_lineage_output_facets(extender: str) -> None:
     pytest.importorskip("openlineage.client")
     extender_cls: Any
     if extender == "enterprise":
@@ -398,7 +398,7 @@ def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(
     )
     client, transport = make_recording_client()
 
-    mloda.run_all(
+    res = mloda.run_all(
         ["revenue__sources"],
         compute_frameworks=[PyArrowTable],
         data_access_collection=DataAccessCollection(folders={str(dossier)}),
@@ -424,6 +424,21 @@ def test_a_policy_verdict_and_a_catalogue_reach_the_mloda_declared_output_facet(
     declared_skr = SkrAccountFeatureGroup.declared_attributes(None)
     assert {"chart", "catalogue", "catalogue.fingerprint"} <= set(declared_skr)
     assert_declared(complete(SkrAccountFeatureGroup), declared_skr)
+
+    basis = json.loads(res[0].column("revenue__sources~basis").to_pylist()[0])
+    expected_result = {
+        "revenue__sources.profile": json.dumps(basis["profile"], sort_keys=True, separators=(",", ":")),
+        "revenue__sources.sign": basis["sign"],
+        "revenue__sources.chart.source": basis["chart_source"],
+        "revenue__sources.catalogue": basis["catalogue"]["name"],
+        "revenue__sources.catalogue.fingerprint": basis["catalogue"]["fingerprint"],
+    }
+    sources_event = complete(SourcesFeatureGroup)
+    assert sources_event.outputs
+    for output in sources_event.outputs:
+        result_facet: Any = (output.outputFacets or {}).get("mlodaResult")
+        assert result_facet is not None
+        assert result_facet.attributes == expected_result
 
 
 def test_guard_fails_closed_without_second_clock() -> None:

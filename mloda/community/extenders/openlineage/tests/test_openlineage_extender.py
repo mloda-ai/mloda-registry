@@ -33,7 +33,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 import requests
-from mloda.provider import Cause, Divergence, DivergenceKind, FailedRows, instrument
+from mloda.provider import Cause, Divergence, DivergenceKind, FailedRows, FeatureSet, instrument
 from mloda.steward import (
     CompositeExtender,
     Extender,
@@ -44,6 +44,7 @@ from mloda.steward import (
     PlanStep,
     RunContext,
     pickle_failure_reason,
+    scrub_credentials,
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -55,7 +56,9 @@ from mloda.community.extenders.openlineage import openlineage_extender as openli
 from mloda.community.extenders.openlineage._facets import (
     MlodaDataAccessFacet,
     MlodaDeclaredDatasetFacet,
+    MlodaFailedRowsOutputDatasetFacet,
     MlodaPlanRunFacet,
+    MlodaResultOutputDatasetFacet,
     MlodaStepRunFacet,
     MlodaTraceRunFacet,
     versioned_schema_url,
@@ -519,7 +522,15 @@ class TestOpenLineageFacetSchemaUrl:
 
     @pytest.mark.parametrize(
         "facet_class",
-        [MlodaDataAccessFacet, MlodaDeclaredDatasetFacet, MlodaPlanRunFacet, MlodaStepRunFacet, MlodaTraceRunFacet],
+        [
+            MlodaDataAccessFacet,
+            MlodaDeclaredDatasetFacet,
+            MlodaPlanRunFacet,
+            MlodaStepRunFacet,
+            MlodaTraceRunFacet,
+            MlodaFailedRowsOutputDatasetFacet,
+            MlodaResultOutputDatasetFacet,
+        ],
     )
     def test_schema_url_names_the_module_at_the_installed_release_tag(self, facet_class: Any) -> None:
         version = importlib.metadata.version("mloda-community-openlineage")
@@ -1953,6 +1964,91 @@ class TestOpenLineageExtenderCompleteEvent:
 
         assert transport.events[1].eventType == RunState.FAIL
         assert "mlodaFailedRows" not in Serde.to_json(transport.events[1])
+
+    @staticmethod
+    def _publishing_calculate(attributes: dict[str, Any] | None, raises: bool = False) -> Callable[..., Any]:
+        def calculate(data: Any, features: FeatureSet) -> Any:
+            if attributes is not None:
+                HookContext.publish_result_attributes(attributes)
+            if raises:
+                raise RuntimeError("inner boom")
+            return "calculated"
+
+        return calculate
+
+    def _run_result(
+        self,
+        transport: RecordingTransport,
+        client: OpenLineageClient,
+        attributes: dict[str, Any] | None,
+        **context_overrides: Any,
+    ) -> dict[str, Any]:
+        context = make_hook_context(feature_names=("price", "qty"), **context_overrides)
+        with context.activate():
+            target = instrument(context, self._publishing_calculate(attributes))
+            OpenLineageExtender(client=client)(target, None, FeatureSet())
+        outputs = json.loads(Serde.to_json(transport.events[1]))["outputs"]
+        return {output["name"]: output for output in outputs}
+
+    def test_result_attributes_reach_every_output_as_the_mloda_result_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        published = {"chart.source": "books", "rows": 3, "verified": True, "ratio": 0.5}
+
+        outputs = self._run_result(transport, client, published, declared_attributes={"license": "a"})
+
+        assert set(outputs) == {"price", "qty"}
+        for output in outputs.values():
+            facet = output["outputFacets"]["mlodaResult"]
+            assert facet["attributes"] == published
+            assert isinstance(facet["attributes"]["verified"], bool)
+            assert facet["_producer"] == transport.events[1].producer
+            assert output["facets"]["mlodaDeclared"]["attributes"] == {"license": "a"}
+
+    @pytest.mark.parametrize(
+        "published, overrides",
+        [(None, {}), ({}, {}), (None, {"result_attributes": {"stale": 1}})],
+        ids=["nothing_published", "empty_published", "stale_context_value"],
+    )
+    def test_mloda_result_facet_is_absent_without_published_attributes(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        published: dict[str, Any] | None,
+        overrides: dict[str, Any],
+    ) -> None:
+        client, transport = ol_capture
+
+        outputs = self._run_result(transport, client, published, **overrides)
+
+        assert set(outputs) == {"price", "qty"}
+        for output in outputs.values():
+            assert "mlodaResult" not in (output.get("outputFacets") or {})
+
+    def test_fail_events_carry_no_outputs_so_no_mloda_result_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("price",))
+        target = self._publishing_calculate({"rows": 3}, raises=True)
+
+        with context.activate():
+            with pytest.raises(RuntimeError, match="inner boom"):
+                OpenLineageExtender(client=client)(instrument(context, target), None, FeatureSet())
+
+        assert transport.events[1].eventType == RunState.FAIL
+        assert "mlodaResult" not in Serde.to_json(transport.events[1])
+
+    def test_result_attribute_strings_are_scrubbed_without_truncation(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        original = "loaded from postgresql://user:hunter2@host/db"  # nosec
+
+        outputs = self._run_result(transport, client, {"note": original})
+
+        assert outputs["price"]["outputFacets"]["mlodaResult"]["attributes"] == {"note": scrub_credentials(original)}
+        assert "hunter2" not in Serde.to_json(transport.events[1])
 
     def test_schema_facet_never_leaks_columns_outside_feature_names(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
