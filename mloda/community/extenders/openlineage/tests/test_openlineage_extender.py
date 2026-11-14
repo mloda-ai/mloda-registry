@@ -1994,7 +1994,7 @@ class TestOpenLineageExtenderCompleteEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        published = {"chart.source": "books", "rows": 3}
+        published = {"chart.source": "books", "rows": 3, "verified": True, "ratio": 0.5}
 
         outputs = self._run_result(transport, client, published, declared_attributes={"license": "a"})
 
@@ -2002,6 +2002,7 @@ class TestOpenLineageExtenderCompleteEvent:
         for output in outputs.values():
             facet = output["outputFacets"]["mlodaResult"]
             assert facet["attributes"] == published
+            assert isinstance(facet["attributes"]["verified"], bool)
             assert facet["_producer"] == transport.events[1].producer
             assert output["facets"]["mlodaDeclared"]["attributes"] == {"license": "a"}
 
