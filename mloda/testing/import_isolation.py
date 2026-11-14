@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import importlib.util
 import pkgutil
@@ -99,5 +100,17 @@ def evict_package(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
 
 
 def require_pyarrow() -> None:
-    """Skip the importing module unless pyarrow is installed (the ``mloda-testing[pyarrow]`` extra)."""
-    pytest.importorskip("pyarrow", reason="requires mloda-testing[pyarrow]")
+    """Skip inside a pytest collection or test when pyarrow is missing; raise ModuleNotFoundError naming
+    the ``mloda-testing[pyarrow]`` extra everywhere else."""
+    try:
+        importlib.import_module("pyarrow")
+        return
+    except ModuleNotFoundError as error:
+        reason = "requires mloda-testing[pyarrow]"
+        # pytest turns Skipped into a skip only while collecting a node or running a test
+        frame = sys._getframe()
+        while frame is not None:
+            if frame.f_globals.get("__name__") == "_pytest.runner":
+                pytest.skip(reason, allow_module_level=True)
+            frame = frame.f_back  # type: ignore[assignment]
+        raise ModuleNotFoundError(reason, name="pyarrow") from error
