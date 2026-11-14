@@ -162,7 +162,11 @@ class KgSourceFG(SourceFeatureGroup):
             hint=options.get("data_access_handle"),
         )
         # source is the credential-free label; the access travels in SourceMatch.access
-        return [] if slot is None else [SourceMatch(source=cls.CONNECTOR_ID, access=slot[cls.CONNECTOR_ID])]
+        return [] if slot is None else [SourceMatch(source=cls.CONNECTOR_ID, access=slot)]
+
+    @classmethod
+    def match_credentials(cls, match: SourceMatch) -> Any | None:
+        return match.access
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -174,20 +178,35 @@ class RdfLibSparqlFeatureGroup(KgSourceFG):
 
     @classmethod
     def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any:
-        return [{"knows": "alice"}]  # a real leaf queries the graph in match.access
+        return [{"knows": "alice"}]  # a real leaf queries the graph in match.access[cls.CONNECTOR_ID]
 ```
 
 ```python
 mloda.run_all(
     [Feature("knows", options=Options(context={"query_text": "SELECT ..."}))],
     compute_frameworks=[PythonDictFramework],
-    data_access_collection=DataAccessCollection(credentials=[{"rdflib_sparql": {"locator": "graph.ttl"}}]),
+    data_access_collection=DataAccessCollection(credentials={"kg": {"rdflib_sparql": {"locator": "graph.ttl"}}}),
 )
+```
+
+```python
+from mloda.user import PluginCollector
+
+
+def test_way_3_records_the_bound_handle() -> None:
+    plan = mloda.explain(
+        [Feature("knows", options=Options(context={"query_text": "SELECT ..."}))],
+        compute_frameworks=[PythonDictFramework],
+        data_access_collection=DataAccessCollection(credentials={"kg": {"rdflib_sparql": {"locator": "graph.ttl"}}}),
+        plugin_collector=PluginCollector.enabled_feature_groups({RdfLibSparqlFeatureGroup}),
+    )
+    assert [step.bound_credential_handle for step in plan] == ["kg"]
 ```
 
 Rules:
 
 - **Leaves never compete.** `KgSourceFG` is abstract (it leaves `load_neutral` unimplemented), so it declines. Each leaf finds only its own `CONNECTOR_ID` slot; two leaves whose slots are both in the collection are ordinary feature-group ambiguity, resolved by `data_access_handle` or `feature_group=`.
+- **Report the bound handle.** `match_credentials` returns the registered slot itself, so the plan, the lock and hook contexts name its handle; the leaf sees the whole entry, so register one connector per handle (see [Credentials](27-input-data-readers.md#credentials-bound-at-match-time-or-read-at-run-time)).
 - **Choose the claim route deliberately.** An `OPEN` route must be `searched=False` (core raises `TypeError` otherwise): it claims any name only when the user points at the group (`options={"RdfLibSparqlFeatureGroup": ...}` or `feature_group=`) or when a `required_options` key such as `query_text` is present, as above. To claim by name instead, use `NamePolicy.CHECKED` with `columns`/`has_column`, or `NamePolicy.DECLARED` with `declared_names()` or `declared_name_prefixes()`.
 - **A declared prefix also claims chains on it.** `declared_name_prefixes()` returning `("rdflib_sparql__",)` claims `rdflib_sparql__x__sum_aggr` too. Until core handles it, override `match_feature_group_criteria` to decline names with a further `__` before calling `super()`.
 - **Database-shaped families.** Derive from `ReadDBFG` when the source is a table catalog: it brings credential discovery, per-run catalog caching, `login_key` and the optional `ReadDBFG.QUERY_ROUTE`. Implement `is_valid_credentials` (the slot check), `database_identity`, `connect`, `list_tables`, `table_columns` and `produce_rows`.
