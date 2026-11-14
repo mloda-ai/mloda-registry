@@ -67,9 +67,9 @@ Never put a secret in options: they are hashed, locked and shown in `explain()`.
 - **Imports**: `credential_handle_spec`, `read_credential` and `credentials_scope` from `mloda.provider`; `Credential` and `DataAccessCollection` from `mloda.user`.
 - **A group option**: `credential_handle_spec` fixes the key to group options, since the handle picks what a step reads, so it splits steps and enters the plan lock. A handle placed in `context` is refused at plan time.
 - **A stable name**: the handle is part of feature identity, so keep it the same in every environment (name it by role, such as `signing-key`) and vary the `Credential` value. A handle is a public name; never paste a secret in its place.
-- **Fields**: `required_fields` are checked at plan time. A field that must print in errors, such as a path, goes in `public_fields`; `path`, `file` and `file_path` are already public.
+- **Fields**: `required_fields` are checked at plan time. Core's connection fields (`path`, `file`, `file_path`, `host`, `user`, `client_id`, `account` and more) are public and print in errors, so never keep a secret under one; name it `key`, `token` or `password`. Another field that must print, such as a path under a field name of your own, goes in `public_fields`.
 - **`str` values**: a bytes value is refused at plan time; store hex or base64 and decode it in the plugin.
-- **Normalizing**: core masks the exact registered value in errors and logs. A form the plugin derives (stripped, decoded) is not masked, so never echo it.
+- **Normalizing**: core masks the exact registered value (a `str` of 8 or more characters) in errors and logs. A form the plugin derives (stripped, decoded) is not masked, so never echo it.
 - **Reading**: `read_credential(handle)` works inside `calculate_feature` (and an artifact saver) only; extenders take their key otherwise (see [Secrets for extenders](../11-create-extender.md#secrets)).
 - **Rotation**: `session.run(credentials={handle: Credential(...)})` replaces the value for one run; `prepare` already needs a credential with the required fields under every declared handle.
 - **Tests**: `credentials_scope({handle: {field: value}})` opens the read window around a direct `calculate_feature` call but does not check that the group declares the handle, so keep one `run_all` test with `data_access_collection=` too.
@@ -127,7 +127,11 @@ class CredentialExampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 Test it directly under `credentials_scope` and once through `run_all`, which checks the declaration (the shipped group is loaded too, so enable only these groups):
 
 ```python
-from mloda.provider import DataCreatorFeatureGroup, credentials_scope
+import hashlib
+import hmac
+from typing import Any
+
+from mloda.provider import DataCreatorFeatureGroup, FeatureSet, credentials_scope
 from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
 
 SIGNING_KEY = "example-signing-key"
