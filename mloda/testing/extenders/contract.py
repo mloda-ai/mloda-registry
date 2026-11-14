@@ -41,7 +41,7 @@ def _unset(host: Any, hook: str) -> NotImplementedError:
 
 
 class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
-    """Contract every Extender keeps. A host sets `plugin` (or overrides extender_class); own_failure is needed for sinks."""
+    """Contract every Extender keeps. A host sets `plugin` (or overrides extender_class)."""
 
     @classmethod
     def extender_class(cls) -> type[Extender]:
