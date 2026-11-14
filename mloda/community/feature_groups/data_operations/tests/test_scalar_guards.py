@@ -11,13 +11,18 @@ at match time rather than inside ``calculate_feature``.
 
 from __future__ import annotations
 
+import gc
 from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureGroup, get_all_subclasses
 from mloda.user import Feature, Options
 
-from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup  # noqa: F401  (import registers the row-replacing group)
+from mloda.community.feature_groups.data_operations import base as data_operations_base
+from mloda.community.feature_groups.data_operations.aggregation.base import (
+    AggregationFeatureGroup,  # noqa: F401  (import registers the row-replacing group)
+)
 from mloda.community.feature_groups.data_operations.base import (
     assert_key_columns_present,
     assert_source_columns_present,
@@ -484,7 +489,20 @@ class TestKeyColumnFeaturesRowReplacingSource:
         assert key_column_features(consumer, [source]) == set()
 
     def test_subclass_inheriting_replaces_rows_is_registered(self) -> None:
+        registry = data_operations_base._ROW_REPLACING_GROUPS
+        before = list(registry)
+
         class _LocalMyAggFeatureGroup(AggregationFeatureGroup):
             PREFIX_PATTERN = r".*__([\w]+)_myagg$"
 
-        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")]) == set()
+        try:
+            assert registry == [*before, _LocalMyAggFeatureGroup]
+            assert key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")]) == set()
+        finally:
+            if _LocalMyAggFeatureGroup in registry:
+                registry.remove(_LocalMyAggFeatureGroup)
+            del _LocalMyAggFeatureGroup
+            gc.collect()
+
+        assert registry == before
+        assert not [c for c in get_all_subclasses(FeatureGroup) if c.__name__ == "_LocalMyAggFeatureGroup"]
