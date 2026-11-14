@@ -97,6 +97,7 @@ class TestRankOperationGroup(OperationGroupTestBase):
                 "PandasDataFrame",
                 divergent=_NONE_NAN_DIVERGENT,
                 dependency="pandas",
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -121,6 +122,7 @@ class TestRankOperationGroup(OperationGroupTestBase):
                 f"{_ENGINE}.sqlite.sqlite_framework",
                 "SqliteFramework",
                 divergent=_NONE_NAN_DIVERGENT,
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "python_dict",
@@ -129,8 +131,13 @@ class TestRankOperationGroup(OperationGroupTestBase):
                 f"{_ENGINE}.python_dict.python_dict_framework",
                 "PythonDictFramework",
                 divergent=_NONE_NAN_DIVERGENT,
+                variants=frozenset({"nan_as_null"}),
             ),
         ]
+
+    @classmethod
+    def variants(cls) -> frozenset[str]:
+        return frozenset({"nan_as_null"})
 
     @classmethod
     def subtype_key(cls) -> str:

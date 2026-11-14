@@ -22,6 +22,8 @@ The category decides your naming pattern. See [overview](01-overview.md) for the
 
 ## Step 2: Write the operation group
 
+A new operation group declares `CONTRACT_VERSION = 1` in its class body.
+
 File: `mloda/community/feature_groups/data_operations/{category}/{your_op}/base.py`.
 
 ```py
@@ -50,6 +52,8 @@ YOUR_OPS = {
 
 
 class YourOpFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
+    CONTRACT_VERSION = 1
+
     PREFIX_PATTERN = r".+__(op_a|op_b)$"
 
     MIN_IN_FEATURES = 1

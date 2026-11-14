@@ -20,7 +20,14 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar, NamedTuple
 
 import pytest
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, Implementation, OperationFeatureGroup
+from mloda.provider import (
+    DivergenceKind,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    Implementation,
+    OperationFeatureGroup,
+)
 from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
@@ -43,6 +50,7 @@ class ImplSpec(NamedTuple):
     supported: frozenset[str] | None = None
     divergent: frozenset[str] = frozenset()  # subtypes the Implementation's ``divergences`` records name
     dependency: str | None = None
+    variants: frozenset[str] = frozenset()  # variant names its VARIANT records follow
 
 
 class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
@@ -119,6 +127,11 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     def name_only_match(cls) -> bool | None:
         """The expected ``NAME_ONLY_MATCH``. Default: not pinned."""
         return None
+
+    @classmethod
+    def variants(cls) -> frozenset[str]:
+        """The exact ``VARIANTS`` of the group. Default: none."""
+        return frozenset()
 
     # -- Plumbing ---------------------------------------------------------------
 
@@ -212,6 +225,14 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         spec = self._spec(impl_id)
         supported = self._implementation(spec).supported
         assert supported is None or supported <= self.group_class().subtype_universe()
+
+    def test_group_variants_are_the_declared_set(self) -> None:
+        assert self.group_class().VARIANTS == self.variants()
+
+    def test_variant_records_follow_the_declared_variants(self, impl_id: str) -> None:
+        spec = self._spec(impl_id)
+        records = self._implementation(spec).divergences
+        assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
 
     def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
         spec = self._spec(impl_id)

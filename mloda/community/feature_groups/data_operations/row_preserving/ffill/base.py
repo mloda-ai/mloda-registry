@@ -61,6 +61,8 @@ class FfillFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operation
     natively; there are no rejections of supported inputs.
     """
 
+    CONTRACT_VERSION = 1
+
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     PREFIX_PATTERN = r".*__ffill$"

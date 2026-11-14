@@ -114,6 +114,9 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase, OperationFeatureGroup
     row, also on zero input rows. count and nunique declare INT64. Float results match the reference at rel 1e-6.
     """
 
+    CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
+
     SUBTYPES = SubtypeDeclaration(key=AggregationFeatureGroupBase.AGGREGATION_TYPE)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "mask")

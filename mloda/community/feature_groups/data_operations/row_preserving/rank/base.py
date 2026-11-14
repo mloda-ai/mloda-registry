@@ -143,6 +143,9 @@ class RankFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, OperationF
     for rank/dense_rank/percent_rank; row_number/ntile/top/bottom break ties by input order (stable sort).
     """
 
+    CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
+
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     MIN_IN_FEATURES = 1

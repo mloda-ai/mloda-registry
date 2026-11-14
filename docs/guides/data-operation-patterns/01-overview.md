@@ -75,10 +75,12 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_dat
 # and each feature may carry its own mask. Features that split into separate steps (for example the same
 # name with two data types) each read the unreduced input.
 grouped = [
-    Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]})),
+    Feature(
+        "value_int__sum_agg", Options(group={"allow_variants": "nan_as_null"}, context={"partition_by": ["region"]})
+    ),
     Feature("value_int__max_agg", Options(context={"partition_by": ["region"]})),
 ]
 grouped_result = mloda.run_all(grouped, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
 
-Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space. Aggregations with a different `partition_by` need separate `run_all` calls.
+Each feature name resolves to one of the built-in data-operation feature groups. The `partition_by` option is consumed by the base class; no framework-specific code runs in user space. Aggregations with a different `partition_by` need separate `run_all` calls. The `sum_agg` feature sets `allow_variants: "nan_as_null"` in its group options because Pandas cannot tell NaN from null; without it Pandas is not a candidate for that feature (see [known divergences](known-divergences.md)).

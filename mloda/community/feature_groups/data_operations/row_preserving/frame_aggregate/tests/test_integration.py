@@ -293,7 +293,9 @@ class TestFrameAggregateResolveTimeRejection:
 
     def _plan(self, name: str, creator: type, frameworks: list[type]) -> Any:
         collector = enabled_with_implementations({creator, FrameAggregateFeatureGroup})
-        feature = Feature(name, options=Options(context=self._OPTIONS))
+        # Pandas serves the NaN-divergent sum only when the feature allows the variant.
+        options = Options(group={"allow_variants": "nan_as_null"}, context=self._OPTIONS)
+        feature = Feature(name, options=options)
         return mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
 
     def _assert_rejected_with_control(

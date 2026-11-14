@@ -469,6 +469,37 @@ def test_nan_is_null_defaults_to_false() -> None:
     assert DataOpsIntegrationTestBase.nan_is_null() is False
 
 
+def _make_stub_feature(stub: type) -> Any:
+    """Build a feature through ``_make_feature`` of an abstract integration stub, without its abstract methods."""
+    stub.__abstractmethods__ = frozenset()  # type: ignore[attr-defined]
+    return stub()._make_feature("value__sum_agg", {"partition_by": ["region"]})
+
+
+def test_group_options_default_leaves_the_feature_group_options_empty() -> None:
+    from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+
+    class _IntegrationStub(DataOpsIntegrationTestBase):
+        pass
+
+    assert _IntegrationStub.group_options() == {}
+    feature = _make_stub_feature(_IntegrationStub)
+    assert feature.options.group == {}
+    assert feature.options.context == {"partition_by": ["region"]}
+
+
+def test_group_options_override_lands_in_the_feature_group_options() -> None:
+    from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+
+    class _IntegrationStub(DataOpsIntegrationTestBase):
+        @classmethod
+        def group_options(cls) -> dict[str, Any]:
+            return {"allow_variants": "nan_as_null"}
+
+    feature = _make_stub_feature(_IntegrationStub)
+    assert feature.options.group == {"allow_variants": "nan_as_null"}
+    assert feature.options.context == {"partition_by": ["region"]}
+
+
 def test_routing_frameworks_defaults_to_the_pipeline_frameworks() -> None:
     from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
         OperationGroupIntegrationTestMixin,
@@ -620,6 +651,13 @@ def test_implementation_import_fails_unless_the_dependency_is_declared() -> None
         _Stub._implementation(missing._replace(dependency="no_such_dependency"))
     with pytest.raises(ModuleNotFoundError):
         _Stub._implementation(missing._replace(dependency="pytest"))
+
+
+def test_operation_group_hooks_default_to_no_variants() -> None:
+    from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+
+    assert OperationGroupTestBase.variants() == frozenset()
+    assert ImplSpec("x", "m", "X", "fm", "F").variants == frozenset()
 
 
 # -- divergent_subtypes ---------------------------------------------------------

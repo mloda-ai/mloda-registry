@@ -54,7 +54,8 @@ class SqliteRank(Implementation[RankFeatureGroup]):
     compute_framework = SqliteFramework
     divergences = (
         Divergence(
-            kind=DivergenceKind.VALUE,
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
             cause=Cause.BACKEND,
             subtypes=frozenset({"rank", "dense_rank", "percent_rank"}),
             reason="sqlite3 stores NaN as NULL, so they tie",

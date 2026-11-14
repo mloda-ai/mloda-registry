@@ -176,6 +176,9 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
                 )
                 # An operation group is the one concrete class a "base" module may list: its Implementations serve it.
                 is_operation_group = issubclass(cls, OperationFeatureGroup)
+                assert not is_operation_group or cls.__dict__.get("CONTRACT_VERSION") == 1, (
+                    f"{manifest_name}.{attr_name}: {cls!r} must declare CONTRACT_VERSION = 1 in its own class body"
+                )
                 assert is_operation_group or not (
                     cls.__module__.endswith(".base") or cls.__module__.endswith("_base")
                 ), f"{manifest_name}.{attr_name}: {cls!r} is a shared base class ({cls.__module__})"

@@ -115,6 +115,7 @@ class TestResampleOperationGroup(OperationGroupTestBase):
                 "PandasDataFrame",
                 divergent=frozenset({"sum", "mean", "count", "min", "max"}),
                 dependency="pandas",
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -139,6 +140,10 @@ class TestResampleOperationGroup(OperationGroupTestBase):
                 "PythonDictFramework",
             ),
         ]
+
+    @classmethod
+    def variants(cls) -> frozenset[str]:
+        return frozenset({"nan_as_null"})
 
     @classmethod
     def subtype_key(cls) -> str | None:

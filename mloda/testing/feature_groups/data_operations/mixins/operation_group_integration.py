@@ -202,6 +202,7 @@ class OperationGroupIntegrationTestMixin:
         frameworks = list(dict.fromkeys([creator.compute_framework, *self.routing_frameworks()]))
         collector = enabled_with_implementations({creator, group})
         for case in cases:
+            # No group_options here: allowing a variant would readmit the divergent Implementation being routed away.
             feature = Feature(case.feature_name, options=Options(context=case.options))
             plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
             steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]

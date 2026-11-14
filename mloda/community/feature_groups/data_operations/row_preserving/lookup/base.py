@@ -207,6 +207,8 @@ class LookupFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     The output type follows the mapping's value family.
     """
 
+    CONTRACT_VERSION = 1
+
     PREFIX_PATTERN = r".*__lookup$"
     RECOGNITION_ONLY_PATTERN = True
 

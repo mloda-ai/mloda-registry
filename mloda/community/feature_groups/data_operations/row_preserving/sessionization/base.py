@@ -118,6 +118,8 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
 class SessionizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
+    CONTRACT_VERSION = 1
+
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 
     PREFIX_PATTERN = r".*__(sessionize_\d+_(?:minute|hour|day|week))$"

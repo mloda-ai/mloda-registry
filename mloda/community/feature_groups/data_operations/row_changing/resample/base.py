@@ -147,6 +147,9 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
     presence guards are shared.
     """
 
+    CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
+
     SUBTYPES = SubtypeDeclaration(universe=RESAMPLE_AGGS.keys(), resolver=_resolve_resample_agg_subtype)
 
     KEY_COLUMN_OPTIONS = ("partition_by", "time_column")

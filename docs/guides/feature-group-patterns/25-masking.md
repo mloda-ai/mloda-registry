@@ -82,10 +82,11 @@ data = {
 feature = Feature(
     "value_int__sum_agg",
     Options(
+        group={"allow_variants": "nan_as_null"},
         context={
             "partition_by": ["region"],
             "mask": ("category", "equal", "X"),
-        }
+        },
     ),
 )
 

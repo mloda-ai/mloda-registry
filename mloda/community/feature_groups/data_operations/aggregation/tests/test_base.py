@@ -94,6 +94,7 @@ class TestAggregationOperationGroup(OperationGroupTestBase):
                 "PandasDataFrame",
                 divergent=_PANDAS_DIVERGENT,
                 dependency="pandas",
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -119,6 +120,7 @@ class TestAggregationOperationGroup(OperationGroupTestBase):
                 "SqliteFramework",
                 supported=frozenset({"sum", "avg", "mean", "count", "min", "max"}),
                 divergent=frozenset({"sum", "avg", "mean", "count"}),
+                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "python_dict",
@@ -128,6 +130,10 @@ class TestAggregationOperationGroup(OperationGroupTestBase):
                 "PythonDictFramework",
             ),
         ]
+
+    @classmethod
+    def variants(cls) -> frozenset[str]:
+        return frozenset({"nan_as_null"})
 
     @classmethod
     def subtype_key(cls) -> str:
