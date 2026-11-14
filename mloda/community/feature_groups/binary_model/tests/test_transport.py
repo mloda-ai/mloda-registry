@@ -459,22 +459,6 @@ class TestInvocationDirectory:
             with InvocationDirectory(parent=parent):
                 pass
 
-    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX lstat")
-    def test_unstattable_parent_is_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        parent = tmp_path / TEMP_PARENT_NAME
-        parent.mkdir(mode=0o700)
-        real_lstat = os.lstat
-
-        def failing_lstat(path: Any, *, dir_fd: Any = None) -> os.stat_result:
-            if Path(os.fspath(path)) == parent:
-                raise OSError(errno.EACCES, "denied")
-            return real_lstat(path, dir_fd=dir_fd)
-
-        monkeypatch.setattr(os, "lstat", failing_lstat)
-        with pytest.raises(UnsafeInvocationDirectoryError, match="cannot stat"):
-            with InvocationDirectory(parent=parent):
-                pass
-
     @pytest.mark.skipif(os.name != "posix", reason="asserts the per-user POSIX parent name")
     def test_default_parent_is_per_user_under_the_temp_dir(self) -> None:
         assert transport.default_parent() == Path(tempfile.gettempdir()) / f"{TEMP_PARENT_NAME}-{os.getuid()}"

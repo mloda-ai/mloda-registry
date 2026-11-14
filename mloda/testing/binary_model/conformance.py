@@ -30,7 +30,7 @@ import subprocess  # nosec
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 import pyarrow as pa
 import pytest
@@ -679,36 +679,27 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         reason the message ends with (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         config = self.make_config()
-        model = cast(
-            type[BinaryModelMixin],
-            type(
-                "_ConformanceLicenseModel",
-                (BinaryModelMixin,),
-                {
-                    "BINARY_PLUGIN_ID": self.plugin_id,
-                    "BINARY_COMMAND_OVERRIDE": self.binary_cmd,
-                    "LICENSE_FILE_OVERRIDE": str(license_path),
-                    "LICENSE_KEY_OVERRIDE": None,
-                    "binary_environment": classmethod(
-                        lambda cls: {**self.platform_env({}), **cls._forwarded_environment()}
-                    ),
-                },
-            ),
-        )
+        kit = self
+
+        class _Model(BinaryModelMixin):
+            BINARY_PLUGIN_ID = kit.plugin_id
+            BINARY_COMMAND_OVERRIDE = kit.binary_cmd
+            LICENSE_FILE_OVERRIDE = str(license_path)
+
+            @classmethod
+            def binary_environment(cls) -> dict[str, str]:
+                return {**kit.platform_env({}), **cls._forwarded_environment()}
+
         table = pa.table(self.default_input_rows(), schema=self.default_input_schema())
-        binary.clear_capability_cache()
-        try:
-            with pytest.raises(LicenseInvalidError) as excinfo:
-                model.run_binary_model(
-                    table,
-                    config["input_columns"],
-                    config["operation"],
-                    config["parameters"],
-                    config["output_columns"],
-                    timeout=self.binary_timeout_seconds,
-                )
-        finally:
-            binary.clear_capability_cache()
+        with pytest.raises(LicenseInvalidError) as excinfo:
+            _Model.run_binary_model(
+                table,
+                config["input_columns"],
+                config["operation"],
+                config["parameters"],
+                config["output_columns"],
+                timeout=self.binary_timeout_seconds,
+            )
         assert excinfo.value.source == "LICENSE_FILE_OVERRIDE"
         assert excinfo.value.reason
         assert excinfo.value.message.endswith(excinfo.value.reason)

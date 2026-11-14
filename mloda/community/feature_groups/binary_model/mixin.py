@@ -410,7 +410,7 @@ class BinaryModelMixin:
         parameters: Mapping[str, Any],
         output_columns: Mapping[str, str],
         original_table: pa.Table,
-        timeout: float | None = None,
+        timeout: float | None,
     ) -> pa.Table:
         if operation not in resolved.capabilities.operations:
             raise UnsupportedError(
@@ -428,10 +428,6 @@ class BinaryModelMixin:
         }
 
         env = cls.binary_environment()
-        forwarded = cls._forwarded_environment()
-        source = (
-            cls.license_source() if all(env.get(name) == forwarded.get(name) for name in _LICENSE_ENV_NAMES) else None
-        )
         with InvocationDirectory() as invocation:
             try:
                 output_bytes = run_binary(
@@ -455,7 +451,9 @@ class BinaryModelMixin:
                 )
                 if isinstance(exc, LicenseError):
                     exc.reason = license_reason(exc.message, env)
-                    exc.source = source
+                    forwarded = cls._forwarded_environment()
+                    if all(env.get(name) == forwarded.get(name) for name in _LICENSE_ENV_NAMES):
+                        exc.source = cls.license_source()
                 raise
 
         logger.debug(

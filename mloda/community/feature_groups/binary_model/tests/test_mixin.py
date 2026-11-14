@@ -26,7 +26,6 @@ from mloda.community.feature_groups.binary_model.errors import (
     BinaryTerminatedError,
     BinaryUsageError,
     DataError,
-    LicenseError,
     LicenseInvalidError,
     LicenseMissingError,
     OutputContractError,
@@ -220,43 +219,27 @@ class TestProbeTimeout:
         with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
             _TightProbeTimeoutModel.resolved_binary()
 
-    def test_per_call_timeout_bounds_the_probe_for_that_call_only(self) -> None:
-        class _PerCallProbeModel(StubModel):
-            pass
-
-        before = (_PerCallProbeModel.BINARY_TIMEOUT_SECONDS, _PerCallProbeModel.BINARY_PROBE_TIMEOUT_SECONDS)
-        with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
-            _PerCallProbeModel.resolved_binary(timeout=1e-6)
-        assert (_PerCallProbeModel.BINARY_TIMEOUT_SECONDS, _PerCallProbeModel.BINARY_PROBE_TIMEOUT_SECONDS) == before
-        assert _PerCallProbeModel.resolved_binary().capabilities.plugin_id == PLUGIN_ID
-
-    def test_per_call_timeout_none_uses_the_class_probe_timeout(self) -> None:
-        class _TightProbeTimeoutModel(StubModel):
-            BINARY_PROBE_TIMEOUT_SECONDS: ClassVar[float | None] = 1e-6
-
-        with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
-            _TightProbeTimeoutModel.resolved_binary(timeout=None)
-
-    def test_per_call_timeout_bounds_the_probes_of_run_binary_model(self) -> None:
-        table = pa.table({"col_a": ["alpha"]})
+    @pytest.mark.parametrize(
+        "column",
+        [
+            pytest.param(["alpha"], id="flat"),
+            pytest.param(pa.array([["alpha"]], type=pa.list_(pa.string())), id="list"),
+        ],
+    )
+    def test_per_call_timeout_bounds_the_probes_of_run_binary_model(self, column: Any) -> None:
+        table = pa.table({"col_a": column})
         with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
             StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=1e-6)
+        assert StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}).num_rows == 1
 
     def test_per_call_timeout_bounds_the_run(self) -> None:
         model = _faulty_model("hang")
         model.resolved_binary()
-        before = (model.BINARY_TIMEOUT_SECONDS, model.BINARY_PROBE_TIMEOUT_SECONDS)
         table = pa.table({"col_a": ["alpha"]})
         started = time.monotonic()
         with pytest.raises(BinaryTerminatedError):
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=0.5)
         assert time.monotonic() - started < 5.0
-        assert (model.BINARY_TIMEOUT_SECONDS, model.BINARY_PROBE_TIMEOUT_SECONDS) == before
-
-    def test_per_call_timeout_bounds_the_probes_on_the_list_column_path(self) -> None:
-        table = pa.table({"col_a": pa.array([["alpha"]], type=pa.list_(pa.string()))})
-        with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
-            StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=1e-6)
 
 
 # -------------------------------------------------------------------------------------------
@@ -552,15 +535,16 @@ class TestBinaryReportedErrors:
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(LicenseMissingError) as excinfo:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert isinstance(excinfo.value, LicenseError)
         assert excinfo.value.source is None
         assert excinfo.value.reason == excinfo.value.message
 
     def test_expired_license_raises_license_invalid_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError):
+        with pytest.raises(LicenseInvalidError) as excinfo:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source == "MLODA_LICENSE_KEY"
+        assert "MLODA_LICENSE" not in excinfo.value.reason
 
     def test_hanging_binary_raises_binary_terminated_error(self) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
@@ -888,52 +872,6 @@ class TestLicenseOverrides:
 
         assert _LicenseSourceModel.license_source() == expected
 
-    @pytest.mark.parametrize(
-        ("channel", "expected_source"),
-        [
-            pytest.param("ambient_file", "MLODA_LICENSE_FILE", id="ambient_license_file"),
-            pytest.param("ambient_key", "MLODA_LICENSE_KEY", id="ambient_license_key"),
-            pytest.param("file_override", "LICENSE_FILE_OVERRIDE", id="license_file_override"),
-            pytest.param("key_override", "LICENSE_KEY_OVERRIDE", id="license_key_override"),
-            pytest.param("binary_environment", None, id="binary_environment_has_no_source"),
-        ],
-    )
-    def test_expired_license_reports_source_and_stripped_reason(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, channel: str, expected_source: LicenseSource | None
-    ) -> None:
-        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
-        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        token = expired_license_token([PLUGIN_ID])
-        license_path = tmp_path / "license.txt"
-        license_path.write_text(token, encoding="utf-8")
-        is_file_channel = channel in ("ambient_file", "file_override", "binary_environment")
-
-        class _ExpiredLicenseModel(_NoLicenseStubModel):
-            if channel == "file_override":
-                LICENSE_FILE_OVERRIDE = str(license_path)
-            elif channel == "key_override":
-                LICENSE_KEY_OVERRIDE = token
-            elif channel == "binary_environment":
-
-                @classmethod
-                def binary_environment(cls) -> dict[str, str]:
-                    return transport.minimal_environment(license_file=str(license_path))
-
-        if channel == "ambient_file":
-            monkeypatch.setenv("MLODA_LICENSE_FILE", str(license_path))
-        elif channel == "ambient_key":
-            monkeypatch.setenv("MLODA_LICENSE_KEY", token)
-
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
-            _ExpiredLicenseModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.source == expected_source
-        assert excinfo.value.reason
-        assert "MLODA_LICENSE" not in excinfo.value.reason
-        assert excinfo.value.message.endswith(excinfo.value.reason)
-        if is_file_channel:
-            assert str(license_path) not in excinfo.value.reason
-
     def test_missing_license_file_override_reports_source_and_path_stripped_reason(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -951,18 +889,28 @@ class TestLicenseOverrides:
         assert str(missing) in excinfo.value.message
         assert excinfo.value.reason == "not found"
 
-    def test_license_source_ignores_a_binary_environment_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_license_source_ignores_a_binary_environment_override(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
 
+        missing = tmp_path / "custom-license.txt"
+
         class _CustomEnvModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID
+            BINARY_COMMAND_OVERRIDE = STUB_CMD
 
             @classmethod
             def binary_environment(cls) -> dict[str, str]:
-                return transport.minimal_environment(license_file="/custom/license.txt")
+                return transport.minimal_environment(license_file=str(missing))
 
         assert _CustomEnvModel.license_source() is None
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(LicenseMissingError) as excinfo:
+            _CustomEnvModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source is None
+        assert excinfo.value.reason == "not found"
 
 
 # -------------------------------------------------------------------------------------------

@@ -520,10 +520,7 @@ class InvocationDirectory:
                 raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: {reason}")
             self._parent_handle = handle
             return
-        try:
-            stat_result = os.lstat(self.parent)
-        except OSError as exc:
-            raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: cannot stat: {exc}") from exc
+        stat_result = os.lstat(self.parent)
         if stat.S_ISLNK(stat_result.st_mode):
             raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: a symlink")
         if not stat.S_ISDIR(stat_result.st_mode):

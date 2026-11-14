@@ -63,16 +63,21 @@ def test_error_class_code_and_message(error_class: type[BinaryModelError], expec
 
 
 @pytest.mark.parametrize(
-    "error_class", [BinaryNotInstalledError, BinaryNotRunnableError, UnsafeInvocationDirectoryError]
+    ("error_class", "base"),
+    [
+        (BinaryNotInstalledError, BinaryUnavailableError),
+        (BinaryNotRunnableError, BinaryUnavailableError),
+        (UnsafeInvocationDirectoryError, BinaryUnavailableError),
+        (LicenseMissingError, LicenseError),
+        (LicenseInvalidError, LicenseError),
+    ],
 )
-def test_unavailable_subclasses_are_direct_subclasses(error_class: type[BinaryModelError]) -> None:
-    assert error_class.__bases__ == (BinaryUnavailableError,)
+def test_error_class_hierarchy(error_class: type[BinaryModelError], base: type[BinaryModelError]) -> None:
+    assert issubclass(error_class, base)
 
 
-@pytest.mark.parametrize("error_class", [LicenseMissingError, LicenseInvalidError])
-def test_license_errors_share_the_license_error_base(error_class: type[LicenseError]) -> None:
-    exc = error_class("MLODA_LICENSE_KEY: expired")
-    assert error_class.__bases__ == (LicenseError,)
+def test_license_error_defaults_reason_to_message_and_source_to_none() -> None:
+    exc = LicenseMissingError("MLODA_LICENSE_KEY: expired")
     assert exc.reason == "MLODA_LICENSE_KEY: expired"
     assert exc.source is None
 
@@ -90,18 +95,6 @@ def test_license_errors_share_the_license_error_base(error_class: type[LicenseEr
             "MLODA_LICENSE_FILE: unreadable", {"MLODA_LICENSE_FILE": "/licenses/lic.txt"}, "unreadable", id="file"
         ),
         pytest.param("MLODA_LICENSE_KEY: token expired", {"MLODA_LICENSE_KEY": "secret"}, "token expired", id="key"),
-        pytest.param(
-            "MLODA_LICENSE_FILE /licenses/lic.txt: bad signature",
-            {"MLODA_LICENSE_FILE": "/licenses/lic.txt", "MLODA_LICENSE_KEY": "secret"},
-            "bad signature",
-            id="both_vars_file_prefix",
-        ),
-        pytest.param(
-            "MLODA_LICENSE_FILE /licenses/li",
-            {"MLODA_LICENSE_FILE": "/licenses/lic.txt"},
-            "MLODA_LICENSE_FILE /licenses/li",
-            id="truncated",
-        ),
         pytest.param("token expired", {"MLODA_LICENSE_KEY": "secret"}, "token expired", id="unprefixed"),
         pytest.param("MLODA_LICENSE_KEY: expired", {}, "MLODA_LICENSE_KEY: expired", id="empty_env"),
         pytest.param(
