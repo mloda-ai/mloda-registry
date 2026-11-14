@@ -147,6 +147,8 @@ Every family has this shape; the reference each family compares against is liste
 
 ## Step 4: Write the operation's test bases
 
+Every family test base inherits a check of the group's `CONTRACT_VERSION` against `contract_version()` (default 1); override it when the family's contract version moves.
+
 File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`.
 
 ```py
@@ -181,6 +183,8 @@ class YourOpTestBase(DataOpsTestBase):
 ```
 
 The test method calls `_compare_with_reference`, which runs both the Implementation under test and the PyArrow reference and asserts they match. Every framework's concrete test class inherits it.
+
+Shipped modules under `mloda/testing/` may not import `mloda.community` or `mloda.enterprise` (a guard in `tests/test_end2end/test_dependency_direction.py` enforces it and allowlists only the existing lazy PyArrow reference imports). A new operation therefore ships a kit-owned reference function `(group, table, features)` and overrides `reference_calculate` as aggregation, rank and offset do (see [How the comparison works](03-reference-implementation.md#how-the-comparison-works)).
 
 One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 

@@ -1,25 +1,39 @@
-"""Pure Python reference for aggregation: the shared loop with a kernel-backed compute.
+"""Pure Python reference for aggregation: runs the loop of the group passed in with a kernel-backed compute.
 
 pa.Table is only the I/O container; grouping and aggregation run on ``to_pylist()`` lists.
 """
 
 from __future__ import annotations
 
+from typing import Any, Protocol
+
 import pyarrow as pa
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.aggregation.base import (
-    AggregationFeatureGroup,
-    AggregationSpec,
-)
-from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
     SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
     group_rows,
+    unsupported_agg_type_error,
 )
+from mloda.testing.feature_groups.data_operations.helpers import masked_column
+
+
+class AggregationSpec(Protocol):
+    """One aggregation as the group's loop hands it to the compute."""
+
+    @property
+    def feature_name(self) -> str: ...
+
+    @property
+    def source_col(self) -> str: ...
+
+    @property
+    def agg_type(self) -> str: ...
+
+    @property
+    def mask_spec(self) -> list[tuple[str, str, Any]] | None: ...
 
 
 def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: list[str]) -> pa.Table:
@@ -37,7 +51,7 @@ def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: 
     for spec in specs:
         out_type = declared_type(spec.agg_type, table.schema.field(spec.source_col).type)
         source = (
-            apply_pyarrow_mask(table, spec.source_col, spec.mask_spec)
+            masked_column(table, spec.source_col, spec.mask_spec)
             if spec.mask_spec is not None
             else table.column(spec.source_col)
         )
@@ -47,6 +61,6 @@ def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: 
     return pa.table(arrays, names=[*partition_by, *(spec.feature_name for spec in specs)])
 
 
-def reference_aggregation(table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the shared aggregation loop with the pure Python reference compute."""
-    return AggregationFeatureGroup.aggregate(table, features, compute_group=_compute_group)
+def reference_aggregation(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the group's aggregation loop with the pure Python reference compute."""
+    return group.aggregate(table, features, compute_group=_compute_group)

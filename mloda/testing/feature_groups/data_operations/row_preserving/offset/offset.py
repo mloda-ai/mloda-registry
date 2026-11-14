@@ -160,7 +160,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         """Run the PyArrow-backed reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
-        return reference_offset(table, features)
+        return reference_offset(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete tests ------------------------------------------------------
 

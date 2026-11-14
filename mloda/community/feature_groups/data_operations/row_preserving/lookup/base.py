@@ -209,6 +209,8 @@ class LookupFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     CONTRACT_VERSION = 1
 
+    UNMATCHED_ERROR: ClassVar[type[LookupUnmatchedError]] = LookupUnmatchedError
+
     PREFIX_PATTERN = r".*__lookup$"
     RECOGNITION_ONLY_PATTERN = True
 

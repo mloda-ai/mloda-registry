@@ -11,10 +11,6 @@ from typing import Any
 import pyarrow as pa
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
-    RankFeatureGroup,
-)
-
 
 def _is_nan(value: Any) -> bool:
     """True for a NaN float value.
@@ -166,6 +162,6 @@ def _compute_rank(
     return table.append_column(feature_name, new_col)
 
 
-def reference_rank(table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the shared rank loop with the PyArrow-backed reference compute."""
-    return RankFeatureGroup.rank(table, features, compute_rank=_compute_rank)
+def reference_rank(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the group's rank loop with the PyArrow-backed reference compute."""
+    return group.rank(table, features, compute_rank=_compute_rank)

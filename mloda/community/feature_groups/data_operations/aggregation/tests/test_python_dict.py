@@ -7,6 +7,7 @@ from typing import Any
 
 from mloda.user import Options
 
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.aggregation.python_dict_aggregation import (
     PythonDictAggregation,
 )
@@ -74,7 +75,7 @@ class TestPythonDictNanPartitionKeyGrouping:
         fs = make_feature_set("val__sum_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)
-        oracle = reference_aggregation(arrow_table, fs)
+        oracle = reference_aggregation(AggregationFeatureGroup, arrow_table, fs)
 
         result_val_col = extract_column(result, "val__sum_agg")
         oracle_val_col = extract_column(oracle, "val__sum_agg")
@@ -126,7 +127,7 @@ class TestPythonDictMinMaxSkipsNan:
         fs = make_feature_set(f"val__{agg_type}_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)
-        oracle = reference_aggregation(arrow_table, fs)
+        oracle = reference_aggregation(AggregationFeatureGroup, arrow_table, fs)
 
         result_val = extract_column(result, f"val__{agg_type}_agg")[0]
         oracle_val = extract_column(oracle, f"val__{agg_type}_agg")[0]

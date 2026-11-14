@@ -7,6 +7,9 @@ from typing import Any
 
 from mloda.user import Options
 
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+    WindowAggregationFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.python_dict_window_aggregation import (
     PythonDictWindowAggregation,
 )
@@ -80,7 +83,7 @@ class TestPythonDictNanPartitionKeyGrouping:
         fs = make_feature_set("val__sum_window", ["grp"])
 
         result = calculate_with(PythonDictWindowAggregation, data, fs)
-        oracle = reference_window_aggregation(arrow_table, fs)
+        oracle = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table, fs)
 
         result_col = extract_column(result, "val__sum_window")
         oracle_col = extract_column(oracle, "val__sum_window")
@@ -127,7 +130,7 @@ class TestPythonDictMinMaxSkipsNan:
         fs = make_feature_set(f"val__{agg_type}_window", ["grp"])
 
         result = calculate_with(PythonDictWindowAggregation, data, fs)
-        oracle = reference_window_aggregation(arrow_table, fs)
+        oracle = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table, fs)
 
         result_val = extract_column(result, f"val__{agg_type}_window")[0]
         oracle_val = extract_column(oracle, f"val__{agg_type}_window")[0]

@@ -16,6 +16,7 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for, make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import RankTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 
 
@@ -157,7 +158,7 @@ class TestRankOperationGroup(OperationGroupTestBase):
 
     @classmethod
     def universe(cls) -> frozenset[str]:
-        return frozenset({"row_number", "rank", "dense_rank", "percent_rank", "ntile", "top", "bottom"})
+        return frozenset(RankTestBase.ALL_RANK_TYPES)
 
     @classmethod
     def name_probes(cls) -> list[tuple[str, str]]:
@@ -372,7 +373,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_rank(table, fs)
+        result = reference_rank(RankFeatureGroup, table, fs)
         assert isinstance(result, pa.Table)
         assert "my_rank_result" in result.column_names
         assert result.num_rows == 12
@@ -586,5 +587,7 @@ class TestRankMatchValidation(MatchValidationTestBase):
     def compute_values(cls, options: Options) -> list[Any] | None:
         # Rank reads order_by inline in calculate_feature rather than through an extractor,
         # so only a run through the backend shows a container reaching it unwrapped.
-        result = reference_rank(PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_rank_result", options))
+        result = reference_rank(
+            RankFeatureGroup, PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_rank_result", options)
+        )
         return extract_column(result, "my_rank_result")

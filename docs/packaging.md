@@ -110,7 +110,7 @@ leaves the lineage extender unregistered and makes importing it raise ImportErro
 change ships as a `minor:` commit; any other type (`fix:`, `feat:`, `refactor:`, even with a `!` breaking
 marker) is a patch release, which `~=` admits. A PR that changes the seam tables in
 `mloda/testing/extenders/openlineage.py` needs a `minor:` title and commit, checked by
-`scripts/check_seam_release_type.py`.
+`scripts/check_seam_release_type.py`. The `compute_<op>` callback signature of a data-operation group's loop is likewise a seam between the group and the `mloda-testing` references, so changing one ships as a `minor:` commit.
 
 Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders-shared>={version}"`
 because its runtime code uses only public names from it and subclasses none of its classes

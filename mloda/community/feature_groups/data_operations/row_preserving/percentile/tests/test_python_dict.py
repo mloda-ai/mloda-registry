@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import PercentileFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.python_dict_percentile import (
     PythonDictPercentile,
 )
@@ -59,7 +60,7 @@ class TestPythonDictNanPartitionKeyGrouping:
         fs = make_feature_set("val__p50_percentile", ["grp"])
 
         result = calculate_with(PythonDictPercentile, data, fs)
-        oracle = reference_percentile(arrow_table, fs)
+        oracle = reference_percentile(PercentileFeatureGroup, arrow_table, fs)
 
         result_col = extract_column(result, "val__p50_percentile")
         oracle_col = extract_column(oracle, "val__p50_percentile")
@@ -111,7 +112,7 @@ class TestPythonDictPercentileNanValueSkipped:
         fs = make_feature_set("val__p50_percentile", ["grp"])
 
         result = calculate_with(PythonDictPercentile, data, fs)
-        oracle = reference_percentile(arrow_table, fs)
+        oracle = reference_percentile(PercentileFeatureGroup, arrow_table, fs)
 
         result_col = extract_column(result, "val__p50_percentile")
         oracle_col = extract_column(oracle, "val__p50_percentile")

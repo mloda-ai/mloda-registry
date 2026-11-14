@@ -55,7 +55,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_dat
 
 ## LookupUnmatchedError
 
-A `ValueError` subclass raised by policy `raise`. Attributes:
+A `ValueError` subclass raised by policy `raise`; the group exposes the class as `LookupFeatureGroup.UNMATCHED_ERROR`. Attributes:
 
 | Attribute | Meaning |
 |---|---|

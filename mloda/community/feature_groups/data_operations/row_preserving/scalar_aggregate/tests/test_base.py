@@ -15,6 +15,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
+    ScalarAggregateTestBase,
+)
 
 
 class TestClassAttributes:
@@ -382,6 +385,10 @@ class TestScalarAggregateOperationGroup(OperationGroupTestBase):
     @classmethod
     def probe_feature_set(cls) -> FeatureSet:
         return make_feature_set("value_int__sum_scalar", [])
+
+    @classmethod
+    def universe(cls) -> frozenset[str]:
+        return frozenset(ScalarAggregateTestBase.ALL_AGG_TYPES)
 
     @classmethod
     def alias_pairs(cls) -> list[tuple[str, str]]:

@@ -325,7 +325,7 @@ class WindowAggregationTestBase(
             reference_window_aggregation,
         )
 
-        return reference_window_aggregation(table, features)
+        return reference_window_aggregation(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 

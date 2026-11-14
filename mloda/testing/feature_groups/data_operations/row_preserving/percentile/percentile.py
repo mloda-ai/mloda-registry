@@ -18,7 +18,12 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    feature_group_of,
+    is_null,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -170,7 +175,7 @@ class PercentileTestBase(
             reference_percentile,
         )
 
-        return reference_percentile(table, features)
+        return reference_percentile(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 

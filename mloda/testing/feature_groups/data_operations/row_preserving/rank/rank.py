@@ -23,9 +23,8 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -98,7 +97,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
 
-    ALL_RANK_TYPES = set(RankFeatureGroup.RANK_TYPES) | set(RankFeatureGroup.PARAMETRIC_RANK_FAMILIES)
+    ALL_RANK_TYPES = {"row_number", "rank", "dense_rank", "percent_rank", "ntile", "top", "bottom"}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
@@ -156,7 +155,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         """Run the PyArrow-backed reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 
-        return reference_rank(table, features)
+        return reference_rank(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 

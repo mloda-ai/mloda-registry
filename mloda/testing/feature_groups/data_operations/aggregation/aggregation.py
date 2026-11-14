@@ -348,7 +348,7 @@ class AggregationTestBase(
         """Run the pure Python reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
 
-        return reference_aggregation(table, features)
+        return reference_aggregation(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -698,12 +698,13 @@ class AggregationTestBase(
 
     def test_empty_feature_set_returns_input(self) -> None:
         """A FeatureSet without features returns the input unchanged and never calls compute_group."""
-        from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 
         def fail(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError("compute_group must not run for an empty FeatureSet")
 
-        result = AggregationFeatureGroup.aggregate(self.test_data, FeatureSet(), compute_group=fail)
+        result = feature_group_of(self.implementation_class()).aggregate(
+            self.test_data, FeatureSet(), compute_group=fail
+        )
         assert result is self.test_data
 
     # -- partition_by=[] on an empty table (one row: sum None, count 0) ------
