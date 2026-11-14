@@ -120,7 +120,7 @@ class LimitedImplementation(Implementation[MyOperationGroup]):
 
 - `supported`: a feature whose subtype is outside the set is not offered on that framework. Reject up front; do not compute the result in Python inside the backend.
 - `divergences`: declared, accepted differences from the reference (`kind`, `cause`, `subtypes` or `outputs`, one-line `reason`). When several frameworks are enabled, every kind except `GAP` ranks the implementation below a matching one without it.
-- `VARIANTS` on the group and `DivergenceKind.VARIANT` records: a VARIANT record names a `variant` (for example `nan_as_null`) the group lists in `VARIANTS`. The Implementation runs only for a feature whose group options set `allow_variants` to that name; otherwise another framework serves the step, or resolution fails naming the option. A group also declares `CONTRACT_VERSION` (an int, `1` for the registry's operation groups) for its reference contract; telemetry carries it. The ColumnTotal example below keeps a VALUE record for brevity; the registry's NaN cases are VARIANT records.
+- `VARIANTS` on the group and `DivergenceKind.VARIANT` records: a VARIANT record names a `variant` (for example `nan_as_null`) the group lists in `VARIANTS`. The Implementation runs only for a feature whose group options set `allow_variants` to that name; otherwise another framework serves the step, or resolution fails naming the option. A group also declares an int `CONTRACT_VERSION` for its reference contract; telemetry carries it. The ColumnTotal example below keeps a VALUE record for brevity.
 
 ## Pin an Implementation
 
