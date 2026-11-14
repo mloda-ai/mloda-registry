@@ -223,7 +223,7 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
 
 
 def test_mloda_enterprise_wheel_packages_include_the_licensing_package() -> None:
-    """Nothing imports mloda.enterprise.licensing during release verification, so the wheel list must carry it."""
+    """Verification imports mloda.enterprise.licensing only after release; this guards the wheel list before it."""
     _shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
     expected = "mloda.enterprise.licensing"

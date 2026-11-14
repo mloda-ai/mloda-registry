@@ -131,6 +131,8 @@ Two rules:
 - **One entry point per optional extra.** An `ImportError` skips the whole entry point, so a mixed manifest loses all its groups when `rdflib` is missing. Give each extra its own manifest and entry, and keep the base manifest free of optional imports.
 - **The marker must import without the backend.** A marker that fails to import is ignored with a warning and the missing `rdflib` then makes `PluginLoader.all()` raise, so the marker cannot live in the manifest (or a package `__init__.py`) that imports `rdflib`.
 
+A root may name a namespace subpackage (mloda >= 0.20): `mloda.enterprise` covers itself and every module under it, but not `mloda.enterprisex` or the rest of `mloda`. So a `mloda.community` plugin whose extra pulls in `mloda.enterprise` declares that root instead of catching the `ImportError` in its manifest. Declare the shallowest package that can be absent, since Python reports the shallowest missing package: `mloda.enterprise`, not `mloda.enterprise.licensing`, unless another installed package always provides `mloda.enterprise`.
+
 See [Plugin Loader: Entry Points](https://mloda-ai.github.io/mloda/in_depth/plugin-loader/#entry-points) for validation, collision, and skip-logging behavior.
 
 ### Artifacts Installed from a URL

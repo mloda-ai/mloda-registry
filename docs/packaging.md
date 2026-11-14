@@ -372,6 +372,8 @@ import:
    `tests/test_end2end/test_dev_dependencies.py`.
 5. Add the install row to the README and to the install table under
    [Individual packages](#individual-packages).
+6. If a module without entry points requires the extra on import, add it to `EXTRA_ONLY_IMPORTS` in
+   `scripts/verify_extras.py`, so release verification imports it with the extra.
 
 Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_extra_entry`
 enforces that pair for every nested leaf the bundle wheel ships (owned leaves ship their own wheel and are skipped).
