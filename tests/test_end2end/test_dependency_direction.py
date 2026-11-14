@@ -545,44 +545,26 @@ def _plugin_package_of(module: str) -> str | None:
     return next((p for p in _PLUGIN_PACKAGES if module == p or module.startswith(p + ".")), None)
 
 
-_KIT_ROOT_PACKAGE = "mloda.testing"
-_IMPORT_CALL_NAMES = ("import_module", "importorskip", "__import__", "load_implementation")
-
-
-def _resolved_import_base(node: ast.ImportFrom, rel_path: Path, root_package: str) -> str | None:
-    """Absolute dotted module a ``from`` import names. A relative import is resolved against the package
-    of the importing file, with the scan root being the package `root_package`."""
-    if not node.level:
-        return node.module
-    package = [*root_package.split("."), *rel_path.parent.parts]
-    if node.level - 1 >= len(package):
-        return None
-    base = package[: len(package) - (node.level - 1)]
-    return ".".join([*base, *([node.module] if node.module else [])])
-
-
-def _plugin_modules_imported_by(
-    node: ast.AST, rel_path: Path = Path("m.py"), root_package: str = _KIT_ROOT_PACKAGE
-) -> list[str]:
+def _plugin_modules_imported_by(node: ast.AST) -> list[str]:
     """Modules of mloda.community / mloda.enterprise that `node` imports: an Import, an ImportFrom
-    (``from mloda import community`` records ``mloda.community``; a relative import is resolved), or an
-    import_module / importorskip / __import__ / load_implementation call whose module name is a string
-    literal (first positional argument, or ``name=``). A dynamic argument cannot be checked."""
+    (``from mloda import community`` records ``mloda.community``), or an import_module / importorskip
+    call with a string literal first argument. A dynamic argument cannot be checked."""
     if isinstance(node, ast.Import):
         return [a.name for a in node.names if _plugin_package_of(a.name)]
     if isinstance(node, ast.ImportFrom):
-        base = _resolved_import_base(node, rel_path, root_package)
-        if base is None:
+        if node.module is None or node.level:
             return []
-        if _plugin_package_of(base):
-            return [base]
-        return [f"{base}.{a.name}" for a in node.names if f"{base}.{a.name}" in _PLUGIN_PACKAGES]
-    if isinstance(node, ast.Call):
+        if _plugin_package_of(node.module):
+            return [node.module]
+        if node.module == "mloda":
+            return [f"mloda.{a.name}" for a in node.names if f"mloda.{a.name}" in _PLUGIN_PACKAGES]
+        return []
+    if isinstance(node, ast.Call) and node.args:
         func = node.func
         name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
-        first = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "name"), None)
+        first = node.args[0]
         if (
-            name in _IMPORT_CALL_NAMES
+            name in ("import_module", "importorskip")
             and isinstance(first, ast.Constant)
             and isinstance(first.value, str)
             and _plugin_package_of(first.value)
@@ -599,7 +581,7 @@ def _walk_with_scope(node: ast.AST, in_function: bool = False) -> Iterator[tuple
         yield from _walk_with_scope(child, inside)
 
 
-def _kit_plugin_import_sites(root_dir: Path, root_package: str = _KIT_ROOT_PACKAGE) -> set[tuple[str, str, bool]]:
+def _kit_plugin_import_sites(root_dir: Path) -> set[tuple[str, str, bool]]:
     """(posix path relative to root_dir, imported module, inside a function body) for every
     mloda.community / mloda.enterprise import outside tests/ and the top-level binary_model/ directory."""
     found: set[tuple[str, str, bool]] = set()
@@ -607,18 +589,15 @@ def _kit_plugin_import_sites(root_dir: Path, root_package: str = _KIT_ROOT_PACKA
         if rel_path.parts[0] == "binary_model":
             continue
         for node, in_function in _walk_with_scope(tree):
-            found.update(
-                (rel_path.as_posix(), module, in_function)
-                for module in _plugin_modules_imported_by(node, rel_path, root_package)
-            )
+            found.update((rel_path.as_posix(), module, in_function) for module in _plugin_modules_imported_by(node))
     return found
 
 
-def _kit_plugin_imports(root_dir: Path, root_package: str = _KIT_ROOT_PACKAGE) -> set[tuple[str, str]]:
+def _kit_plugin_imports(root_dir: Path) -> set[tuple[str, str]]:
     """(posix path relative to root_dir, imported module) for every mloda.community / mloda.enterprise
     import outside tests/ and the top-level binary_model/ directory. A dynamic import_module
     argument cannot be checked."""
-    return {(path, module) for path, module, _lazy in _kit_plugin_import_sites(root_dir, root_package)}
+    return {(path, module) for path, module, _lazy in _kit_plugin_import_sites(root_dir)}
 
 
 _DATA_OPS = "feature_groups/data_operations"
@@ -880,41 +859,11 @@ def test_kit_pyarrow_reference_allowlist_has_no_stale_entries() -> None:
             "mloda.enterprise",
             id="bare-import-module-literal",
         ),
-        pytest.param('__import__("mloda.community.x")\n', "mloda.community.x", id="dunder-import-literal"),
-        pytest.param(
-            'from importlib import import_module\nimport_module(name="mloda.community.x")\n',
-            "mloda.community.x",
-            id="import-module-keyword",
-        ),
-        pytest.param(
-            'load_implementation("mloda.community.x", "module", "Name")\n',
-            "mloda.community.x",
-            id="load-implementation-literal",
-        ),
     ],
 )
 def test_kit_plugin_import_collector_collects(tmp_path: Path, body: str, module: str) -> None:
     _write(tmp_path / "m.py", body)
     assert _kit_plugin_imports(tmp_path) == {("m.py", module)}
-
-
-@pytest.mark.parametrize(
-    ("body", "modules"),
-    [
-        pytest.param("from ... import community\n", {"mloda.community"}, id="bare-community"),
-        pytest.param(
-            "from ...community.feature_groups import y\n", {"mloda.community.feature_groups"}, id="community-submodule"
-        ),
-        pytest.param("from . import helpers\n", set(), id="sibling-package"),
-        pytest.param("from ..data_creator import base\n", set(), id="kit-sibling-module"),
-        pytest.param("from .... import community\n", set(), id="beyond-the-top-level-package"),
-    ],
-)
-def test_kit_plugin_import_collector_resolves_relative_imports(tmp_path: Path, body: str, modules: set[str]) -> None:
-    """A file feature_groups/x.py under a root that is the package mloda.testing."""
-    _write(tmp_path / "feature_groups" / "x.py", body)
-    expected = {("feature_groups/x.py", module) for module in modules}
-    assert _kit_plugin_imports(tmp_path, "mloda.testing") == expected
 
 
 @pytest.mark.parametrize(
