@@ -130,6 +130,16 @@ class TestAggregationIntegration(
         ]
 
     @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        package = "mloda.community.feature_groups.data_operations.aggregation"
+        return RoutingCase(
+            "value_int__sum_agg",
+            {"partition_by": ["region"]},
+            f"{package}.pandas_aggregation:PandasAggregation",
+            PANDAS_DATAFRAME,
+        )
+
+    @classmethod
     def unsupported_framework_case(cls) -> tuple[str, dict[str, Any]] | None:
         # PyArrow has no grouped median.
         return "value_int__median_agg", {"partition_by": ["region"]}
@@ -386,14 +396,6 @@ class TestImplementationPin:
         feature = Feature("value_int__sum_agg", options=options, implementation=PandasAggregation)
         with pytest.raises(FeatureResolutionError, match=r"(?s)(?=.*allow_variants)(?=.*nan_as_null)"):
             self._aggregation_step([feature], [PyArrowTable, PandasDataFrame], self._collector())
-
-    def test_pandas_only_without_the_option_is_refused(self) -> None:
-        """Running Pandas-only without allow_variants fails: the only candidate is a nan_as_null variant."""
-        pytest.importorskip("pandas")
-        collector = enabled_with_implementations({PandasDataOpsTestDataCreator, AggregationFeatureGroup})
-        feature = Feature("value_int__sum_agg", options=Options(context={"partition_by": ["region"]}))
-        with pytest.raises(FeatureResolutionError, match="allow_variants"):
-            mloda.run_all([feature], compute_frameworks=[PandasDataFrame], plugin_collector=collector)
 
 
 class TestIntegrationMultipleFeatures:

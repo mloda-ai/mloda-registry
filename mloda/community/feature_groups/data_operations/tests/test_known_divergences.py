@@ -1,7 +1,7 @@
 """Drift check: every known-divergence entry must cite a regression test that exists.
 
 The page at ``docs/guides/data-operation-patterns/known-divergences.md`` is the
-authoritative record of every place a backend silently diverges from the PyArrow
+authoritative record of every place a backend silently diverges from the operation's
 reference. Each entry names a regression test that should fail if its mitigation
 is removed, but historically those references were prose: if a cited test was
 renamed, moved, or deleted, the doc rotted silently and a steward lost the
@@ -46,7 +46,15 @@ This module parses those blocks and asserts:
   ``framework`` token is a name the sibling support-matrix check recognizes, so
   those two fields cannot silently hold a typo or a stale name.
 
-When this test fails, the doc references a test or file that no longer exists:
+- ``test_declared_divergences_section_is_in_sync`` -- the generated block between the
+  ``declared-divergences`` markers equals what ``render_declared_block`` renders from each
+  Implementation's ``divergences`` records (via ``DataOperationsCatalog``).
+- ``test_every_declared_record_has_an_entry`` -- every operation and framework that declares
+  records is named by at least one entry's machine block.
+- ``test_record_docs_links_resolve_to_a_heading`` -- a record's ``docs`` link into this page
+  names an existing heading anchor.
+
+When the entry checks fail, the doc references a test or file that no longer exists:
 either restore the guard or update the entry's machine block to point at the
 test that now guards the divergence.
 """
@@ -60,10 +68,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mloda.provider import Cause, Divergence, DivergenceKind
 
+from mloda.community.feature_groups.data_operations import OperationInfo
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import (
+    FRAMEWORK_CATALOG_KEYS,
     FRAMEWORKS,
     OPERATIONS,
+    operation_info,
+    ordered_operations,
+    splice_into_doc,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -75,6 +89,9 @@ DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "known-di
 # or a stale name into a failure instead of letting those fields hold arbitrary text.
 KNOWN_FRAMEWORKS: frozenset[str] = frozenset(key for key, _label in FRAMEWORKS)
 KNOWN_OPERATIONS: frozenset[str] = frozenset(OPERATIONS)
+
+BEGIN_MARKER = "<!-- BEGIN GENERATED: declared-divergences -->"
+END_MARKER = "<!-- END GENERATED: declared-divergences -->"
 
 ENTRIES_HEADING = "## Entries"
 BLOCK_BEGIN = "<!-- machine-checked"
@@ -254,6 +271,134 @@ def _resolve_test_ref(ref: str) -> None:
         cls = getattr(module, parts[1])
         if inspect.isclass(cls):
             _assert_leaf_is_live(cls, leaf, ref)
+
+
+def _applies_to_cell(record: Divergence) -> str:
+    if record.subtypes:
+        return ", ".join(f"`{name}`" for name in sorted(record.subtypes))
+    if record.outputs:
+        return "output " + ", ".join(f"`{name}`" for name in sorted(record.outputs))
+    return "(all)"
+
+
+def _reason_cell(record: Divergence) -> str:
+    reason = record.describe().replace("|", "\\|")
+    return f"{reason} ([details]({record.docs}))" if record.docs else reason
+
+
+def render_declared_block(infos: list[OperationInfo]) -> str:
+    out: list[str] = [BEGIN_MARKER, ""]
+    out.append(
+        "Rendered from each Implementation's `divergences`, queryable through `DataOperationsCatalog` "
+        "(`OperationInfo.divergences`). `(all)` means the record covers every subtype of the operation. "
+        "A `variant` record runs only for a feature whose group options set `allow_variants` to that name."
+    )
+    out.append("")
+    for info in infos:
+        rows: list[str] = []
+        for fw_key, label in FRAMEWORKS:
+            for record in info.divergences.get(FRAMEWORK_CATALOG_KEYS[fw_key], ()):
+                variant = f"`{record.variant}`" if record.variant else ""
+                cells = [label, record.kind.value, variant, record.cause.value, _applies_to_cell(record)]
+                rows.append("| " + " | ".join([*cells, _reason_cell(record)]) + " |")
+        if not rows:
+            continue
+        out += [
+            f"### {info.name}",
+            "",
+            "| Framework | Kind | Variant | Cause | Applies to | Reason |",
+            "|---|---|---|---|---|---|",
+        ]
+        out += rows
+        out.append("")
+    out.append(END_MARKER)
+    return "\n".join(out) + "\n"
+
+
+_REGENERATION_HINT = (
+    "Regenerate the block between the `BEGIN GENERATED: declared-divergences` / "
+    "`END GENERATED: declared-divergences` markers in\n"
+    f"{DOC_PATH.relative_to(REPO_ROOT)}\n"
+    "so it matches render_declared_block(ordered_operations()) from this module, then rerun."
+)
+
+
+def _slug(heading: str) -> str:
+    """GitHub heading anchor: lowercase, keep letters, digits, spaces, hyphens, underscores; spaces to hyphens."""
+    kept = "".join(ch for ch in heading.lower() if ch.isalnum() or ch in " -_")
+    return kept.replace(" ", "-")
+
+
+def test_declared_divergences_section_is_in_sync() -> None:
+    generated = render_declared_block(ordered_operations())
+    current = DOC_PATH.read_text()
+    expected = splice_into_doc(current, generated, BEGIN_MARKER, END_MARKER)
+    assert expected == current, "known-divergences.md is out of sync with the declared records.\n" + _REGENERATION_HINT
+
+
+def test_every_declared_record_has_an_entry() -> None:
+    covered: set[tuple[str, str]] = set()
+    for _title, data in _collected_entries():
+        ops = [tok.strip() for tok in str(data["operation"]).split(",")]
+        fws = [tok.strip() for tok in str(data["framework"]).split(",")]
+        covered.update((op, fw) for op in ops for fw in fws)
+    missing = [
+        f"{info.name} / {fw_key}"
+        for info in ordered_operations()
+        for fw_key, _label in FRAMEWORKS
+        if info.divergences.get(FRAMEWORK_CATALOG_KEYS[fw_key]) and (info.name, fw_key) not in covered
+    ]
+    assert missing == [], "declared divergence records with no entry naming them (add a machine-checked entry):\n  " + (
+        "\n  ".join(missing)
+    )
+
+
+def test_record_docs_links_resolve_to_a_heading() -> None:
+    page = "known-divergences.md#"
+    anchors = {_slug(line.lstrip("#").strip()) for line in DOC_PATH.read_text().splitlines() if line.startswith("#")}
+    checked = 0
+    for info in ordered_operations():
+        for fw_key, records in info.divergences.items():
+            for record in records:
+                if record.docs and page in record.docs:
+                    checked += 1
+                    anchor = record.docs.split(page, 1)[1]
+                    assert anchor in anchors, f"{info.name} / {fw_key}: docs anchor {anchor!r} matches no heading"
+    assert checked, "no record links into known-divergences.md; the PythonDictRank record should"
+
+
+def test_render_declared_block_rows_and_omissions() -> None:
+    scoped = Divergence(
+        kind=DivergenceKind.VARIANT,
+        cause=Cause.BACKEND,
+        subtypes=frozenset({"b", "a"}),
+        variant="nan_as_null",
+        reason="skips NaN",
+    )
+    scopeless = Divergence(kind=DivergenceKind.GAP, cause=Cause.NOT_IMPLEMENTED)
+    on_outputs = Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, outputs=frozenset({"z", "y"}), reason="a|b")
+    linked = Divergence(
+        kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="see page", docs="known-divergences.md#anchor"
+    )
+    shown = operation_info(
+        "shown",
+        {"PythonDictFramework": (scopeless,), "PandasDataFrame": (scoped, scopeless, on_outputs, linked)},
+    )
+    hidden = operation_info("hidden", {"PandasDataFrame": ()})
+    block = render_declared_block([shown, hidden])
+    assert block.startswith(BEGIN_MARKER + "\n")
+    assert block.endswith(END_MARKER + "\n")
+    assert "### shown" in block
+    assert "### hidden" not in block
+    assert "| Framework | Kind | Variant | Cause | Applies to | Reason |" in block
+    rows = [line for line in block.splitlines() if line.startswith("| Pandas") or line.startswith("| Python")]
+    assert rows == [
+        "| Pandas | variant | `nan_as_null` | backend | `a`, `b` | skips NaN |",
+        "| Pandas | gap |  | not_implemented | (all) | not implemented |",
+        "| Pandas | value |  | backend | output `y`, `z` | a\\|b |",
+        "| Pandas | value |  | backend | (all) | see page ([details](known-divergences.md#anchor)) |",
+        "| Python dict | gap |  | not_implemented | (all) | not implemented |",
+    ]
 
 
 def test_every_entry_has_machine_block_with_required_keys() -> None:

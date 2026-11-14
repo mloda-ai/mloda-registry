@@ -152,8 +152,8 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def supported_offset_types(cls) -> set[str]:
-        """Offset types this framework supports. Override to restrict."""
-        return cls.ALL_OFFSET_TYPES
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_OFFSET_TYPES)
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:

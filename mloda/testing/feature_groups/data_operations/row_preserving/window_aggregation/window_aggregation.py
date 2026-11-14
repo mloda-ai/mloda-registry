@@ -16,7 +16,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -236,8 +236,8 @@ class WindowAggregationTestBase(
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
-        """Aggregation types this framework supports. Override to restrict."""
-        return cls.ALL_AGG_TYPES
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_AGG_TYPES)
 
     @classmethod
     def merges_signed_zero_keys(cls) -> bool:
@@ -250,10 +250,15 @@ class WindowAggregationTestBase(
 
     @classmethod
     def orders_nan_before_none(cls) -> bool:
-        """Whether order_by puts NaN before None (the reference: real values, NaN, then None).
-
-        Backends that tie NaN and None override to False.
-        """
+        """False exactly when a ``nan_as_null`` VARIANT record names ``first``/``last`` or is scopeless and outputless."""
+        impl = cls.implementation_class()
+        if isinstance(impl, type) and issubclass(impl, Implementation):
+            return not any(
+                r.kind is DivergenceKind.VARIANT
+                and r.variant == "nan_as_null"
+                and (({"first", "last"} & set(r.subtypes)) or (not r.subtypes and not r.outputs))
+                for r in impl.divergences
+            )
         return True
 
     # -- MaskTestMixin configuration -------------------------------------------
@@ -756,23 +761,30 @@ class WindowAggregationTestBase(
         assert self.extract_column(result, feature_name) == expected
 
     def test_nan_orders_before_none(self) -> None:
-        """order_by [None, NaN, 1.0]: the reference puts NaN before None, so last is the None row's value."""
-        self._skip_if_unsupported("last")
-        table = pa.table(
-            {
-                "g": ["a", "a", "a"],
-                "o": pa.array([None, float("nan"), 1.0], type=pa.float64()),
-                "v": pa.array([10, 20, 30], type=pa.int64()),
-            }
-        )
-        feature_name = "v__last_window"
-        fs = make_feature_set(feature_name, ["g"], order_by="o")
+        """The reference puts NaN before None in order_by: last on [None, NaN, 1.0], first on [None, NaN]."""
+        nan = float("nan")
+        cases = [
+            ("last", [None, nan, 1.0], [10, 20, 30], [10, 10, 10], [20, 20, 20]),
+            ("first", [None, nan], [10, 20], [20, 20], [10, 10]),
+        ]
+        for agg, order, values, reference, tied in cases:
+            if agg not in self.supported_agg_types():
+                continue
+            table = pa.table(
+                {
+                    "g": ["a"] * len(order),
+                    "o": pa.array(order, type=pa.float64()),
+                    "v": pa.array(values, type=pa.int64()),
+                }
+            )
+            feature_name = f"v__{agg}_window"
+            fs = make_feature_set(feature_name, ["g"], order_by="o")
 
-        assert self._ref_column(table, fs, feature_name) == [10, 10, 10]
+            assert self._ref_column(table, fs, feature_name) == reference
 
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = [10, 10, 10] if self.orders_nan_before_none() else [20, 20, 20]
-        assert self.extract_column(result, feature_name) == expected
+            result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+            expected = reference if self.orders_nan_before_none() else tied
+            assert self.extract_column(result, feature_name) == expected
 
     def _ref_column(self, table: pa.Table, fs: FeatureSet, feature_name: str) -> list[Any]:
         column: list[Any] = self.reference_calculate(table, fs).column(feature_name).to_pylist()

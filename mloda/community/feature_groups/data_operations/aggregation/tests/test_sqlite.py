@@ -20,10 +20,6 @@ class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, Aggregatio
     """All tests inherited from the base class."""
 
     @classmethod
-    def supported_agg_types(cls) -> set[str]:
-        return {"sum", "avg", "mean", "count", "min", "max"}
-
-    @classmethod
     def implementation_class(cls) -> Any:
         return SqliteAggregation
 

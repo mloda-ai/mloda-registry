@@ -31,7 +31,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_mask
 from mloda.community.feature_groups.data_operations.python_dict_helpers import (
     group_key_value,
     is_nan,
-    nulls_last_sort_key,
+    partition_sort_key,
     reduce_agg,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
@@ -129,7 +129,7 @@ class PythonDictFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             groups.setdefault(key, []).append((i, order_vals[i], source_values[i]))
 
         for rows in groups.values():
-            rows.sort(key=lambda t: nulls_last_sort_key(t[1]))
+            rows.sort(key=lambda t: partition_sort_key(t[1]))
 
         result_values: list[Any] = [None] * num_rows
 

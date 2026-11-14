@@ -50,23 +50,10 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         return (("value_time_frame", time_frame_options("month")),)
 
     @classmethod
-    def supported_time_units(cls) -> set[str]:
-        # Pandas .rolling(window="...", on=ts) accepts only fixed-frequency units.
-        # Month/year are calendar-anchored; rather than fall back to a Python loop
-        # (which would defeat the point of running inside pandas), they are rejected
-        # at match time. See known-divergences.md.
-        return {"second", "minute", "hour", "day", "week"}
-
-    @classmethod
     def supports_null_order_in_time_window(cls) -> bool:
         # pandas groupby().rolling(on=ts) raises "ts values must not have NaT"
         # when the order_by column contains null timestamps. The implementation
         # surfaces this as an explicit ValueError before calling rolling().
-        return False
-
-    @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """pandas ties NaN and None in order_by, so ties keep input order."""
         return False
 
     @classmethod

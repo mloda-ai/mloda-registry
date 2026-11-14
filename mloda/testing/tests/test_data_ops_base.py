@@ -588,6 +588,14 @@ def test_routing_frameworks_defaults_to_the_pipeline_frameworks() -> None:
     assert _RoutingStub.routing_frameworks() == [_Marker]
 
 
+def test_variant_required_case_defaults_to_none() -> None:
+    from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+        OperationGroupIntegrationTestMixin,
+    )
+
+    assert OperationGroupIntegrationTestMixin.variant_required_case() is None
+
+
 class TestEnabledWithImplementations:
     """The integration helper loads a group's Implementations through its manifest, so tests need no ad hoc imports."""
 
@@ -874,3 +882,159 @@ def test_operation_group_shape_checks_installed_specs_when_another_backend_is_mi
             _operation_group_host(group, impl, specs).test_operation_group_shape()
 
     _with_probe_impl(check, supported=frozenset({"not_a_subtype"}))
+
+
+def test_divergent_subtypes_named_only_skips_a_scopeless_record() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+
+    records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="all"),)
+
+    def check(group: Any, impl: Any) -> None:
+        group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
+        assert divergent_subtypes(impl, named_only=True) == frozenset()
+
+    _with_probe_impl(check, records)
+
+
+def test_divergent_subtypes_named_only_still_counts_scoped_records_and_ignores_gap() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+
+    records = (
+        *_records("sum"),
+        Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="all"),
+        Divergence(kind=DivergenceKind.GAP, cause=Cause.BACKEND, subtypes=frozenset({"mean"}), reason="gap"),
+    )
+
+    def check(group: Any, impl: Any) -> None:
+        group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
+        assert divergent_subtypes(impl, named_only=True) == frozenset({"sum"})
+        assert divergent_subtypes(impl) == frozenset({"sum", "mean", "min"})
+
+    _with_probe_impl(check, records)
+
+
+def test_nan_divergent_agg_types_default_ignores_a_scopeless_record() -> None:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    records = (
+        *_records("sum"),
+        Divergence(kind=DivergenceKind.VARIANT, variant="nan_as_null", cause=Cause.BACKEND, reason="all"),
+    )
+
+    def check(group: Any, impl: Any) -> None:
+        group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
+        assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset({"sum"})
+
+    _with_probe_impl(check, records)
+
+
+# -- declared_supported ---------------------------------------------------------
+
+
+def test_declared_supported_returns_the_implementation_supported_set() -> None:
+    def check(_: Any, impl: Any) -> None:
+        assert _stub_for(impl, reference=False).declared_supported({"x"}) == {"sum", "mean"}
+
+    _with_probe_impl(check, supported=frozenset({"sum", "mean"}))
+
+
+def test_declared_supported_returns_the_group_universe_when_supported_is_none() -> None:
+    def check(group: Any, impl: Any) -> None:
+        group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
+        assert impl.supported is None
+        assert _stub_for(impl, reference=False).declared_supported({"x"}) == {"sum", "mean", "min"}
+
+    _with_probe_impl(check)
+
+
+def test_declared_supported_returns_the_default_for_a_non_implementation() -> None:
+    assert _StubDataOpsTestBase.declared_supported({"x"}) == {"x"}
+    assert _CompareStub.declared_supported({"x", "y"}) == {"x", "y"}
+
+
+def test_declared_supported_returns_the_default_when_the_universe_is_empty() -> None:
+    def check(group: Any, impl: Any) -> None:
+        assert impl.supported is None
+        assert group.subtype_universe() == frozenset()
+        assert _stub_for(impl, reference=False).declared_supported({"x"}) == {"x"}
+
+    _with_probe_impl(check)
+
+
+# -- orders_nan_before_none -----------------------------------------------------
+
+
+def _order_tie_bases() -> list[tuple[type, str]]:
+    from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
+        FrameAggregateTestBase,
+    )
+    from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
+        WindowAggregationTestBase,
+    )
+
+    return [(FrameAggregateTestBase, "frame"), (WindowAggregationTestBase, "window")]
+
+
+def _hook_for(base: type, impl: Any) -> bool:
+    class _Probe(base):  # type: ignore[misc]
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return impl
+
+    result: bool = _Probe.orders_nan_before_none()
+    return result
+
+
+def _nan_as_null(**scope: Any) -> Any:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    return Divergence(kind=DivergenceKind.VARIANT, variant="nan_as_null", cause=Cause.BACKEND, reason="tie", **scope)
+
+
+def _value_record(**scope: Any) -> Any:
+    from mloda.provider import Cause, Divergence, DivergenceKind
+
+    return Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="differs", **scope)
+
+
+def _hooks(records: tuple[Any, ...]) -> dict[str, bool]:
+    seen: dict[str, bool] = {}
+
+    def check(group: Any, impl: Any) -> None:
+        group.VARIANTS = frozenset({"nan_as_null"})
+        for base, label in _order_tie_bases():
+            seen[label] = _hook_for(base, impl)
+
+    _with_probe_impl(check, records)
+    return seen
+
+
+def test_orders_nan_before_none_ignores_a_scopeless_value_record() -> None:
+    assert _hooks((_value_record(),)) == {"frame": True, "window": True}
+
+
+def test_orders_nan_before_none_window_ignores_a_value_record_naming_first() -> None:
+    assert _hooks((_value_record(subtypes=frozenset({"first"})),))["window"] is True
+
+
+def test_orders_nan_before_none_flips_on_a_scopeless_nan_as_null_variant() -> None:
+    assert _hooks((_nan_as_null(),)) == {"frame": False, "window": False}
+
+
+def test_orders_nan_before_none_window_flips_on_a_nan_as_null_variant_naming_first_or_last() -> None:
+    assert _hooks((_nan_as_null(subtypes=frozenset({"first"})),)) == {"frame": True, "window": False}
+    assert _hooks((_nan_as_null(subtypes=frozenset({"last", "sum"})),)) == {"frame": True, "window": False}
+
+
+def test_orders_nan_before_none_ignores_a_nan_as_null_variant_scoped_elsewhere() -> None:
+    assert _hooks((_nan_as_null(subtypes=frozenset({"sum"})),)) == {"frame": True, "window": True}
+    assert _hooks((_nan_as_null(outputs=frozenset({"o"})),)) == {"frame": True, "window": True}
+
+
+def test_orders_nan_before_none_is_true_for_a_non_implementation() -> None:
+    for base, _label in _order_tie_bases():
+        assert _hook_for(base, object) is True

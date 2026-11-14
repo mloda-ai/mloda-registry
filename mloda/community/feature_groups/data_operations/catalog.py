@@ -2,7 +2,7 @@
 
 The catalog enumerates every built-in data operation from its production base
 class (``PREFIX_PATTERN`` and the subtype universe). Capability per framework
-comes from the group's Implementations (``supported`` / ``accepts``), probed
+comes from the group's Implementations (``supported`` / ``accepts``, plus declared ``divergences``), probed
 through the group's ``match_feature_group_criteria`` and
 ``supports_compute_framework``. Nothing framework-heavy is imported at module
 import time; backend modules are imported lazily and skipped when their
@@ -19,7 +19,7 @@ from functools import lru_cache
 from types import MappingProxyType, ModuleType
 from typing import Any
 
-from mloda.provider import Implementation
+from mloda.provider import Divergence, Implementation
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.errors import (
@@ -39,13 +39,14 @@ _TIME_UNIT_ORDER: tuple[str, ...] = ("second", "minute", "hour", "day", "week", 
 
 @dataclass(frozen=True)
 class OperationInfo:
-    """Describes one built-in data operation and its per-framework capability."""
+    """Describes one built-in data operation and its per-framework capability and declared divergences."""
 
     name: str
     prefix_pattern: str
     subtype_label: str
     subtypes: tuple[str, ...] | None
     frameworks: Mapping[str, frozenset[str] | None]
+    divergences: Mapping[str, tuple[Divergence, ...]]
 
 
 _SubtypesFn = Callable[[ModuleType], tuple[str, ...]]
@@ -411,6 +412,7 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
 
     frameworks: dict[str, frozenset[str] | None]
     found: list[tuple[str, type[Any]]] = []
+    divergences: dict[str, tuple[Divergence, ...]] = {}
     op_dirname = spec.package.rsplit(".", 1)[-1]
     for prefix in _FRAMEWORK_MODULE_PREFIXES:
         backend_module = _import_optional(f"{spec.package}.{prefix}_{op_dirname}")
@@ -422,6 +424,7 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
             continue
         framework = impl.compute_framework
         found.append((str(framework.__name__), framework))
+        divergences[str(framework.__name__)] = tuple(getattr(impl, "divergences", ()))
 
     if subtypes is None or spec.probe is None:
         frameworks = dict.fromkeys(key for key, _ in found)
@@ -437,6 +440,7 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
         subtype_label=spec.subtype_label,
         subtypes=subtypes,
         frameworks=MappingProxyType(frameworks),
+        divergences=MappingProxyType(divergences),
     )
 
 

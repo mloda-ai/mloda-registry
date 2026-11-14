@@ -28,15 +28,6 @@ class TestPythonDictWindowAggregation(CapabilityHookTestMixin, PythonDictTestMix
         return PythonDictWindowAggregation
 
     @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """PythonDict ties NaN and None in order_by, so ties keep input order."""
-        return False
-
-    @classmethod
-    def supported_agg_types(cls) -> set[str]:
-        return {*cls.ALL_AGG_TYPES, "mean"}
-
-    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value__median_window", Options()),

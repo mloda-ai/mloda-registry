@@ -109,6 +109,8 @@ Frame aggregate supports four window kinds. The feature name encodes which kind 
 | Cumulative | `{col}__cum{agg}` | `value__cumsum`, `value__cummax` |
 | Expanding | `{col}__expanding_{agg}` | `value__expanding_avg` |
 
+Every frame aggregate on Pandas and SQLite is a `nan_as_null` variant (every aggregation type and frame kind, `min`, `max` and `median` included), because both tie NaN and null in `order_by`. They also skip NaN in the aggregates listed under [Declared divergence records](known-divergences.md#declared-divergence-records). On those frameworks alone a feature needs `allow_variants: "nan_as_null"` in its group options, as in [window aggregation](06-window-aggregation.md#usage); Polars lazy, DuckDB and Python dict need nothing.
+
 ### Rolling
 
 `value__sum_rolling_3` computes the sum of the current row plus the two preceding, giving a 3-row rolling sum. The first `N-1` rows per partition return NULL (incomplete window).

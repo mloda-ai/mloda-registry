@@ -136,10 +136,20 @@ class TestFrameAggregateIntegration(
             RoutingCase(
                 "value_int__max_rolling_3",
                 options,
-                f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
-                PANDAS_DATAFRAME,
+                f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
+                PYTHON_DICT_FRAMEWORK,
             ),
         ]
+
+    @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate"
+        return RoutingCase(
+            "value_int__max_rolling_3",
+            {"partition_by": ["region"], "order_by": "value_int"},
+            f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
+            PANDAS_DATAFRAME,
+        )
 
     # -- MaskIntegrationTestMixin configuration --------------------------------
 

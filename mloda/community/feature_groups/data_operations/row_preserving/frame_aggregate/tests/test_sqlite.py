@@ -33,11 +33,6 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         return SqliteFrameAggregate
 
     @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """SQLite ties NaN and None in order_by."""
-        return False
-
-    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value__sum_rolling_3", Options()),
@@ -60,15 +55,6 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
             # No frame_type axis: the resolved agg type alone decides.
             ("totally_unrelated", Options(context={"aggregation_type": "median"})),
         )
-
-    @classmethod
-    def supported_time_units(cls) -> set[str]:
-        # SQLite's native ``datetime(ts, '-N months')`` rolls over by day-of-month
-        # (Mar 31 -1mo = Mar 3) whereas the reference clamps to the month end
-        # (= Feb 28). Rather than fall back to a Python loop (which would defeat
-        # the point of running inside the SQLite engine), we reject month/year
-        # at match time. See known-divergences.md.
-        return {"second", "minute", "hour", "day", "week"}
 
     # -- Regression tests for PR #202 review bugs -----------------------------
 

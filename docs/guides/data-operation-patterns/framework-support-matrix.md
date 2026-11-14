@@ -4,7 +4,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the da
 
 **What**: A capability matrix rendered from the production capability declarations (the frameworks come from the built-in Implementations, per-subtype support from each Implementation's `supported` / `accepts`, checked by the group's `supports_compute_framework` at match time), queryable at runtime via `DataOperationsCatalog` (`from mloda.community.feature_groups.data_operations import DataOperationsCatalog`). If a cell is ✓, the framework's production implementation declares support for that subtype and the shared reference-based test suite runs it against that framework. If a cell is ✗, the implementation rejects the subtype at match time (see [Known divergences](known-divergences.md)).
 **When**: Use before picking an op/framework pair, before adding a new framework implementation for an existing op, or while debugging why a feature resolves on one framework but skips on another.
-**Why**: The authoritative information is the capability each Implementation declares in production code. `DataOperationsCatalog` flattens those declarations into one queryable structure; this page renders it as a single table and keeps it in sync via a drift check. The test-twin `supported_*()` sets are checked mirrors of the catalog, enforced by `tests/test_twin_catalog_consistency.py`.
+**Why**: The authoritative information is the capability each Implementation declares in production code. `DataOperationsCatalog` flattens those declarations into one queryable structure; this page renders it as a single table and keeps it in sync via a drift check. The test suites read the same declarations, so a test cannot drift from them. The "Declared divergences" column of the summary table marks the frameworks whose Implementation declares divergence records.
 **Where**: The tables below are guarded by a pytest drift check in `mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`. Do not edit the block between the `BEGIN GENERATED` and `END GENERATED` markers by hand. After changing any capability declaration, run `tox` (or at minimum that one test file). If the drift check fails, regenerate the block with a coding agent so its contents match what the test produces, then rerun until the test passes.
 **How**: The test queries `DataOperationsCatalog`, renders the expected block, and asserts it matches the on-disk doc. CI runs `tox`, which runs the test, so a drifted matrix fails the build.
 
@@ -65,28 +65,28 @@ This matrix only covers data-operation feature groups (single-source column tran
 
 ## Summary
 
-Cells reflect each operation group's Implementations, queryable via `DataOperationsCatalog`: the frameworks are those the built-in Implementations serve, and per-subtype support is each Implementation's `supported` and `accepts`, which the group's `supports_compute_framework` checks at match time. `full` means the framework's production implementation declares support for every subtype this operation defines. `partial (k/n)` means it declares k of the n subtypes and rejects the rest. `--` means no implementation ships for this framework.
+Cells reflect each operation group's Implementations, queryable via `DataOperationsCatalog`: the frameworks are those the built-in Implementations serve, and per-subtype support is each Implementation's `supported` and `accepts`, which the group's `supports_compute_framework` checks at match time. `full` means the framework's production implementation declares support for every subtype this operation defines. `partial (k/n)` means it declares k of the n subtypes and rejects the rest. `--` means no implementation ships for this framework. `Declared divergences` lists the frameworks whose Implementation declares divergence records, see [known-divergences.md](known-divergences.md#declared-divergence-records).
 
-| Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
-|---|---|---|---|---|---|---|
-| aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
-| binning | full | full | full | full | full | full |
-| datetime | full | full | full | full | full | full |
-| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full |
-| offset | -- | full | full | full | full | full |
-| percentile | -- | full | full | full | -- | full |
-| rank | -- | full | full | full | full | full |
-| scalar_aggregate | full | full | full | full | partial (6/13) | full |
-| scalar_arithmetic | full | full | full | full | full | full |
-| point_arithmetic | full | full | full | full | full | full |
-| time_bucketization | full | full | full | full | full | full |
-| ffill | full | full | full | full | full | full |
-| lookup | full | full | full | full | full | full |
-| ema | -- | full | full | -- | -- | full |
-| sessionization | full | full | full | full | full | full |
-| window_aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
-| string | full | full | full | full | partial (2/5) | full |
-| resample | full | full | full | full | -- | full |
+| Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict | Declared divergences |
+|---|---|---|---|---|---|---|---|
+| aggregation | partial (15/17) | full | full | full | partial (6/17) | full | Pandas, SQLite |
+| binning | full | full | full | full | full | full | none |
+| datetime | full | full | full | full | full | full | none |
+| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full | Pandas, SQLite |
+| offset | -- | full | full | full | full | full | none |
+| percentile | -- | full | full | full | -- | full | none |
+| rank | -- | full | full | full | full | full | Pandas, SQLite, Python dict |
+| scalar_aggregate | full | full | full | full | partial (6/13) | full | Pandas, SQLite |
+| scalar_arithmetic | full | full | full | full | full | full | none |
+| point_arithmetic | full | full | full | full | full | full | SQLite |
+| time_bucketization | full | full | full | full | full | full | none |
+| ffill | full | full | full | full | full | full | none |
+| lookup | full | full | full | full | full | full | none |
+| ema | -- | full | full | -- | -- | full | none |
+| sessionization | full | full | full | full | full | full | none |
+| window_aggregation | partial (15/17) | full | full | full | partial (6/17) | full | Pandas, SQLite |
+| string | full | full | full | full | partial (2/5) | full | none |
+| resample | full | full | full | full | -- | full | Pandas |
 
 ## Per-operation detail
 
@@ -297,15 +297,14 @@ To promote a ✗ to ✓:
 
 1. Read the Known-divergences entry for the cell to understand why it is ✗.
 2. Implement the missing native expression and add the subtype to the Implementation's `supported` (or relax its `accepts`).
-3. Update the framework test class's `supported_*()` override, or remove it if the framework now matches the full default set.
-4. Rerun the pytest drift check (`pytest mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`). If it fails, regenerate the `BEGIN GENERATED` / `END GENERATED` block with a coding agent and rerun.
-5. Run `PYTEST_WORKERS=1 tox` to confirm the inherited tests now pass.
+3. Rerun the pytest drift check (`pytest mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`). If it fails, regenerate the `BEGIN GENERATED` / `END GENERATED` block with a coding agent and rerun.
+4. Run `PYTEST_WORKERS=1 tox` to confirm the inherited tests now pass.
 
 ---
 
 ## Related
 
-- [Supported ops per framework](04-supported-ops.md) - the mechanism (`Implementation.supported` / `accepts` and the test-side `supported_*()` sets) that backs every cell in this matrix.
+- [Supported ops per framework](04-supported-ops.md) - the mechanism (`Implementation.supported` / `accepts`, read by the test suites) that backs every cell in this matrix.
 - [Known divergences](known-divergences.md) - the divergence-by-divergence rationale behind every ✗ in the detail tables.
 - [Reference implementation pattern](03-reference-implementation.md) - which reference each ✓ in the matrix uses (PyArrow or pure Python).
 - [Adding a new data operation](10-adding-new-operation.md) - how to add a new row to this matrix from scratch.

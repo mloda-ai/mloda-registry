@@ -30,11 +30,6 @@ class TestPythonDictFrameAggregate(CapabilityHookTestMixin, PythonDictTestMixin,
         return PythonDictFrameAggregate
 
     @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """PythonDict ties NaN and None in order_by, so ties keep input order."""
-        return False
-
-    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value_time_frame", time_frame_options("month")),
@@ -148,7 +143,7 @@ class TestPythonDictFrameAggregateNanOrderBySortsLast:
     outright, and for a numeric ``order_by`` it silently sorts the group wrong (NaN sorts as
     if it were 0) so the rolling window is computed over the wrong rows. Every sibling
     PythonDict backend in this operation family already routes through the shared
-    ``nulls_last_sort_key`` instead; this file's extraction left the old inline sort behind.
+    ``partition_sort_key`` instead; this file's extraction left the old inline sort behind.
     """
 
     def test_numeric_order_by_with_nan_produces_nulls_last_windows(self) -> None:

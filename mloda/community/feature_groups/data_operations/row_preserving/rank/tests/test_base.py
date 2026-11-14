@@ -75,8 +75,6 @@ class TestClassAttributes:
 
 _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
-_NONE_NAN_DIVERGENT = frozenset({"rank", "dense_rank", "percent_rank"})
-
 
 class TestRankOperationGroup(OperationGroupTestBase):
     @classmethod
@@ -96,9 +94,7 @@ class TestRankOperationGroup(OperationGroupTestBase):
                 "PandasRank",
                 f"{_ENGINE}.pandas.dataframe",
                 "PandasDataFrame",
-                divergent=_NONE_NAN_DIVERGENT,
                 dependency="pandas",
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -116,23 +112,13 @@ class TestRankOperationGroup(OperationGroupTestBase):
                 "DuckDBFramework",
                 dependency="duckdb",
             ),
-            ImplSpec(
-                "sqlite",
-                "sqlite_rank",
-                "SqliteRank",
-                f"{_ENGINE}.sqlite.sqlite_framework",
-                "SqliteFramework",
-                divergent=_NONE_NAN_DIVERGENT,
-                variants=frozenset({"nan_as_null"}),
-            ),
+            ImplSpec("sqlite", "sqlite_rank", "SqliteRank", f"{_ENGINE}.sqlite.sqlite_framework", "SqliteFramework"),
             ImplSpec(
                 "python_dict",
                 "python_dict_rank",
                 "PythonDictRank",
                 f"{_ENGINE}.python_dict.python_dict_framework",
                 "PythonDictFramework",
-                divergent=_NONE_NAN_DIVERGENT,
-                variants=frozenset({"nan_as_null"}),
             ),
         ]
 

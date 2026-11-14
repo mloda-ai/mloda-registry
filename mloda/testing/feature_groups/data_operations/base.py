@@ -47,15 +47,18 @@ _SUPPORTED_SET_ATTRS: tuple[str, ...] = (
 )
 
 
-def divergent_subtypes(implementation: Any) -> frozenset[str]:
-    """Subtypes the Implementation's non-GAP ``divergences`` records name; a scopeless record covers the universe."""
+def divergent_subtypes(implementation: Any, *, named_only: bool = False) -> frozenset[str]:
+    """Subtypes the Implementation's non-GAP ``divergences`` records name; a scopeless record covers the universe.
+
+    With ``named_only`` a record without ``subtypes`` contributes nothing.
+    """
     covered: set[str] = set()
     for record in implementation.divergences:
         if record.kind is DivergenceKind.GAP:
             continue
         if record.subtypes:
             covered |= record.subtypes
-        elif not record.outputs:
+        elif not record.outputs and not named_only:
             covered |= implementation.feature_group.subtype_universe()
     return frozenset(covered)
 
@@ -220,13 +223,25 @@ class DataOpsTestBase(ABC):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """Agg types where this framework pins a known NaN divergence instead of the policy.
 
-        Default: the subtypes its ``divergences`` name for the Implementation under test, empty for any other plugin.
+        Default: the subtypes its ``divergences`` name for the Implementation under test (scopeless records
+        excluded), empty for any other plugin.
         Read by ``NanPolicyTestMixin.test_mixin_nan_policy``; see docs/guides/data-operation-patterns/known-divergences.md.
         """
         impl = cls.implementation_class()
         if isinstance(impl, type) and issubclass(impl, Implementation):
-            return divergent_subtypes(impl)
+            return divergent_subtypes(impl, named_only=True)
         return frozenset()
+
+    @classmethod
+    def declared_supported(cls, default: set[str]) -> set[str]:
+        """Subtypes the Implementation under test declares (its universe when unrestricted), else ``default``."""
+        impl = cls.implementation_class()
+        if isinstance(impl, type) and issubclass(impl, Implementation):
+            if impl.supported is not None:
+                return set(impl.supported)
+            universe = set(impl.feature_group.subtype_universe())
+            return universe or default
+        return default
 
     # -- Cross-framework comparison --------------------------------------------
 

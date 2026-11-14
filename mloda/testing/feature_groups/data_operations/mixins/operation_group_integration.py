@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from mloda.provider import Implementation, get_all_subclasses
+from mloda.provider import DivergenceKind, Implementation, get_all_subclasses
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, result_column_names
@@ -62,6 +62,8 @@ class OperationGroupIntegrationTestMixin:
     - ``routing_data_creator()``: the data creator whose framework holds the routed data. Default: Pandas.
     - ``routing_frameworks()``: the frameworks enabled for the routing test besides the creator's.
       Default: ``pipeline_compute_frameworks()``.
+    - ``variant_required_case()``: a feature whose only enabled framework holds a variant Implementation, so
+      resolution fails naming ``allow_variants``.
     - ``unsupported_framework_case()``: a (feature name, options) that ``compute_framework_class()`` alone
       cannot serve, so a run on it is rejected at resolve time.
     """
@@ -83,6 +85,11 @@ class OperationGroupIntegrationTestMixin:
     def routing_frameworks(cls) -> list[type[Any]]:
         """The frameworks enabled with the creator's in ``test_data_is_routed_by_divergence``."""
         return cls.pipeline_compute_frameworks()  # type: ignore[attr-defined, no-any-return]
+
+    @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        """The case for ``test_variant_only_framework_needs_the_option``. Default: none (the test skips)."""
+        return None
 
     @classmethod
     def unsupported_framework_case(cls) -> tuple[str, dict[str, Any]] | None:
@@ -209,6 +216,32 @@ class OperationGroupIntegrationTestMixin:
             assert len(steps) == 1, case.feature_name
             assert steps[0].implementation is _resolve(case.implementation), case.feature_name
             assert steps[0].compute_framework is _resolve(case.compute_framework), case.feature_name
+
+    def test_variant_only_framework_needs_the_option(self) -> None:
+        """On the variant framework alone, resolution needs allow_variants and then plans that Implementation."""
+        case = self.variant_required_case()
+        if case is None:
+            pytest.skip("the group declares no variant-required case")
+        from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
+
+        creator = self.routing_data_creator()
+        group = self.feature_group_class()  # type: ignore[attr-defined]
+        collector = enabled_with_implementations({creator, group})
+        # No group_options here: allowing a variant would readmit the Implementation that must be refused.
+        feature = Feature(case.feature_name, options=Options(context=case.options))
+        with pytest.raises(FeatureResolutionError, match="allow_variants"):
+            mloda.run_all([feature], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector)
+
+        implementation = _resolve(case.implementation)
+        variants = sorted({r.variant for r in implementation.divergences if r.kind is DivergenceKind.VARIANT})
+        allowed = Feature(case.feature_name, options=Options(group={"allow_variants": variants}, context=case.options))
+        plan = mloda.explain(
+            [allowed], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector
+        )
+        steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
+        assert len(steps) == 1, case.feature_name
+        assert steps[0].implementation is implementation, case.feature_name
+        assert steps[0].compute_framework is _resolve(case.compute_framework), case.feature_name
 
     def test_unsupported_input_is_rejected_at_resolve_time(self) -> None:
         """An input the framework's Implementation does not support is dropped at match time, not at compute time."""

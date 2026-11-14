@@ -109,7 +109,23 @@ class TestWindowAggregationIntegration(
                 f"{package}.pandas_window_aggregation:PandasWindowAggregation",
                 PANDAS_DATAFRAME,
             ),
+            RoutingCase(
+                "value_int__last_window",
+                {"partition_by": ["region"], "order_by": "value_int"},
+                f"{package}.pyarrow_window_aggregation:PyArrowWindowAggregation",
+                PYARROW_TABLE,
+            ),
         ]
+
+    @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation"
+        return RoutingCase(
+            "value_int__last_window",
+            {"partition_by": ["region"], "order_by": "value_int"},
+            f"{package}.pandas_window_aggregation:PandasWindowAggregation",
+            PANDAS_DATAFRAME,
+        )
 
     @classmethod
     def unsupported_framework_case(cls) -> tuple[str, dict[str, Any]] | None:

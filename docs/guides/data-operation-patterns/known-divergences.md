@@ -2,11 +2,11 @@
 
 Authoritative list of cases where a framework would, without intervention, produce a different result from the reference on realistic inputs. For each one, this page records the mitigation and how to detect a regression.
 
-**What**: Every audited case where a framework's native operator diverges from PyArrow semantics.
+**What**: Every audited case where a framework's native operator diverges from the operation's reference.
 **When**: Read this before adding a new data-operation implementation, a new framework, or changing null or tie-breaking behavior in an existing one.
 **Why**: Divergences of this kind are the most dangerous class of bug: the feature resolves, the pipeline succeeds, the output is silently wrong. Keeping a single list prevents that category from growing unnoticed.
 **Where**: Audit of the data operations under `mloda/community/feature_groups/data_operations/`.
-**How**: Each entry records the divergence, the mitigation, and the test (or `supported_ops()` exclusion) that keeps it from silently regressing. Every entry also carries a machine-checked block (see [When to add to this page](#when-to-add-to-this-page)) so a `tox` test can verify the cited regression test still exists.
+**How**: Each entry records the divergence, the mitigation, and the test (or `supported` / `accepts` exclusion on the Implementation) that keeps it from silently regressing. Every entry also carries a machine-checked block (see [When to add to this page](#when-to-add-to-this-page)) so a `tox` test can verify the cited regression test still exists.
 
 ---
 
@@ -16,8 +16,8 @@ Divergences fall into four kinds, each with its own mitigation.
 
 | Kind | Example | Mitigation |
 |---|---|---|
-| Implementation fix | Polars `sum()` returns `0` for an all-null group; PyArrow returns `null`. | The framework implementation detects the edge case and returns the PyArrow-equivalent result. |
-| Excluded op | SQLite `UPPER`/`LOWER` are ASCII-only; `REVERSE` has no native function. | `SqliteStringOps.supported` makes the group refuse to resolve the feature; `supported_ops()` skips the corresponding tests. See [Supported ops](04-supported-ops.md). |
+| Implementation fix | Polars `sum()` returns `0` for an all-null group; the reference returns `null`. | The framework implementation detects the edge case and returns the reference's result. |
+| Excluded op | SQLite `UPPER`/`LOWER` are ASCII-only; `REVERSE` has no native function. | `SqliteStringOps.supported` makes the group refuse to resolve the feature; the suite reads that declaration and skips the corresponding tests. See [Supported ops](04-supported-ops.md). |
 | Accepted tolerance | Float accumulation order differs between columnar reductions and SQL window functions. | Cross-framework comparison uses `pytest.approx(rel=1e-6)` when the test flips `use_approx=True`. |
 | Collision-free helper naming | Row-preserving implementations tag rows with helper columns (to restore input order after a reordering window function). A user column with the same name would collide silently. | Every backend picks a collision-free helper name at runtime, so any user column name is accepted. The SQL backends (DuckDB, SQLite) use `pick_helper_column_name`; the pandas/polars/pyarrow backends use `unique_helper_name` (`helper_columns.py`). |
 
@@ -155,8 +155,8 @@ regression_test:
 - **Reference behavior**: PyArrow's `pc.utf8_upper("héllo")` is `"HÉLLO"`.
 - **Native SQLite behavior**: `UPPER('héllo')` returns `'HéLLO'`. `REVERSE` is not implemented.
 - **Mitigation kind**: Excluded op.
-- **How**: `SqliteStringOps.supported` is `frozenset(_SQLITE_STRING_EXPRS)` (trim, length). Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteFramework"]` is rejected at match time, so another enabled framework serves them or resolution fails. The test class mirrors the decision through `supported_ops()`.
-- **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and `supported_ops()` restricts the test suite to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
+- **How**: `SqliteStringOps.supported` is `frozenset(_SQLITE_STRING_EXPRS)` (trim, length). Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteFramework"]` is rejected at match time, so another enabled framework serves them or resolution fails. The suite reads that declaration, so no test-side override exists.
+- **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and the suite reads `SqliteStringOps.supported`, which restricts it to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
 
 ### Float accumulation order across SQL engines vs. columnar reductions
 
@@ -202,7 +202,7 @@ regression_test:
 - **Operations**: `row_preserving/frame_aggregate`, `.../offset`, `.../percentile`, `.../rank`.
 - **Reference behavior**: PyArrow is the reference *for correctness semantics* of the operations that keep a PyArrow-based reference, but it does not provide native rolling/expanding, LAG/LEAD, percentile, or rank. Frame aggregate has a pure Python reference. The reference functions for rank, offset and percentile (`reference_rank`, `reference_offset`, `reference_percentile`) live in pure Python over PyArrow arrays, and rank, offset and percentile have no PyArrow Implementation (requesting them on PyArrowTable alone is a resolution error).
 - **Mitigation kind**: Excluded op (from the test suite and from routing, since no PyArrow Implementation exists).
-- **How**: Frame aggregate, offset, percentile and rank have no PyArrow test class, so the suite never compares against an implementation that does not exist. Aggregation and window aggregation do ship PyArrow Implementations but declare a reduced capability (`PyArrowAggregation.supported`, `PyArrowWindowAggregation.supported`), so `median` and `mode` are not offered there; their PyArrow test classes mirror it through `supported_agg_types()`. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
+- **How**: Frame aggregate, offset, percentile and rank have no PyArrow test class, so the suite never compares against an implementation that does not exist. Aggregation and window aggregation do ship PyArrow Implementations but declare a reduced capability (`PyArrowAggregation.supported`, `PyArrowWindowAggregation.supported`), so `median` and `mode` are not offered there; their PyArrow test classes read it from the Implementation. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
 - **Regression signal**: Restoring the op on PyArrow requires both providing a native implementation and re-expanding the supported set; no silent skip is possible.
 
 ### Internal helper-column name collisions
@@ -398,7 +398,7 @@ regression_test:
 - **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max/std/var.
 - **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
 - **Mitigation kind**: Accepted divergence. Neither pandas nor SQLite can represent NaN separately from null. The records are `DivergenceKind.VARIANT` records named `nan_as_null`: those Implementations run only for a feature whose group options set `allow_variants: "nan_as_null"`; otherwise another framework serves the step, or resolution fails naming the option.
-- **How**: Each framework's `nan_divergent_agg_types()` hook names its diverging agg types instead of the policy value in the shared `NanPolicyTestMixin.test_mixin_nan_policy` test. For aggregation the divergences are declared in the shipped `divergences` records of `PandasAggregation` (`mode`, `sum`, `avg`, `mean`, `count`, `std`, `var`, `std_pop`, `var_pop`, `std_samp`, `var_samp`) and `SqliteAggregation` (`sum`, `avg`, `mean`, `count`), and `DataOpsTestBase.nan_divergent_agg_types()` reads them from the implementation by default, so the declaration and the test cannot drift. Window_aggregation, scalar_aggregate and frame_aggregate declare theirs the same way: `PandasWindowAggregation` (the aggregation set, including `mode`), `SqliteWindowAggregation` (`sum`, `avg`, `mean`, `count`), `PandasScalarAggregate` (the aggregation set without `mode`), `SqliteScalarAggregate` (`sum`, `avg`, `mean`, `count`), `PandasFrameAggregate` (`sum`, `avg`, `count`, `std`, `var`) and `SqliteFrameAggregate` (`sum`, `avg`, `count`). With several frameworks enabled, Pandas and SQLite are not candidates unless the feature allows `nan_as_null`, so another framework serves window `sum`. Resample does the same: `PandasResample.divergences` declares `sum`, `mean`, `count`, `min`, `max`.
+- **How**: The divergences are declared as `nan_as_null` variant records on the Implementations, listed under [Declared divergence records](#declared-divergence-records). `nan_divergent_agg_types()` reads them, so declaration and test cannot drift. With several frameworks enabled, the step runs on an Implementation without the record.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
 
 ### Pandas classes float64 sources as int keys
@@ -524,17 +524,14 @@ regression_test:
 - **Mitigation kind**: Accepted divergence. A branch on the hot grouping path for a sign-of-zero edge case the canonical fixture does not exercise is not worth it. It is not a `divergences` entry: those records are a routing penalty, and this is a key and value level edge case.
 - **Regression signal**: `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) assert the reference merges, and `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation` and `TestPyArrowWindowAggregation` override to `False`) pins each backend.
 
-### PythonDict, Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
+### Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
 
 <!-- machine-checked
 operation: window_aggregation, frame_aggregate
-framework: python_dict, pandas, sqlite
+framework: pandas, sqlite
 condition: window first/last and frame aggregates tie NaN and None order keys, while the reference orders real values, then NaN, then None
 mitigation_location:
-- mloda/community/feature_groups/data_operations/python_dict_helpers.py
-- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/python_dict_window_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pandas_window_aggregation.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/python_dict_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
 regression_test:
@@ -542,10 +539,10 @@ regression_test:
 - mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_nan_orders_before_none
 -->
 
-- **Operations**: `window_aggregation` (`first`, `last`) and `frame_aggregate` (every frame type).
-- **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`. PythonDict and Pandas (window and frame) and SQLite (frame) tie NaN and None, giving window `last` `[20, 20, 20]` and frame `cumsum` `[40, 60, 30]`. Pandas and SQLite cannot tell NaN from null; PythonDict folds them into one null-like tier.
-- **Mitigation kind**: Accepted divergence. Splitting the tiers would trade agreement with Pandas for agreement with the reference, the same trade as the rank entry below.
-- **Regression signal**: `test_nan_orders_before_none` in both test bases asserts the reference value, then the backend value through `orders_nan_before_none()` (default `True`; the PythonDict, Pandas and SQLite classes above override to `False`).
+- **Operations**: `window_aggregation` (`first`, `last`, Pandas only) and `frame_aggregate` (every frame type, Pandas and SQLite).
+- **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`. Pandas (window and frame) and SQLite (frame) tie NaN and None, giving window `last` `[20, 20, 20]` and frame `cumsum` `[40, 60, 30]`, because both store NaN as null. PythonDict orders like the reference.
+- **Mitigation kind**: Accepted divergence, declared as `nan_as_null` variant records on the Implementations (see [Declared divergence records](#declared-divergence-records)).
+- **Regression signal**: `test_nan_orders_before_none` in both test bases asserts the reference value, then the backend value through `orders_nan_before_none()`, which reads the records.
 
 ### PythonDict, Pandas and SQLite rank tie None and NaN in order-value runs; PyArrow >= 25, DuckDB, and Polars rank them apart
 
@@ -566,10 +563,84 @@ regression_test:
 - **Operations**: `rank` (`rank`, `dense_rank`, `percent_rank`; the same tiering also reaches `row_number`/`ntile_N`/`top_N`/`bottom_N`, but only these three collapse ties into one shared output value).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`is_null_like`, `nulls_last_sort_key`, `order_values_equal`), consumed by `PythonDictRank`. `reference_rank` uses its own local NaN-safe tiering, not PythonDict's helpers, so it stays an independent oracle.
 - **Reference behavior**: PyArrow >= 25.0's `pc.rank` ranks NaN as a distinct value ahead of null under any `null_placement` (PyArrow < 25.0 tied them); DuckDB's `RANK()` and Polars' `.rank()` do the same. On `order_by = [None, nan, None, 1.0]` all three, and `reference_rank`, give `[3, 2, 3, 1]`.
-- **Cross-framework check**: PythonDict, pandas and SQLite give `[2, 2, 2, 1]` (None and NaN tied). Pandas ties because a float64 column cannot distinguish NaN from null; SQLite ties because the sqlite3 driver coerces NaN to NULL on ingest, so `RANK()` never sees a NaN. PythonDict is the only backend that can represent both and chooses to tie them. `PythonDictRank`, `PandasRank` and `SqliteRank` declare this as a `divergences` record for `rank`, `dense_rank` and `percent_rank` (`row_number`, `ntile`, `top` and `bottom` are not declared). `PythonDictRank` uses `Cause.OTHER` (a choice); `PandasRank` and `SqliteRank` use `Cause.BACKEND`. All three are `DivergenceKind.VARIANT` records named `nan_as_null`: they run only for a feature whose group options set `allow_variants: "nan_as_null"`; otherwise another framework serves the step, or resolution fails naming the option.
+- **Cross-framework check**: PythonDict, pandas and SQLite give `[2, 2, 2, 1]` (None and NaN tied). Pandas ties because a float64 column cannot distinguish NaN from null; SQLite ties because the sqlite3 driver coerces NaN to NULL on ingest, so `RANK()` never sees a NaN. PythonDict is the only backend that can represent both and chooses to tie them. The three Implementations declare this as `nan_as_null` variant records, see [Declared divergence records](#declared-divergence-records); they run only for a feature whose group options set `allow_variants: "nan_as_null"`, otherwise another framework serves the step, or resolution fails naming the option.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted).
 - **How**: `nulls_last_sort_key` and `order_values_equal` fold NaN and `None` into one null-like tier (`is_null_like`) on purpose: this fixes a tie-run-splitting bug where a NaN row could sort between two None rows and break the run. Splitting them would trade agreement with pandas for agreement with PyArrow 25/DuckDB/Polars, a lateral move, and reopen that bug, so the divergence is documented instead of mitigated.
 - **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` returns `"rank" not in divergent_subtypes(implementation_class())` (the kit helper), so it is `False` exactly for the three divergent implementations. The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run.
+
+---
+
+## Declared divergence records
+
+The divergences that stay in a result are declared on the Implementation as `Divergence` records, which the planner, `explain`, the plan lock and lineage read. The table below is generated from them, so do not edit it by hand; a drift check in `mloda/community/feature_groups/data_operations/tests/test_known_divergences.py` fails when it is stale.
+
+<!-- BEGIN GENERATED: declared-divergences -->
+
+Rendered from each Implementation's `divergences`, queryable through `DataOperationsCatalog` (`OperationInfo.divergences`). `(all)` means the record covers every subtype of the operation. A `variant` record runs only for a feature whose group options set `allow_variants` to that name.
+
+### aggregation
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | `avg`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
+| Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| Pandas | variant | `nan_as_null` | backend | `mode` | does not count NaN as a value |
+| SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
+| SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
+
+### frame_aggregate
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | `avg`, `std`, `sum`, `var` | skips NaN |
+| Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null, so they tie in order_by |
+| SQLite | variant | `nan_as_null` | backend | `avg`, `sum` | skips NaN |
+| SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL, so they tie in order_by |
+
+### rank
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | `dense_rank`, `percent_rank`, `rank` | float64 cannot tell NaN from null, so they tie |
+| SQLite | variant | `nan_as_null` | backend | `dense_rank`, `percent_rank`, `rank` | sqlite3 stores NaN as NULL, so they tie |
+| Python dict | variant | `nan_as_null` | other | `dense_rank`, `percent_rank`, `rank` | ties NaN with null in order_by ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pythondict-pandas-and-sqlite-rank-tie-none-and-nan-in-order-value-runs-pyarrow--25-duckdb-and-polars-rank-them-apart)) |
+
+### scalar_aggregate
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | `avg`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
+| Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
+| SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
+
+### point_arithmetic
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| SQLite | value |  | backend | `divide` | returns NULL on divide by zero |
+
+### window_aggregation
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | `avg`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
+| Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| Pandas | variant | `nan_as_null` | backend | `mode` | does not count NaN as a value |
+| Pandas | variant | `nan_as_null` | backend | `first`, `last` | float64 cannot tell NaN from null, so they tie in order_by |
+| SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
+| SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
+
+### resample
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | `max`, `mean`, `min`, `sum` | skips NaN; null for an all-NaN bucket |
+| Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+
+<!-- END GENERATED: declared-divergences -->
 
 ---
 
@@ -577,9 +648,11 @@ regression_test:
 
 Add a new entry here if and only if all three hold:
 
-1. A framework operator produces a measurably different result from PyArrow on a realistic input.
-2. That difference cannot be hidden by the cross-framework comparison (i.e. it would require an `expected_*()` override, a `use_approx=True` bump, a `pytest.skip`, or a `supported_ops()` exclusion).
+1. A framework operator produces a measurably different result from the reference on a realistic input.
+2. That difference cannot be hidden by the cross-framework comparison (i.e. it would require an `expected_*()` override, a `use_approx=True` bump, a `pytest.skip`, or a `supported` exclusion on the Implementation).
 3. The decision (fix vs. document vs. exclude) has been made and landed in code.
+
+A divergence the planner, `explain`, the plan lock and lineage should see is declared as a `Divergence` record on the Implementation, and the generated "Declared divergence records" section is then regenerated (the drift check fails until it is). Divergences deliberately not records (signed zero, float tolerance) stay entries only.
 
 Do not add speculative entries. If an audit only uncovered a hypothetical divergence, add a failing regression test first so the entry corresponds to something the test suite measures.
 
@@ -593,5 +666,5 @@ Format rules for the block: `operation`, `framework`, and `condition` are single
 
 - [Framework support matrix](framework-support-matrix.md) - The full operation x framework capability table; every divergence-driven exclusion on this page corresponds to one or more matrix cells.
 - [Reference implementation pattern](03-reference-implementation.md) - Which framework is the reference, and why.
-- [Supported ops per framework](04-supported-ops.md) - The exclusion mechanism used when a framework cannot match PyArrow.
+- [Supported ops per framework](04-supported-ops.md) - The exclusion mechanism used when a framework cannot match the reference.
 - [Row-preserving contract](02-row-preserving-contract.md) - The invariant every row-preserving op must honor.

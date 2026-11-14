@@ -84,7 +84,8 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     @classmethod
     def supported_ops(cls) -> set[str]:
-        return {"bin", "qbin"}
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported({"bin", "qbin"})
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

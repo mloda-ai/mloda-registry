@@ -1,8 +1,8 @@
 """Reusable shape tests for a data-operations OperationFeatureGroup and its Implementations.
 
 A family subclasses ``OperationGroupTestBase`` and fills the hooks; the concrete tests check
-behaviour: one concrete group, one Implementation per framework, declared ``supported`` and
-the ``divergences`` records, subtype resolution and the entry-point manifest.
+behaviour: one concrete group, one Implementation per framework, ``supported`` and the
+``divergences`` records staying inside the universe, subtype resolution and the entry-point manifest.
 
 Usage::
 
@@ -21,7 +21,6 @@ from typing import Any, ClassVar, NamedTuple
 
 import pytest
 from mloda.provider import (
-    DivergenceKind,
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
@@ -36,10 +35,9 @@ from mloda.testing.operation_group_shape import Probe, assert_operation_group_sh
 
 
 class ImplSpec(NamedTuple):
-    """One Implementation of the group and what it must declare.
+    """One Implementation of the group.
 
-    ``module`` is the module that defines the Implementation. ``supported`` None means unrestricted.
-    ``dependency`` is the optional package that gates the manifest entry and turns a missing backend into a skip
+    ``module`` is the module that defines the Implementation. ``dependency`` is the optional package that gates the manifest entry and turns a missing backend into a skip
     (without it the import must succeed).
     """
 
@@ -48,10 +46,7 @@ class ImplSpec(NamedTuple):
     name: str
     framework_module: str
     framework_name: str
-    supported: frozenset[str] | None = None
-    divergent: frozenset[str] = frozenset()  # subtypes the Implementation's ``divergences`` records name
     dependency: str | None = None
-    variants: frozenset[str] = frozenset()  # variant names its VARIANT records follow
 
 
 class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
@@ -72,7 +67,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     @classmethod
     @abstractmethod
     def implementations(cls) -> list[ImplSpec]:
-        """Every shipped Implementation, with its expected ``supported`` and divergent subtypes."""
+        """Every shipped Implementation."""
 
     @classmethod
     @abstractmethod
@@ -225,17 +220,6 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         assert callable(getattr(self._implementation(spec), self.compute_method()))
 
     # -- Supported and divergent ------------------------------------------------
-
-    def test_supported_is_the_declared_set(self, impl_id: str) -> None:
-        spec = self._spec(impl_id)
-        assert self._implementation(spec).supported == spec.supported
-
-    def test_divergent_is_the_declared_set(self, impl_id: str) -> None:
-        spec = self._spec(impl_id)
-        implementation = self._implementation(spec)
-        assert divergent_subtypes(implementation) == spec.divergent
-        records = implementation.divergences
-        assert {r.variant for r in records if r.kind is DivergenceKind.VARIANT} == spec.variants
 
     def test_operation_group_shape(self) -> None:
         specs = self._installed_specs()

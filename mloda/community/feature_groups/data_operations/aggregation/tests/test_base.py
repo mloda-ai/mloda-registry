@@ -56,13 +56,6 @@ class TestClassAttributes:
         assert AggregationFeatureGroup.MAX_IN_FEATURES == 1
 
 
-_PYARROW_SUPPORTED = frozenset(
-    {"sum", "avg", "mean", "count", "min", "max", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
-    | {"nunique", "first", "last"}
-)
-_PANDAS_DIVERGENT = frozenset(
-    {"mode", "sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
-)
 _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 
@@ -79,12 +72,7 @@ class TestAggregationOperationGroup(OperationGroupTestBase):
     def implementations(cls) -> list[ImplSpec]:
         return [
             ImplSpec(
-                "pyarrow",
-                "pyarrow_aggregation",
-                "PyArrowAggregation",
-                f"{_ENGINE}.pyarrow.table",
-                "PyArrowTable",
-                supported=_PYARROW_SUPPORTED,
+                "pyarrow", "pyarrow_aggregation", "PyArrowAggregation", f"{_ENGINE}.pyarrow.table", "PyArrowTable"
             ),
             ImplSpec(
                 "pandas",
@@ -92,9 +80,7 @@ class TestAggregationOperationGroup(OperationGroupTestBase):
                 "PandasAggregation",
                 f"{_ENGINE}.pandas.dataframe",
                 "PandasDataFrame",
-                divergent=_PANDAS_DIVERGENT,
                 dependency="pandas",
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -118,9 +104,6 @@ class TestAggregationOperationGroup(OperationGroupTestBase):
                 "SqliteAggregation",
                 f"{_ENGINE}.sqlite.sqlite_framework",
                 "SqliteFramework",
-                supported=frozenset({"sum", "avg", "mean", "count", "min", "max"}),
-                divergent=frozenset({"sum", "avg", "mean", "count"}),
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "python_dict",

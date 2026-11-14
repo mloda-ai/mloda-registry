@@ -1,13 +1,11 @@
-"""Consistency check: twin ``supported_*()`` sets must mirror DataOperationsCatalog.
+"""Consistency check: what the twin suites run must equal what DataOperationsCatalog probes.
 
-The per-framework test classes (``{op}/tests/test_{framework}.py``) restrict which
-subtypes their inherited reference tests run via ``supported_*()`` overrides. The
-production capability is declared on the concrete classes and queried via
-``DataOperationsCatalog``. These tests pin the twins to the catalog: a twin class
-must exist exactly for the frameworks the catalog lists, and its supported set
-must equal the catalog's frozenset (a twin without a ``supported_*()`` method
-implicitly claims the full subtype universe). ``frame_aggregate`` is compared on
-the flattened compound set (frame types plus ``time:<unit>``).
+The per-framework twin classes (``{op}/tests/test_{framework}.py``) restate nothing: their
+``supported_*()`` hooks read the Implementation's declaration. This file checks that what the
+suites run equals what the catalog probes through ``supports_compute_framework``, an independent
+path that matters for ``accepts`` (e.g. frame aggregate time units). A twin class must exist
+exactly for the frameworks the catalog lists. ``frame_aggregate`` is compared on the flattened
+compound set (frame types plus ``time:<unit>``).
 """
 
 from __future__ import annotations

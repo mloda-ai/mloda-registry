@@ -32,10 +32,6 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
         return PandasAggregation
 
     @classmethod
-    def supported_agg_types(cls) -> set[str]:
-        return {*cls.ALL_AGG_TYPES, "mean"}
-
-    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value__median_agg", Options()),
