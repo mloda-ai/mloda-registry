@@ -1,4 +1,4 @@
-"""Manifest helper, still needed: backend modules top-import optional frameworks, so a bare leaf install must skip them.
+"""Still needed: backends top-import optional frameworks, so manifests must skip the ones not installed.
 
 A data_operations plugin package ships one Implementation per compute
 framework. Each Implementation module top-imports its framework (pandas, polars,

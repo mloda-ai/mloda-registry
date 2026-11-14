@@ -2,8 +2,7 @@
 
 Both arithmetic operation groups (point and scalar) mix ``ArithmeticOpMixin`` in
 for op parsing and the shared non-numeric rejection message. Each Implementation
-passes its framework's ``<fw>_non_numeric_descriptor`` (from ``<fw>_numeric_source``) to the group's
-``apply_arithmetic``.
+passes its framework's ``<fw>_non_numeric_descriptor`` to the group's ``apply_arithmetic``.
 """
 
 from __future__ import annotations
@@ -54,8 +53,6 @@ class ArithmeticOpMixin(FeatureChainParserMixin):
     def _raise_non_numeric_source(cls, source_col: str, got: object) -> None:
         """Shared error format for the numeric-source contract.
 
-        The group's ``apply_arithmetic`` calls this when a ``<fw>_numeric_source`` function's
-        ``<fw>_non_numeric_descriptor`` reports a non-numeric column. ``got`` is
-        inlined verbatim (native dtype, affinity string, or any descriptor).
+        ``got`` is the framework descriptor (dtype, affinity string, ...), inlined verbatim.
         """
         raise ValueError(f"Source column {source_col!r} must be numeric for {cls.OPERATION_LABEL}; got {got}.")
