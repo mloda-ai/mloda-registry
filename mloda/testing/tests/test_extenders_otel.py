@@ -568,7 +568,7 @@ def _make_rewriting_identity_host(rewrite_identity: Callable[[HookContext, tuple
 
 
 class TestQueryStringIdentityContract:
-    """Proves the identity contract test fails for each way an extender can leak the raw data access into a span."""
+    """Proves the identity contract test fails for extenders that leak the raw data access into a span."""
 
     @pytest.mark.parametrize(
         ("rewrite_identity", "match"),
