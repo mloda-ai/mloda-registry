@@ -11,11 +11,12 @@ at match time rather than inside ``calculate_feature``.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import pyarrow as pa
 import pytest
-from mloda.user import Feature, Options
+from mloda.provider import FeatureGroup, property_spec
+from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup  # noqa: F401  (import registers the row-replacing group)
 from mloda.community.feature_groups.data_operations.base import (
@@ -390,19 +391,23 @@ class TestKeyColumnFeatures:
         ],
     )
     def test_keys_are_plain_features(self, options: dict[str, Any], expected: set[str]) -> None:
-        keys = key_column_features(Options(context=options), [_GROUPED_SOURCE])
+        keys = key_column_features(Options(context=options), [_GROUPED_SOURCE], consumer_group=FeatureGroup)
         assert keys == {Feature(name) for name in expected}
         assert all(not key.options.group for key in keys)
 
     def test_dedupes_against_source_of_same_name(self) -> None:
         source = Feature("region", Options(group={"k": "v"}))
-        keys = key_column_features(Options(context={"partition_by": ["region", "team"]}), [source])
+        keys = key_column_features(
+            Options(context={"partition_by": ["region", "team"]}), [source], consumer_group=FeatureGroup
+        )
         assert keys == {Feature("team")}
 
     @pytest.mark.parametrize("key", ["order_by", "time_column"])
     @pytest.mark.parametrize("value", [["ts", "other"], ("ts", "other"), ""])
     def test_non_column_ref_is_not_declared(self, key: str, value: Any) -> None:
-        assert key_column_features(Options(context={key: value}), [_GROUPED_SOURCE]) == set()
+        assert (
+            key_column_features(Options(context={key: value}), [_GROUPED_SOURCE], consumer_group=FeatureGroup) == set()
+        )
 
 
 class TestKeyColumnFeaturesRowReplacingSource:
@@ -411,25 +416,30 @@ class TestKeyColumnFeaturesRowReplacingSource:
     _OPTIONS = Options(context={"partition_by": ["region"]})
 
     def test_name_matched_aggregation_source_yields_no_keys(self) -> None:
-        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_agg")]) == set()
+        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_agg")], consumer_group=FeatureGroup) == set()
 
     def test_configuration_based_aggregation_source_yields_no_keys(self) -> None:
         context = {"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
         source = Feature("my_sum", Options(context=context))
-        assert key_column_features(self._OPTIONS, [source]) == set()
+        assert key_column_features(self._OPTIONS, [source], consumer_group=FeatureGroup) == set()
 
     def test_plain_source_still_yields_keys(self) -> None:
-        assert key_column_features(self._OPTIONS, [Feature("value_int")]) == {Feature("region")}
+        assert key_column_features(self._OPTIONS, [Feature("value_int")], consumer_group=FeatureGroup) == {
+            Feature("region")
+        }
 
     def test_name_matched_source_two_steps_downstream_yields_no_keys(self) -> None:
-        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_agg__sum_window")]) == set()
+        assert (
+            key_column_features(self._OPTIONS, [Feature("value_int__sum_agg__sum_window")], consumer_group=FeatureGroup)
+            == set()
+        )
 
     def test_configuration_based_source_over_nested_aggregation_yields_no_keys(self) -> None:
         inner_context = {"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["region"]}
         inner = Feature("my_sum", Options(context=inner_context))
         outer_context = {"window_aggregation_type": "max", "in_features": inner, "partition_by": ["region"]}
         source = Feature("my_window_max", Options(context=outer_context))
-        assert key_column_features(self._OPTIONS, [source]) == set()
+        assert key_column_features(self._OPTIONS, [source], consumer_group=FeatureGroup) == set()
 
     @staticmethod
     def _config_aggregation(**kwargs: Any) -> Feature:
@@ -455,7 +465,7 @@ class TestKeyColumnFeaturesRowReplacingSource:
         self, consumer: Options, source_kwargs: dict[str, Any]
     ) -> None:
         source = self._config_aggregation(**source_kwargs)
-        assert key_column_features(consumer, [source]) == set()
+        assert key_column_features(consumer, [source], consumer_group=FeatureGroup) == set()
         assert "partition_by" not in source.options
 
     @pytest.mark.parametrize(
@@ -470,21 +480,56 @@ class TestKeyColumnFeaturesRowReplacingSource:
         consumer = Options(context={"partition_by": ["region"]}, **forwarding)
         outer_context = {"window_aggregation_type": "max", "in_features": self._config_aggregation()}
         source = Feature("my_window_max", Options(context=outer_context))
-        assert key_column_features(consumer, [source]) == expected
+        assert key_column_features(consumer, [source], consumer_group=FeatureGroup) == expected
 
     def test_source_blocking_forwarding_still_yields_keys(self) -> None:
         consumer = Options(context={"partition_by": ["region"]}, propagate_context_keys=frozenset({"partition_by"}))
         source = self._config_aggregation(forward_group=False)
-        assert key_column_features(consumer, [source]) == {Feature("region")}
+        assert key_column_features(consumer, [source], consumer_group=FeatureGroup) == {Feature("region")}
 
     def test_forwarding_conflict_does_not_raise(self) -> None:
         consumer = Options(context={"partition_by": ["region"]}, propagate_context_keys=frozenset({"partition_by"}))
         context = {"aggregation_type": "sum", "in_features": "value_int", "partition_by": ["team"]}
         source = Feature("my_sum", Options(context=context))
-        assert key_column_features(consumer, [source]) == set()
+        assert key_column_features(consumer, [source], consumer_group=FeatureGroup) == set()
 
     def test_subclass_inheriting_replaces_rows_is_registered(self) -> None:
         class _LocalMyAggFeatureGroup(AggregationFeatureGroup):
             PREFIX_PATTERN = r".*__([\w]+)_myagg$"
 
-        assert key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")]) == set()
+        assert (
+            key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")], consumer_group=FeatureGroup) == set()
+        )
+
+    def test_consumer_local_key_is_not_previewed_on_the_source(self) -> None:
+        class _Mapping:
+            PROPERTY_MAPPING = {"partition_by": property_spec("Columns to partition by", forward_to_inputs=False)}
+
+        consumer = Options(group={"partition_by": ["region"]})
+        source = self._config_aggregation()
+        keys = key_column_features(consumer, [source], consumer_group=cast(type[FeatureGroup], _Mapping))
+        assert keys == {Feature("region")}
+
+    def test_input_features_passes_its_own_class_as_consumer_group(self) -> None:
+        import gc
+
+        class _LocalRankFeatureGroup(RankFeatureGroup):
+            PREFIX_PATTERN = r".*__([\w]+)_localranked$"
+            PROPERTY_MAPPING = {
+                **RankFeatureGroup.PROPERTY_MAPPING,
+                "partition_by": property_spec("Columns to partition by", forward_to_inputs=False),
+            }
+
+        try:
+            options = Options(
+                group={"partition_by": ["region"]},
+                context={"rank_type": "row_number", "in_features": self._config_aggregation(), "order_by": "value_int"},
+            )
+            name = FeatureName("my_rank")
+            local_keys = _LocalRankFeatureGroup().input_features(options, name) or set()
+            parent_keys = RankFeatureGroup().input_features(options, name) or set()
+            assert Feature("region") in local_keys
+            assert Feature("region") not in parent_keys
+        finally:
+            del _LocalRankFeatureGroup
+            gc.collect()
