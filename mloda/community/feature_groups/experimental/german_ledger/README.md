@@ -135,7 +135,7 @@ This package declares:
 | Group | Keys | Says |
 |---|---|---|
 | `AdmissibilityPolicyGroup` (policy step) | `policy.verdict` | the policy's affirmative stamp (the verdict a cited total's rows carry, rule parameters included), not this run's outcome |
-| `SkrAccountFeatureGroup` (concept step) | `chart`, `catalogue`, `catalogue.fingerprint`, `chart.source` | the chart (SKR03/SKR04), the catalogue's name, and a fingerprint over the whole catalogue in force; `chart.source = books` only under `REQUIRE_STATED_CHART` |
+| `SkrAccountFeatureGroup` (concept step) | `chart`, `catalogue`, `catalogue.fingerprint` | the chart (SKR03/SKR04), the catalogue's name, and a fingerprint over the whole catalogue in force |
 
 The selected profile (which columns were read as account and amount), the sign convention and
 the chart source (`books` when every row states its chart, else `host`) depend on the data,
@@ -152,9 +152,7 @@ Pinning one reader by option key also resolves a single folder that holds both f
   enterprise `LineageFacetsExtender` alike), and the audit record's
   `feature_group_declared_attributes`. A refused policy step emits no COMPLETE event, so it has
   no `mlodaDeclared` facet; its OTel span and audit record (status `error`) still carry the
-  declared stamp, which is not the run's outcome. Likewise a `ChartNotStated` run has no concept
-  facet, yet its span and audit record (status `error`) still show the declared
-  `chart.source = books`, which is not the run's outcome.
+  declared stamp, which is not the run's outcome.
 - **Result attributes:** once all totals of a step are built, each total's profile, sign,
   chart source, catalogue and catalogue fingerprint are published as
   `<concept>__sources.profile|sign|chart.source|catalogue|catalogue.fingerprint`
@@ -173,9 +171,8 @@ Pinning one reader by option key also resolves a single folder that holds both f
 `refused`, `unevaluated`, `malformed`, `unstamped`), and say it in the message.
 
 **Mapping to OpenLineage.** The policy step's `mlodaDeclared` output-dataset facet carries
-`policy.verdict` and the concept step's carries the catalogue keys, plus `chart.source` only
-under `REQUIRE_STATED_CHART`; otherwise the per-run chart source reaches spans (result
-attribute) and `~basis` only. The reader's `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset. Nothing here
+`policy.verdict` and the concept step's carries the catalogue keys. The reader's
+`data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset. Nothing here
 is tamper-proof: anything inside the process can write these attributes.
 
 ## Formats
@@ -197,10 +194,8 @@ A folder holding both formats is refused, not resolved to one of them.
   4000–4499, receivables 1200–1249. `SKR03_2025`: revenue 8000–8499, receivables 1400–1449.
   The host names its chart once (`SkrAccountFeatureGroup.CHART = "03"`, default `"04"`). A
   DATEV header that states a different SKR is refused (`ChartConflict`). An empty header
-  leaves the host's chart as the only word; an assumed chart is visible as `chart_source: host`.
-  Under the wrong chart, SKR03 Bank 1200 counts as SKR04 receivables, so a host reading books
-  of more than one chart sets `REQUIRE_STATED_CHART = True` and gets `ChartNotStated`, which
-  also refuses GDPdU journals since they state no chart.
+  leaves the host's chart as the only word (`chart_source: host` in `~basis`), so a host must
+  state it: under the wrong chart, SKR03 Bank 1200 counts as SKR04 receivables.
 - **Gross DATEV revenue:** a revenue leg on an automatic account, or with any BU key other
   than 40, includes VAT. The automatic accounts are those Odoo's `l10n_de` templates give a
   taxable default (SKR03 8196, 8300, 8310, 8315, 8400, 8410; SKR04 4186, 4200, 4300, 4310,

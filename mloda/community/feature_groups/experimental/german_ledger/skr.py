@@ -158,10 +158,6 @@ class ChartConflict(Exception):
     """The books name one chart of accounts and the host another."""
 
 
-class ChartNotStated(Exception):
-    """The host requires the books to state their chart, and they do not."""
-
-
 class AccountLengthUnsupported(Exception):
     """A Sachkonto longer than the 4-digit accounts the catalogue states."""
 
@@ -177,13 +173,12 @@ def _chart_source(table: pa.Table) -> str:
     return "books" if all(table.column("SKR").to_pylist()) else "host"
 
 
-def _chart(host: str, table: pa.Table, chart_source: str, require_stated: bool = False) -> dict[str, range]:
+def _chart(host: str, table: pa.Table) -> dict[str, range]:
     """The host's chart, checked against whatever the books say about themselves.
 
     A DATEV header may state its SKR (field 27; often empty). Empty leaves the host's word
     as the only one. A stated chart that differs from the host's is refused, not resolved:
-    under the wrong chart, 1200 is a bank balance counted as receivables. With `require_stated`,
-    books that do not state their chart on every row are refused too.
+    under the wrong chart, 1200 is a bank balance counted as receivables.
     """
     if host not in CHARTS:
         raise ValueError(f"host chart {host!r} is not one of {', '.join(repr(c) for c in sorted(CHARTS))}")
@@ -195,20 +190,6 @@ def _chart(host: str, table: pa.Table, chart_source: str, require_stated: bool =
                 "The same account number means different things in the two charts, so one of "
                 "them is wrong and neither is picked."
             )
-    if require_stated and chart_source != "books":
-        if not table.num_rows:
-            raise ChartNotStated(
-                "REQUIRE_STATED_CHART is set and the journal has no rows to state a chart. "
-                f"Without it the host's SKR{host} is assumed."
-            )
-        origins = table.column(GdpduReader.ORIGIN_COLUMN).to_pylist()
-        skr = table.column("SKR").to_pylist() if "SKR" in table.column_names else [None] * len(origins)
-        missing = next((o for o, v in zip(origins, skr) if not v), None)
-        example = f" (e.g. {missing})" if missing else ""
-        raise ChartNotStated(
-            f"REQUIRE_STATED_CHART is set and the books do not state their chart on every row{example}. "
-            f"Without it the host's SKR{host} is assumed."
-        )
     return CHARTS[host]
 
 
@@ -311,9 +292,6 @@ class SkrAccountFeatureGroup(FeatureGroup):
     # books, and a DATEV header that states a different one is refused (see _chart).
     CHART: str = "04"
 
-    # Host configuration like CHART: refuse books that do not state their chart on every row.
-    REQUIRE_STATED_CHART: bool = False
-
     @classmethod
     def feature_names_supported(cls) -> set[str]:
         return set(SKR04_2025) | set(SKR03_2025)
@@ -340,14 +318,11 @@ class SkrAccountFeatureGroup(FeatureGroup):
     @classmethod
     def declared_attributes(cls, features: FeatureSet | None) -> dict[str, str | int | float | bool]:
         """The chart and catalogue in force, for the extender hooks; the profile stays in `~basis`."""
-        declared: dict[str, str | int | float | bool] = {
+        return {
             "chart": f"SKR{cls.CHART}",
             "catalogue": CATALOGUE_NAMES[cls.CHART],
             "catalogue.fingerprint": _fingerprint(cls.CHART),
         }
-        if cls.REQUIRE_STATED_CHART:
-            declared["chart.source"] = "books"
-        return declared
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -368,7 +343,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
         profile = select_profile(cls.PROFILES, declared)
 
         chart_source = _chart_source(table)
-        catalogue = _chart(cls.CHART, table, chart_source, cls.REQUIRE_STATED_CHART)
+        catalogue = _chart(cls.CHART, table)
         _refuse_long_sachkonten(table, profile)
 
         konto = table.column(profile.account_column).to_pylist()

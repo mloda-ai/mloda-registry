@@ -15,7 +15,7 @@ isolated.composite_datev.
 
 import json
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -33,7 +33,6 @@ from mloda.community.feature_groups.experimental.german_ledger.skr import (
     SKR04_2025,
     AccountLengthUnsupported,
     ChartConflict,
-    ChartNotStated,
     GrossRevenueRefused,
     LedgerProfile,
     SkrAccountFeatureGroup,
@@ -53,14 +52,6 @@ def chart() -> Iterator[None]:
     original = SkrAccountFeatureGroup.CHART
     yield
     SkrAccountFeatureGroup.CHART = original
-
-
-@pytest.fixture
-def require_stated() -> Iterator[None]:
-    """Restore the host's REQUIRE_STATED_CHART after each test; it is process-wide host configuration."""
-    original = SkrAccountFeatureGroup.REQUIRE_STATED_CHART
-    yield
-    SkrAccountFeatureGroup.REQUIRE_STATED_CHART = original
 
 
 @pytest.fixture
@@ -123,12 +114,6 @@ def _journal(skr_column: list[str] | None, n: int = 2) -> pa.Table:
     return pa.table(columns)
 
 
-def _basis_chart_source(table: pa.Table) -> str:
-    mapped = SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
-    [basis] = set(mapped.column("receivables~basis").to_pylist())
-    return str(json.loads(basis)["chart_source"])
-
-
 def _basis(concept: str) -> dict[str, Any]:
     mapped = SkrAccountFeatureGroup._map_accounts(
         GdpduReader.load_data(str(DOSSIER_A), FeatureSet()), _features(concept)
@@ -169,13 +154,6 @@ def test_the_declared_attributes_name_the_chart_and_catalogue(features: FeatureS
     assert set(declared) == {"chart", "catalogue", "catalogue.fingerprint"}
     assert declared["chart"] == "SKR04"
     assert declared["catalogue"] == "SKR04_2025"
-
-
-def test_requiring_a_stated_chart_declares_the_books_as_its_source(require_stated: None) -> None:
-    SkrAccountFeatureGroup.REQUIRE_STATED_CHART = True
-    declared = SkrAccountFeatureGroup.declared_attributes(None)
-    assert set(declared) == {"chart", "catalogue", "catalogue.fingerprint", "chart.source"}
-    assert declared["chart.source"] == "books"
 
 
 def test_the_declared_attributes_follow_the_hosts_chart(chart: None) -> None:
@@ -247,44 +225,24 @@ def test_a_header_chart_that_agrees_with_the_host_is_read(chart: None, tmp_path:
     SkrAccountFeatureGroup.CHART = "03"
     mapped = SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
     assert _values(mapped, "receivables") == []
-    assert _basis_chart_source(table) == "books"
+    assert json.loads(mapped.column("receivables~basis")[0].as_py())["chart_source"] == "books"
 
 
-@pytest.mark.parametrize("required", [True, False], ids=["required", "default"])
-@pytest.mark.parametrize("kind", ["stated", "empty header", "mixed rows", "no SKR column", "no rows"])
-def test_an_unstated_chart_is_refused_only_when_the_host_asks(
-    kind: str, required: bool, chart: None, require_stated: None, tmp_path: Path
+@pytest.mark.parametrize(
+    ("make", "source"),
+    [
+        (lambda _: _journal(["03", "03"]), "books"),
+        (_ledermann, "host"),
+        (lambda _: _journal(["03", ""]), "host"),
+        (lambda _: _journal(None), "host"),
+        (lambda _: _journal([], n=0), "host"),
+    ],
+    ids=["stated", "empty header", "mixed rows", "no SKR column", "no rows"],
+)
+def test_the_books_are_the_chart_source_only_when_every_row_states_it(
+    make: Callable[[Path], pa.Table], source: str, tmp_path: Path
 ) -> None:
-    tables = {
-        "stated": lambda: _journal(["03", "03"]),
-        "empty header": lambda: _ledermann(tmp_path),
-        "mixed rows": lambda: _journal(["03", ""]),
-        "no SKR column": lambda: _journal(None),
-        "no rows": lambda: _journal([], n=0),
-    }
-    SkrAccountFeatureGroup.CHART = "03"
-    SkrAccountFeatureGroup.REQUIRE_STATED_CHART = required
-    table = tables[kind]()
-    if kind == "stated":
-        assert _basis_chart_source(table) == "books"
-    elif required:
-        message = "no rows" if kind == "no rows" else "REQUIRE_STATED_CHART"
-        with pytest.raises(ChartNotStated, match="REQUIRE_STATED_CHART") as info:
-            SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
-        assert message in str(info.value)
-    elif kind != "no rows":
-        assert _basis_chart_source(table) == "host"
-    else:
-        SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
-
-
-def test_a_conflicting_chart_is_a_conflict_before_it_is_unstated(
-    chart: None, require_stated: None, tmp_path: Path
-) -> None:
-    SkrAccountFeatureGroup.CHART = "03"
-    SkrAccountFeatureGroup.REQUIRE_STATED_CHART = True
-    with pytest.raises(ChartConflict):
-        SkrAccountFeatureGroup._map_accounts(_ledermann(tmp_path, skr=b'"04"'), _features("receivables"))
+    assert skr._chart_source(make(tmp_path)) == source
 
 
 # --- Sachkontenlänge -----------------------------------------------------------------------------
