@@ -47,7 +47,10 @@ features = [
     Feature(
         "value_int__sum_window", Options(group={"allow_variants": "nan_as_null"}, context={"partition_by": ["region"]})
     ),
-    Feature("value_int__first_window", Options(context={"partition_by": ["region"], "order_by": "ts"})),
+    Feature(
+        "value_int__first_window",
+        Options(group={"allow_variants": "nan_as_null"}, context={"partition_by": ["region"], "order_by": "ts"}),
+    ),
 ]
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```

@@ -47,6 +47,7 @@ class DoubledFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     PREFIX_PATTERN = r"^.+__doubled$"  # the mixin matches names and derives input_features from it
     MIN_IN_FEATURES = 1
+    CONTRACT_VERSION = 1
     MAX_IN_FEATURES = 1
 
     @classmethod
@@ -173,6 +174,7 @@ class ColumnTotal(FeatureChainParserMixin, OperationFeatureGroup):
     """price__sum_total, price__max_total. Reference contract: a missing value (NaN or null) propagates in sum; max skips missing values."""
 
     OP = "total_op"
+    CONTRACT_VERSION = 1
     SUBTYPES = SubtypeDeclaration(key=OP)
     PREFIX_PATTERN = r".*__(?P<total_op>sum|max)_total$"
     MIN_IN_FEATURES = 1

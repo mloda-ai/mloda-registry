@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import pkgutil
 from pathlib import Path
 from typing import Any
 
 import pytest
+from mloda.core.abstract_plugins.components.utils import get_all_subclasses
 from mloda.core.abstract_plugins.plugin_loader.plugin_loader import ENTRY_POINT_GROUPS
 from mloda.provider import Implementation, OperationFeatureGroup
 
@@ -176,14 +178,33 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
                 )
                 # An operation group is the one concrete class a "base" module may list: its Implementations serve it.
                 is_operation_group = issubclass(cls, OperationFeatureGroup)
-                assert not is_operation_group or cls.__dict__.get("CONTRACT_VERSION") == 1, (
-                    f"{manifest_name}.{attr_name}: {cls!r} must declare CONTRACT_VERSION = 1 in its own class body"
-                )
                 assert is_operation_group or not (
                     cls.__module__.endswith(".base") or cls.__module__.endswith("_base")
                 ), f"{manifest_name}.{attr_name}: {cls!r} is a shared base class ({cls.__module__})"
                 if is_implementation:
                     assert not cls.__module__.endswith(".base"), f"{manifest_name}.{attr_name}: {cls!r} lives in a base"
+
+
+def test_every_operation_group_declares_contract_version_1() -> None:
+    """Every operation group shipped under mloda.community / mloda.enterprise declares CONTRACT_VERSION = 1 in its
+    own class body, found by importing every module (not through manifests)."""
+    for namespace in ("mloda.community", "mloda.enterprise"):
+        package = importlib.import_module(namespace)
+        for module_info in pkgutil.walk_packages(package.__path__, prefix=f"{namespace}."):
+            if ".tests" in module_info.name:
+                continue
+            importlib.import_module(module_info.name)
+
+    groups = {
+        cls
+        for cls in get_all_subclasses(OperationFeatureGroup)
+        if cls.__module__.startswith(("mloda.community", "mloda.enterprise")) and not inspect.isabstract(cls)
+    }
+    assert groups, "expected at least one concrete OperationFeatureGroup under mloda.community or mloda.enterprise"
+    offenders = sorted(
+        f"{cls.__module__}.{cls.__qualname__}" for cls in groups if cls.__dict__.get("CONTRACT_VERSION") != 1
+    )
+    assert not offenders, f"operation groups must declare CONTRACT_VERSION = 1 in their own class body: {offenders}"
 
 
 def test_bundle_and_groups_are_mutually_exclusive() -> None:

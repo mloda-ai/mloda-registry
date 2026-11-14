@@ -47,6 +47,8 @@ from mloda.steward import (
 )
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.experimental.aggregated_feature_group.base import AggregatedFeatureGroup
+from mloda_plugins.feature_group.experimental.aggregated_feature_group.pyarrow import PyArrowAggregation
 from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG, CsvPyArrowTable
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
@@ -3244,6 +3246,34 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         served = [s for s in steps if s.get("implementation") == expected]
         assert served
         assert all(s.get("implementationVersion") == CsvPyArrowTable.version() for s in served)
+
+    def test_core_operation_group_step_carries_its_contract_version_and_no_divergence_keys(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        results = mloda.run_all(
+            ["value_int__sum_aggr"],
+            compute_frameworks=[PyArrowTable],
+            plugin_collector=PluginCollector.enabled_feature_groups(
+                {PyArrowDataOpsTestDataCreator, AggregatedFeatureGroup}
+            ),
+            function_extender={OpenLineageExtender(client=client)},
+            parallelization_modes={ParallelizationMode.SYNC},
+        )
+
+        assert results
+        steps = [json.loads(Serde.to_json(e))["run"]["facets"].get("mlodaStep", {}) for e in transport.events]
+        aggregated = [
+            s
+            for s in steps
+            if s.get("implementation") == f"{PyArrowAggregation.__module__}:{PyArrowAggregation.__qualname__}"
+        ]
+        assert aggregated
+        for step in aggregated:
+            assert step.get("contractVersion") == 1
+            assert "divergences" not in step
+            assert "allowedVariants" not in step
 
     @pytest.mark.parametrize(
         ("declarations", "expected", "conflicts"),

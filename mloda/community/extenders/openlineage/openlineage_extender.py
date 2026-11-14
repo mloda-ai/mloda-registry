@@ -13,7 +13,10 @@ import weakref
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mloda.provider import Divergence
 
 from mloda.steward import (
     Extender,
@@ -144,8 +147,9 @@ def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
         return state
 
 
-def _divergence_dicts(divergences: Any) -> list[dict[str, Any]] | None:
+def _divergence_dicts(divergences: Sequence[Divergence]) -> list[dict[str, Any]] | None:
     """One JSON-ready dict per divergence record in order, None when there are none."""
+    # The dict shape matches the plan lock's divergence records.
     if not divergences:
         return None
     return [

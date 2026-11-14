@@ -78,7 +78,9 @@ grouped = [
     Feature(
         "value_int__sum_agg", Options(group={"allow_variants": "nan_as_null"}, context={"partition_by": ["region"]})
     ),
-    Feature("value_int__max_agg", Options(context={"partition_by": ["region"]})),
+    Feature(
+        "value_int__max_agg", Options(group={"allow_variants": "nan_as_null"}, context={"partition_by": ["region"]})
+    ),
 ]
 grouped_result = mloda.run_all(grouped, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
