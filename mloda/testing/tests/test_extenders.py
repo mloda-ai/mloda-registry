@@ -556,6 +556,10 @@ class TestPassThroughExtenderContract(ExtenderContractTestMixin):
 
     plugin = _BareExtender
 
+    def test_raise_on_error_is_set_on_the_instance(self) -> None:
+        for value in (True, False):
+            assert self.make_extender(raise_on_error=value).raise_on_error is value
+
 
 class TestLoadOnlyExtenderContract(ExtenderContractTestMixin):
     """A load-only Extender is covered by `plugin` alone; the runner follows wraps()."""
@@ -566,25 +570,6 @@ class TestLoadOnlyExtenderContract(ExtenderContractTestMixin):
         _BareLoadOnlyExtender.fired = 0
         self.test_contract_run_all_leaves_result_unchanged()
         assert _BareLoadOnlyExtender.fired >= 1
-
-
-class TestMissingPluginNamesTheHook:
-    def test_extender_class_names_host_and_hook(self) -> None:
-        class _NoPluginHost(ExtenderContractTestMixin):
-            pass
-
-        with pytest.raises(NotImplementedError, match="_NoPluginHost") as excinfo:
-            _NoPluginHost.extender_class()
-        assert "plugin" in str(excinfo.value)
-
-
-class TestMakeExtenderDefault:
-    def test_raise_on_error_is_set_on_the_instance(self) -> None:
-        class _Host(ExtenderContractTestMixin):
-            plugin = _BareExtender
-
-        for value in (True, False):
-            assert _Host().make_extender(raise_on_error=value).raise_on_error is value
 
 
 class TestProbeExtenderContract(ExtenderContractTestMixin):
@@ -689,37 +674,35 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
         assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
 
 
+class _SinkHost(ExtenderContractTestMixin):
+    plugin = _BareExtender
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return True
+
+
 class TestHasBackendSinkDefault:
     def test_default_is_false(self) -> None:
         assert ExtenderContractTestMixin.has_backend_sink() is False
 
-    def test_undeclared_host_errors_naming_the_missing_hook(self) -> None:
+    def test_undeclared_host_errors_naming_host_and_the_missing_hook(self) -> None:
         class _UndeclaredHost(ExtenderContractTestMixin):
             pass
+
+        with pytest.raises(NotImplementedError, match="_UndeclaredHost") as excinfo:
+            _UndeclaredHost.extender_class()
+        assert "plugin" in str(excinfo.value)
 
         with pytest.raises(NotImplementedError, match="extender_class"):
             _UndeclaredHost().test_contract_run_all_leaves_result_unchanged()
 
     def test_undeclared_sink_hook_errors_naming_host_and_hook(self) -> None:
-        class _SinkHost(ExtenderContractTestMixin):
-            plugin = _BareExtender
-
-            @classmethod
-            def has_backend_sink(cls) -> bool:
-                return True
-
         with pytest.raises(NotImplementedError, match="_SinkHost") as excinfo:
             _SinkHost().test_contract_unconfigured_extender_emits_nothing_in_run_all()
         assert "sink_resolution_spy" in str(excinfo.value)
 
     def test_sink_host_without_own_failure_is_refused(self) -> None:
-        class _SinkHost(ExtenderContractTestMixin):
-            plugin = _BareExtender
-
-            @classmethod
-            def has_backend_sink(cls) -> bool:
-                return True
-
         with pytest.raises(NotImplementedError, match="own_failure"):
             _SinkHost().own_failure()
 
