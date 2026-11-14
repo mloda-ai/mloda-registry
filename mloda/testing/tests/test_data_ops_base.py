@@ -469,34 +469,35 @@ def test_nan_is_null_defaults_to_false() -> None:
     assert DataOpsIntegrationTestBase.nan_is_null() is False
 
 
-def _make_stub_feature(stub: type) -> Any:
-    """Build a feature through ``_make_feature`` of an abstract integration stub, without its abstract methods."""
-    stub.__abstractmethods__ = frozenset()  # type: ignore[attr-defined]
-    return stub()._make_feature("value__sum_agg", {"partition_by": ["region"]})
-
-
-def test_group_options_default_leaves_the_feature_group_options_empty() -> None:
+def _concrete_integration_stub(**overrides: Any) -> type:
+    """A minimal concrete ``DataOpsIntegrationTestBase`` subclass: every abstract hook is implemented."""
     from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
-    class _IntegrationStub(DataOpsIntegrationTestBase):
-        pass
-
-    assert _IntegrationStub.group_options() == {}
-    feature = _make_stub_feature(_IntegrationStub)
-    assert feature.options.group == {}
-    assert feature.options.context == {"partition_by": ["region"]}
+    hooks: dict[str, Any] = {
+        name: classmethod(lambda cls: None) for name in DataOpsIntegrationTestBase.__abstractmethods__
+    }
+    hooks.update({name: classmethod(fn) for name, fn in overrides.items()})
+    return type("_IntegrationStub", (DataOpsIntegrationTestBase,), hooks)
 
 
-def test_group_options_override_lands_in_the_feature_group_options() -> None:
-    from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-
-    class _IntegrationStub(DataOpsIntegrationTestBase):
-        @classmethod
-        def group_options(cls) -> dict[str, Any]:
-            return {"allow_variants": "nan_as_null"}
-
-    feature = _make_stub_feature(_IntegrationStub)
-    assert feature.options.group == {"allow_variants": "nan_as_null"}
+@pytest.mark.parametrize(
+    ("overrides", "expected_group"),
+    [
+        pytest.param({}, {}, id="default_leaves_group_empty"),
+        pytest.param(
+            {"group_options": lambda cls: {"allow_variants": "nan_as_null"}},
+            {"allow_variants": "nan_as_null"},
+            id="override_lands_in_group",
+        ),
+    ],
+)
+def test_group_options_lands_in_the_feature_group_options(
+    overrides: dict[str, Any], expected_group: dict[str, Any]
+) -> None:
+    stub = _concrete_integration_stub(**overrides)
+    assert stub.group_options() == expected_group  # type: ignore[attr-defined]
+    feature = stub()._make_feature("value__sum_agg", {"partition_by": ["region"]})
+    assert feature.options.group == expected_group
     assert feature.options.context == {"partition_by": ["region"]}
 
 
