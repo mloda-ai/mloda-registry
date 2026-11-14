@@ -29,10 +29,11 @@ from typing import Any, BinaryIO
 
 from mloda.community.feature_groups.binary_model.contract import stderr_excerpt
 from mloda.community.feature_groups.binary_model.errors import (
+    BinaryNotRunnableError,
     BinaryTerminatedError,
-    BinaryUnavailableError,
     BinaryUsageError,
     OutputContractError,
+    UnsafeInvocationDirectoryError,
     error_from_exit,
 )
 
@@ -437,7 +438,10 @@ class InvocationDirectory:
             else:
                 self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         except OSError as exc:
-            raise BinaryUnavailableError(f"cannot create {self.parent}: {exc}") from exc
+            if os.path.lexists(self.parent):
+                self._validate_parent()
+                self._close_parent_handle()
+            raise BinaryNotRunnableError(f"cannot create {self.parent}: {exc}") from exc
         self._validate_parent()
         try:
             return self._create_invocation_dir()
@@ -465,7 +469,7 @@ class InvocationDirectory:
                     _OWNED_PATHS.discard(path)
                 shutil.rmtree(path, ignore_errors=True)
                 if isinstance(exc, OSError):
-                    raise BinaryUnavailableError(
+                    raise BinaryNotRunnableError(
                         f"cannot create an invocation directory under {self.parent}: {exc}"
                     ) from exc
                 raise
@@ -494,14 +498,15 @@ class InvocationDirectory:
                 self._lock_fd = None
             shutil.rmtree(staging, ignore_errors=True)
             if isinstance(exc, OSError):
-                raise BinaryUnavailableError(f"cannot lock an invocation directory under {self.parent}: {exc}") from exc
+                raise BinaryNotRunnableError(f"cannot lock an invocation directory under {self.parent}: {exc}") from exc
             raise
         self.path = path
         return self
 
     def _validate_parent(self) -> None:
         """On Windows refuse a parent that is a symlink or junction, not a directory, not owned by a trusted
-        principal, or writable by another one, checked on one open handle that is held until exit. On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
+        principal, or writable by another one, checked on one open handle that is held until exit.
+        On POSIX refuse a parent that is a symlink, not a directory, not owned by the current user, world-writable, or
         writable by a group other than the current process's own (contract: Data handling): a
         directory shared with the process's own group, the common user-private-group scheme, is
         not a foreign-write risk, but world-writable or a foreign group is."""
@@ -509,22 +514,26 @@ class InvocationDirectory:
             try:
                 handle, reason = _windows_open_parent(self.parent)
             except OSError as exc:
-                raise BinaryUnavailableError(
+                raise UnsafeInvocationDirectoryError(
                     f"refusing to use {self.parent}: cannot read its security info: {exc}"
                 ) from exc
             if reason is not None:
-                raise BinaryUnavailableError(f"refusing to use {self.parent}: {reason}")
+                raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: {reason}")
             self._parent_handle = handle
             return
         stat_result = os.lstat(self.parent)
         if stat.S_ISLNK(stat_result.st_mode):
-            raise BinaryUnavailableError(f"refusing to use {self.parent}: a symlink")
+            raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: a symlink")
+        if not stat.S_ISDIR(stat_result.st_mode):
+            raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: not a directory")
         if stat_result.st_uid != os.getuid():
-            raise BinaryUnavailableError(f"refusing to use {self.parent}: not owned by the current user")
+            raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: not owned by the current user")
         if stat_result.st_mode & 0o002:
-            raise BinaryUnavailableError(f"refusing to use {self.parent}: world writable")
+            raise UnsafeInvocationDirectoryError(f"refusing to use {self.parent}: world writable")
         if stat_result.st_mode & 0o020 and stat_result.st_gid != os.getgid():
-            raise BinaryUnavailableError(f"refusing to use {self.parent}: writable by a group other than our own")
+            raise UnsafeInvocationDirectoryError(
+                f"refusing to use {self.parent}: writable by a group other than our own"
+            )
 
     def __exit__(
         self,
@@ -750,7 +759,7 @@ def run_binary(
             args += ["--input", str(input_path), "--output", str(output_path)]
             stdin_bytes = b""
     except OSError as exc:
-        raise BinaryUnavailableError(f"cannot write to the invocation directory {invocation_dir}: {exc}") from exc
+        raise BinaryNotRunnableError(f"cannot write to the invocation directory {invocation_dir}: {exc}") from exc
     if output_path is None:
         buffer = io.BytesIO()
         write_input(buffer)
@@ -767,7 +776,7 @@ def run_binary(
             start_new_session=os.name != "nt",
         )
     except OSError as exc:
-        raise BinaryUnavailableError(f"cannot spawn binary {argv[0]!r}: {exc}") from exc
+        raise BinaryNotRunnableError(f"cannot spawn binary {argv[0]!r}: {exc}") from exc
 
     try:
         stdout, stderr = communicate_or_terminate(proc, stdin_bytes, timeout)

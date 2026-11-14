@@ -18,6 +18,9 @@ VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+\-]+)?"
 # string type, ``pa.string()`` -- not ``pa.large_string()`` or ``pa.string_view()``.
 COLUMN_TYPES = frozenset({"int64", "float64", "utf8", "boolean"})
 
+# The environment variables that carry the license (contract: License).
+LICENSE_ENV_NAMES = ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")
+
 # Contract "Data handling": an error object's `message` is at most this many UTF-8 bytes.
 MESSAGE_MAX_BYTES = 1024
 

@@ -249,7 +249,7 @@ def test_enterprise_readme_quick_start_runs_up_to_the_license_or_wheel_check(tmp
     if importlib.util.find_spec("anonymizer_binary") is not None:
         assert "LicenseMissingError" in proc.stderr, f"stderr was:\n{proc.stderr}"
     else:
-        assert "BinaryUnavailableError" in proc.stderr, f"stderr was:\n{proc.stderr}"
+        assert "BinaryNotInstalledError" in proc.stderr, f"stderr was:\n{proc.stderr}"
         assert "mloda-enterprise[anonymizer]" in proc.stderr, f"stderr was:\n{proc.stderr}"
 
 

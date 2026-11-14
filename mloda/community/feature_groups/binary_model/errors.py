@@ -5,9 +5,12 @@
 from __future__ import annotations
 
 import json
-from typing import ClassVar
+from collections.abc import Mapping
+from typing import ClassVar, Literal
 
 from mloda.community.feature_groups.binary_model import contract
+
+LicenseSource = Literal["MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY", "LICENSE_FILE_OVERRIDE", "LICENSE_KEY_OVERRIDE"]
 
 
 class BinaryModelError(ValueError):
@@ -26,19 +29,41 @@ class BinaryUnavailableError(BinaryModelError):
     """The binary could not be resolved or spawned at all; no contract exit code applies."""
 
 
+class BinaryNotInstalledError(BinaryUnavailableError):
+    """The binary is not there: its wheel or data file is missing, or its path does not exist."""
+
+
+class UnsafeInvocationDirectoryError(BinaryUnavailableError):
+    """The invocation parent directory was refused as unsafe."""
+
+
+class BinaryNotRunnableError(BinaryUnavailableError):
+    """The binary is present but could not be probed, spawned, or given a working directory."""
+
+
 class BinaryUsageError(BinaryModelError):
     """Contract exit code 1: bad flags or paths, malformed or unknown config keys."""
 
     CODE: ClassVar[int | None] = contract.USAGE_ERROR
 
 
-class LicenseMissingError(BinaryModelError):
+class LicenseError(BinaryModelError):
+    """Base of the license errors; ``reason`` is the message without its source prefix and ``source``
+    the license source in use, both set by the mixin when known."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.reason: str = message
+        self.source: LicenseSource | None = None
+
+
+class LicenseMissingError(LicenseError):
     """Contract exit code 2: no usable license source."""
 
     CODE: ClassVar[int | None] = contract.LICENSE_MISSING
 
 
-class LicenseInvalidError(BinaryModelError):
+class LicenseInvalidError(LicenseError):
     """Contract exit code 3: license invalid, expired, or insufficient entitlement."""
 
     CODE: ClassVar[int | None] = contract.LICENSE_INVALID
@@ -75,6 +100,21 @@ class OutputContractError(BinaryModelError):
     (wrong schema, row count, or an unparseable stream) despite exit 0."""
 
     CODE: ClassVar[int | None] = contract.INTERNAL_ERROR
+
+
+def license_reason(message: str, env: Mapping[str, str]) -> str:
+    """Strip the ``VAR: `` or ``VAR <path>: `` source prefix, built from ``env``, off a license message."""
+    prefixes: list[str] = []
+    if "MLODA_LICENSE_FILE" in env:
+        prefixes.append(f"MLODA_LICENSE_FILE {env['MLODA_LICENSE_FILE']}: ")
+        prefixes.append("MLODA_LICENSE_FILE: ")
+    if "MLODA_LICENSE_KEY" in env:
+        prefixes.append("MLODA_LICENSE_KEY: ")
+    for prefix in prefixes:
+        if message.startswith(prefix):
+            remainder = message[len(prefix) :]
+            return remainder if remainder else message
+    return message
 
 
 ERROR_CLASS_BY_CODE: dict[int, type[BinaryModelError]] = {

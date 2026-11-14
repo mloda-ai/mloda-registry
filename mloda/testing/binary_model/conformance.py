@@ -38,8 +38,12 @@ from mloda._testing.suite import ConformanceSuite
 
 from mloda.community.feature_groups.binary_model import binary
 from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
-from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, reported_error
-from mloda.community.feature_groups.binary_model.mixin import classify_column_type
+from mloda.community.feature_groups.binary_model.errors import (
+    BinaryUnavailableError,
+    LicenseInvalidError,
+    reported_error,
+)
+from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin, classify_column_type
 from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
@@ -669,6 +673,36 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
+
+    def test_mixin_reports_the_license_source_and_a_reason_for_an_expired_license_file(self, tmp_path: Path) -> None:
+        """An expired `LICENSE_FILE_OVERRIDE` raises ``LicenseInvalidError`` with that source and a
+        reason the message ends with (contract: License)."""
+        license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
+        config = self.make_config()
+        kit = self
+
+        class _Model(BinaryModelMixin):
+            BINARY_PLUGIN_ID = kit.plugin_id
+            BINARY_COMMAND_OVERRIDE = kit.binary_cmd
+            LICENSE_FILE_OVERRIDE = str(license_path)
+
+            @classmethod
+            def binary_environment(cls) -> dict[str, str]:
+                return kit.platform_env(cls._forwarded_environment())
+
+        table = pa.table(self.default_input_rows(), schema=self.default_input_schema())
+        with pytest.raises(LicenseInvalidError) as excinfo:
+            _Model.run_binary_model(
+                table,
+                config["input_columns"],
+                config["operation"],
+                config["parameters"],
+                config["output_columns"],
+                timeout=self.binary_timeout_seconds,
+            )
+        assert excinfo.value.source == "LICENSE_FILE_OVERRIDE"
+        assert excinfo.value.reason
+        assert excinfo.value.message.endswith(excinfo.value.reason)
 
     def test_license_wrong_plugin_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose `plugins` entitlement list omits this `plugin_id`: exit 3. The message also

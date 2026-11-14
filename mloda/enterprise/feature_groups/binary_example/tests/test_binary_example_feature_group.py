@@ -20,7 +20,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.binary_model import mixin
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import (
-    BinaryUnavailableError,
+    BinaryNotInstalledError,
     BinaryUsageError,
     LicenseMissingError,
 )
@@ -350,7 +350,7 @@ class TestCalculateFeatureRejections:
     def test_production_class_without_override_raises_binary_unavailable(self) -> None:
         table = pa.table({"col_a": ["alpha"]})
         feature = _hash_feature("hashed", ["col_a"])
-        with pytest.raises(BinaryUnavailableError, match="example_binary"):
+        with pytest.raises(BinaryNotInstalledError, match="example_binary"):
             BinaryExampleFeatureGroup.calculate_feature(table, _feature_set(feature))
 
     def test_no_license_raises_license_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:

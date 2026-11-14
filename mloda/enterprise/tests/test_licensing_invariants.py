@@ -21,7 +21,7 @@ import pyarrow as pa
 import pytest
 
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
-from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
+from mloda.community.feature_groups.binary_model.errors import BinaryNotInstalledError, LicenseMissingError
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.testing.binary_model.simulated_binary import PLUGIN_ID as SIMULATED_BINARY_PLUGIN_ID
 
@@ -133,7 +133,7 @@ class TestLicensedPluginsRejectWithoutLicense:
         licensed = _licensed_plugin_classes()
         assert licensed, "expected at least one licensed plugin class"
         for cls in licensed:
-            with pytest.raises(BinaryUnavailableError):
+            with pytest.raises(BinaryNotInstalledError):
                 cls.run_binary_model(table, ["col_a"], "hash", {}, {"result": "out"})
 
     def test_stub_without_license_raises_license_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -21,8 +21,9 @@ import pytest
 from mloda.community.feature_groups.binary_model import binary, mixin, transport
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryInternalError,
+    BinaryNotInstalledError,
+    BinaryNotRunnableError,
     BinaryTerminatedError,
-    BinaryUnavailableError,
     BinaryUsageError,
     DataError,
     LicenseInvalidError,
@@ -138,12 +139,12 @@ def _mloda_binary_children_for_current_pid() -> list[Path]:
 
 
 class TestBinaryUnavailable:
-    def test_missing_wheel_import_raises_binary_unavailable(self) -> None:
+    def test_missing_wheel_import_raises_binary_not_installed(self) -> None:
         class _NoWheelModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
 
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             _NoWheelModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
 
     def test_binary_unavailable_precedes_usage_error_checks(self, tmp_path: Path) -> None:
@@ -156,7 +157,7 @@ class TestBinaryUnavailable:
             BINARY_COMMAND_OVERRIDE = str(tmp_path / "does-not-exist")
 
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             _MissingPathModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
 
     @pytest.mark.parametrize(
@@ -177,7 +178,7 @@ class TestBinaryUnavailable:
             BINARY_INSTALL_EXTRA = extra
 
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotInstalledError) as excinfo:
             _HintModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert str(excinfo.value).endswith(f"; install it with: {hint}")
 
@@ -186,7 +187,7 @@ class TestBinaryUnavailable:
             BINARY_PLUGIN_ID = "definitely_not_an_installed_binary_model_plugin"
 
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotInstalledError) as excinfo:
             _NoWheelAttrModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert "install it with" not in str(excinfo.value)
 
@@ -208,15 +209,28 @@ class TestProbeTimeout:
         resolved = _TightRunTimeoutModel.resolved_binary()
         assert resolved.capabilities.plugin_id == PLUGIN_ID
 
-    def test_tiny_probe_timeout_raises_binary_unavailable(self) -> None:
+    def test_tiny_probe_timeout_raises_binary_not_runnable(self) -> None:
         """A dedicated ``BINARY_PROBE_TIMEOUT_SECONDS`` bounds the probes themselves, separate from
         ``BINARY_TIMEOUT_SECONDS`` (contract: Invocation, Capabilities)."""
 
         class _TightProbeTimeoutModel(StubModel):
             BINARY_PROBE_TIMEOUT_SECONDS: ClassVar[float | None] = 1e-6
 
-        with pytest.raises(BinaryUnavailableError, match="timed out probing"):
+        with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
             _TightProbeTimeoutModel.resolved_binary()
+
+    @pytest.mark.parametrize(
+        "column",
+        [
+            pytest.param(["alpha"], id="flat"),
+            pytest.param(pa.array([["alpha"]], type=pa.list_(pa.string())), id="list"),
+        ],
+    )
+    def test_per_call_timeout_bounds_the_probes_of_run_binary_model(self, column: Any) -> None:
+        table = pa.table({"col_a": column})
+        with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
+            StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=1e-6)
+        assert StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}).num_rows == 1
 
 
 # -------------------------------------------------------------------------------------------
@@ -510,21 +524,33 @@ class TestBinaryReportedErrors:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseMissingError):
+        with pytest.raises(LicenseMissingError) as excinfo:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source is None
+        assert excinfo.value.reason == excinfo.value.message
 
     def test_expired_license_raises_license_invalid_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError):
+        with pytest.raises(LicenseInvalidError) as excinfo:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source == "MLODA_LICENSE_KEY"
+        assert "MLODA_LICENSE" not in excinfo.value.reason
 
-    def test_hanging_binary_raises_binary_terminated_error(self) -> None:
-        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+    @pytest.mark.parametrize("per_call", [False, True], ids=["class_attribute", "per_call_keyword"])
+    def test_hanging_binary_raises_binary_terminated_error(self, per_call: bool) -> None:
+        if per_call:
+            model = _faulty_model("hang")
+            model.resolved_binary()
+            call_kwargs: dict[str, Any] = {"timeout": 0.5}
+        else:
+            model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+            call_kwargs = {}
         table = pa.table({"col_a": ["alpha"]})
         started = time.monotonic()
         with pytest.raises(BinaryTerminatedError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, **call_kwargs)
         elapsed = time.monotonic() - started
         assert elapsed < 5.0, f"expected termination well before the 60s hang, took {elapsed}s"
         assert _mloda_binary_children_for_current_pid() == []
@@ -711,7 +737,7 @@ class TestListUtf8InputColumn:
             BINARY_COMMAND_OVERRIDE = str(tmp_path / "does-not-exist")
 
         table = pa.table({"col_a": pa.array([["a"], ["b"]], type=pa.list_(pa.string()))})
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             _MissingPathModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a"})
 
     def test_no_elements_still_raises_usage_error(self) -> None:
@@ -845,18 +871,45 @@ class TestLicenseOverrides:
 
         assert _LicenseSourceModel.license_source() == expected
 
-    def test_license_source_ignores_a_binary_environment_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_license_file_override_reports_source_and_path_stripped_reason(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+        missing = tmp_path / "no-such-license.txt"
+
+        class _MissingFileOverrideModel(_NoLicenseStubModel):
+            LICENSE_FILE_OVERRIDE = str(missing)
+
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(LicenseMissingError) as excinfo:
+            _MissingFileOverrideModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source == "LICENSE_FILE_OVERRIDE"
+        assert str(missing) in excinfo.value.message
+        assert excinfo.value.reason == "not found"
+
+    def test_license_source_ignores_a_binary_environment_override(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
 
+        missing = tmp_path / "custom-license.txt"
+
         class _CustomEnvModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID
+            BINARY_COMMAND_OVERRIDE = STUB_CMD
 
             @classmethod
             def binary_environment(cls) -> dict[str, str]:
-                return transport.minimal_environment(license_file="/custom/license.txt")
+                return transport.minimal_environment(license_file=str(missing))
 
         assert _CustomEnvModel.license_source() is None
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(LicenseMissingError) as excinfo:
+            _CustomEnvModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert excinfo.value.source is None
+        assert excinfo.value.reason == "not found"
 
 
 # -------------------------------------------------------------------------------------------
