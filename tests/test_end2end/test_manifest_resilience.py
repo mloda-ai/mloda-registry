@@ -10,7 +10,6 @@ import importlib
 import importlib.util
 import logging
 import re
-import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -19,6 +18,12 @@ import pytest
 
 from mloda.community.feature_groups.data_operations import manifest_utils
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
+from tests.import_roots import (
+    FIRST_PARTY_IMPORT_ROOTS,
+    STDLIB_ROOTS,
+    is_type_checking_block,
+    trusted_type_checking_alias,
+)
 from tests.toml_loader import load_toml
 
 _IMPORT_MODULE_TARGET = "mloda.community.feature_groups.data_operations.manifest_utils.importlib.import_module"
@@ -27,9 +32,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_OPERATIONS_ROOT = _REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"
 _DATA_OPERATIONS_REL = _DATA_OPERATIONS_ROOT.relative_to(_REPO_ROOT).as_posix()
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
-
-# mloda and mloda_plugins are required core dependencies, not optional backends.
-_FIRST_PARTY_IMPORT_ROOTS = frozenset({"mloda", "mloda_plugins"})
 
 # numpy is only ever missing because pandas needs it, never its own optional extra.
 _TRANSITIVE_ONLY_OPTIONAL_ROOTS = frozenset({"numpy"})
@@ -266,33 +268,9 @@ def test_empty_specs_returns_empty_list() -> None:
     assert load_plugin_classes("pkg", []) == []
 
 
-def _trusted_type_checking_alias(tree: ast.Module) -> str | None:
-    """The module-level name that genuinely aliases ``typing.TYPE_CHECKING``, or ``None``.
-
-    Only a bare ``from typing import TYPE_CHECKING [as alias]`` at module level earns trust, and
-    only if nothing else at module level rebinds that name. Without this, a module could spoof the
-    guard's exemption with ``TYPE_CHECKING = True`` and hide a real, always-executed import from it.
-    """
-    alias_name: str | None = None
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "typing":
-            for alias in node.names:
-                if alias.name == "TYPE_CHECKING":
-                    alias_name = alias.asname or alias.name
-    if alias_name is None:
-        return None
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "typing":
-            continue
-        for child in ast.walk(node):
-            if isinstance(child, ast.Name) and child.id == alias_name and isinstance(child.ctx, ast.Store):
-                return None
-    return alias_name
-
-
 def _module_level_import_roots(tree: ast.Module) -> set[str]:
     """Import roots from module-scope import statements only, skipping def/class bodies."""
-    trusted_alias = _trusted_type_checking_alias(tree)
+    trusted_alias = trusted_type_checking_alias(tree)
     roots: set[str] = set()
     stack: list[ast.AST] = list(tree.body)
     while stack:
@@ -305,15 +283,7 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
         elif isinstance(node, ast.If):
-            is_type_checking = (
-                isinstance(node.test, ast.Name) and trusted_alias is not None and node.test.id == trusted_alias
-            ) or (
-                isinstance(node.test, ast.Attribute)
-                and node.test.attr == "TYPE_CHECKING"
-                and isinstance(node.test.value, ast.Name)
-                and node.test.value.id == "typing"
-            )
-            if is_type_checking:
+            if is_type_checking_block(node, trusted_alias):
                 stack.extend(node.orelse)
                 continue
             stack.extend(ast.iter_child_nodes(node))
@@ -324,33 +294,6 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
 
 def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
     """Map each non-stdlib, non-mloda top-level import root under root_dir to the files that use it."""
-    stdlib_roots = set(sys.stdlib_module_names)
-    # Bridge stdlib drift across the 3.11-3.14 support window (e.g. PEP 594 removals, tomllib addition).
-    stdlib_roots.update(
-        {
-            "aifc",
-            "audioop",
-            "cgi",
-            "cgitb",
-            "chunk",
-            "crypt",
-            "imghdr",
-            "mailcap",
-            "msilib",
-            "nis",
-            "nntplib",
-            "ossaudiodev",
-            "pipes",
-            "smtpd",
-            "sndhdr",
-            "spwd",
-            "sunau",
-            "telnetlib",
-            "tomllib",
-            "uu",
-            "xdrlib",
-        }
-    )
     files_by_root: dict[str, list[Path]] = {}
     for py_file in sorted(root_dir.rglob("*.py")):
         rel_path = py_file.relative_to(root_dir)
@@ -358,7 +301,7 @@ def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
             continue
         tree = ast.parse(py_file.read_text(encoding="utf-8"))
         for root in _module_level_import_roots(tree):
-            if root in stdlib_roots or root in _FIRST_PARTY_IMPORT_ROOTS:
+            if root in STDLIB_ROOTS or root in FIRST_PARTY_IMPORT_ROOTS:
                 continue
             files_by_root.setdefault(root, []).append(rel_path)
     return files_by_root

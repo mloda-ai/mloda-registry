@@ -545,15 +545,19 @@ def test_synthetic_mloda_testing_package_gets_no_self_entry() -> None:
     assert sources == {_DEP: _WORKSPACE}, f"expected only the {_DEP!r} source, got {sources!r}"
 
 
-def test_mloda_testing_gets_source_entry_for_its_optional_binary_model_dependency() -> None:
-    """mloda-testing's extra names mloda-enterprise and mloda-community-binary-model, siblings only in an extra: each needs a source or uv will not lock."""
+def test_mloda_testing_gets_source_entries_for_every_sibling_named_in_its_extras() -> None:
+    """A sibling named only in a mloda-testing extra still needs a workspace source or uv will not lock."""
     shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
 
-    sources = _generated_uv_sources("mloda-testing", packages_config["packages"], shared)
+    sources = _generated_uv_sources("mloda-testing", packages, shared)
 
-    expected = {"mloda-enterprise": _WORKSPACE, "mloda-community-binary-model": _WORKSPACE}
-    assert sources == expected, (
-        f"expected the mloda-enterprise and mloda-community-binary-model sources, got {sources!r}"
+    extras: dict[str, list[str]] = packages["mloda-testing"].get("optional_dependencies", {})
+    named = {name for deps in extras.values() for name in gen.sibling_dependency_names(deps, packages)}
+    named.discard("mloda-testing")
+    assert {"mloda-enterprise", "mloda-community-binary-model", "mloda-community-data-operations"} <= named
+    assert sources == {name: _WORKSPACE for name in named}, (
+        f"expected a workspace source per sibling named in the extras, got {sources!r}"
     )
 
 

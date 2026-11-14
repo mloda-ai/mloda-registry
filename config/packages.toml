@@ -356,6 +356,8 @@ py_typed = true
 # mloda-testing[binary-model] pins the mixin package (the kit checks binaries with the mixin's own
 # parsers) and mloda-enterprise[ed25519] (the license token module), and every other package names
 # mloda-testing only in a dev extra.
+# mloda-testing[data-operations] declares what the data-operation suites import; an extra, so a plain
+# kit install does not register those packages' FeatureGroups.
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
@@ -363,5 +365,31 @@ keywords = ["testing", "pytest"]
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow>=14.0.1"]
 path = "mloda/testing"
 published = true
-optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.36,<2"], binary-model = ["pyarrow>=25", "mloda-enterprise[ed25519]>={version}", "mloda-community-binary-model>={version}"] }
 py_typed = true
+
+[packages.mloda-testing.optional_dependencies]
+dev = ["pytest>=9.0.3"]
+otel = ["opentelemetry-sdk>=1.30,<2"]
+openlineage = ["openlineage-python>=1.36,<2"]
+binary-model = ["pyarrow>=25", "mloda-enterprise[ed25519]>={version}", "mloda-community-binary-model>={version}"]
+data-operations = [
+    "python-dateutil>=2.8.2",
+    "mloda-community-data-operations>={version}",
+    "mloda-community-aggregation>={version}",
+    "mloda-community-rank>={version}",
+    "mloda-community-offset>={version}",
+    "mloda-community-window-aggregation>={version}",
+    "mloda-community-frame-aggregate>={version}",
+    "mloda-community-scalar-aggregate>={version}",
+    "mloda-community-scalar-arithmetic>={version}",
+    "mloda-community-point-arithmetic>={version}",
+    "mloda-community-datetime>={version}",
+    "mloda-community-string>={version}",
+    "mloda-community-binning>={version}",
+    "mloda-community-percentile>={version}",
+    "mloda-community-time-bucketization>={version}",
+    "mloda-community-ffill>={version}",
+    "mloda-community-sessionization>={version}",
+    "mloda-community-resample>={version}",
+    "mloda-community-lookup>={version}",
+]

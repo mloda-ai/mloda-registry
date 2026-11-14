@@ -145,6 +145,8 @@ Every family has this shape; the reference each family compares against is liste
 
 File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`.
 
+When the test base imports a new leaf package, add that leaf to the `data-operations` extra of mloda-testing in `config/packages.toml` (and to `_TESTING_DATA_OPERATIONS_MEMBERS` in `tests/test_end2end/test_published_set_single_source.py`).
+
 ```py
 from typing import Any
 import pytest

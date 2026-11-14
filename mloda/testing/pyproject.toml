@@ -22,6 +22,7 @@ dev = ["pytest>=9.0.3"]
 otel = ["opentelemetry-sdk>=1.30,<2"]
 openlineage = ["openlineage-python>=1.36,<2"]
 binary-model = ["pyarrow>=25", "mloda-enterprise[ed25519]>=0.13.0", "mloda-community-binary-model>=0.13.0"]
+data-operations = ["python-dateutil>=2.8.2", "mloda-community-data-operations>=0.13.0", "mloda-community-aggregation>=0.13.0", "mloda-community-rank>=0.13.0", "mloda-community-offset>=0.13.0", "mloda-community-window-aggregation>=0.13.0", "mloda-community-frame-aggregate>=0.13.0", "mloda-community-scalar-aggregate>=0.13.0", "mloda-community-scalar-arithmetic>=0.13.0", "mloda-community-point-arithmetic>=0.13.0", "mloda-community-datetime>=0.13.0", "mloda-community-string>=0.13.0", "mloda-community-binning>=0.13.0", "mloda-community-percentile>=0.13.0", "mloda-community-time-bucketization>=0.13.0", "mloda-community-ffill>=0.13.0", "mloda-community-sessionization>=0.13.0", "mloda-community-resample>=0.13.0", "mloda-community-lookup>=0.13.0"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
@@ -35,5 +36,23 @@ packages = ["mloda.testing", "mloda.testing.binary_model", "mloda.testing.data_c
 "mloda.testing" = ["py.typed"]
 
 [tool.uv.sources]
+mloda-community-aggregation = { workspace = true }
 mloda-community-binary-model = { workspace = true }
+mloda-community-binning = { workspace = true }
+mloda-community-data-operations = { workspace = true }
+mloda-community-datetime = { workspace = true }
+mloda-community-ffill = { workspace = true }
+mloda-community-frame-aggregate = { workspace = true }
+mloda-community-lookup = { workspace = true }
+mloda-community-offset = { workspace = true }
+mloda-community-percentile = { workspace = true }
+mloda-community-point-arithmetic = { workspace = true }
+mloda-community-rank = { workspace = true }
+mloda-community-resample = { workspace = true }
+mloda-community-scalar-aggregate = { workspace = true }
+mloda-community-scalar-arithmetic = { workspace = true }
+mloda-community-sessionization = { workspace = true }
+mloda-community-string = { workspace = true }
+mloda-community-time-bucketization = { workspace = true }
+mloda-community-window-aggregation = { workspace = true }
 mloda-enterprise = { workspace = true }

@@ -2197,6 +2197,27 @@ binary-model = [
     { name = "mloda-enterprise", extra = ["ed25519"] },
     { name = "pyarrow" },
 ]
+data-operations = [
+    { name = "mloda-community-aggregation" },
+    { name = "mloda-community-binning" },
+    { name = "mloda-community-data-operations" },
+    { name = "mloda-community-datetime" },
+    { name = "mloda-community-ffill" },
+    { name = "mloda-community-frame-aggregate" },
+    { name = "mloda-community-lookup" },
+    { name = "mloda-community-offset" },
+    { name = "mloda-community-percentile" },
+    { name = "mloda-community-point-arithmetic" },
+    { name = "mloda-community-rank" },
+    { name = "mloda-community-resample" },
+    { name = "mloda-community-scalar-aggregate" },
+    { name = "mloda-community-scalar-arithmetic" },
+    { name = "mloda-community-sessionization" },
+    { name = "mloda-community-string" },
+    { name = "mloda-community-time-bucketization" },
+    { name = "mloda-community-window-aggregation" },
+    { name = "python-dateutil" },
+]
 dev = [
     { name = "pytest" },
 ]
@@ -2210,7 +2231,25 @@ otel = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.20.0,<0.21.0" },
+    { name = "mloda-community-aggregation", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/aggregation" },
     { name = "mloda-community-binary-model", marker = "extra == 'binary-model'", editable = "mloda/community/feature_groups/binary_model" },
+    { name = "mloda-community-binning", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" },
+    { name = "mloda-community-data-operations", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations" },
+    { name = "mloda-community-datetime", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/datetime" },
+    { name = "mloda-community-ffill", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/ffill" },
+    { name = "mloda-community-frame-aggregate", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" },
+    { name = "mloda-community-lookup", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/lookup" },
+    { name = "mloda-community-offset", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" },
+    { name = "mloda-community-percentile", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/percentile" },
+    { name = "mloda-community-point-arithmetic", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic" },
+    { name = "mloda-community-rank", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/rank" },
+    { name = "mloda-community-resample", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_changing/resample" },
+    { name = "mloda-community-scalar-aggregate", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate" },
+    { name = "mloda-community-scalar-arithmetic", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic" },
+    { name = "mloda-community-sessionization", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/sessionization" },
+    { name = "mloda-community-string", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/string" },
+    { name = "mloda-community-time-bucketization", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization" },
+    { name = "mloda-community-window-aggregation", marker = "extra == 'data-operations'", editable = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation" },
     { name = "mloda-enterprise", extras = ["ed25519"], marker = "extra == 'binary-model'", editable = "mloda/enterprise" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
@@ -2218,8 +2257,9 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'binary-model'", specifier = ">=25" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+    { name = "python-dateutil", marker = "extra == 'data-operations'", specifier = ">=2.8.2" },
 ]
-provides-extras = ["dev", "otel", "openlineage", "binary-model"]
+provides-extras = ["dev", "otel", "openlineage", "binary-model", "data-operations"]
 
 [[package]]
 name = "mypy"
