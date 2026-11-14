@@ -539,24 +539,49 @@ class TestBinaryReportedErrors:
         assert "MLODA_LICENSE" not in excinfo.value.reason
 
     @pytest.mark.parametrize(
-        "mode, expected_message",
+        "mode, overrides, error_class, expected_reason, expected_message",
         [
-            ("license_reason_field", "MLODA_LICENSE_KEY (canonical): token expired"),
-            ("license_prefix_no_reason", "MLODA_LICENSE_KEY: token expired"),
+            (
+                "license_reason_field",
+                "key",
+                LicenseInvalidError,
+                "token expired",
+                "MLODA_LICENSE_KEY (canonical): token expired",
+            ),
+            (
+                "license_prefix_no_reason",
+                "key",
+                LicenseInvalidError,
+                "token expired",
+                "MLODA_LICENSE_KEY: token expired",
+            ),
+            ("license_file_prefix_no_reason", "file", LicenseMissingError, "not found", None),
         ],
-        ids=["reported_reason", "prefix_stripped"],
+        ids=["reported_reason", "prefix_stripped", "file_prefix_stripped"],
     )
     def test_license_reason_is_reported_or_stripped_from_the_message(
-        self, monkeypatch: pytest.MonkeyPatch, mode: str, expected_message: str
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        mode: str,
+        overrides: str,
+        error_class: type[Exception],
+        expected_reason: str,
+        expected_message: str | None,
     ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        model = _faulty_model(mode, LICENSE_KEY_OVERRIDE=valid_license_token([FAULTY_PLUGIN_ID]))
+        if overrides == "key":
+            model = _faulty_model(mode, LICENSE_KEY_OVERRIDE=valid_license_token([FAULTY_PLUGIN_ID]))
+        else:
+            license_path = tmp_path / "lic.txt"
+            expected_message = f"MLODA_LICENSE_FILE {license_path}: not found"
+            model = _faulty_model(mode, LICENSE_FILE_OVERRIDE=str(license_path))
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
+        with pytest.raises(error_class) as excinfo:
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.reason == "token expired"
-        assert excinfo.value.message == expected_message
+        assert getattr(excinfo.value, "reason") == expected_reason
+        assert getattr(excinfo.value, "message") == expected_message
         assert str(excinfo.value) == expected_message
 
     @pytest.mark.parametrize("per_call", [False, True], ids=["class_attribute", "per_call_keyword"])

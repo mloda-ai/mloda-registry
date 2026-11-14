@@ -32,8 +32,8 @@ UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
 
-# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message` or `reason`
-# capped at MESSAGE_MAX_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
+# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message` plus a `reason`,
+# each capped at MESSAGE_MAX_BYTES and grown up to about sixfold by `\u` escapes). A longer, out-of-contract
 # error line falls back to BinaryInternalError.
 _STDERR_TAIL_WINDOW_BYTES = 64 * 1024
 

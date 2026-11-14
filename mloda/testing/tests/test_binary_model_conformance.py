@@ -380,18 +380,21 @@ def _error_result(code: int, **extra: object) -> subprocess.CompletedProcess[byt
     return subprocess.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=line.encode("utf-8"))
 
 
+_ABSENT = object()  # sentinel: the payload omits the ``reason`` key
+
+
 @pytest.mark.parametrize("code", [2, 3])
-def test_assert_error_response_accepts_a_valid_reason_or_none(code: int) -> None:
-    """Passes on arrival."""
-    assert_error_response(_error_result(code, reason="expired"), code)
-    assert_error_response(_error_result(code), code)
+@pytest.mark.parametrize("reason", ["expired", "", None, _ABSENT], ids=["valid", "empty", "null", "absent"])
+def test_assert_error_response_accepts_a_valid_or_absent_reason(code: int, reason: object) -> None:
+    extra: dict[str, object] = {} if reason is _ABSENT else {"reason": reason}
+    assert_error_response(_error_result(code, **extra), code)
 
 
 @pytest.mark.parametrize("code", [2, 3])
 @pytest.mark.parametrize(
     "reason",
-    ["", 5, None, ["x"], "x" * (MESSAGE_MAX_BYTES + 1), "\u2603" * 400],
-    ids=["empty", "int", "null", "list", "over_cap_ascii", "over_cap_utf8"],
+    [5, ["x"], "x" * (MESSAGE_MAX_BYTES + 1), "\u2603" * 400],
+    ids=["int", "list", "over_cap_ascii", "over_cap_utf8"],
 )
 def test_assert_error_response_rejects_a_bad_reason_on_license_codes(code: int, reason: object) -> None:
     with pytest.raises(AssertionError):
@@ -400,7 +403,6 @@ def test_assert_error_response_rejects_a_bad_reason_on_license_codes(code: int, 
 
 @pytest.mark.parametrize("reason", ["", 5, None, "x" * (MESSAGE_MAX_BYTES + 1)], ids=["empty", "int", "null", "huge"])
 def test_assert_error_response_ignores_a_reason_on_other_codes(reason: object) -> None:
-    """Passes on arrival."""
     assert_error_response(_error_result(1, reason=reason), 1)
 
 

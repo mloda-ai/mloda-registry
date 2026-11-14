@@ -225,6 +225,8 @@ def _run(mode: str, args: list[str]) -> int:
         return _emit_error(3, "MLODA_LICENSE_KEY (canonical): token expired", reason="token expired")
     if mode == "license_prefix_no_reason":
         return _emit_error(3, "MLODA_LICENSE_KEY: token expired")
+    if mode == "license_file_prefix_no_reason":
+        return _emit_error(2, f"MLODA_LICENSE_FILE {os.environ['MLODA_LICENSE_FILE']}: not found")
     if mode == "signal":
         os.kill(os.getpid(), signal.SIGKILL)
         return 6

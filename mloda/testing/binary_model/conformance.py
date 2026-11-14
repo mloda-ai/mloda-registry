@@ -190,8 +190,8 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     """Assert the process exited with ``expected_code`` and stderr's last line is a parseable error
     object with a matching, non-empty ``message`` within the contract's size caps (``message`` <=
     ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, stderr <= ``STDERR_SOFT_CAP_BYTES`` (64 KiB))
-    (contract: Errors, Data handling); a ``reason`` on code 2 or 3, when present, is a non-empty
-    string within the same cap. Returns the parsed error object."""
+    (contract: Errors, Data handling); a non-null, non-empty ``reason`` on code 2 or 3 is a string
+    within the same cap. Returns the parsed error object."""
     assert result.returncode == expected_code, (
         f"expected exit code {expected_code}, got {result.returncode}; stderr={result.stderr!r}"
     )
@@ -203,9 +203,9 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     assert message_bytes <= MESSAGE_MAX_BYTES, (
         f"error message exceeds the {MESSAGE_MAX_BYTES}-byte cap: {message_bytes} bytes ({message[:200]!r}...)"
     )
-    if expected_code in (LICENSE_MISSING, LICENSE_INVALID) and "reason" in error:
+    if expected_code in (LICENSE_MISSING, LICENSE_INVALID) and error.get("reason") not in (None, ""):
         reason = error["reason"]
-        assert isinstance(reason, str) and reason, f"error object reason must be a non-empty string: {error!r}"
+        assert isinstance(reason, str), f"error object reason must be a string: {error!r}"
         reason_bytes = len(reason.encode("utf-8"))
         assert reason_bytes <= MESSAGE_MAX_BYTES, f"error reason exceeds the {MESSAGE_MAX_BYTES}-byte cap"
     assert len(result.stderr) <= STDERR_SOFT_CAP_BYTES, (
@@ -700,6 +700,8 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
                 return kit.platform_env(cls._forwarded_environment())
 
         table = pa.table(self.default_input_rows(), schema=self.default_input_schema())
+        # The direct run below reads the binary's reason for the same license file, so a reported reason
+        # must be deterministic.
         with pytest.raises(LicenseInvalidError) as excinfo:
             _Model.run_binary_model(
                 table,
