@@ -6,7 +6,7 @@ The key is the ``key`` field of the credential named by ``pii_key_handle``, neve
 from __future__ import annotations
 
 import re
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pyarrow as pa
 from mloda.provider import (
@@ -16,6 +16,7 @@ from mloda.provider import (
     FeatureGroup,
     FeatureSet,
     credential_handle_spec,
+    escalate_match_abort,
     property_spec,
     read_credential,
 )
@@ -36,6 +37,7 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
     OUTPUT_KEY = "result"
     ALGORITHM = "pseudonymization_algorithm"
     KEY_HANDLE = "pii_key_handle"
+    REMOVED_KEY_ENV = "pii_key_env"
 
     PREFIX_PATTERN = r".+__(hmac_sha256)_pseudonymized$"
     MIN_IN_FEATURES = 1
@@ -58,6 +60,20 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
         return {PyArrowTable}
 
     @classmethod
+    def match_feature_group_criteria(cls, feature_name: Any, options: Any, data_access_collection: Any = None) -> bool:
+        addressed = re.match(cls.PREFIX_PATTERN, str(getattr(feature_name, "name", feature_name))) is not None
+        if addressed or options.get(cls.ALGORITHM) is not None:
+            if options.get(cls.REMOVED_KEY_ENV) is not None:
+                # Marked: user misconfiguration; containing it would let a rival group win.
+                raise escalate_match_abort(
+                    ValueError(
+                        f"{cls.REMOVED_KEY_ENV} was removed: register Credential(key=...) in the "
+                        f"DataAccessCollection and name its handle in the group option {cls.KEY_HANDLE}."
+                    )
+                )
+        return super().match_feature_group_criteria(feature_name, options, data_access_collection)
+
+    @classmethod
     def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
         for feature in features.features:
             algorithm = cls._resolve_operation(feature, cls.ALGORITHM)
@@ -70,11 +86,9 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
         return data
 
     @classmethod
-    def _read_key(cls, handle: object) -> str:
+    def _read_key(cls, handle: str) -> str:
         """The key field of the named credential; errors never echo the value."""
-        if not isinstance(handle, str) or not handle:
-            raise BinaryUsageError(f"{cls.KEY_HANDLE} must be a non-empty string")
-        value = read_credential(handle).get("key")
+        value = read_credential(handle)["key"]
         key = value.strip() if isinstance(value, str) else ""
         if not _KEY_PATTERN.fullmatch(key):
             raise BinaryUsageError(
