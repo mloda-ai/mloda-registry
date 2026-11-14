@@ -44,25 +44,7 @@ class TestReferenceTimeWindow:
                 "value": [10, 20, 30, 40],
             }
         )
-        feature = Feature(
-            "my_time_sum",
-            options=Options(
-                context={
-                    "aggregation_type": "sum",
-                    "frame_type": "time",
-                    "frame_size": 2,
-                    "frame_unit": "day",
-                    "in_features": "value",
-                    "partition_by": ["region"],
-                    "order_by": "ts",
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
-        col = result.column("my_time_sum").to_pylist()
+        col = self._time_sum(table, 2, "day")
 
         # 2-day window:
         # Jan 1: window includes Jan 1 (within 2 days back) => [10] => 10
@@ -72,16 +54,15 @@ class TestReferenceTimeWindow:
         assert col == [10, 30, 50, 70]
 
     @staticmethod
-    def _calendar_sum(stamps: list[datetime], unit: str) -> list[int]:
-        """Sum over a 1-unit time frame; row i holds the value 10**i, so each sum names its members."""
-        table = pa.table({"region": ["A"] * len(stamps), "ts": stamps, "value": [10**i for i in range(len(stamps))]})
+    def _time_sum(table: pa.Table, size: int, unit: str) -> list[int]:
+        """Sum of `value` over a time frame of `size` units, ordered by `ts` within `region`."""
         feature = Feature(
             "my_time_sum",
             options=Options(
                 context={
                     "aggregation_type": "sum",
                     "frame_type": "time",
-                    "frame_size": 1,
+                    "frame_size": size,
                     "frame_unit": unit,
                     "in_features": "value",
                     "partition_by": ["region"],
@@ -96,35 +77,47 @@ class TestReferenceTimeWindow:
         )
         return values
 
-    def test_month_window_clamps_to_february_end_in_a_non_leap_year(self) -> None:
-        """Mar 31 minus one month is Feb 28: Feb 28 is in, Feb 27 is out."""
-        stamps = [datetime(2023, 2, d, tzinfo=timezone.utc) for d in (27, 28)] + [
-            datetime(2023, 3, 31, tzinfo=timezone.utc)
-        ]
-        assert self._calendar_sum(stamps, "month")[-1] == 110
+    @staticmethod
+    def _calendar_sum(stamps: list[datetime], unit: str) -> list[int]:
+        """Sum over a 1-unit time frame; row i holds the value 10**i, so each sum names its members."""
+        table = pa.table({"region": ["A"] * len(stamps), "ts": stamps, "value": [10**i for i in range(len(stamps))]})
+        return TestReferenceTimeWindow._time_sum(table, 1, unit)
 
-    def test_month_window_clamps_to_february_end_in_a_leap_year(self) -> None:
-        """Mar 31 minus one month is Feb 29: Feb 29 is in, Feb 28 is out."""
-        stamps = [datetime(2024, 2, d, tzinfo=timezone.utc) for d in (28, 29)] + [
-            datetime(2024, 3, 31, tzinfo=timezone.utc)
-        ]
-        assert self._calendar_sum(stamps, "month")[-1] == 110
-
-    def test_year_window_from_leap_day_reaches_february_28(self) -> None:
-        """Feb 29 minus one year is Feb 28: Feb 28 is in, Feb 27 is out."""
-        stamps = [datetime(2023, 2, d, tzinfo=timezone.utc) for d in (27, 28)] + [
-            datetime(2024, 2, 29, tzinfo=timezone.utc)
-        ]
-        assert self._calendar_sum(stamps, "year")[-1] == 110
-
-    def test_month_window_start_keeps_the_time_of_day(self) -> None:
-        """Mar 31 12:00 minus one month starts at Feb 28 12:00."""
-        stamps = [
-            datetime(2023, 2, 28, 11, tzinfo=timezone.utc),
-            datetime(2023, 2, 28, 13, tzinfo=timezone.utc),
-            datetime(2023, 3, 31, 12, tzinfo=timezone.utc),
-        ]
-        assert self._calendar_sum(stamps, "month")[-1] == 110
+    @pytest.mark.parametrize(
+        "stamps,unit",
+        [
+            pytest.param(
+                [datetime(2023, 2, d, tzinfo=timezone.utc) for d in (27, 28)]
+                + [datetime(2023, 3, 31, tzinfo=timezone.utc)],
+                "month",
+                id="month_clamps_to_february_end_non_leap_year",
+            ),
+            pytest.param(
+                [datetime(2024, 2, d, tzinfo=timezone.utc) for d in (28, 29)]
+                + [datetime(2024, 3, 31, tzinfo=timezone.utc)],
+                "month",
+                id="month_clamps_to_february_end_leap_year",
+            ),
+            pytest.param(
+                [datetime(2023, 2, d, tzinfo=timezone.utc) for d in (27, 28)]
+                + [datetime(2024, 2, 29, tzinfo=timezone.utc)],
+                "year",
+                id="year_from_leap_day_reaches_february_28",
+            ),
+            pytest.param(
+                [
+                    datetime(2023, 2, 28, 11, tzinfo=timezone.utc),
+                    datetime(2023, 2, 28, 13, tzinfo=timezone.utc),
+                    datetime(2023, 3, 31, 12, tzinfo=timezone.utc),
+                ],
+                "month",
+                id="month_start_keeps_the_time_of_day",
+            ),
+        ],
+    )
+    def test_calendar_window_start_keeps_the_last_two_rows(self, stamps: list[datetime], unit: str) -> None:
+        """Window start is the last stamp minus one unit, day clamped: the 2nd row is in, the 1st is out."""
+        assert self._calendar_sum(stamps, unit)[-1] == 110
 
     def test_month_window_runs_without_dateutil(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setitem(sys.modules, "dateutil", None)
