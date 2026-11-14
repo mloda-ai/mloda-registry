@@ -1,12 +1,12 @@
 # Supported Ops Per Framework
 
-Not every framework can express every operation. SQLite has no native REVERSE; some frameworks lack a native NTILE. The `supported_ops()` pattern lets a framework test class declare what it can handle so the shared tests skip the rest cleanly.
+Not every framework can express every operation. SQLite has no native REVERSE; some frameworks lack a native NTILE. A framework declares what it can handle on its Implementation, and the shared tests skip the rest cleanly.
 
-**What**: A class method on the test class that returns the set of op names the framework implements.
-**When**: Your framework implementation does not cover every op listed in the operation's base class.
+**What**: The Implementation's `supported` names the subtypes the framework implements; the family test base reads it through `declared_supported`.
+**When**: Your framework implementation does not cover every op listed in the operation's group.
 **Why**: Without it, inherited tests for unsupported ops would fail with "operation not matched" errors. With it, they skip with a clear message.
-**Where**: Defined on the operation's test base (e.g. `BinningTestBase.supported_ops`) and overridden on the concrete framework test class.
-**How**: Override `supported_ops()` to return the subset. `_skip_if_unsupported(op)` in `DataOpsTestBase` handles the skip logic.
+**Where**: `supported` on the Implementation in `framework_{op}.py`. The test base's `supported_ops()` (or `supported_agg_types()`, etc.) defaults to `DataOpsTestBase.declared_supported(...)`, which returns the Implementation's `supported`, or the group's `subtype_universe()` when it is unrestricted.
+**How**: Declare `supported` on the Implementation. `_skip_if_unsupported(op)` in `DataOpsTestBase` skips the inherited tests for the rest. The hooks stay overridable, but shipped test classes do not need to. Frame aggregate time units are read the same way from the Implementation's `SUPPORTED_TIME_UNITS`. A restriction expressed only in `accepts` is not read by the suite; `tests/test_twin_catalog_consistency.py` fails when the suite and the catalog's probe disagree.
 
 ---
 
@@ -45,32 +45,7 @@ class SqliteStringOps(Implementation[StringFeatureGroup]):
     supported = frozenset(_SQLITE_STRING_EXPRS)
 ```
 
-The test class mirrors that decision:
-
-```py
-# mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py
-class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
-    @classmethod
-    def supported_ops(cls) -> set[str]:
-        return {"trim", "length"}
-```
-
-With this override, the inherited `test_upper_*`, `test_lower_*`, and `test_reverse_*` methods skip with "not supported by this framework" instead of failing.
-
----
-
-## Two places, two responsibilities
-
-The test-side `supported_ops()` is only for test skipping. It does **not** by itself change what feature names the framework accepts at runtime. The two declarations are independent:
-
-| Declaration | Lives in | Purpose |
-|---|---|---|
-| `Implementation.supported` / `accepts` | `framework_{op}.py` | Refuses the feature name at resolution time so the mloda engine routes elsewhere (or errors). |
-| `supported_ops()` (or `supported_agg_types`, etc.) | `tests/test_{framework}.py` | Makes the inherited test suite skip the ones the framework does not claim. |
-
-Keep them consistent. If your implementation silently drops an op at runtime but the test class still claims to support it, the suite will fail. If the test class over-restricts, you lose coverage for something you actually implemented.
-
-For a new framework, start the `supported_*` set at the full set and shrink it only as concrete limitations appear; the test-class template is in [Adding a new data operation, Step 6](10-adding-new-operation.md#step-6-wire-up-the-framework-test-classes).
+The test class declares nothing: the suite reads `SqliteStringOps.supported`, so the inherited `test_upper_*`, `test_lower_*`, and `test_reverse_*` methods skip with "not supported by this framework" instead of failing.
 
 ---
 
@@ -78,5 +53,5 @@ For a new framework, start the `supported_*` set at the full set and shrink it o
 
 - [Framework support matrix](framework-support-matrix.md) - The capability matrix this mechanism produces, rendered as operation x framework tables.
 - [Reference implementation pattern](03-reference-implementation.md) - Which reference each framework implementation is compared against.
-- [String operations](09-string-operations.md) - The most common place `supported_ops()` comes up.
-- [Adding a new data operation](10-adding-new-operation.md) - How to define the method on a new operation's test base.
+- [String operations](09-string-operations.md) - The most common place a `supported` exclusion comes up.
+- [Adding a new data operation](10-adding-new-operation.md) - How to define the hook on a new operation's test base.

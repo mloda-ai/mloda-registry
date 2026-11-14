@@ -71,12 +71,7 @@ class TestStringOperationGroup(OperationGroupTestBase):
                 dependency="duckdb",
             ),
             ImplSpec(
-                "sqlite",
-                "sqlite_string",
-                "SqliteStringOps",
-                f"{_ENGINE}.sqlite.sqlite_framework",
-                "SqliteFramework",
-                supported=frozenset({"trim", "length"}),
+                "sqlite", "sqlite_string", "SqliteStringOps", f"{_ENGINE}.sqlite.sqlite_framework", "SqliteFramework"
             ),
             ImplSpec(
                 "python_dict",

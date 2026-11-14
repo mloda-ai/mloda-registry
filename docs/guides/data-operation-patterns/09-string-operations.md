@@ -49,7 +49,7 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 | SQLite | `TRIM`, `LENGTH` only |
 | Python dict | per-character `.upper()` / `.lower()` with override tables that reproduce PyArrow's simple case mapping, `.strip()`, `len()`, `[::-1]` |
 
-SQLite does not offer `upper`, `lower` or `reverse` (`SqliteStringOps.supported` holds only `trim` and `length`, mirrored by the test class's `supported_ops`), so another enabled framework serves them or resolution fails; see [Supported ops](04-supported-ops.md#example-sqlite-excludes-upper-lower-and-reverse).
+SQLite does not offer `upper`, `lower` or `reverse` (`SqliteStringOps.supported` holds only `trim` and `length`, which the suite reads), so another enabled framework serves them or resolution fails; see [Supported ops](04-supported-ops.md#example-sqlite-excludes-upper-lower-and-reverse).
 
 ---
 

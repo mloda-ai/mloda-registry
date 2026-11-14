@@ -50,6 +50,13 @@ class PandasWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             subtypes=frozenset({"mode"}),
             reason="does not count NaN as a value",
         ),
+        Divergence(
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"first", "last"}),
+            reason="float64 cannot tell NaN from null, so they tie in order_by",
+        ),
     )
 
     @classmethod

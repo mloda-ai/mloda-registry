@@ -53,9 +53,8 @@ def nulls_last_sort_key(value: Any) -> tuple[int, Any]:
 
     Both map to the same last-place sentinel, so ``sorted()`` never compares a NaN or a
     None against a real value of a different type (e.g. a datetime) with ``<``. Use this
-    for ORDER-value sorting (e.g. rank's ``order_by``), where None and NaN are meant to
-    tie at one rank. For PARTITION-key sorting, where None and NaN must stay distinct,
-    contiguous groups, use ``partition_sort_key`` instead.
+    where None and NaN are meant to tie (e.g. rank's ``order_by``). Where they must stay
+    distinct (partition keys, window and frame ``order_by``), use ``partition_sort_key``.
     """
     if value is None or is_nan(value):
         return (1, 0)
@@ -63,7 +62,9 @@ def nulls_last_sort_key(value: Any) -> tuple[int, Any]:
 
 
 def partition_sort_key(value: Any) -> tuple[int, Any]:
-    """Total order for PARTITION-key sorting: real values first, then a distinct, contiguous tier each for NaN and None.
+    """Total order for PARTITION-key and order_by sorting.
+
+    Real values come first, then a distinct, contiguous tier each for NaN and None.
 
     Unlike ``nulls_last_sort_key`` (which merges None and NaN into one tier for order-value
     ties), this keeps every None-keyed row contiguous and separate from every NaN-keyed row,

@@ -32,26 +32,6 @@ class TestPyArrowWindowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, Wi
         return (("value__mode_window", Options()),)
 
     @classmethod
-    def supported_agg_types(cls) -> set[str]:
-        return {
-            "sum",
-            "avg",
-            "mean",
-            "count",
-            "min",
-            "max",
-            "std",
-            "var",
-            "std_pop",
-            "std_samp",
-            "var_pop",
-            "var_samp",
-            "nunique",
-            "first",
-            "last",
-        }
-
-    @classmethod
     def merges_signed_zero_keys(cls) -> bool:
         """PyArrow's group_by splits 0.0/-0.0 partition keys and nunique values."""
         return False

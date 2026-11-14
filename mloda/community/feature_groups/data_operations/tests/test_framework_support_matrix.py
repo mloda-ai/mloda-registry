@@ -2,6 +2,7 @@
 
 The source of truth for ``docs/guides/data-operation-patterns/framework-support-matrix.md``
 is each operation group's built-in Implementations, queried via ``DataOperationsCatalog``.
+The summary also names, per operation, the frameworks that declare divergence records.
 When ``test_framework_support_matrix_is_in_sync`` fails, regenerate the block between the
 ``BEGIN GENERATED`` / ``END GENERATED`` markers so it matches what this module renders,
 then rerun.
@@ -10,6 +11,9 @@ then rerun.
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
+
+from mloda.provider import Cause, Divergence, DivergenceKind
 
 from mloda.community.feature_groups.data_operations import DataOperationsCatalog, OperationInfo
 
@@ -88,9 +92,15 @@ def _framework_supported(info: OperationInfo, fw_key: str) -> frozenset[str] | N
     return info.frameworks.get(FRAMEWORK_CATALOG_KEYS[fw_key])
 
 
+def _diverging_labels(info: OperationInfo) -> str:
+    """Doc labels of the frameworks whose Implementation declares divergence records, or ``none``."""
+    labels = [label for fw_key, label in FRAMEWORKS if info.divergences.get(FRAMEWORK_CATALOG_KEYS[fw_key])]
+    return ", ".join(labels) if labels else "none"
+
+
 def render_summary_table(infos: list[OperationInfo]) -> list[str]:
-    header = "| Operation | " + " | ".join(label for _, label in FRAMEWORKS) + " |"
-    sep = "|" + "|".join(["---"] * (len(FRAMEWORKS) + 1)) + "|"
+    header = "| Operation | " + " | ".join(label for _, label in FRAMEWORKS) + " | Declared divergences |"
+    sep = "|" + "|".join(["---"] * (len(FRAMEWORKS) + 2)) + "|"
     lines = [header, sep]
     for info in infos:
         cells: list[str] = [info.name]
@@ -103,6 +113,7 @@ def render_summary_table(infos: list[OperationInfo]) -> list[str]:
                 cells.append("full")
             else:
                 cells.append(f"partial ({len(supported)}/{len(info.subtypes)})")
+        cells.append(_diverging_labels(info))
         lines.append("| " + " | ".join(cells) + " |")
     return lines
 
@@ -144,7 +155,9 @@ def render_generated_block(infos: list[OperationInfo]) -> str:
         "Implementation's `supported` and `accepts`, which the group's `supports_compute_framework` "
         "checks at match time. `full` means the framework's production implementation declares "
         "support for every subtype this operation defines. `partial (k/n)` means it declares k of "
-        "the n subtypes and rejects the rest. `--` means no implementation ships for this framework."
+        "the n subtypes and rejects the rest. `--` means no implementation ships for this framework. "
+        "`Declared divergences` lists the frameworks whose Implementation declares divergence records, "
+        "see [known-divergences.md](known-divergences.md#declared-divergence-records)."
     )
     out.append("")
     out.extend(render_summary_table(infos))
@@ -163,11 +176,13 @@ def render_generated_block(infos: list[OperationInfo]) -> str:
     return "\n".join(out) + "\n"
 
 
-def splice_into_doc(doc_text: str, generated: str) -> str:
-    if BEGIN_MARKER not in doc_text or END_MARKER not in doc_text:
-        raise RuntimeError(f"Markers missing from {DOC_PATH}. Expected both {BEGIN_MARKER!r} and {END_MARKER!r}.")
-    begin = doc_text.index(BEGIN_MARKER)
-    end = doc_text.index(END_MARKER) + len(END_MARKER)
+def splice_into_doc(
+    doc_text: str, generated: str, begin_marker: str = BEGIN_MARKER, end_marker: str = END_MARKER
+) -> str:
+    if begin_marker not in doc_text or end_marker not in doc_text:
+        raise RuntimeError(f"Markers missing from the doc. Expected both {begin_marker!r} and {end_marker!r}.")
+    begin = doc_text.index(begin_marker)
+    end = doc_text.index(end_marker) + len(end_marker)
     # Preserve any trailing newline right after END_MARKER.
     trailing = doc_text[end:]
     return doc_text[:begin] + generated.rstrip("\n") + trailing
@@ -209,6 +224,45 @@ def test_framework_support_matrix_is_in_sync() -> None:
 
     assert expected == current, (
         "framework-support-matrix.md is out of sync with DataOperationsCatalog.\n" + _REGENERATION_HINT
+    )
+
+
+def operation_info(name: str, divergences: dict[str, tuple[Divergence, ...]]) -> OperationInfo:
+    """Hand-built operation with one framework per key of the given divergences."""
+    frameworks: dict[str, frozenset[str] | None] = dict.fromkeys(divergences, frozenset({"a", "b"}))
+    return OperationInfo(
+        name=name,
+        prefix_pattern=r".*",
+        subtype_label="op",
+        subtypes=("a", "b"),
+        frameworks=MappingProxyType(frameworks),
+        divergences=MappingProxyType(divergences),
+    )
+
+
+def test_summary_table_lists_diverging_frameworks_in_doc_order() -> None:
+    record = Divergence(kind=DivergenceKind.VALUE, cause=Cause.BACKEND, reason="differs")
+    with_records = operation_info("op_a", {"PyArrowTable": (), "PandasDataFrame": (record,)})
+    both = operation_info("op_b", {"PyArrowTable": (record,), "PandasDataFrame": (record,)})
+    none = operation_info("op_c", {"PyArrowTable": (), "PandasDataFrame": ()})
+    lines = render_summary_table([with_records, both, none])
+    assert lines[0].endswith("| Python dict | Declared divergences |")
+    assert lines[1] == "|" + "|".join(["---"] * 8) + "|"
+    assert lines[2].endswith("| full | full | -- | -- | -- | -- | Pandas |")
+    assert lines[3].endswith("| full | full | -- | -- | -- | -- | PyArrow, Pandas |")
+    assert lines[4].endswith("| full | full | -- | -- | -- | -- | none |")
+
+
+def test_generated_block_explains_declared_divergences_column() -> None:
+    block = render_generated_block([operation_info("op_a", {"PyArrowTable": (), "PandasDataFrame": ()})])
+    assert "`Declared divergences` lists the frameworks whose Implementation declares divergence records" in block
+    assert "known-divergences.md#declared-divergence-records" in block
+
+
+def test_splice_into_doc_accepts_other_markers() -> None:
+    doc = "a\n<!-- B -->\nold\n<!-- E -->\nz\n"
+    assert splice_into_doc(doc, "<!-- B -->\nnew\n<!-- E -->\n", "<!-- B -->", "<!-- E -->") == (
+        "a\n<!-- B -->\nnew\n<!-- E -->\nz\n"
     )
 
 

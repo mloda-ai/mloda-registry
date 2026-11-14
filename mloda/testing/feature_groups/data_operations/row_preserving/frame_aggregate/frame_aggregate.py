@@ -18,7 +18,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -471,17 +471,18 @@ class FrameAggregateTestBase(
 
     @classmethod
     def supported_frame_types(cls) -> set[str]:
-        """Frame types this framework supports. Override to restrict."""
+        """Frame types the suite exercises (all by default). Not read from the Implementation."""
         return cls.ALL_FRAME_TYPES
 
     @classmethod
     def supported_time_units(cls) -> set[str]:
-        """Time-window units this framework supports. Override to restrict.
-
-        SQLite, for example, excludes ``month``/``year`` because its native
-        ``datetime(ts, '-N months')`` uses day-of-month rollover (Mar 31 -1mo
-        = Mar 3) rather than clamping to the month end (= Feb 28).
-        """
+        """Time-window units the Implementation declares, else its group's; the full set for a stub."""
+        impl = cls.implementation_class()
+        if isinstance(impl, type) and issubclass(impl, Implementation):
+            declared = getattr(impl, "SUPPORTED_TIME_UNITS", None) or getattr(
+                impl.feature_group, "SUPPORTED_TIME_UNITS"
+            )
+            return set(declared)
         return cls.ALL_TIME_UNITS
 
     @classmethod
@@ -502,10 +503,13 @@ class FrameAggregateTestBase(
 
     @classmethod
     def orders_nan_before_none(cls) -> bool:
-        """Whether order_by puts NaN before None (the reference: real values, NaN, then None).
-
-        Backends that tie NaN and None override to False.
-        """
+        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
+        impl = cls.implementation_class()
+        if isinstance(impl, type) and issubclass(impl, Implementation):
+            return not any(
+                r.kind is DivergenceKind.VARIANT and r.variant == "nan_as_null" and not r.subtypes and not r.outputs
+                for r in impl.divergences
+            )
         return True
 
     # -- Rolling tests -------------------------------------------------------

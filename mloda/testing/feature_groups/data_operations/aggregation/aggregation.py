@@ -228,8 +228,8 @@ class AggregationTestBase(
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
-        """Aggregation types this framework supports. Override to restrict."""
-        return cls.ALL_AGG_TYPES
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_AGG_TYPES)
 
     @classmethod
     def merges_signed_zero_keys(cls) -> bool:

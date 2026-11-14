@@ -435,25 +435,6 @@ class TestWindowAggregationOperationGroup(OperationGroupTestBase):
                 "PyArrowWindowAggregation",
                 f"{_ENGINE}.pyarrow.table",
                 "PyArrowTable",
-                supported=frozenset(
-                    {
-                        "sum",
-                        "avg",
-                        "mean",
-                        "count",
-                        "min",
-                        "max",
-                        "nunique",
-                        "std",
-                        "var",
-                        "std_pop",
-                        "std_samp",
-                        "var_pop",
-                        "var_samp",
-                        "first",
-                        "last",
-                    }
-                ),
             ),
             ImplSpec(
                 "pandas",
@@ -461,11 +442,7 @@ class TestWindowAggregationOperationGroup(OperationGroupTestBase):
                 "PandasWindowAggregation",
                 f"{_ENGINE}.pandas.dataframe",
                 "PandasDataFrame",
-                divergent=frozenset(
-                    {"mode", "sum", "avg", "mean", "count", "std", "var", "std_pop", "var_pop", "std_samp", "var_samp"}
-                ),
                 dependency="pandas",
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -489,9 +466,6 @@ class TestWindowAggregationOperationGroup(OperationGroupTestBase):
                 "SqliteWindowAggregation",
                 f"{_ENGINE}.sqlite.sqlite_framework",
                 "SqliteFramework",
-                supported=frozenset({"sum", "avg", "mean", "count", "min", "max"}),
-                divergent=frozenset({"sum", "avg", "mean", "count"}),
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "python_dict",

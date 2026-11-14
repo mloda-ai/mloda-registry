@@ -125,8 +125,8 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
 
     @classmethod
     def supported_ops(cls) -> set[str]:
-        """String operations this framework supports. Override to restrict."""
-        return cls.ALL_STRING_OPS
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_STRING_OPS)
 
     # -- Overridable expected values (for frameworks with different behavior) --
 

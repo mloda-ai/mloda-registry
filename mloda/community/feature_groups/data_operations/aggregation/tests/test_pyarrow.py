@@ -35,26 +35,6 @@ class TestPyArrowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, Aggregat
         )
 
     @classmethod
-    def supported_agg_types(cls) -> set[str]:
-        return {
-            "sum",
-            "avg",
-            "mean",
-            "count",
-            "min",
-            "max",
-            "std",
-            "var",
-            "std_pop",
-            "std_samp",
-            "var_pop",
-            "var_samp",
-            "nunique",
-            "first",
-            "last",
-        }
-
-    @classmethod
     def merges_signed_zero_keys(cls) -> bool:
         """PyArrow's own Table.group_by() splits 0.0/-0.0, matching the reference exactly."""
         return False

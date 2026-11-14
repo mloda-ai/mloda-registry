@@ -73,7 +73,7 @@ Row-preserving `data_operations` (window aggregation, rank, percentile) cannot b
 config = """
 [
     {"name": "steps__sum_window", "group_options": {"allow_variants": "nan_as_null"}, "context_options": {"partition_by": ["subject_id"]}},
-    {"name": "price__last_window", "context_options": {"partition_by": ["region"], "order_by": "timestamp"}},
+    {"name": "price__last_window", "group_options": {"allow_variants": "nan_as_null"}, "context_options": {"partition_by": ["region"], "order_by": "timestamp"}},
     {"name": "sales__row_number_ranked", "context_options": {"partition_by": ["region"], "order_by": "sales"}},
     {"name": "sales__p95_percentile", "context_options": {"partition_by": ["region"]}}
 ]

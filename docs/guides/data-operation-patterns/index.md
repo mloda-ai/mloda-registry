@@ -26,4 +26,4 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 16. [`return_data_type_rule` failure handling](16-return-data-type-rule.md) - The fail-fast, post-selection contract: why the type rules no longer catch extraction errors, how binning/resample matching was tightened so a selected feature never raises, and the completeness-test guard
 17. [Key lookup](17-lookup.md) - Replace a key column with mapped values (`{col}__lookup`, `lookup_mapping`, `on_unmatched`), plus a plugin hook for external mapping tables (row-preserving)
 18. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the reference, with the mitigation for each
-19. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides
+19. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from the Implementations' declarations

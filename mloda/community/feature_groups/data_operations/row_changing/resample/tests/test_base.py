@@ -15,6 +15,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
@@ -113,9 +114,7 @@ class TestResampleOperationGroup(OperationGroupTestBase):
                 "PandasResample",
                 f"{_ENGINE}.pandas.dataframe",
                 "PandasDataFrame",
-                divergent=frozenset({"sum", "mean", "count", "min", "max"}),
                 dependency="pandas",
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -179,10 +178,9 @@ class TestResampleOperationGroup(OperationGroupTestBase):
         return [("my_result", Options()), ("value__resample_1_hour_median", Options())]
 
     def test_divergence_applies_exactly_where_sum_is_divergent(self, impl_id: str) -> None:
-        spec = self._spec(impl_id)
-        impl = self._implementation(spec)
+        impl = self._implementation(self._spec(impl_id))
         assert bool(impl.divergences_for(ResampleFeatureGroup, "val__resample_1_day_sum", Options())) == (
-            "sum" in spec.divergent
+            "sum" in divergent_subtypes(impl)
         )
 
 

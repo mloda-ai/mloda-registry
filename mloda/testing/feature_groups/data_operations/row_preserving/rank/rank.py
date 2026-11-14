@@ -135,8 +135,8 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     @classmethod
     def supported_rank_types(cls) -> set[str]:
-        """Rank types this framework supports. Override to restrict."""
-        return cls.ALL_RANK_TYPES
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_RANK_TYPES)
 
     @classmethod
     def ranks_none_and_nan_apart(cls) -> bool:

@@ -25,7 +25,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_mask
 from mloda.community.feature_groups.data_operations.python_dict_helpers import (
     SUPPORTED_AGG_TYPES,
     group_key_value,
-    nulls_last_sort_key,
+    partition_sort_key,
     reduce_agg,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -90,7 +90,7 @@ class PythonDictWindowAggregation(Implementation[WindowAggregationFeatureGroup])
         for rows in groups.values():
             if needs_order:
                 # Stable-sort ascending, nulls last, before reducing first/last.
-                rows = sorted(rows, key=lambda r: nulls_last_sort_key(r[1]))
+                rows = sorted(rows, key=lambda r: partition_sort_key(r[1]))
             values = [source_values[i] for i, _ in rows]
             reduced = reduce_agg(agg_type, values)
             for i, _ in rows:

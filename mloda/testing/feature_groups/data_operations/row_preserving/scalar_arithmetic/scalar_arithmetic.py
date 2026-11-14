@@ -87,8 +87,8 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
 
     @classmethod
     def supported_ops(cls) -> set[str]:
-        """Override to restrict supported operations for a framework."""
-        return cls.ALL_OPS
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_OPS)
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

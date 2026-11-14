@@ -16,6 +16,7 @@ import importlib.util
 from collections.abc import Mapping
 
 import pytest
+from mloda.provider import Divergence, DivergenceKind
 
 from mloda.community.feature_groups.data_operations import DataOperationsCatalog, OperationInfo
 
@@ -97,7 +98,7 @@ class TestOperationInfoShape:
     def test_operation_info_field_names(self) -> None:
         """OperationInfo exposes exactly the documented fields."""
         field_names = {f.name for f in dataclasses.fields(OperationInfo)}
-        assert field_names == {"name", "prefix_pattern", "subtype_label", "subtypes", "frameworks"}
+        assert field_names == {"name", "prefix_pattern", "subtype_label", "subtypes", "frameworks", "divergences"}
 
     def test_operation_info_is_frozen(self) -> None:
         """OperationInfo instances are immutable (frozen dataclass)."""
@@ -120,6 +121,12 @@ class TestOperationInfoShape:
         info = DataOperationsCatalog.get("aggregation")
         with pytest.raises(TypeError):
             info.frameworks["SqliteFramework"] = frozenset()  # type: ignore[index]
+
+    def test_divergences_mapping_is_immutable(self) -> None:
+        """Mutating the divergences mapping raises TypeError (read-only proxy)."""
+        info = DataOperationsCatalog.get("aggregation")
+        with pytest.raises(TypeError):
+            info.divergences["SqliteFramework"] = ()  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +410,48 @@ class TestOffsetCell:
         """offset has no PyArrow implementation, so the key is absent."""
         info = DataOperationsCatalog.get("offset")
         assert "PyArrowTable" not in info.frameworks
+
+
+# ---------------------------------------------------------------------------
+# OperationInfo.divergences
+# ---------------------------------------------------------------------------
+
+
+class TestDivergences:
+    def test_keys_match_frameworks_and_values_are_record_tuples(self) -> None:
+        """Every operation carries a divergences tuple of Divergence records per framework key."""
+        for info in DataOperationsCatalog.list():
+            assert isinstance(info.divergences, Mapping)
+            assert set(info.divergences) == set(info.frameworks)
+            for records in info.divergences.values():
+                assert isinstance(records, tuple)
+                assert all(isinstance(record, Divergence) for record in records)
+
+    def test_pandas_aggregation_declares_nan_as_null_variants(self) -> None:
+        pytest.importorskip("pandas")
+        records = DataOperationsCatalog.get("aggregation").divergences["PandasDataFrame"]
+        variants = [r for r in records if r.kind is DivergenceKind.VARIANT]
+        assert variants
+        assert {r.variant for r in variants} == {"nan_as_null"}
+
+    def test_polars_aggregation_declares_none(self) -> None:
+        pytest.importorskip("polars")
+        assert DataOperationsCatalog.get("aggregation").divergences["PolarsLazyDataFrame"] == ()
+
+    def test_pandas_frame_aggregate_holds_a_scopeless_record(self) -> None:
+        """A record without subtypes covers every subtype."""
+        pytest.importorskip("pandas")
+        records = DataOperationsCatalog.get("frame_aggregate").divergences["PandasDataFrame"]
+        assert any(not r.subtypes for r in records)
+
+    def test_python_dict_frame_aggregate_declares_none(self) -> None:
+        assert DataOperationsCatalog.get("frame_aggregate").divergences["PythonDictFramework"] == ()
+
+    def test_sqlite_point_arithmetic_declares_one_divide_value_record(self) -> None:
+        records = DataOperationsCatalog.get("point_arithmetic").divergences["SqliteFramework"]
+        assert len(records) == 1
+        assert records[0].kind is DivergenceKind.VALUE
+        assert records[0].subtypes == frozenset({"divide"})
 
 
 # ---------------------------------------------------------------------------

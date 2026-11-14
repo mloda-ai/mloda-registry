@@ -132,8 +132,8 @@ class ScalarAggregateTestBase(
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
-        """Override to restrict supported types for a framework."""
-        return cls.ALL_AGG_TYPES
+        """Subtypes the Implementation declares; the full set for a stub."""
+        return cls.declared_supported(cls.ALL_AGG_TYPES)
 
     # -- MaskTestMixin configuration -------------------------------------------
 

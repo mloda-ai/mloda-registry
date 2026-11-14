@@ -64,7 +64,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
     feature_group_of,
@@ -305,11 +305,6 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         )
 
         return PyArrowResample
-
-    @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """The agg types the implementation declares as NaN-divergent via ``divergences``."""
-        return divergent_subtypes(cls.implementation_class())
 
     # -- Setup: use the dedicated 12-row resample fixture -------------------
 

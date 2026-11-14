@@ -30,10 +30,6 @@ class TestSqliteStringOps(CapabilityHookTestMixin, ReservedColumnsTestMixin, Sql
     """
 
     @classmethod
-    def supported_ops(cls) -> set[str]:
-        return {"trim", "length"}
-
-    @classmethod
     def implementation_class(cls) -> Any:
         return SqliteStringOps
 

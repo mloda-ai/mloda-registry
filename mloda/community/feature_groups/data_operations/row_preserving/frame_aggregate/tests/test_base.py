@@ -1023,9 +1023,7 @@ class TestFrameAggregateOperationGroup(OperationGroupTestBase):
                 "PandasFrameAggregate",
                 f"{_ENGINE}.pandas.dataframe",
                 "PandasDataFrame",
-                divergent=frozenset({"sum", "avg", "count", "std", "var"}),
                 dependency="pandas",
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "polars_lazy",
@@ -1049,9 +1047,6 @@ class TestFrameAggregateOperationGroup(OperationGroupTestBase):
                 "SqliteFrameAggregate",
                 f"{_ENGINE}.sqlite.sqlite_framework",
                 "SqliteFramework",
-                supported=frozenset({"sum", "avg", "count", "min", "max"}),
-                divergent=frozenset({"sum", "avg", "count"}),
-                variants=frozenset({"nan_as_null"}),
             ),
             ImplSpec(
                 "python_dict",

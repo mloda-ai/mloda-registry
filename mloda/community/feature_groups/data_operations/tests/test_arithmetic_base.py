@@ -120,7 +120,6 @@ def _implementation_specs(family: str) -> list[ImplSpec]:
             f"{_CLASS_NAMES[backend]}{family.capitalize()}Arithmetic",
             _FRAMEWORKS[backend][0],
             _FRAMEWORKS[backend][1],
-            divergent=frozenset({"divide"}) if (family, backend) == ("point", "sqlite") else frozenset(),
             dependency=_OPTIONAL_DEPENDENCIES.get(backend),
         )
         for backend in _FRAMEWORKS
