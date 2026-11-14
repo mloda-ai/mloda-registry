@@ -165,6 +165,46 @@ features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/
 
 `neutral_type` names the type `load_neutral` returns (default `None`). A run without `compute_frameworks` then prefers a framework that takes it as is (here `PythonDictFramework`), and the plan step says `loads natively`. Without it the first framework in default order is used, and its conversion can fail on mixed or nested cells. Runs that pass `compute_frameworks` are unaffected. `ApiDataFG` reports its own value type but returns `None` once a subclass overrides `load_neutral` or `api_values`, so such a subclass declares `neutral_type` itself.
 
+### Binding a Collection Credential
+
+A subclass can bind a credential from a `DataAccessCollection` slot at match time and report the collection entry itself:
+
+```python
+from typing import Any, NamedTuple
+
+from mloda.provider import ClaimRoute, SourceMatch
+from mloda.user import DataAccessCollection, Options
+
+
+class UbaAccess(NamedTuple):
+    url: str
+    credentials: Any  # the collection entry itself, never a copy
+
+
+class KeyedUbaAirFG(UbaAirFG):  # UbaAirFG from above
+    @classmethod
+    def find_sources(
+        cls,
+        route: ClaimRoute,
+        feature_name: str,
+        options: Options,
+        data_access_collection: DataAccessCollection | None,
+    ) -> list[SourceMatch]:
+        if data_access_collection is None:
+            return []
+        entry = data_access_collection.resolve("credentials", predicate=lambda slot: "uba_token" in slot)
+        if entry is None:
+            return []
+        found = super().find_sources(route, feature_name, options, data_access_collection)
+        return [SourceMatch(match.source, UbaAccess(match.access, entry)) for match in found]
+
+    @classmethod
+    def match_credentials(cls, match: SourceMatch) -> Any | None:
+        return match.access.credentials
+```
+
+The inherited `load_neutral` reads `match.access.url` with `match.access.credentials["uba_token"]`; see [Credentials](#credentials-bound-at-match-time-or-read-at-run-time) for why the entry must not be a copy.
+
 ### Audit Identity
 
 Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
@@ -276,7 +316,8 @@ Core's source-group conformance suites ([mloda/_testing/source](https://github.c
 
 ```python
 from mloda.steward import resolve_feature
-from mloda.user import Feature, PluginCollector
+from mloda.user import Credential, DataAccessCollection, Feature, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
 
 
 def test_pointer_reaches_the_group() -> None:
@@ -285,6 +326,16 @@ def test_pointer_reaches_the_group() -> None:
         plugin_collector=PluginCollector.enabled_feature_groups({UbaAirFG}),
     )
     assert result.feature_group is UbaAirFG, result.error
+
+
+def test_keyed_reader_records_the_bound_handle() -> None:
+    plan = mloda.explain(
+        [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/airdata/v4"})],
+        data_access_collection=DataAccessCollection(credentials={"uba": Credential(uba_token="placeholder-token")}),
+        plugin_collector=PluginCollector.enabled_feature_groups({KeyedUbaAirFG}),
+        compute_frameworks=[PythonDictFramework],
+    )
+    assert [step.bound_credential_handle for step in plan] == ["uba"]
 ```
 
 A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.20.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
@@ -302,7 +353,7 @@ A group that overrides `match_feature_group_criteria` or probes through `gated_p
 ## Combines With
 
 - **Pattern 1 (Root features)**: source groups are the root features that read files, documents and databases
-- **Pattern 17 (Data connection matching)**: `DataAccessCollection` and handles for connection-shaped sources
+- **[Pattern 17 (Data connection matching)](17-data-connection-matching.md#credentials)**: `DataAccessCollection`, credential slots and handles for connection-shaped sources
 - **Pattern 11 (Options)**: option keys, context vs group semantics, and credential handles a non-source group reads at run time
 - **Pattern 26 (Input-feature option forwarding)**: a forwarded pointer binds every input it reaches
 - **Pattern 28 (Backend families)**: selecting a sibling source group by the credential slot it finds instead of a class-name key

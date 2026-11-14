@@ -106,7 +106,7 @@ PROPERTY_MAPPING = {
 
 `context` defaults to `True`, so `context=False` is how you declare a group-scoped key, one that lands in group options and therefore affects resolution and splitting. A caller who passes the key explicitly under `group=` or `context=` overrides that declaration.
 
-`property_spec` also accepts `element_validator`, `required_when`, `match_guard`, `name_converter` (see [Converting a captured value](#converting-a-captured-value-name_converter)), `allow_explicit_none`, and `deferred_binding`. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
+`property_spec` also accepts `element_validator`, `required_when`, `match_guard`, `name_converter` (see [Converting a captured value](#converting-a-captured-value-name_converter)), `allow_explicit_none`, `deferred_binding`, and `forward_to_inputs`. `forward_to_inputs=False` keeps a group key off the consumer's input features (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md#consumer-local-keys-forward_to_inputsfalse)). `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
 
 Omitting `default` declares no default, so the key is required; `default=None` declares a default of `None`, which makes the key optional.
 
