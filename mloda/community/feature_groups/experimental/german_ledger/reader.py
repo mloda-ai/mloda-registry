@@ -632,6 +632,7 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
                 cls.get_class_name(),
                 f"no {cls.SOURCE_LABEL} in the data access collection or the {cls.get_class_name()} option",
                 stage=INPUT_DATA_STAGE,
+                code=CoreDeclineCode.SOURCE_NOT_FOUND,
             )
         return list(found.values())
 
@@ -668,7 +669,10 @@ class GdpduReader(_ReaderJournal):
             return None
         if not _within(found, os.path.realpath(os.path.join(found, INDEX_NAME))):
             record_match_rejection(
-                cls.get_class_name(), f"{INDEX_NAME} links outside its folder", stage=INPUT_DATA_STAGE
+                cls.get_class_name(),
+                f"{INDEX_NAME} links outside its folder",
+                stage=INPUT_DATA_STAGE,
+                code=CoreDeclineCode.FOLDER_ESCAPE,
             )
             return None
         return found

@@ -9,7 +9,7 @@ from typing import Any
 from xml.etree.ElementTree import ParseError  # nosec B405
 
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import CoreDeclineCode, FeatureSet
 from mloda.user import DataAccessCollection, Options
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
@@ -21,7 +21,7 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
 )
 from mloda.testing.source.source_suite import SourceFeatureGroupTestMixin
 
-from .isolated import claim, claimant, source_match
+from .isolated import claim, claimant, elimination_codes, source_match
 
 HERE = Path(__file__).parent
 DOSSIER_A = HERE / "fixtures" / "dossier_a"
@@ -306,6 +306,7 @@ def test_an_index_link_leaving_the_dossier_is_refused_unclaimed_and_unfingerprin
     assert "index.xml" in str(refused.error)
     assert "links outside its folder" in str(refused.error)
     assert str(outside) not in str(refused.error)
+    assert elimination_codes(folder)[GdpduReader] is CoreDeclineCode.FOLDER_ESCAPE
 
     # A link that stays inside the dossier still reads.
     inner = tmp_path / "inner"
@@ -367,7 +368,7 @@ class _JournalReaderSuite(SourceFeatureGroupTestMixin, suite_base=True):
 
     def other_pointer(self) -> tuple[Any, str]:
         folder = self.own_kind_other_folder
-        return str(folder), str(folder.resolve())
+        return str(folder), os.path.abspath(folder)
 
 
 # The identities are pinned on purpose: every extender receives them, so a fixture byte change must show here.
