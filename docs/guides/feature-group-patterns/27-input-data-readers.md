@@ -212,17 +212,47 @@ class KeyedUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 `data_access_handle` picks the slot when several hold a token; see [Credentials](#credentials-bound-at-match-time-or-read-at-run-time) for why `match_credentials` returns the entry, not a copy.
 
+### Reading a Rotating Credential
+
+A credential that must change between runs is read inside `load_neutral`, which runs in the same read window as `calculate_feature`. There is no `match_credentials` override, so the handle is declared, not bound, and `session.run(credentials=...)` rotates it per run. Point the feature at it with `Feature("pm10_value", options={"UbaAirFG": url, "token_handle": "api"})`.
+
+```python
+from typing import Any, ClassVar
+
+from mloda.provider import FeatureSet, SourceMatch, credential_handle_spec, read_credential
+
+
+class RotatingUbaAirFG(UbaAirFG):  # UbaAirFG from above
+    TOKEN_HANDLE = "token_handle"
+    PROPERTY_MAPPING: ClassVar = {
+        TOKEN_HANDLE: credential_handle_spec(
+            "Credential handle whose 'token' field authorizes the GET", required_fields=("token",)
+        )
+    }
+
+    @classmethod
+    def fetch(cls, url: str, token: str) -> Any: ...  # HTTP GET url with the token
+
+    @classmethod
+    def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any:
+        token = read_credential(features.get_options_key(cls.TOKEN_HANDLE))["token"]
+        return cls.fetch(match.access, token)
+```
+
 ### Audit Identity
 
 Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
 
 ## Credentials: Bound at Match Time or Read at Run Time
 
-A source group binds its credential at match time: `find_sources` takes it from a pointer value (`{"SqliteFG": Credential(...)}`) or a collection slot (narrowed by `data_access_handle`) and carries it in `SourceMatch.access`, and `load_neutral` connects with `match.access`. Override `match_credentials(match)` to return the collection entry itself, not a field of it or a copy (`ReadDBFG` already does). Without the override the plan, the lock and hook contexts record no bound handle; with a copy they record `<pointer>` instead of its name. Binding grants no `read_credential`.
+Since mloda 0.20.0 a source group has two paths: bind what opens or selects the source at match time; read what is used on loaded rows, or must rotate, at run time.
 
-A bound value is pinned when the session is prepared, so `session.run(credentials=...)` refuses a named handle a source step binds (only when `match_credentials` returns the entry): a rotated database password needs a new session. Any other group, such as a transform that signs or encrypts loaded rows, declares a `credential_handle_spec` option and reads it with `read_credential` inside `calculate_feature`; that handle takes a per-run value. See [Secrets](11-options.md#secrets) and core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
+- **Bind at match time** ([example](#binding-a-collection-credential)): `find_sources` takes the credential from a collection slot (narrowed by `data_access_handle`) and carries it in `SourceMatch.access`. The value is fixed at `prepare`. Override `match_credentials(match)` to return the collection entry itself, not a field or a copy (`ReadDBFG` already does): only then do the plan, lock and hook contexts name the handle and `session.run(credentials=...)` refuses a per-run value for it ("bound by a source step"). Without the override nothing is recorded, and a per-run value for that handle reaches only another step that declares it, while the source keeps its prepare-time value. A copy or a pointer value records `<pointer>`, and a bare `Credential(...)` records `<unnamed>`, so register under a name. Binding grants no `read_credential`.
+- **Read at run time** ([example](#reading-a-rotating-credential)): declare a `credential_handle_spec` option and call `read_credential` in `load_neutral` or `calculate_feature`. The plan lists the handle in `credential_handles` with `bound_credential_handle` None (declared, not bound), and `session.run(credentials=...)` passes that run a fresh value.
 
-Bind a credential that opens the source at match time; read one used on loaded rows at run time. Either way the caller reads the environment (`Credential(token=os.environ["API_TOKEN"])`), never an option or credential slot naming an environment variable.
+A `Credential` may sit in options only as a source group's class-name pointer value (`{"SqliteFG": Credential(...)}`); core refuses it on any other group, and it is the one exception to "never put a secret in options". Prefer a named slot.
+
+A group never reads `os.environ` and no option or slot names an environment variable: the caller reads it (`Credential(token=os.environ["API_TOKEN"])`). A source that needs no credential binds nothing (`match_credentials` returns `None`), and one that needs it only sometimes, such as on a cache miss, reads it at run time. See [Secrets](11-options.md#secrets) and core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
 
 ## Families of Sibling Sources
 
@@ -343,6 +373,10 @@ class TestSensorCsvFG(ReadFileFGTestMixin):
 Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
 
 ```python
+from typing import Any
+
+import pytest
+
 from mloda.steward import resolve_feature
 from mloda.user import Credential, DataAccessCollection, Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
@@ -364,6 +398,45 @@ def test_keyed_reader_records_the_bound_handle() -> None:
         compute_frameworks=[PythonDictFramework],
     )
     assert [step.bound_credential_handle for step in plan] == ["uba"]
+    assert [step.credential_handles for step in plan] == [("uba",)]
+
+
+def test_keyed_reader_refuses_a_per_run_value_for_its_bound_handle() -> None:
+    session = mloda.prepare(
+        [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/airdata/v4"})],
+        data_access_collection=DataAccessCollection(credentials={"uba": Credential(uba_token="placeholder-token")}),
+        plugin_collector=PluginCollector.enabled_feature_groups({KeyedUbaAirFG}),
+        compute_frameworks=[PythonDictFramework],
+    )
+    with pytest.raises(ValueError, match="bound by a source step"):
+        session.run(credentials={"uba": Credential(uba_token="rotated-placeholder-token")})
+
+
+def test_rotating_reader_reads_each_runs_credential() -> None:
+    tokens: list[str] = []
+
+    class RecordingRotatingUbaAirFG(RotatingUbaAirFG):
+        @classmethod
+        def fetch(cls, url: str, token: str) -> Any:
+            tokens.append(token)
+            return {"pm10_value": [1]}
+
+    kwargs: dict[str, Any] = {
+        "plugin_collector": PluginCollector.enabled_feature_groups({RecordingRotatingUbaAirFG}),
+        "compute_frameworks": [PythonDictFramework],
+        "data_access_collection": DataAccessCollection(credentials={"api": Credential(token="first-api-token")}),
+    }
+    features = [
+        Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/airdata/v4", "token_handle": "api"})
+    ]
+    plan = mloda.explain(features, **kwargs)
+    assert [step.credential_handles for step in plan] == [("api",)]
+    assert [step.bound_credential_handle for step in plan] == [None]
+    session = mloda.prepare(features, **kwargs)
+    session.run()
+    session.run(credentials={"api": Credential(token="rotated-api-token")})
+    session.run()
+    assert tokens == ["first-api-token", "rotated-api-token", "first-api-token"]
 ```
 
 A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.20.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
@@ -382,6 +455,6 @@ A group that overrides `match_feature_group_criteria` or probes through `gated_p
 
 - **Pattern 1 (Root features)**: source groups are the root features that read files, documents and databases
 - **[Pattern 17 (Data connection matching)](17-data-connection-matching.md#credentials)**: `DataAccessCollection`, credential slots and handles for connection-shaped sources
-- **Pattern 11 (Options)**: option keys, context vs group semantics, and credential handles a non-source group reads at run time
+- **Pattern 11 (Options)**: option keys, context vs group semantics, and credential handles a group reads at run time
 - **Pattern 26 (Input-feature option forwarding)**: a forwarded pointer binds every input it reaches
 - **Pattern 28 (Backend families)**: selecting a sibling source group by the credential slot it finds instead of a class-name key
