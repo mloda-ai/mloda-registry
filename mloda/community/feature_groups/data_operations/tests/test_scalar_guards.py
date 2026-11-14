@@ -18,7 +18,10 @@ import pytest
 from mloda.provider import FeatureGroup, property_spec
 from mloda.user import Feature, FeatureName, Options
 
-from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup  # noqa: F401  (import registers the row-replacing group)
+from mloda.community.feature_groups.data_operations import base as data_operations_base
+from mloda.community.feature_groups.data_operations.aggregation.base import (
+    AggregationFeatureGroup,  # noqa: F401  (import registers the row-replacing group)
+)
 from mloda.community.feature_groups.data_operations.base import (
     assert_key_columns_present,
     assert_source_columns_present,
@@ -494,12 +497,29 @@ class TestKeyColumnFeaturesRowReplacingSource:
         assert key_column_features(consumer, [source], consumer_group=FeatureGroup) == set()
 
     def test_subclass_inheriting_replaces_rows_is_registered(self) -> None:
+        import gc
+
+        registry = data_operations_base._ROW_REPLACING_GROUPS
+        before = list(registry)
+
         class _LocalMyAggFeatureGroup(AggregationFeatureGroup):
             PREFIX_PATTERN = r".*__([\w]+)_myagg$"
 
-        assert (
-            key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")], consumer_group=FeatureGroup) == set()
-        )
+        try:
+            assert registry == [*before, _LocalMyAggFeatureGroup]
+            assert (
+                key_column_features(self._OPTIONS, [Feature("value_int__sum_myagg")], consumer_group=FeatureGroup)
+                == set()
+            )
+        finally:
+            # A local subclass registers itself for the rest of the worker's
+            # session, so later tests that resolve *_myagg names would see it.
+            if _LocalMyAggFeatureGroup in registry:
+                registry.remove(_LocalMyAggFeatureGroup)
+            del _LocalMyAggFeatureGroup
+            gc.collect()
+
+        assert registry == before
 
     def test_consumer_local_key_is_not_previewed_on_the_source(self) -> None:
         class _Mapping:
