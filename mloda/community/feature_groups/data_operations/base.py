@@ -355,7 +355,8 @@ class KeyColumnInputsMixin:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        if cls.replaces_rows():  # type: ignore[attr-defined]
+        replaces_rows = getattr(cls, "replaces_rows", None)
+        if replaces_rows is not None and replaces_rows():
             _ROW_REPLACING_GROUPS.append(cls)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

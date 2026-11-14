@@ -116,6 +116,10 @@ Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders
 because its runtime code uses only public names from it and subclasses none of its classes
 (`tests/test_end2end/test_dependency_direction.py` guards this). A `~=` there would also cap the `mloda-community` bundle, which pins that package exactly. Subclassing a class built for it (`BinaryModelMixin`, through its public ClassVars and `run_binary_model`) counts as public use, so `mloda-community-binary-model` is also a `>=` floor.
 
+A floor runs one way: a base release makes no compatibility promise to leaves released before it.
+An older leaf installed against a newer base is unsupported; it may fail to import or stop
+registering as a FeatureGroup.
+
 Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
 sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships
 it instead. Such a requirement must then be spelled exactly `"<sibling>[extras]=={version}"`, with no

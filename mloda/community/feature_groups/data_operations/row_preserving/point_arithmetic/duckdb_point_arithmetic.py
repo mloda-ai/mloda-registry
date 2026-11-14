@@ -11,8 +11,8 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import SQL_ARITHMETIC_OPS
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_mixin import (
-    DuckdbArithmeticMixin,
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_numeric_source import (
+    duckdb_non_numeric_descriptor,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
@@ -34,7 +34,7 @@ class DuckdbPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
         return group.apply_arithmetic(
             data,
             features,
-            non_numeric=DuckdbArithmeticMixin._non_numeric_descriptor,
+            non_numeric=duckdb_non_numeric_descriptor,
             compute_arithmetic=cls._compute_arithmetic,
         )
 

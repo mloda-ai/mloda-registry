@@ -9,7 +9,9 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.polars_mixin import PolarsArithmeticMixin
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.polars_numeric_source import (
+    polars_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,
@@ -31,7 +33,7 @@ class PolarsLazyScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
         return group.apply_arithmetic(
             data,
             features,
-            non_numeric=PolarsArithmeticMixin._non_numeric_descriptor,
+            non_numeric=polars_non_numeric_descriptor,
             compute_arithmetic=cls._compute_arithmetic,
         )
 

@@ -11,11 +11,12 @@ from typing import Any
 import pyarrow as pa
 
 
-def pyarrow_non_numeric_descriptor(arrow_type: Any) -> Any | None:
-    """Return ``arrow_type`` when the pyarrow type is NON-numeric, else ``None``.
+def pyarrow_non_numeric_descriptor(data: pa.Table, source_col: str) -> Any | None:
+    """Return the column type when ``source_col`` is NON-numeric, else ``None``.
 
     Booleans count as NON-numeric.
     """
+    arrow_type = data.column(source_col).type
     if pa.types.is_boolean(arrow_type) or not (pa.types.is_integer(arrow_type) or pa.types.is_floating(arrow_type)):
         return arrow_type
     return None

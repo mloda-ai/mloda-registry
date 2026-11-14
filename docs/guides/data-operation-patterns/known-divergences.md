@@ -126,7 +126,6 @@ framework: sqlite
 condition: a boolean source column is stored with INTEGER affinity, so SQLite computes it as 0/1 instead of raising the non-numeric ValueError
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/arithmetic/sqlite_numeric_source.py
-- mloda/community/feature_groups/data_operations/row_preserving/arithmetic/sqlite_mixin.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_boolean_source_column_computed_when_undetected
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_boolean_source_column_computed_when_undetected

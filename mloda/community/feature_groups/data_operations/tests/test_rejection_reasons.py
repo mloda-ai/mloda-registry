@@ -197,15 +197,3 @@ class TestEveryGuardedSpecDeclaresExpected:
                 if spec.match_guard is not None and spec.expected is None:
                     offenders.append(f"{family.key}.{key}")
         assert offenders == [], f"Guarded specs missing 'expected': {offenders}"
-
-
-class TestAggregationBaseIsFeatureGroup:
-    """``AggregationFeatureGroupBase`` must remain a ``FeatureGroup`` subclass."""
-
-    def test_aggregation_base_is_still_a_feature_group(self) -> None:
-        """Aggregation-family leaves subclass ``AggregationFeatureGroupBase`` alone and must stay FeatureGroups."""
-        from mloda.provider import FeatureGroup
-
-        from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
-
-        assert issubclass(AggregationFeatureGroupBase, FeatureGroup)
