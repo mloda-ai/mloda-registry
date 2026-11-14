@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any, BinaryIO, ClassVar, Literal
+from typing import Any, BinaryIO, ClassVar
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -21,16 +21,20 @@ from mloda.community.feature_groups.binary_model.errors import (
     BinaryModelError,
     BinaryUsageError,
     DataError,
+    LicenseError,
     OutputContractError,
     UnsupportedError,
+    license_reason,
+)
+from mloda.community.feature_groups.binary_model.errors import (
+    LicenseSource as LicenseSource,
 )
 from mloda.community.feature_groups.binary_model.transport import InvocationDirectory, minimal_environment, run_binary
 
 logger = logging.getLogger(__name__)
 
-LicenseSource = Literal["MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY", "LICENSE_FILE_OVERRIDE", "LICENSE_KEY_OVERRIDE"]
-
 _STRING_CELL_BYTE_LIMIT = 2**31 - 1
+_LICENSE_ENV_NAMES = ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")
 
 
 def max_string_length(column: pa.ChunkedArray) -> int:
@@ -342,7 +346,7 @@ class BinaryModelMixin:
         return None
 
     @classmethod
-    def resolved_binary(cls) -> ResolvedBinary:
+    def resolved_binary(cls, *, timeout: float | None = None) -> ResolvedBinary:
         """Resolve and probe this model's binary (contract: Invocation, Capabilities)."""
         wheel = getattr(cls, "BINARY_WHEEL_DISTRIBUTION", None)
         install_hint = None
@@ -352,7 +356,7 @@ class BinaryModelMixin:
             cls.BINARY_PLUGIN_ID,
             cls.BINARY_COMMAND_OVERRIDE,
             env=cls.binary_environment(),
-            timeout=cls.BINARY_PROBE_TIMEOUT_SECONDS,
+            timeout=timeout if timeout is not None else cls.BINARY_PROBE_TIMEOUT_SECONDS,
             install_hint=install_hint,
         )
 
@@ -364,20 +368,23 @@ class BinaryModelMixin:
         operation: str,
         parameters: Mapping[str, Any],
         output_columns: Mapping[str, str],
+        *,
+        timeout: float | None = None,
     ) -> pa.Table:
         """Run ``operation`` on ``table`` through the resolved binary, returning a table of only the
         output columns, row-aligned to ``table`` (contract: Data, Configuration, Errors). A single
-        ``list``/``large_list`` utf8 column is flattened, sent, and each output re-nested."""
+        ``list``/``large_list`` utf8 column is flattened, sent, and each output re-nested. A non-None
+        ``timeout`` replaces the run and probe timeouts for this call only."""
         list_name = _list_input_column(table, input_columns)
         if list_name is None:
-            resolved = cls.resolved_binary()
+            resolved = cls.resolved_binary(timeout=timeout)
             _assert_usage(table, input_columns, parameters, output_columns)
-            return cls._run_flat(resolved, table, input_columns, operation, parameters, output_columns, table)
+            return cls._run_flat(resolved, table, input_columns, operation, parameters, output_columns, table, timeout)
         column = table.column(list_name)
         sources = column.chunks
         flat_chunks = [chunk.flatten() for chunk in sources]
         has_elements = any(len(flat) for flat in flat_chunks)
-        list_resolved = cls.resolved_binary() if has_elements else None
+        list_resolved = cls.resolved_binary(timeout=timeout) if has_elements else None
         _assert_usage(table, input_columns, parameters, output_columns)
         if len(input_columns) != 1 or classify_column_type(column.type.value_type) != "utf8":
             raise UnsupportedError(
@@ -388,7 +395,9 @@ class BinaryModelMixin:
             empty = pa.table({name: pa.array([], type=pa.string()) for name in output_columns.values()})
             return _nest_outputs(_finalize_output(empty, table), sources, column.type)
         flat_table = pa.table({list_name: pa.chunked_array(flat_chunks, type=column.type.value_type)})
-        result = cls._run_flat(list_resolved, flat_table, input_columns, operation, parameters, output_columns, table)
+        result = cls._run_flat(
+            list_resolved, flat_table, input_columns, operation, parameters, output_columns, table, timeout
+        )
         return _nest_outputs(result, sources, column.type)
 
     @classmethod
@@ -401,6 +410,7 @@ class BinaryModelMixin:
         parameters: Mapping[str, Any],
         output_columns: Mapping[str, str],
         original_table: pa.Table,
+        timeout: float | None = None,
     ) -> pa.Table:
         if operation not in resolved.capabilities.operations:
             raise UnsupportedError(
@@ -417,17 +427,18 @@ class BinaryModelMixin:
             "output_columns": dict(output_columns),
         }
 
+        env = cls.binary_environment()
         with InvocationDirectory() as invocation:
             try:
                 output_bytes = run_binary(
                     resolved.argv,
-                    cls.binary_environment(),
+                    env,
                     config,
                     lambda sink: _write_ipc_stream(
                         outgoing, cls.MAX_BATCH_BYTES, sink, max_batch_rows=cls.MAX_BATCH_ROWS
                     ),
                     input_size,
-                    timeout=cls.BINARY_TIMEOUT_SECONDS,
+                    timeout=timeout if timeout is not None else cls.BINARY_TIMEOUT_SECONDS,
                     file_transport_threshold=cls.FILE_TRANSPORT_THRESHOLD_BYTES,
                     invocation_dir=invocation.path,
                 )
@@ -438,6 +449,11 @@ class BinaryModelMixin:
                     resolved.capabilities.version,
                     exc.code,
                 )
+                if isinstance(exc, LicenseError):
+                    exc.reason = license_reason(exc.message, env)
+                    forwarded = cls._forwarded_environment()
+                    if all(env.get(name) == forwarded.get(name) for name in _LICENSE_ENV_NAMES):
+                        exc.source = cls.license_source()
                 raise
 
         logger.debug(

@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from mloda.community.feature_groups.binary_model import binary, contract, transport
-from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
+from mloda.community.feature_groups.binary_model.errors import BinaryNotInstalledError, BinaryNotRunnableError
 from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
@@ -76,29 +76,29 @@ class TestResolveBinary:
         )
 
     def test_str_path_override_missing_file_is_unavailable(self, tmp_path: Path) -> None:
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             binary.resolve_binary("whatever", str(tmp_path / "missing-binary"), env={"PATH": os.defpath}, timeout=10.0)
 
     @pytest.mark.parametrize("override", [[], ()])
     def test_empty_override_is_unavailable(self, override: Any) -> None:
-        with pytest.raises(BinaryUnavailableError, match="must not be empty"):
+        with pytest.raises(BinaryNotRunnableError, match="must not be empty"):
             binary.resolve_binary(PLUGIN_ID, override, env={"PATH": os.defpath}, timeout=10.0)
 
     def test_override_none_missing_module_is_unavailable(self) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotInstalledError) as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
         assert PLUGIN_ID in str(excinfo.value)
         assert "is not installed" in str(excinfo.value)
 
     def test_install_hint_is_appended_to_the_not_installed_message(self) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotInstalledError) as excinfo:
             binary.resolve_binary(
                 PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0, install_hint='"bundle[extra]" (wheel: w)'
             )
         assert str(excinfo.value).endswith('; install it with: pip install "bundle[extra]" (wheel: w)')
 
     def test_no_install_hint_leaves_the_not_installed_message_unchanged(self) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotInstalledError) as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0, install_hint=None)
         assert "install it with" not in str(excinfo.value)
 
@@ -109,13 +109,13 @@ class TestResolveBinary:
             raise RuntimeError("boom")
 
         _install_fake_module(monkeypatch, PLUGIN_ID, _raise)
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotRunnableError) as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0, install_hint="w")
         assert "install it with" not in str(excinfo.value)
 
     def test_override_none_module_without_binary_path_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_module(monkeypatch, PLUGIN_ID, None)
-        with pytest.raises(BinaryUnavailableError, match="binary_path\\(\\)") as excinfo:
+        with pytest.raises(BinaryNotRunnableError, match="binary_path\\(\\)") as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
         assert PLUGIN_ID in str(excinfo.value)
 
@@ -127,7 +127,7 @@ class TestResolveBinary:
             raise error
 
         _install_fake_module(monkeypatch, PLUGIN_ID, _raise)
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotRunnableError) as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
         assert PLUGIN_ID in str(excinfo.value)
         assert excinfo.value.__cause__ is error
@@ -150,7 +150,7 @@ class TestResolveBinary:
         monkeypatch.syspath_prepend(str(tmp_path))
         monkeypatch.delitem(sys.modules, plugin_id, raising=False)
         try:
-            with pytest.raises(BinaryUnavailableError) as excinfo:
+            with pytest.raises(BinaryNotRunnableError) as excinfo:
                 binary.resolve_binary(plugin_id, None, env={"PATH": os.defpath}, timeout=10.0)
         finally:
             sys.modules.pop(plugin_id, None)
@@ -165,7 +165,7 @@ class TestResolveBinary:
             raise FileNotFoundError("binary data file missing from the wheel")
 
         _install_fake_module(monkeypatch, PLUGIN_ID, _raise)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
 
     def test_override_none_resolves_via_fake_module_wrapper_script(
@@ -180,11 +180,11 @@ class TestResolveBinary:
         assert resolved.capabilities.plugin_id == PLUGIN_ID
 
     def test_plugin_id_mismatch_is_unavailable(self) -> None:
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.resolve_binary("other_binary", STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
 
     def test_contract_mismatch_message_names_both_versions(self) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotRunnableError) as excinfo:
             binary.resolve_binary(
                 "faulty_binary", [*FAULTY_CMD, "--mode", "contract_2"], env={"PATH": os.defpath}, timeout=10.0
             )
@@ -193,7 +193,7 @@ class TestResolveBinary:
         assert "1" in message
 
     def test_bad_capabilities_missing_contract_key_is_unavailable(self) -> None:
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.resolve_binary(
                 "faulty_binary", [*FAULTY_CMD, "--mode", "bad_capabilities"], env={"PATH": os.defpath}, timeout=10.0
             )
@@ -209,11 +209,11 @@ class TestResolveBinary:
     def test_capabilities_not_json_is_unavailable(self, mode: str, match: str) -> None:
         """A ``--capabilities`` line that ``json.loads`` cannot parse -- not JSON at all, an int
         past the interpreter's string-conversion limit, or JSON deep enough to raise
-        ``RecursionError`` -- is uniformly a ``BinaryUnavailableError``, not an escaping
+        ``RecursionError`` -- is uniformly a ``BinaryNotRunnableError``, not an escaping
         ``ValueError``/``RecursionError`` (contract: Capabilities). ``oversized_int`` accepts either
         message: with ``PYTHONINTMAXSTRDIGITS=0`` (or on CPython < 3.10.7) the digit string parses as
         a plain ``int``, so rejection instead happens on the "not a JSON object" check."""
-        with pytest.raises(BinaryUnavailableError, match=match):
+        with pytest.raises(BinaryNotRunnableError, match=match):
             binary.resolve_binary(
                 "faulty_binary",
                 [*FAULTY_CMD, "--mode", mode],
@@ -239,7 +239,7 @@ class TestResolveBinary:
         assert "hash" in resolved.capabilities.operations
 
     def test_version_two_lines_is_unavailable(self) -> None:
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.resolve_binary(
                 "faulty_binary", [*FAULTY_CMD, "--mode", "version_two_lines"], env={"PATH": os.defpath}, timeout=10.0
             )
@@ -304,7 +304,7 @@ class TestCapabilityCache:
         counter = _CountingPopen(monkeypatch)
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
         warm_calls = counter.count
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.resolve_binary(PLUGIN_ID, [*STUB_CMD, "--mode", "unused"], env={"PATH": os.defpath}, timeout=10.0)
         assert counter.count > warm_calls
 
@@ -313,7 +313,7 @@ class TestCapabilityCache:
         ``plugin_id`` resolve the very same argv from that cache entry without being re-probed and
         checked against its own reported ``plugin_id`` (contract: Capabilities, Identifier)."""
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.resolve_binary("other_binary", STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
 
 
@@ -328,7 +328,7 @@ class TestBareOverrideLookupOnlyViaWhich:
         not_executable = tmp_path / PLUGIN_ID
         not_executable.write_text("not a script")
         not_executable.chmod(0o600)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             binary.resolve_binary(PLUGIN_ID, PLUGIN_ID, env={"PATH": os.defpath}, timeout=10.0)
 
     def test_executable_wrapper_script_in_the_current_directory_is_not_used(
@@ -338,7 +338,7 @@ class TestBareOverrideLookupOnlyViaWhich:
         wrapper = tmp_path / PLUGIN_ID
         wrapper.write_text(f'#!/bin/sh\nexec {sys.executable} -m mloda.testing.binary_model.simulated_binary "$@"\n')
         wrapper.chmod(0o700)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             binary.resolve_binary(PLUGIN_ID, PLUGIN_ID, env={"PATH": os.defpath}, timeout=10.0)
 
 
@@ -369,7 +369,7 @@ class TestBareOverrideResolvedAgainstGivenEnvPath:
         proving the parent process's PATH is never consulted."""
         bin_dir = self._write_stub_wrapper(tmp_path)
         monkeypatch.setenv("PATH", str(bin_dir))
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotInstalledError):
             binary.resolve_binary(PLUGIN_ID, "stub-binary", env={"PATH": os.defpath}, timeout=10.0)
 
     def test_bare_override_found_via_a_relative_path_entry_is_made_absolute(
@@ -401,7 +401,7 @@ class TestVersionMustBeSemVer:
         ids=["not_semver", "empty", "no_second_token", "non_ascii_digits", "crlf", "unicode_line_separator"],
     )
     def test_non_semver_version_is_unavailable(self, mode: str) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotRunnableError) as excinfo:
             binary.resolve_binary(
                 "faulty_binary", [*FAULTY_CMD, "--mode", mode], env={"PATH": os.defpath}, timeout=10.0
             )
@@ -446,7 +446,7 @@ class TestProbeTimeoutKillsDescendants:
         pid: int | None = None
         try:
             started = time.monotonic()
-            with pytest.raises(BinaryUnavailableError, match="timed out probing --version"):
+            with pytest.raises(BinaryNotRunnableError, match="timed out probing --version"):
                 binary.resolve_binary(
                     "faulty_binary",
                     [*FAULTY_CMD, "--mode", "version_hang_with_child"],
@@ -469,7 +469,7 @@ class TestProbeFailureIncludesStderr:
     """A non-zero probe exit reports the binary's last stderr line when there is one."""
 
     def test_nonzero_version_probe_includes_stderr_line(self) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotRunnableError) as excinfo:
             binary.resolve_binary(
                 "faulty_binary", [*FAULTY_CMD, "--mode", "version_fails"], env={"PATH": os.defpath}, timeout=10.0
             )
@@ -477,7 +477,7 @@ class TestProbeFailureIncludesStderr:
         assert "probing --version: " + repr('{"code": 6, "message": "probe broke"}') in str(excinfo.value)
 
     def test_nonzero_version_probe_with_empty_stderr_keeps_the_plain_message(self) -> None:
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(BinaryNotRunnableError) as excinfo:
             binary.resolve_binary(
                 "faulty_binary", [*FAULTY_CMD, "--mode", "version_fails_silent"], env={"PATH": os.defpath}, timeout=10.0
             )
@@ -512,7 +512,7 @@ class TestPublicParseFunctions:
             )
             + "\n"
         ).encode("utf-8")
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.parse_capabilities(STUB_CMD, PLUGIN_ID, payload)
 
     def test_parse_capabilities_rejects_non_string_operations_element(self) -> None:
@@ -529,5 +529,5 @@ class TestPublicParseFunctions:
             )
             + "\n"
         ).encode("utf-8")
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(BinaryNotRunnableError):
             binary.parse_capabilities(STUB_CMD, PLUGIN_ID, payload)

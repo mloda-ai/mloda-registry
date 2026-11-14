@@ -15,15 +15,20 @@ from mloda.community.feature_groups.binary_model.errors import (
     ERROR_CLASS_BY_CODE,
     BinaryInternalError,
     BinaryModelError,
+    BinaryNotInstalledError,
+    BinaryNotRunnableError,
     BinaryTerminatedError,
     BinaryUnavailableError,
     BinaryUsageError,
     DataError,
+    LicenseError,
     LicenseInvalidError,
     LicenseMissingError,
     OutputContractError,
+    UnsafeInvocationDirectoryError,
     UnsupportedError,
     error_from_exit,
+    license_reason,
 )
 
 # (error class, expected CODE): every subclass, including the two mixin-initiated ones
@@ -31,6 +36,10 @@ from mloda.community.feature_groups.binary_model.errors import (
 # ``BinaryInternalError`` but are never returned by ``error_from_exit`` (contract: Errors).
 _ALL_ERROR_CLASSES = [
     pytest.param(BinaryUnavailableError, None, id="BinaryUnavailableError"),
+    pytest.param(BinaryNotInstalledError, None, id="BinaryNotInstalledError"),
+    pytest.param(BinaryNotRunnableError, None, id="BinaryNotRunnableError"),
+    pytest.param(UnsafeInvocationDirectoryError, None, id="UnsafeInvocationDirectoryError"),
+    pytest.param(LicenseError, None, id="LicenseError"),
     pytest.param(BinaryUsageError, 1, id="BinaryUsageError"),
     pytest.param(LicenseMissingError, 2, id="LicenseMissingError"),
     pytest.param(LicenseInvalidError, 3, id="LicenseInvalidError"),
@@ -51,6 +60,60 @@ def test_error_class_code_and_message(error_class: type[BinaryModelError], expec
     assert str(exc) == "something went wrong"
     assert isinstance(exc, ValueError)
     assert isinstance(exc, BinaryModelError)
+
+
+@pytest.mark.parametrize(
+    "error_class", [BinaryNotInstalledError, BinaryNotRunnableError, UnsafeInvocationDirectoryError]
+)
+def test_unavailable_subclasses_are_direct_subclasses(error_class: type[BinaryModelError]) -> None:
+    assert error_class.__bases__ == (BinaryUnavailableError,)
+
+
+@pytest.mark.parametrize("error_class", [LicenseMissingError, LicenseInvalidError])
+def test_license_errors_share_the_license_error_base(error_class: type[LicenseError]) -> None:
+    exc = error_class("MLODA_LICENSE_KEY: expired")
+    assert error_class.__bases__ == (LicenseError,)
+    assert exc.reason == "MLODA_LICENSE_KEY: expired"
+    assert exc.source is None
+
+
+@pytest.mark.parametrize(
+    ("message", "env", "expected"),
+    [
+        pytest.param(
+            "MLODA_LICENSE_FILE /licenses/lic.txt: token expired",
+            {"MLODA_LICENSE_FILE": "/licenses/lic.txt"},
+            "token expired",
+            id="file_with_path",
+        ),
+        pytest.param(
+            "MLODA_LICENSE_FILE: unreadable", {"MLODA_LICENSE_FILE": "/licenses/lic.txt"}, "unreadable", id="file"
+        ),
+        pytest.param("MLODA_LICENSE_KEY: token expired", {"MLODA_LICENSE_KEY": "secret"}, "token expired", id="key"),
+        pytest.param(
+            "MLODA_LICENSE_FILE /licenses/lic.txt: bad signature",
+            {"MLODA_LICENSE_FILE": "/licenses/lic.txt", "MLODA_LICENSE_KEY": "secret"},
+            "bad signature",
+            id="both_vars_file_prefix",
+        ),
+        pytest.param(
+            "MLODA_LICENSE_FILE /licenses/li",
+            {"MLODA_LICENSE_FILE": "/licenses/lic.txt"},
+            "MLODA_LICENSE_FILE /licenses/li",
+            id="truncated",
+        ),
+        pytest.param("token expired", {"MLODA_LICENSE_KEY": "secret"}, "token expired", id="unprefixed"),
+        pytest.param("MLODA_LICENSE_KEY: expired", {}, "MLODA_LICENSE_KEY: expired", id="empty_env"),
+        pytest.param(
+            "MLODA_LICENSE_KEY: ", {"MLODA_LICENSE_KEY": "secret"}, "MLODA_LICENSE_KEY: ", id="empty_remainder"
+        ),
+        pytest.param(
+            "secret: expired", {"MLODA_LICENSE_KEY": "secret"}, "secret: expired", id="key_value_not_a_prefix"
+        ),
+    ],
+)
+def test_license_reason(message: str, env: dict[str, str], expected: str) -> None:
+    assert license_reason(message, env) == expected
 
 
 def test_base_class_code_is_none() -> None:

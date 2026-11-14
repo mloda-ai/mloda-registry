@@ -24,7 +24,7 @@ from mloda.community.feature_groups.binary_model.contract import (
     split_output_lines,
     stderr_excerpt,
 )
-from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
+from mloda.community.feature_groups.binary_model.errors import BinaryNotInstalledError, BinaryNotRunnableError
 from mloda.community.feature_groups.binary_model.transport import communicate_or_terminate
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def clear_capability_cache() -> None:
 
 def _resolve_executable_path(candidate: str, path: str) -> Path:
     """Resolve ``argv[0]`` to an absolute, executable, regular file path (contract: Platform
-    naming), or raise ``BinaryUnavailableError``. Made absolute with ``os.path.abspath``, not a
+    naming), or raise ``BinaryNotInstalledError`` / ``BinaryNotRunnableError``. Made absolute with ``os.path.abspath``, not a
     symlink-following resolve: a symlinked interpreter (a venv's own launcher, used as a test
     stand-in binary) must stay invocable as the symlink, since dereferencing it would drop the
     venv context that makes it resolvable at all. A bare name (no path separator) is looked up
@@ -67,11 +67,12 @@ def _resolve_executable_path(candidate: str, path: str) -> Path:
     else:
         found = shutil.which(candidate, path=path)
         if found is None:
-            raise BinaryUnavailableError(f"binary not found on PATH: {candidate!r}")
+            raise BinaryNotInstalledError(f"binary not found on PATH: {candidate!r}")
         resolved = Path(os.path.abspath(found))
 
     if not resolved.is_file() or not os.access(resolved, os.X_OK):
-        raise BinaryUnavailableError(f"binary is not an executable regular file: {resolved}")
+        error_class = BinaryNotRunnableError if os.path.lexists(resolved) else BinaryNotInstalledError
+        raise error_class(f"binary is not an executable regular file: {resolved}")
     return resolved
 
 
@@ -84,27 +85,27 @@ def _build_argv(
         except ModuleNotFoundError as exc:
             if exc.name is not None and (plugin_id == exc.name or plugin_id.startswith(f"{exc.name}.")):
                 hint = f"; install it with: pip install {install_hint}" if install_hint else ""
-                raise BinaryUnavailableError(
+                raise BinaryNotInstalledError(
                     f"binary package for plugin_id {plugin_id!r} is not installed: {exc}{hint}"
                 ) from exc
-            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
+            raise BinaryNotRunnableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
         except Exception as exc:
-            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
+            raise BinaryNotRunnableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
         binary_path = getattr(module, "binary_path", None)
         if not callable(binary_path):
-            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} has no binary_path()")
+            raise BinaryNotRunnableError(f"binary package for plugin_id {plugin_id!r} has no binary_path()")
         try:
             path = binary_path()
         except FileNotFoundError as exc:
-            raise BinaryUnavailableError(f"binary data file missing from the {plugin_id!r} wheel: {exc}") from exc
+            raise BinaryNotInstalledError(f"binary data file missing from the {plugin_id!r} wheel: {exc}") from exc
         except Exception as exc:
-            raise BinaryUnavailableError(f"binary_path() of the {plugin_id!r} wheel failed: {exc}") from exc
+            raise BinaryNotRunnableError(f"binary_path() of the {plugin_id!r} wheel failed: {exc}") from exc
         return [str(path)]
     if isinstance(override, (str, os.PathLike)):
         return [str(override)]
     argv = list(override)
     if not argv:
-        raise BinaryUnavailableError(f"BINARY_COMMAND_OVERRIDE for plugin_id {plugin_id!r} must not be empty")
+        raise BinaryNotRunnableError(f"BINARY_COMMAND_OVERRIDE for plugin_id {plugin_id!r} must not be empty")
     return argv
 
 
@@ -120,13 +121,13 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
         )
         stdout, stderr = communicate_or_terminate(proc, None, timeout)
     except subprocess.TimeoutExpired as exc:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} timed out probing {flag}") from exc
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} timed out probing {flag}") from exc
     except OSError as exc:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
     if proc.returncode != 0:
         excerpt = stderr_excerpt(stderr, 1)
         detail = f": {excerpt!r}" if excerpt is not None else ""
-        raise BinaryUnavailableError(f"binary {argv[0]!r} exited {proc.returncode} probing {flag}{detail}")
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} exited {proc.returncode} probing {flag}{detail}")
     return bytes(stdout)
 
 
@@ -134,13 +135,13 @@ def parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --version output is not valid UTF-8: {exc}") from exc
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --version output is not valid UTF-8: {exc}") from exc
     lines = split_output_lines(text)
     if len(lines) != 1:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --version must print exactly one line, got {len(lines)}")
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --version must print exactly one line, got {len(lines)}")
     parts = lines[0].split(" ")
     if len(parts) != 2 or parts[0] != plugin_id or re.fullmatch(VERSION_PATTERN, parts[1]) is None:
-        raise BinaryUnavailableError(
+        raise BinaryNotRunnableError(
             f"binary {argv[0]!r} --version must print '{plugin_id} <semver>', got {lines[0]!r}"
         )
     return parts[1]
@@ -150,44 +151,44 @@ def parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> Binary
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities output is not valid UTF-8: {exc}") from exc
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --capabilities output is not valid UTF-8: {exc}") from exc
 
     lines = split_output_lines(text)
     if len(lines) != 1:
-        raise BinaryUnavailableError(
+        raise BinaryNotRunnableError(
             f"binary {argv[0]!r} --capabilities must print exactly one JSON object line, got {len(lines)} lines"
         )
     try:
         payload: Any = json.loads(lines[0])
     except (ValueError, RecursionError) as exc:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities output is not valid JSON: {exc}") from exc
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --capabilities output is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities must print a JSON object")
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --capabilities must print a JSON object")
 
     contract = payload.get("contract")
     if not isinstance(contract, int) or isinstance(contract, bool):
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities is missing an integer 'contract' key")
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --capabilities is missing an integer 'contract' key")
     if contract != CONTRACT_VERSION:
-        raise BinaryUnavailableError(
+        raise BinaryNotRunnableError(
             f"binary {argv[0]!r} implements contract {contract}, but this mixin requires contract {CONTRACT_VERSION}"
         )
 
     reported_plugin_id = payload.get("plugin_id")
     if reported_plugin_id != plugin_id:
-        raise BinaryUnavailableError(
+        raise BinaryNotRunnableError(
             f"binary {argv[0]!r} reports plugin_id {reported_plugin_id!r}, expected {plugin_id!r}"
         )
 
     operations = payload.get("operations")
     if not isinstance(operations, list) or not all(isinstance(op, str) for op in operations):
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities 'operations' must be a list of strings")
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --capabilities 'operations' must be a list of strings")
 
     column_types = payload.get("column_types")
     if not isinstance(column_types, list) or not all(isinstance(ct, str) for ct in column_types):
-        raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities 'column_types' must be a list of strings")
+        raise BinaryNotRunnableError(f"binary {argv[0]!r} --capabilities 'column_types' must be a list of strings")
     column_types_set = frozenset(column_types)
     if not column_types_set <= COLUMN_TYPES:
-        raise BinaryUnavailableError(
+        raise BinaryNotRunnableError(
             f"binary {argv[0]!r} --capabilities 'column_types' {sorted(column_types_set)} "
             f"is not a subset of {sorted(COLUMN_TYPES)}"
         )

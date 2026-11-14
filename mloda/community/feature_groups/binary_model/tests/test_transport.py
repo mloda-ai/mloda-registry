@@ -29,12 +29,13 @@ import pytest
 from mloda.community.feature_groups.binary_model import transport
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryInternalError,
+    BinaryNotRunnableError,
     BinaryTerminatedError,
-    BinaryUnavailableError,
     BinaryUsageError,
     LicenseInvalidError,
     LicenseMissingError,
     OutputContractError,
+    UnsafeInvocationDirectoryError,
     UnsupportedError,
 )
 from mloda.community.feature_groups.binary_model.tests.process_helpers import (
@@ -376,7 +377,7 @@ class TestInvocationDirectory:
         parent = tmp_path / TEMP_PARENT_NAME
         parent.mkdir(mode=0o777)
         parent.chmod(0o777)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(UnsafeInvocationDirectoryError):
             with InvocationDirectory(parent=parent):
                 pass
 
@@ -408,7 +409,7 @@ class TestInvocationDirectory:
             return os.stat_result(fields)
 
         monkeypatch.setattr(os, "lstat", fake_lstat)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(UnsafeInvocationDirectoryError):
             with InvocationDirectory(parent=parent):
                 pass
 
@@ -423,7 +424,7 @@ class TestInvocationDirectory:
         (victim / "01-notes.md").write_text("notes")
         before = sorted(victim.iterdir())
         os.symlink(victim, tmp_path / TEMP_PARENT_NAME)
-        with pytest.raises(BinaryUnavailableError, match="symlink"):
+        with pytest.raises(UnsafeInvocationDirectoryError, match="symlink"):
             with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME):
                 pass
         assert sorted(victim.iterdir()) == before
@@ -433,7 +434,30 @@ class TestInvocationDirectory:
     def test_dangling_symlink_parent_is_refused_as_unavailable(self, tmp_path: Path) -> None:
         parent = tmp_path / TEMP_PARENT_NAME
         os.symlink(tmp_path / "missing", parent)
-        with pytest.raises(BinaryUnavailableError):
+        with pytest.raises(UnsafeInvocationDirectoryError):
+            with InvocationDirectory(parent=parent):
+                pass
+
+    def test_regular_file_parent_is_refused_as_not_a_directory(self, tmp_path: Path) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.write_text("not a directory")
+        with pytest.raises(UnsafeInvocationDirectoryError, match="not a directory"):
+            with InvocationDirectory(parent=parent):
+                pass
+
+    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX lstat")
+    def test_unstattable_parent_is_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(mode=0o700)
+        real_lstat = os.lstat
+
+        def failing_lstat(path: Any, *, dir_fd: Any = None) -> os.stat_result:
+            if Path(os.fspath(path)) == parent:
+                raise OSError(errno.EACCES, "denied")
+            return real_lstat(path, dir_fd=dir_fd)
+
+        monkeypatch.setattr(os, "lstat", failing_lstat)
+        with pytest.raises(UnsafeInvocationDirectoryError, match="cannot stat"):
             with InvocationDirectory(parent=parent):
                 pass
 
@@ -641,7 +665,7 @@ class TestInvocationDirectory:
             raise OSError(errno.ENOLCK, "no locks")
 
         monkeypatch.setattr(fcntl, "flock", failing_flock)
-        with pytest.raises(BinaryUnavailableError, match="lock"):
+        with pytest.raises(BinaryNotRunnableError, match="lock"):
             with InvocationDirectory(parent=parent):
                 pass
         assert list(parent.iterdir()) == []
@@ -784,7 +808,7 @@ class TestInvocationDirectory:
 
         monkeypatch.setattr(Path, "mkdir", failing_mkdir)
         closed = _as_windows(monkeypatch, lambda queried: True)
-        with pytest.raises(BinaryUnavailableError, match="cannot create an invocation directory"):
+        with pytest.raises(BinaryNotRunnableError, match="cannot create an invocation directory"):
             with InvocationDirectory(parent=parent):
                 pass
         assert transport._OWNED_PATHS == owned_before
@@ -805,7 +829,7 @@ class TestInvocationDirectory:
         monkeypatch.setattr(Path, "chmod", failing_chmod)
         closed = _as_windows(monkeypatch, lambda queried: True)
         if isinstance(failure, OSError):
-            with pytest.raises(BinaryUnavailableError, match="cannot create an invocation directory"):
+            with pytest.raises(BinaryNotRunnableError, match="cannot create an invocation directory"):
                 with InvocationDirectory(parent=parent):
                     pass
         else:
@@ -899,7 +923,7 @@ class TestInvocationDirectory:
             reason=reasons.get(kind),
             open_error=OSError("boom") if kind == "unreadable" else None,
         )
-        with pytest.raises(BinaryUnavailableError) as excinfo:
+        with pytest.raises(UnsafeInvocationDirectoryError) as excinfo:
             with InvocationDirectory(parent=parent):
                 pass
         for fragment in fragments:
@@ -1255,7 +1279,7 @@ class TestRunBinary:
 
             monkeypatch.setattr(subprocess, "Popen", failing_popen)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            with pytest.raises(BinaryUnavailableError, match="cannot spawn binary"):
+            with pytest.raises(BinaryNotRunnableError, match="cannot spawn binary"):
                 _run_binary(cmd, {"PATH": os.defpath}, _hash_config(), b"", inv.path)
 
     @pytest.mark.parametrize("target", ["config", "input", "write_input"])
@@ -1277,7 +1301,7 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             monkeypatch.setattr(os, "open", failing_open)
-            with pytest.raises(BinaryUnavailableError, match="cannot write to the invocation directory"):
+            with pytest.raises(BinaryNotRunnableError, match="cannot write to the invocation directory"):
                 _run_binary(
                     STUB_CMD,
                     {"PATH": os.defpath},
@@ -1291,7 +1315,7 @@ class TestRunBinary:
     def test_nonexistent_path_raises_binary_unavailable(self, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            with pytest.raises(BinaryUnavailableError):
+            with pytest.raises(BinaryNotRunnableError):
                 _run_binary([str(missing)], {"PATH": os.defpath}, _hash_config(), b"", inv.path)
 
     def test_exit_zero_without_writing_the_output_file_raises_output_contract_error(self, tmp_path: Path) -> None:

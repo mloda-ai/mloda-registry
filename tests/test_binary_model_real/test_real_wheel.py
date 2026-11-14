@@ -191,8 +191,10 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
         result = case.test_license_class.calculate_feature(table, feature_set)
         assert result.column(case.column).to_pylist() == case.expected(rows)
     else:
-        with pytest.raises(LicenseInvalidError, match=UNKNOWN_TEST_KEY_MESSAGE):
+        with pytest.raises(LicenseInvalidError, match=UNKNOWN_TEST_KEY_MESSAGE) as excinfo:
             case.test_license_class.calculate_feature(table, feature_set)
+        assert excinfo.value.source == "LICENSE_KEY_OVERRIDE"
+        assert "MLODA_LICENSE" not in excinfo.value.reason
 
 
 # -------------------------------------------------------------------------------------------
