@@ -20,6 +20,7 @@ from typing import Any
 from mloda.community.feature_groups.binary_model.contract import (
     COLUMN_TYPES,
     CONTRACT_VERSION,
+    LICENSE_ENV_NAMES,
     VERSION_PATTERN,
     split_output_lines,
     stderr_excerpt,
@@ -225,7 +226,7 @@ def resolve_binary(
     if cached is not None:
         return ResolvedBinary(argv=tuple(argv), capabilities=cached)
 
-    probe_env = {key: value for key, value in env.items() if key not in ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")}
+    probe_env = {key: value for key, value in env.items() if key not in LICENSE_ENV_NAMES}
 
     version_stdout = _run_probe(argv, "--version", probe_env, timeout)
     version = parse_version(argv, plugin_id, version_stdout)

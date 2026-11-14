@@ -688,7 +688,7 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
 
             @classmethod
             def binary_environment(cls) -> dict[str, str]:
-                return {**kit.platform_env({}), **cls._forwarded_environment()}
+                return kit.platform_env(cls._forwarded_environment())
 
         table = pa.table(self.default_input_rows(), schema=self.default_input_schema())
         with pytest.raises(LicenseInvalidError) as excinfo:

@@ -232,15 +232,6 @@ class TestProbeTimeout:
             StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=1e-6)
         assert StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}).num_rows == 1
 
-    def test_per_call_timeout_bounds_the_run(self) -> None:
-        model = _faulty_model("hang")
-        model.resolved_binary()
-        table = pa.table({"col_a": ["alpha"]})
-        started = time.monotonic()
-        with pytest.raises(BinaryTerminatedError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=0.5)
-        assert time.monotonic() - started < 5.0
-
 
 # -------------------------------------------------------------------------------------------
 # 4. operation capability check
@@ -539,6 +530,7 @@ class TestBinaryReportedErrors:
         assert excinfo.value.reason == excinfo.value.message
 
     def test_expired_license_raises_license_invalid_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(LicenseInvalidError) as excinfo:
@@ -546,12 +538,19 @@ class TestBinaryReportedErrors:
         assert excinfo.value.source == "MLODA_LICENSE_KEY"
         assert "MLODA_LICENSE" not in excinfo.value.reason
 
-    def test_hanging_binary_raises_binary_terminated_error(self) -> None:
-        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+    @pytest.mark.parametrize("per_call", [False, True], ids=["class_attribute", "per_call_keyword"])
+    def test_hanging_binary_raises_binary_terminated_error(self, per_call: bool) -> None:
+        if per_call:
+            model = _faulty_model("hang")
+            model.resolved_binary()
+            call_kwargs: dict[str, Any] = {"timeout": 0.5}
+        else:
+            model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+            call_kwargs = {}
         table = pa.table({"col_a": ["alpha"]})
         started = time.monotonic()
         with pytest.raises(BinaryTerminatedError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, **call_kwargs)
         elapsed = time.monotonic() - started
         assert elapsed < 5.0, f"expected termination well before the 60s hang, took {elapsed}s"
         assert _mloda_binary_children_for_current_pid() == []

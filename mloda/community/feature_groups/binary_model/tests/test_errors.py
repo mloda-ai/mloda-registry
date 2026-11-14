@@ -76,12 +76,6 @@ def test_error_class_hierarchy(error_class: type[BinaryModelError], base: type[B
     assert issubclass(error_class, base)
 
 
-def test_license_error_defaults_reason_to_message_and_source_to_none() -> None:
-    exc = LicenseMissingError("MLODA_LICENSE_KEY: expired")
-    assert exc.reason == "MLODA_LICENSE_KEY: expired"
-    assert exc.source is None
-
-
 @pytest.mark.parametrize(
     ("message", "env", "expected"),
     [

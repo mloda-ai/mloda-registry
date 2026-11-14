@@ -16,7 +16,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from mloda.community.feature_groups.binary_model.binary import ResolvedBinary, resolve_binary
-from mloda.community.feature_groups.binary_model.contract import COLUMN_TYPES
+from mloda.community.feature_groups.binary_model.contract import COLUMN_TYPES, LICENSE_ENV_NAMES
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryModelError,
     BinaryUsageError,
@@ -34,7 +34,6 @@ from mloda.community.feature_groups.binary_model.transport import InvocationDire
 logger = logging.getLogger(__name__)
 
 _STRING_CELL_BYTE_LIMIT = 2**31 - 1
-_LICENSE_ENV_NAMES = ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")
 
 
 def max_string_length(column: pa.ChunkedArray) -> int:
@@ -452,7 +451,7 @@ class BinaryModelMixin:
                 if isinstance(exc, LicenseError):
                     exc.reason = license_reason(exc.message, env)
                     forwarded = cls._forwarded_environment()
-                    if all(env.get(name) == forwarded.get(name) for name in _LICENSE_ENV_NAMES):
+                    if all(env.get(name) == forwarded.get(name) for name in LICENSE_ENV_NAMES):
                         exc.source = cls.license_source()
                 raise
 

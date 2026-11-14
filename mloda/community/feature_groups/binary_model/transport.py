@@ -505,7 +505,8 @@ class InvocationDirectory:
 
     def _validate_parent(self) -> None:
         """On Windows refuse a parent that is a symlink or junction, not a directory, not owned by a trusted
-        principal, or writable by another one, checked on one open handle that is held until exit. On POSIX refuse a parent that is a symlink, not owned by the current user, world-writable, or
+        principal, or writable by another one, checked on one open handle that is held until exit.
+        On POSIX refuse a parent that is a symlink, not a directory, not owned by the current user, world-writable, or
         writable by a group other than the current process's own (contract: Data handling): a
         directory shared with the process's own group, the common user-private-group scheme, is
         not a foreign-write risk, but world-writable or a foreign group is."""
