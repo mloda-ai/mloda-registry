@@ -172,7 +172,7 @@ A subclass can bind a credential from a `DataAccessCollection` slot at match tim
 ```python
 from typing import Any, NamedTuple
 
-from mloda.provider import ClaimRoute, SourceMatch
+from mloda.provider import INPUT_DATA_STAGE, ClaimRoute, FeatureSet, SourceMatch, record_match_rejection
 from mloda.user import DataAccessCollection, Options
 
 
@@ -190,20 +190,27 @@ class KeyedUbaAirFG(UbaAirFG):  # UbaAirFG from above
         options: Options,
         data_access_collection: DataAccessCollection | None,
     ) -> list[SourceMatch]:
-        if data_access_collection is None:
-            return []
-        entry = data_access_collection.resolve("credentials", predicate=lambda slot: "uba_token" in slot)
-        if entry is None:
-            return []
         found = super().find_sources(route, feature_name, options, data_access_collection)
-        return [SourceMatch(match.source, UbaAccess(match.access, entry)) for match in found]
+        slots = data_access_collection.credentials if data_access_collection else {}
+        handle = options.get("data_access_handle")
+        entries = [
+            entry for name, entry in slots.items() if name == handle or (handle is None and "uba_token" in entry)
+        ]
+        if found and len(entries) != 1:
+            reason = f"{cls.get_class_name()} needs one credential slot holding uba_token; data_access_handle picks one"
+            record_match_rejection(cls.get_class_name(), reason, stage=INPUT_DATA_STAGE)
+            return []
+        return [SourceMatch(match.source, UbaAccess(match.access, entries[0])) for match in found]
 
     @classmethod
     def match_credentials(cls, match: SourceMatch) -> Any | None:
         return match.access.credentials
+
+    @classmethod
+    def load_neutral(cls, match: SourceMatch, features: FeatureSet) -> Any: ...  # GET match.access.url with its token
 ```
 
-This group's `load_neutral` (elided) reads `match.access.url` with `match.access.credentials["uba_token"]`; see [Credentials](#credentials-bound-at-match-time-or-read-at-run-time) for why the entry must not be a copy.
+`data_access_handle` picks the slot when several hold a token; see [Credentials](#credentials-bound-at-match-time-or-read-at-run-time) for why `match_credentials` returns the entry, not a copy.
 
 ### Audit Identity
 

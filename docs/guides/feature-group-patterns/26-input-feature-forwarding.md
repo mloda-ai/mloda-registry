@@ -43,7 +43,7 @@ Set these on the `Feature(...)` you return from `input_features()`:
 | `forward_group=True` | Same as the default. Do **not** stamp this on children: it destroys the `None` sentinel that tells "author said nothing" from "author made a choice". |
 | `forward_group=False` | Inherit **nothing**. Isolates the child from the consumer's group options. |
 | `forward_group={"a", "b"}` | Allowlist: inherit only these group keys. |
-| `forward_group_exclude={"top_k"}` | Forward everything **except** these keys. The fit for a consumer-local selector. |
+| `forward_group_exclude={"top_k"}` | Forward everything **except** these keys. The child-side fit for a consumer-local selector; a consumer that owns the key can use [`forward_to_inputs=False`](#consumer-local-keys-forward_to_inputsfalse) instead. |
 | `inherit_context_keys={"tenant"}` | Pull these **context** keys from the consumer into the child's context. |
 
 `forward_group=False` combined with a non-empty `forward_group_exclude` is contradictory and raises `ValueError`.
@@ -120,7 +120,7 @@ If a forwarded group key already exists on the child with a **different** value,
 
 ## Caveat: Bare-String Children Cannot Carry Directives
 
-The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no child-side way (no directive) to carve a key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string. The consumer-side exception: a key the consumer declares `forward_to_inputs=False` stays off a bare-string child too.
+The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group; context reaches it only through the consumer's `propagate_context_keys` push. The difference is that a string has nowhere to hang a directive: there is no child-side directive to carve a key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string. The consumer-side exception: a key the consumer declares `forward_to_inputs=False` stays off a bare-string child too.
 
 ## Test
 
@@ -151,6 +151,8 @@ def test_consumer_local_key_stays_off_the_input():
 |------|-------------|
 | [test_input_features_forward_group_defaults.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_plugins/feature_group/experimental/test_input_features_forward_group_defaults.py) | Plugin `input_features()` leaving children at the default sentinel; explicit directives preserved |
 | [test_feature_collection_forwarding.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_core/test_abstract_plugins/test_components/test_feature_collection_forwarding.py) | `forward_group` / `forward_group_exclude` allowlist and carve-out semantics |
+| [property_spec.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/property_spec.py) | `property_spec(..., forward_to_inputs=False)`: consumer-local keys |
+| [feature.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/feature.py) | `Feature.options_forwarded_from`: preview what an input receives |
 | [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) | Group vs context, propagation |
 
 ## Combines With
