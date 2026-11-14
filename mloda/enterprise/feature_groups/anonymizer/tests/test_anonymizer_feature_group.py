@@ -27,7 +27,15 @@ from mloda.provider import (
     property_spec,
 )
 from mloda.steward import write_plan_lock
-from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
+from mloda.user import (
+    Credential,
+    DataAccessCollection,
+    Feature,
+    FeatureResolutionError,
+    Options,
+    PluginCollector,
+    mloda,
+)
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.binary_model import mixin
@@ -125,6 +133,21 @@ class _AnonChainUpper(FeatureChainParserMixin, FeatureGroup):
         return data
 
 
+def _run_all(
+    feature: Feature,
+    rows: dict[str, list[Any]] | None = None,
+    collection: DataAccessCollection | None = None,
+    extra_fgs: tuple[type[FeatureGroup], ...] = (),
+) -> list[Any]:
+    return mloda.run_all(
+        [feature],
+        compute_frameworks=[PyArrowTable],
+        api_data={"AnonymizerData": rows if rows is not None else {"email": ["alpha"]}},
+        data_access_collection=collection if collection is not None else _key_collection(),
+        plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer, *extra_fgs}),
+    )
+
+
 def _result_column(results: list[Any], name: str) -> list[Any]:
     for table in results:
         if isinstance(table, pa.Table) and name in table.column_names:
@@ -208,12 +231,12 @@ class TestMatchFeatureGroupCriteria:
         assert not _matches("pseudonymized_email", options)
 
     def test_rejects_missing_key_handle_on_the_config_path(self) -> None:
-        # The user-facing error comes from core at resolution time (Level 3).
+        # The user-facing error comes from core at resolution time.
         options = Options(context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"})
         assert not _matches("pseudonymized_email", options)
 
     def test_rejects_missing_key_handle_on_the_string_path(self) -> None:
-        # The user-facing error comes from core at resolution time (Level 3).
+        # The user-facing error comes from core at resolution time.
         assert not _matches("email__hmac_sha256_pseudonymized", Options())
 
     def test_rejects_two_in_features(self) -> None:
@@ -377,37 +400,19 @@ class TestCalculateFeatureRejections:
 class TestIntegration:
     def test_config_form_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"email": ["alpha", None, "gamma"]}
-        results = mloda.run_all(
-            [_config_feature("pseudonymized_email")],
-            compute_frameworks=[PyArrowTable],
-            api_data={"AnonymizerData": rows},
-            data_access_collection=_key_collection(),
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-        )
+        results = _run_all(_config_feature("pseudonymized_email"), rows=rows)
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "pseudonymized_email") == expected
 
     def test_list_utf8_source_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"email": LIST_UTF8_ROWS}
-        results = mloda.run_all(
-            [_config_feature("pseudonymized_email")],
-            compute_frameworks=[PyArrowTable],
-            api_data={"AnonymizerData": rows},
-            data_access_collection=_key_collection(),
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-        )
+        results = _run_all(_config_feature("pseudonymized_email"), rows=rows)
         out = _result_column(results, "pseudonymized_email")
         _assert_list_utf8_pseudonymized(out)
 
     def test_string_form_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"email": ["alpha", "beta"]}
-        results = mloda.run_all(
-            [_string_feature()],
-            compute_frameworks=[PyArrowTable],
-            api_data={"AnonymizerData": rows},
-            data_access_collection=_key_collection(),
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-        )
+        results = _run_all(_string_feature(), rows=rows)
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "email__hmac_sha256_pseudonymized") == expected
 
@@ -437,13 +442,7 @@ class TestIntegration:
     )
     def test_leftover_pii_key_env_is_refused_naming_the_replacement(self, feature: Feature) -> None:
         with pytest.raises(ValueError) as excinfo:
-            mloda.run_all(
-                [feature],
-                compute_frameworks=[PyArrowTable],
-                api_data={"AnonymizerData": {"email": ["alpha"]}},
-                data_access_collection=_key_collection(),
-                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-            )
+            _run_all(feature)
         message = str(excinfo.value)
         assert "pii_key_env" in message
         assert "pii_key_handle" in message
@@ -462,13 +461,7 @@ class TestIntegration:
     )
     def test_missing_key_handle_is_refused_naming_the_option(self, feature: Feature) -> None:
         with pytest.raises(ValueError) as excinfo:
-            mloda.run_all(
-                [feature],
-                compute_frameworks=[PyArrowTable],
-                api_data={"AnonymizerData": {"email": ["alpha"]}},
-                data_access_collection=_key_collection(),
-                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-            )
+            _run_all(feature)
         assert "requires credential handle option 'pii_key_handle', which is not set" in str(excinfo.value)
 
     def test_other_algorithm_without_handle_still_reports_the_algorithm(self) -> None:
@@ -476,28 +469,16 @@ class TestIntegration:
             "pseudonymized_email",
             Options(context={"pseudonymization_algorithm": "md5", "in_features": "email"}),
         )
-        with pytest.raises(Exception) as excinfo:
-            mloda.run_all(
-                [feature],
-                compute_frameworks=[PyArrowTable],
-                api_data={"AnonymizerData": {"email": ["alpha"]}},
-                data_access_collection=_key_collection(),
-                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-            )
+        with pytest.raises(FeatureResolutionError) as excinfo:
+            _run_all(feature)
         message = str(excinfo.value)
-        assert "md5" in message or "pseudonymization_algorithm" in message
+        assert "md5" in message
         assert "requires credential handle option" not in message
 
     def test_padded_key_is_refused_end_to_end_without_echoing_it(self) -> None:
         collection = DataAccessCollection(credentials={KEY_HANDLE: Credential(key=KNOWN_ANSWER_KEY + "\n")})
         with pytest.raises(BinaryUsageError) as excinfo:
-            mloda.run_all(
-                [_config_feature("pseudonymized_email")],
-                compute_frameworks=[PyArrowTable],
-                api_data={"AnonymizerData": {"email": ["alpha"]}},
-                data_access_collection=collection,
-                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-            )
+            _run_all(_config_feature("pseudonymized_email"), collection=collection)
         message = str(excinfo.value)
         assert "whitespace" in message
         assert KEY_HANDLE in message
@@ -508,13 +489,7 @@ class TestIntegration:
         feature = Feature(
             "email__hmac_sha256_pseudonymized__anon_chain_upper", Options(group={"pii_key_handle": KEY_HANDLE})
         )
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks=[PyArrowTable],
-            api_data={"AnonymizerData": rows},
-            data_access_collection=_key_collection(),
-            plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer, _AnonChainUpper}),
-        )
+        results = _run_all(feature, rows=rows, extra_fgs=(_AnonChainUpper,))
         expected = [
             None if v is None else v.upper()
             for v in compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
