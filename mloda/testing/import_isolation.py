@@ -100,8 +100,7 @@ def evict_package(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
 
 
 def require_pyarrow() -> None:
-    """Skip inside a pytest collection or test when pyarrow is missing; raise ModuleNotFoundError naming
-    the ``mloda-testing[pyarrow]`` extra everywhere else."""
+    """Skip while pytest collects or runs a test; elsewhere raise ModuleNotFoundError naming the extra."""
     try:
         importlib.import_module("pyarrow")
         return

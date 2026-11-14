@@ -138,7 +138,7 @@ print("ok")
 
 
 def test_pyarrow_guard_raises_module_not_found_outside_pytest() -> None:
-    """Outside pytest the guard raises ModuleNotFoundError and walk_packages reports the guarded packages."""
+    """Outside pytest the guard raises ModuleNotFoundError."""
     result = subprocess.run([sys.executable, "-c", _OUTSIDE_PYTEST_PROBE], capture_output=True, text=True)  # nosec
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "ok"
@@ -194,7 +194,7 @@ def _run_pytest_without_pyarrow(project: Path, files: dict[str, str]) -> subproc
 
 
 def test_pyarrow_guard_in_root_conftest_is_a_usage_error(tmp_path: Path) -> None:
-    """A root conftest importing a guarded module without pyarrow is a conftest ImportError, not INTERNALERROR."""
+    """A root conftest importing a guarded module without pyarrow is a usage error."""
     result = _run_pytest_without_pyarrow(tmp_path, _ROOT_CONFTEST_LAYOUT)
     assert result.returncode == 4, result.stdout + result.stderr
     assert "requires mloda-testing[pyarrow]" in result.stderr
@@ -202,7 +202,7 @@ def test_pyarrow_guard_in_root_conftest_is_a_usage_error(tmp_path: Path) -> None
 
 
 def test_pyarrow_guard_skips_during_collection_and_tests(tmp_path: Path) -> None:
-    """Nested conftests, test modules and fixtures skip with the reason when pyarrow is missing."""
+    """Nested conftests, test modules and fixtures skip when pyarrow is missing."""
     result = _run_pytest_without_pyarrow(tmp_path, _SKIPS_LAYOUT)
     output = result.stdout
     assert result.returncode == 0, output + result.stderr
