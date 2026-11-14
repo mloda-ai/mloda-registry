@@ -186,7 +186,7 @@ def verification_jobs(
 
 def external_verification_jobs(
     external_entries: list[tuple[str, str, list[str], list[str]]],
-    packages: dict[str, Any],
+    packages: dict[str, dict[str, Any]],
     version: str,
     surface: Callable[[str], tuple[str, ...]],
     extra_imports: dict[tuple[str, str], tuple[str, ...]] = EXTRA_ONLY_IMPORTS,

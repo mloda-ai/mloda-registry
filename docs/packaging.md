@@ -372,8 +372,8 @@ import:
    `tests/test_end2end/test_dev_dependencies.py`.
 5. Add the install row to the README and to the install table under
    [Individual packages](#individual-packages).
-6. If a module without entry points requires the extra on import, add it to `EXTRA_ONLY_IMPORTS` in
-   `scripts/verify_extras.py`, so release verification imports it with the extra.
+6. If a module without entry points requires a third-party extra on import, add it to
+   `EXTRA_ONLY_IMPORTS` in `scripts/verify_extras.py`, so release verification imports it with the extra.
 
 Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_extra_entry`
 enforces that pair for every nested leaf the bundle wheel ships (owned leaves ship their own wheel and are skipped).
@@ -381,8 +381,10 @@ enforces that pair for every nested leaf the bundle wheel ships (owned leaves sh
 The dependency can also be a first-party sibling (`mloda-community-openlineage` behind
 `mloda-enterprise[openlineage]`). Spell its floor `{version}` in both places
 (`test_bundle_extra_sibling_floor_matches_leaf_dev_entry` enforces the pair); the generator adds the
-bundle's workspace source. PluginLoader re-raises a missing module whose root equals the entry
-point's own root (`mloda`), so such a leaf's manifest must catch the missing sibling itself.
+bundle's workspace source. PluginLoader re-raises a missing module under the entry point's own
+top-level package (`mloda`) unless the leaf declares the sibling's package as an optional root
+(mloda >= 0.20, see [Optional Backends](guides/04-create-plugin-package.md#optional-backends));
+otherwise its manifest must catch the missing sibling itself.
 
 A published community leaf goes behind a bundle extra the same way, spelled `"<leaf>=={version}"`
 (as `mloda-community-otel`, `mloda-community-openlineage` and `mloda-community-german-ledger` do): the

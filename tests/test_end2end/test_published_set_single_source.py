@@ -1257,6 +1257,23 @@ def test_external_verification_jobs_import_the_license_token_only_in_the_ed25519
     assert others, "expected other external jobs"
     assert all(_LICENSE_TOKEN_MODULE not in owners for owners in others.values()), others
 
+    extra_only: dict[tuple[str, str], tuple[str, ...]] = load_script(
+        _EXTRAS_SCRIPT.stem, _EXTRAS_SCRIPT
+    ).EXTRA_ONLY_IMPORTS
+    external = {(bundle, extra) for bundle, extra, _names, _binaries in entries}
+    stale = sorted(set(extra_only) - external)
+    assert not stale, (
+        f"EXTRA_ONLY_IMPORTS keys {stale} are not external (bundle, extra) entries, so they verify nothing"
+    )
+    for (bundle, extra), modules in extra_only.items():
+        prefix = str(packages[bundle]["path"]).replace("/", ".") + "."
+        for module in modules:
+            assert module.startswith(prefix), f"{module} ({bundle}[{extra}]) must live under {prefix}"
+            base = _REPO_ROOT / module.replace(".", "/")
+            assert base.with_suffix(".py").is_file() or (base / "__init__.py").is_file(), (
+                f"{module} ({bundle}[{extra}]) resolves to no file in the checkout; was it renamed?"
+            )
+
 
 def test_external_verification_jobs_append_extra_imports_only_to_the_matching_job() -> None:
     """An explicit extra_imports entry is appended after the surface modules of its (bundle, extra) job only."""
