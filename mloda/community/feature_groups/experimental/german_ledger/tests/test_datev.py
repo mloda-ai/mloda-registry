@@ -16,13 +16,13 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import CoreDeclineCode, FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
 from mloda.community.feature_groups.experimental.german_ledger.reader import JOURNAL, GdpduReader
 
-from .isolated import claim, claimant, source_match
+from .isolated import claim, claimant, elimination_codes, source_match
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
@@ -448,6 +448,7 @@ def test_a_link_leaving_the_folder_is_refused_unclaimed_and_unfingerprinted(tmp_
     assert "EXTF_link.csv" in str(refused.error)
     assert "links outside its folder" in str(refused.error)
     assert str(outside) not in str(refused.error)
+    assert elimination_codes(lonely)[DatevExtfReader] is CoreDeclineCode.FOLDER_ESCAPE
 
     # A link that stays inside the folder still reads (its target is not a batch of its own).
     inner = tmp_path / "inner"

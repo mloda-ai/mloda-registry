@@ -12,9 +12,17 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from mloda.provider import FeatureGroup, FeatureSet, SourceMatch
+from mloda.provider import DeclineCode, FeatureGroup, FeatureSet, SourceMatch
 from mloda.steward import PluginRegistry, resolve_feature, verified_context
-from mloda.user import DataAccessCollection, Feature, Options, PluginCollector, PluginLoader, mloda
+from mloda.user import (
+    DataAccessCollection,
+    Feature,
+    FeatureResolutionError,
+    Options,
+    PluginCollector,
+    PluginLoader,
+    mloda,
+)
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
@@ -68,6 +76,22 @@ def claim(folders: Sequence[Path | str], name: str, groups: set[Any], options: d
         plugin_collector=PluginCollector.enabled_feature_groups(groups),
         data_access_collection=DataAccessCollection(folders={str(f) for f in folders}),
     )
+
+
+def elimination_codes(
+    folder: Path | str, options: dict[str, Any] | None = None
+) -> dict[type[FeatureGroup], DeclineCode | None]:
+    """The code each reader is eliminated with when asked for the journal over `folder`, both readers enabled."""
+    try:
+        mloda.prepare(
+            [Feature(JOURNAL, Options(options or {}))],
+            compute_frameworks=[PyArrowTable],
+            data_access_collection=DataAccessCollection(folders={str(folder)}),
+            plugin_collector=PluginCollector.enabled_feature_groups({GdpduReader, DatevExtfReader}),
+        )
+    except FeatureResolutionError as exc:
+        return {reader: elimination.code for reader, elimination in exc.result.eliminations.items()}
+    raise AssertionError("the journal resolved, so no reader was eliminated")
 
 
 def claimant(folders: Sequence[Path | str], name: str, groups: set[Any], options: dict[str, str] | None = None) -> Any:

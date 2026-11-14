@@ -14,10 +14,11 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import CoreDeclineCode, FeatureSet
 from mloda.user import DataAccessCollection, Feature, FeatureResolutionError, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
 from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityRefused,
     JournalFeatureGroup,
@@ -34,7 +35,7 @@ from mloda.community.feature_groups.experimental.german_ledger.sources import So
 
 from ._host import PLUGINS, ListSink, audit_gate, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
-from .isolated import _run, claim, run_isolated, source_match
+from .isolated import _run, claim, elimination_codes, run_isolated, source_match
 
 HERE = Path(__file__).parent
 
@@ -99,23 +100,37 @@ def test_collision_gate() -> None:
 
 
 @pytest.mark.parametrize(
-    ("pointer", "gdpdu_reason", "datev_reason"),
+    ("pointer", "gdpdu_reason", "datev_reason", "gdpdu_code", "datev_code"),
     [
-        (None, "GdpduReader (input data): no GDPdU dossier", "DatevExtfReader (input data): no DATEV batch folder"),
+        (
+            None,
+            "GdpduReader (input data): no GDPdU dossier",
+            "DatevExtfReader (input data): no DATEV batch folder",
+            CoreDeclineCode.SOURCE_NOT_FOUND,
+            CoreDeclineCode.SOURCE_NOT_FOUND,
+        ),
         (
             lambda tmp: tmp,
             "GdpduReader (input data): no GDPdU dossier",
             "DatevExtfReader (input data): options point at GdpduReader",
+            CoreDeclineCode.SOURCE_NOT_FOUND,
+            CoreDeclineCode.POINTED_ELSEWHERE,
         ),
         (
             lambda tmp: 5,
             "GdpduReader (input data): the pointer value must be a path",
             "DatevExtfReader (input data): options point at GdpduReader",
+            CoreDeclineCode.POINTER_INVALID,
+            CoreDeclineCode.POINTED_ELSEWHERE,
         ),
     ],
 )
 def test_no_ledger_source_names_each_readers_rejection(
-    pointer: Callable[[str], Any] | None, gdpdu_reason: str, datev_reason: str
+    pointer: Callable[[str], Any] | None,
+    gdpdu_reason: str,
+    datev_reason: str,
+    gdpdu_code: CoreDeclineCode,
+    datev_code: CoreDeclineCode,
 ) -> None:
     """With no ledger source, core names the missing chain input and each reader's own reason."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -127,6 +142,11 @@ def test_no_ledger_source_names_each_readers_rejection(
     assert "'ledger_journal'" in message, message
     assert gdpdu_reason in message, message
     assert datev_reason in message, message
+
+    with tempfile.TemporaryDirectory() as tmp:
+        codes = elimination_codes(tmp, {"GdpduReader": pointer(tmp)} if pointer else None)
+    assert codes[GdpduReader] is gdpdu_code, codes
+    assert codes[DatevExtfReader] is datev_code, codes
 
 
 def test_plugin_loader_all() -> None:
