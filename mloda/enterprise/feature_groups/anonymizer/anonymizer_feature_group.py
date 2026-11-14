@@ -76,11 +76,23 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
                 )
         matched = super().match_feature_group_criteria(feature_name, options, data_access_collection)
         # Recorded after super so its own rejection (e.g. an unsupported algorithm) wins the first-record slot.
-        if not matched and options.get(cls.ALGORITHM) is not None and options.get(cls.KEY_HANDLE) is None:
+        if not matched and cls._targets_config_path_without_handle(options):
             record_match_rejection(
-                cls.__name__, f"{cls.KEY_HANDLE} is not set", code=CoreDeclineCode.REQUIRED_OPTION_ABSENT
+                cls.get_class_name(), f"{cls.KEY_HANDLE} is not set", code=CoreDeclineCode.REQUIRED_OPTION_ABSENT
             )
         return matched
+
+    @classmethod
+    def _targets_config_path_without_handle(cls, options: Any) -> bool:
+        """True when the feature itself sets a supported algorithm and in_features but no key handle."""
+        algorithm = options.get(cls.ALGORITHM)
+        return (
+            isinstance(algorithm, str)
+            and algorithm in (cls.PROPERTY_MAPPING[cls.ALGORITHM].allowed_values or ())
+            and options.is_own(cls.ALGORITHM)
+            and options.get(DefaultOptionKeys.in_features) is not None
+            and options.get(cls.KEY_HANDLE) is None
+        )
 
     @classmethod
     def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:

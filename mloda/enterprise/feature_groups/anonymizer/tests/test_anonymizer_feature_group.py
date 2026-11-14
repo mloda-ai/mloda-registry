@@ -134,13 +134,13 @@ class _AnonChainUpper(FeatureChainParserMixin, FeatureGroup):
 
 
 def _run_all(
-    feature: Feature,
+    feature: Feature | list[Feature],
     rows: dict[str, list[Any]] | None = None,
     collection: DataAccessCollection | None = None,
     extra_fgs: tuple[type[FeatureGroup], ...] = (),
 ) -> list[Any]:
     return mloda.run_all(
-        [feature],
+        feature if isinstance(feature, list) else [feature],
         compute_frameworks=[PyArrowTable],
         api_data={"AnonymizerData": rows if rows is not None else {"email": ["alpha"]}},
         data_access_collection=collection if collection is not None else _key_collection(),
@@ -231,12 +231,12 @@ class TestMatchFeatureGroupCriteria:
         assert not _matches("pseudonymized_email", options)
 
     def test_rejects_missing_key_handle_on_the_config_path(self) -> None:
-        # The user-facing error comes from core at resolution time.
+        # The user-facing error is raised at resolution time (TestIntegration).
         options = Options(context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"})
         assert not _matches("pseudonymized_email", options)
 
     def test_rejects_missing_key_handle_on_the_string_path(self) -> None:
-        # The user-facing error comes from core at resolution time.
+        # The user-facing error is raised at resolution time (TestIntegration).
         assert not _matches("email__hmac_sha256_pseudonymized", Options())
 
     def test_rejects_two_in_features(self) -> None:
@@ -464,6 +464,24 @@ class TestIntegration:
             _run_all(feature)
         assert "requires credential handle option 'pii_key_handle', which is not set" in str(excinfo.value)
 
+    @pytest.mark.parametrize(
+        "features",
+        [
+            [Feature("email", Options(context={"pseudonymization_algorithm": "hmac_sha256"}))],
+            [
+                _config_feature("pseudonymized_email"),
+                Feature("email", Options(context={"pseudonymization_algorithm": "hmac_sha256"})),
+            ],
+        ],
+        ids=["alone", "beside-anonymizer-feature"],
+    )
+    def test_feature_served_by_another_group_resolves_with_the_algorithm_option_and_no_handle(
+        self, features: list[Feature]
+    ) -> None:
+        rows: dict[str, list[Any]] = {"email": ["alpha", "beta"]}
+        results = _run_all(features, rows=rows)
+        assert _result_column(results, "email") == rows["email"]
+
     def test_other_algorithm_without_handle_still_reports_the_algorithm(self) -> None:
         feature = Feature(
             "pseudonymized_email",
@@ -475,14 +493,22 @@ class TestIntegration:
         assert "md5" in message
         assert "requires credential handle option" not in message
 
-    def test_padded_key_is_refused_end_to_end_without_echoing_it(self) -> None:
-        collection = DataAccessCollection(credentials={KEY_HANDLE: Credential(key=KNOWN_ANSWER_KEY + "\n")})
-        with pytest.raises(BinaryUsageError) as excinfo:
-            _run_all(_config_feature("pseudonymized_email"), collection=collection)
+    def test_padded_key_is_refused_end_to_end_without_echoing_it(self, caplog: pytest.LogCaptureFixture) -> None:
+        padded = KNOWN_ANSWER_KEY + "\n"
+        collection = DataAccessCollection(credentials={KEY_HANDLE: Credential(key=padded)})
+        with caplog.at_level(logging.DEBUG):
+            with pytest.raises(BinaryUsageError) as excinfo:
+                _run_all(_config_feature("pseudonymized_email"), collection=collection)
         message = str(excinfo.value)
         assert "whitespace" in message
         assert KEY_HANDLE in message
         assert KNOWN_ANSWER_KEY not in message
+        assert padded not in message
+        assert caplog.records, "with no captured record the key check below would pass vacuously"
+        assert all(
+            KNOWN_ANSWER_KEY not in record.getMessage() and padded not in record.getMessage()
+            for record in caplog.records
+        )
 
     def test_chained_feature_on_top_of_the_pseudonym_column(self) -> None:
         rows: dict[str, list[Any]] = {"email": ["alpha", None, "gamma"]}
@@ -507,6 +533,8 @@ class TestIntegration:
         lock_path = tmp_path / "plan.lock"
         write_plan_lock(plan, lock_path)
         lock_text = lock_path.read_text()
-        assert KNOWN_ANSWER_KEY not in str(plan)
+        options_text = " ".join(repr(step.feature_set_options.group) for step in plan if step.feature_set_options)
+        assert KEY_HANDLE in options_text, "with no handle in the rendering the key check below would be vacuous"
+        assert KNOWN_ANSWER_KEY not in options_text
         assert KNOWN_ANSWER_KEY not in lock_text
         assert KEY_HANDLE in lock_text
