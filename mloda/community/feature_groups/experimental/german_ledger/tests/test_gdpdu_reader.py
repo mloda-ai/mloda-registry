@@ -1,6 +1,4 @@
-"""GdpduReader: descriptor parsing, reader overlap, citations and containment, plus the source suite hosts.
-
-The end-to-end GDPdU claims are in test_gdpdu_claims.py."""
+"""GdpduReader: descriptor parsing, reader overlap, citations and containment, plus the source suite hosts."""
 
 from __future__ import annotations
 
