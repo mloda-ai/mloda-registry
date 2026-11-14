@@ -21,6 +21,7 @@ import pyarrow as pa
 from mloda.provider import (
     INPUT_DATA_STAGE,
     ClaimRoute,
+    CoreDeclineCode,
     FeatureSet,
     NamePolicy,
     SourceFeatureGroup,
@@ -609,7 +610,12 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         if pointer is not None:
             candidates = [options.get(pointer)]
             if not isinstance(candidates[0], (str, os.PathLike)):
-                record_match_rejection(cls.get_class_name(), "the pointer value must be a path", stage=INPUT_DATA_STAGE)
+                record_match_rejection(
+                    cls.get_class_name(),
+                    f"the pointer value must be a path, got {type(candidates[0]).__name__}",
+                    stage=INPUT_DATA_STAGE,
+                    code=CoreDeclineCode.POINTER_INVALID,
+                )
                 return []
         elif data_access_collection is not None:
             candidates = [*data_access_collection.folders.values(), *data_access_collection.files.values()]
