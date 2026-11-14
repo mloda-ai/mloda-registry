@@ -155,7 +155,7 @@ in its parent's wheel.
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
-The kit `mloda-testing` itself gets `pyarrow` as an extra (`mloda-testing[pyarrow]`), which the default dev extra of every other package names.
+`mloda-testing` exposes pyarrow as an extra, and every other package's default dev extra installs `mloda-testing[pyarrow]`.
 
 ## Package hierarchy
 

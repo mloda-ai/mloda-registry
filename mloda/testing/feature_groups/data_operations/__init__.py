@@ -1,4 +1,4 @@
-"""Everything below needs Arrow directly or through the shared runners and bases, so the guard is package-wide."""
+"""Skips the data-operation test helpers unless pyarrow is installed."""
 
 from mloda.testing.import_isolation import require_pyarrow
 

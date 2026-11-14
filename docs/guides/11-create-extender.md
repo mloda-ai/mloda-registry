@@ -414,13 +414,13 @@ The `_schemaURL` of the `mloda` facet and of the community `mloda*` facets point
 
 `mloda-testing` ships five test mixins plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior:
 
-The contract mixin and the runners need `mloda-testing[pyarrow]` (the `otel` and `openlineage` extras carry it); without it the tests are skipped.
-
 - `ExtenderContractTestMixin` (`mloda.testing.extenders.contract`), for every extender
 - `OtelExtenderTestMixin` (`mloda.testing.extenders.otel`, install `mloda-testing[otel]`), for extenders that emit OTel spans
 - `OpenLineageExtenderTestMixin` (`mloda.testing.extenders.openlineage`, install `mloda-testing[openlineage]`), for extenders that emit OpenLineage RunEvents
 - `ProviderCloseTestMixin` (`mloda.testing.extenders.flush`, no OTel dependency), for extenders whose `close()` flushes one provider: it pins the bounded, never-raising close. `sink_noun()` must be non-None and equal the constructor kwarg name, and the extender needs a `close_timeout` attribute. Compose it with `ExtenderContractTestMixin` and add `ambient_provider_getter` (patch target of the ambient lookup) and `flushed_signal` (`"spans"` or `"metrics"`). A flush that returns `False` or outlasts the close budget must log exactly `<Owner> did not flush all <flushed_signal> within its close budget`, the text `flush_on_close` emits
 - `ProviderFlushTestMixin` (same module), the flush cases `ProviderCloseTestMixin` builds on, for anything else that flushes one provider through `flush_on_close`, such as a sink with a `flush()` method and a `close_timeout` attribute. Implement `make_flusher`, `flush`, `flush_noun` and `flushed_signal`; override `provider_in_effect` when the provider is resolved from the ambient lookup rather than injected, and `flush_logger_name` to count only that logger's warnings. Its cases keep their `test_close_*` names on every host
+
+The contract mixin and the runners need `mloda-testing[pyarrow]` (the `otel` and `openlineage` extras include it); without it their tests are skipped.
 
 The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and exception type, never the message, and the message never reaches a span or an event. Both mixins supply `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. They also set `supports_pickled_sink_capture()` to `True` and supply `injected_sink_capture`, exercising the picklable injected sink preservation.
 

@@ -8,7 +8,7 @@ Test your compute framework with mloda's conformance suites instead of hand-writ
 **Where**: `mloda.testing` (`compute_framework_shape`, `framework_adapter`, `typed_data`, `compute_framework.*_suite`).
 **How**: Write a `FrameworkAdapter` for your framework, then subclass the suites that apply and set `adapter_class`.
 
-The Arrow-backed adapters need pyarrow (`pip install "mloda-testing[pyarrow]"`); `PythonDictAdapter` needs nothing extra.
+The Arrow-backed adapters need `pip install "mloda-testing[pyarrow]"`; `PythonDictAdapter` does not.
 
 ## Start With the Shape Check
 
@@ -21,7 +21,7 @@ def test_shape() -> None:
     print(applicable_aspects(MyFramework))  # e.g. ("filter", "mask", "merge")
 ```
 
-It checks construction (including `uuid=`), `is_available` and the engine accessors. `applicable_aspects` lists which of `filter`, `mask`, `merge` the framework serves; a suite for an aspect the framework does not serve fails with a "mis-wired" message, so only write hosts for the aspects it lists.
+It checks construction (including `uuid=`), `is_available` and the engine accessors. `applicable_aspects` lists which of `filter`, `mask`, `merge` the framework serves; a suite for any other aspect fails as "mis-wired".
 
 ## The Adapter
 
@@ -82,7 +82,7 @@ def test_adapter_round_trip() -> None:
 
 ## Hosts
 
-A host subclasses a suite and sets `adapter_class`. The suite builds its own `TypedTestData`, converts it through the adapter and runs the contract. Hosts must be named `Test*`. A host that omits `adapter_class` or a hook in the suite's `required_hooks` fails at class creation with `HookError`, as does a misspelled hook name.
+A host subclasses a suite and sets `adapter_class`; the suite builds its own `TypedTestData` and runs the contract through the adapter. Hosts must be named `Test*`. A host that omits `adapter_class` or a hook in the suite's `required_hooks` fails at class creation with `HookError`, as does a misspelled hook name.
 
 | Suite | Aspect, served when | The host sets |
 |-------|---------------------|---------------|
@@ -133,7 +133,7 @@ class TestMyMaskEngine(MaskEngineSuite):
 
 ## Declaring What the Backend Cannot Do
 
-Never emulate a missing capability in Python to make a test pass. Declare it, with a `Cause` (`NOT_IMPLEMENTED`, `BACKEND`, `ENVIRONMENT`, `OTHER`) and a one-line reason:
+Never emulate a missing capability in Python to pass a test. Declare it with a `Cause` (`NOT_IMPLEMENTED`, `BACKEND`, `ENVIRONMENT`, `OTHER`) and a one-line reason:
 
 - `unsupported_cases`: per-case skip, for suites that list case ids (`DataTypeValidatorSuite`). Unknown ids fail at class creation.
 - `switched_off`: when the host redefines, blanks or skips a contract test, map the test name to a `Cause`. An undeclared override fails at class creation.
@@ -165,7 +165,7 @@ class TestMyOutputSchema(OutputSchemaSuite):
 
 ## Connection-Bound Frameworks
 
-The adapter owns the connection (`open`, `close`, `connection`). Stock `DuckDBAdapter` and `SqliteAdapter` show the pattern; `ConnectionEndToEndSuite` needs a destination feature group that reads `raw_val` and writes `tfs_doubled` on your framework:
+The adapter owns the connection (see `DuckDBAdapter` and `SqliteAdapter`). `ConnectionEndToEndSuite` needs a destination feature group that reads `raw_val` and writes `tfs_doubled` on your framework:
 
 ```py
 from typing import Any
@@ -226,7 +226,7 @@ class TestDuckDBEmptyResultRunAll(EmptyResultRunAllSuite):
         return PolicyRaises(match_substring="must have at least one column")
 ```
 
-Run-all suites run each case in SYNC and THREADING; a framework without THREADING sets `sync_only_reason` on its adapter.
+Run-all suites run each case in SYNC and THREADING; a framework without THREADING sets `sync_only_reason`.
 
 ## Manual Test Examples
 
