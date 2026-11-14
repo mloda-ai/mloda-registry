@@ -19,7 +19,7 @@ Platforms: Linux x86_64 and aarch64, macOS x86_64 and arm64, Windows x86_64, Pyt
 
 License key: every run of a binary-backed plugin needs a key issued by mloda, for an evaluation (request one at https://mloda.ai/enterprise) or under a license agreement, read from the first of these that is set: `MLODA_LICENSE_FILE` (path to the key file), `MLODA_LICENSE_KEY` (the token itself). After `exp` a key keeps working for its grace days with a WARNING in the log; renew before. Without a usable key the feature still resolves and the run fails with `LicenseMissingError` or `LicenseInvalidError`; no other plugin takes its place. Development and testing use the simulated binary and test tokens signed with the published test key from `mloda-testing[binary-model]` instead (see the guide linked below).
 
-Key: generate it once with `python -c "import secrets; print(secrets.token_hex(32))"`, store it as a secret and export it as `PII_KEY`, and register it under a credential handle that the `pii_key_handle` option names. Keep it stable, a new key gives unrelated pseudonyms. `pii_key_handle` replaces the former `pii_key_env`.
+Key: generate it once with `python -c "import secrets; print(secrets.token_hex(32))"`, store it as a secret and export it as `PII_KEY`, and register it under a credential handle that the `pii_key_handle` option names ([Secrets](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/feature-group-patterns/11-options.md#secrets)). Keep it stable, a new key gives unrelated pseudonyms. `pii_key_handle` replaces the former `pii_key_env`.
 
 ```python
 import os

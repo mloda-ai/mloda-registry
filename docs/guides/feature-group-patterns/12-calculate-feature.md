@@ -41,6 +41,8 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
+A secret is read here with `read_credential(handle)`, never from an option; a test opens the window with `credentials_scope` (see [Secrets](11-options.md#secrets)).
+
 ### A Feature Requested Directly and as an Input
 
 A feature requested directly and also as another requested feature's input reaches your group once: mloda merges the two copies at intake, so no per-group dedupe is needed. The exception is a consumer that pushes a context key down with `propagate_context_keys`: the copies then differ but would share one frame, so resolution rejects it up front with a `ValueError` naming the feature and the key. Remedies: give every request the same value, push the key with `cascade_context_keys` so the inputs split too, or make it a group option.

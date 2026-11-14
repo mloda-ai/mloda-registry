@@ -54,15 +54,116 @@ feature = Feature(
 )
 ```
 
-The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level. A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
+The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level; a credential handle key forwards only past a consumer that does not declare it (see [Secrets](#secrets)). A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
-A key that a consumer and its input both read is declared only on the group the user requests; the input reads the forwarded value from `feature.options`, and declaring it on both logs a warning.
+A key that a consumer and its input both read is declared only on the group the user requests; the input reads the forwarded value from `feature.options`, and declaring it on both logs a warning. A credential handle key is the exception: each group that reads it declares it, and the consumer sets it on the input itself (see [A Credential Handle the Input Reads Too](26-input-feature-forwarding.md#a-credential-handle-the-input-reads-too)).
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
 
 ## Secrets
 
-Never put a secret in options (they are hashed and shown in explain). Declare an option naming a credential handle with `credential_handle_spec`, register the `Credential` in the `DataAccessCollection`, and read it in `calculate_feature` with `read_credential`; test with `credentials_scope`. A handle is a public name, so never paste a secret in its place. Example: `AnonymizerFeatureGroup`; details in core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
+Never put a secret in options: they are hashed, locked and shown in `explain()`. The data user registers a `Credential` under a handle in the `DataAccessCollection`; the group declares an option naming that handle and reads the credential while it runs.
+
+- **Imports**: `credential_handle_spec`, `read_credential` and `credentials_scope` from `mloda.provider`; `Credential` and `DataAccessCollection` from `mloda.user`.
+- **A group option**: `credential_handle_spec` fixes the key to group options, since the handle picks what a step reads, so it splits steps and enters the plan lock. A handle placed in `context` is refused at plan time.
+- **A stable name**: the handle is part of feature identity, so keep it the same in every environment (name it by role, such as `signing-key`) and vary the `Credential` value. A handle is a public name; never paste a secret in its place.
+- **Fields**: `required_fields` are checked at plan time. A field that must print in errors, such as a path, goes in `public_fields`; `path`, `file` and `file_path` are already public.
+- **`str` values**: a bytes value is refused at plan time; store hex or base64 and decode it in the plugin.
+- **Normalizing**: core masks the exact registered value in errors and logs. A form the plugin derives (stripped, decoded) is not masked, so never echo it.
+- **Reading**: `read_credential(handle)` works inside `calculate_feature` (and an artifact saver) only; extenders take their key otherwise (see [Secrets for extenders](../11-create-extender.md#secrets)).
+- **Rotation**: `session.run(credentials={handle: Credential(...)})` replaces the value for one run; `prepare` already needs a credential with the required fields under every declared handle.
+- **Tests**: `credentials_scope({handle: {field: value}})` opens the read window around a direct `calculate_feature` call, but does not check that the group declares the handle, so keep one `run_all` test with `data_access_collection=` next to it.
+- **Forwarding**: a consumer that declares the same handle key sets it on its input explicitly (see [A Credential Handle the Input Reads Too](26-input-feature-forwarding.md#a-credential-handle-the-input-reads-too)).
+
+`CredentialExampleFeatureGroup` (`mloda-community-example`) signs one column with the `key` field of the credential its `signing_key_handle` option names:
+
+```python
+import hashlib
+import hmac
+from typing import Any, ClassVar
+
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    credential_handle_spec,
+    property_spec,
+    read_credential,
+)
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+
+class CredentialExampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+    """Signs the input column with HMAC-SHA256 using the 'key' field of a credential."""
+
+    KEY_HANDLE = "signing_key_handle"
+    PREFIX_PATTERN = r".+__hmac_signed$"
+    RECOGNITION_ONLY_PATTERN = True
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+
+    PROPERTY_MAPPING: ClassVar = {
+        KEY_HANDLE: credential_handle_spec("Credential handle whose 'key' field signs", required_fields=("key",)),
+        DefaultOptionKeys.in_features: property_spec("Column to sign"),
+    }
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[Any]]:
+        return {PythonDictFramework}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        for feature in features.features:
+            key = read_credential(feature.options.get(cls.KEY_HANDLE))["key"].encode()
+            source = cls._extract_single_source_feature(feature)
+            data[feature.name] = [
+                None if value is None else hmac.new(key, value.encode(), hashlib.sha256).hexdigest()
+                for value in data[source]
+            ]
+        return data
+```
+
+Test it directly under `credentials_scope` and once through `run_all`, which checks the declaration (the shipped group is loaded too, so enable only these groups):
+
+```python
+from mloda.provider import DataCreatorFeatureGroup, credentials_scope
+from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
+
+SIGNING_KEY = "example-signing-key"
+SIGNED = hmac.new(SIGNING_KEY.encode(), b"ada@example.com", hashlib.sha256).hexdigest()
+signed_email = Feature("email__hmac_signed", Options(group={"signing_key_handle": "signing-key"}))
+
+
+class Guide11Emails(DataCreatorFeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"email"}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"email": ["ada@example.com"]}
+
+
+def test_signs_under_credentials_scope() -> None:
+    features = FeatureSet()
+    features.add(signed_email)
+    with credentials_scope({"signing-key": {"key": SIGNING_KEY}}):
+        data = CredentialExampleFeatureGroup.calculate_feature({"email": ["ada@example.com", None]}, features)
+    assert data["email__hmac_signed"] == [SIGNED, None]
+
+
+def test_signs_in_run_all() -> None:
+    result = mloda.run_all(
+        [signed_email],
+        compute_frameworks=["PythonDictFramework"],
+        plugin_collector=PluginCollector.enabled_feature_groups({Guide11Emails, CredentialExampleFeatureGroup}),
+        data_access_collection=DataAccessCollection(credentials={"signing-key": Credential(key=SIGNING_KEY)}),
+    )
+    assert result.frame_for("email__hmac_signed")["email__hmac_signed"] == [SIGNED]
+```
+
+Core's [Declaring a credential handle](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#declaring-a-credential-handle) lists every plan-time refusal, and [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding) the read window and its limits.
 
 ## PROPERTY_MAPPING value space
 

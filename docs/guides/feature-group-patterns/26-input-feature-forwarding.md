@@ -10,11 +10,11 @@ When a feature group declares **another group's** feature in `input_features()`,
 
 ## The Default: Group Options Forward
 
-A consumer's **group** options flow onto every input feature by default, except keys the consumer declares `forward_to_inputs=False`. **Context** options never flow by default, for an explicit `Feature(...)` child and a bare-string child alike. `in_features` itself never flows.
+A consumer's **group** options flow onto every input feature by default, except keys the consumer declares `forward_to_inputs=False`, as every `credential_handle_spec` key is (see [A Credential Handle the Input Reads Too](#a-credential-handle-the-input-reads-too)). **Context** options never flow by default, for an explicit `Feature(...)` child and a bare-string child alike. `in_features` itself never flows.
 
 | Consumer option category | Flows to input features by default? | How to change it |
 |--------------------------|-------------------------------------|------------------|
-| `group` | Yes (all keys except those the consumer declares `forward_to_inputs=False`) | `forward_to_inputs=False` on the consumer's spec; `forward_group`, `forward_group_exclude` on the child |
+| `group` | Yes (all keys except those the consumer declares `forward_to_inputs=False`, including its own credential handle keys) | `forward_to_inputs=False` on the consumer's spec; `forward_group`, `forward_group_exclude` on the child |
 | `context` | No | `inherit_context_keys` (child pull) or `propagate_context_keys` (consumer push) |
 | `in_features` | Never | not configurable |
 
@@ -39,7 +39,7 @@ Set these on the `Feature(...)` you return from `input_features()`:
 
 | Directive | Effect |
 |-----------|--------|
-| `forward_group=None` (default) | Inherit **all** consumer group keys. Leave children here unless you have a reason not to. |
+| `forward_group=None` (default) | Inherit **all** consumer group keys, except those the consumer declares `forward_to_inputs=False` (its credential handle keys included). Leave children here unless you have a reason not to. |
 | `forward_group=True` | Same as the default. Do **not** stamp this on children: it destroys the `None` sentinel that tells "author said nothing" from "author made a choice". |
 | `forward_group=False` | Inherit **nothing**. Isolates the child from the consumer's group options. |
 | `forward_group={"a", "b"}` | Allowlist: inherit only these group keys. |
@@ -112,6 +112,63 @@ class LocalTopKConnector(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any: ...
+```
+
+### A Credential Handle the Input Reads Too
+
+A `credential_handle_spec` key is always `forward_to_inputs=False`. A consumer that does not declare it forwards it like any group key, so the input reads the handle. A consumer that declares it, because it reads the handle too, sets it on the child explicitly; without that, planning fails because the input's handle is not set. A `forward_group` allowlist also works but logs that both groups declare the key.
+
+```python
+import hashlib
+import hmac
+from typing import Any, ClassVar
+
+from mloda.community.feature_groups.example import CredentialExampleFeatureGroup
+from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet, credential_handle_spec, read_credential
+from mloda.user import Credential, DataAccessCollection, Feature, FeatureName, Options, PluginCollector, mloda
+
+KEY = CredentialExampleFeatureGroup.KEY_HANDLE
+
+
+class Guide26Emails(DataCreatorFeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"email"}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"email": ["ada@example.com"]}
+
+
+class SignatureCheck(FeatureGroup):
+    PROPERTY_MAPPING: ClassVar = {KEY: credential_handle_spec("Signing key handle", required_fields=("key",))}
+
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"signature_ok"}
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        # The declared handle does not forward: hand it to the input that reads it.
+        return {Feature("email"), Feature("email__hmac_signed", Options(group={KEY: options.get(KEY)}))}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        key = read_credential(features.get_options_key(KEY))["key"].encode()
+        expected = [hmac.new(key, value.encode(), hashlib.sha256).hexdigest() for value in data["email"]]
+        data["signature_ok"] = [a == b for a, b in zip(expected, data["email__hmac_signed"], strict=True)]
+        return data
+
+
+def test_consumer_hands_its_handle_to_the_input() -> None:
+    result = mloda.run_all(
+        [Feature("signature_ok", Options(group={KEY: "signing"}))],
+        compute_frameworks=["PythonDictFramework"],
+        plugin_collector=PluginCollector.enabled_feature_groups(
+            {Guide26Emails, CredentialExampleFeatureGroup, SignatureCheck}
+        ),
+        data_access_collection=DataAccessCollection(credentials={"signing": Credential(key="guide-26-signing-key")}),
+    )
+    assert result.frame_for("signature_ok")["signature_ok"] == [True]
 ```
 
 ## Conflicts Raise, Equal Values Are a No-Op
