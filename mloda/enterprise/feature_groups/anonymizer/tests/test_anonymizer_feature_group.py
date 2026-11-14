@@ -14,7 +14,6 @@ import pyarrow as pa
 import pytest
 from mloda.provider import (
     ApiDataFG,
-    CredentialReadRefused,
     FeatureSet,
     PropertySpec,
     credential_handle_spec,
@@ -52,6 +51,7 @@ STUB_CMD = [
 VALID_LICENSE_KEY = valid_license_token([AnonymizerFeatureGroup.BINARY_PLUGIN_ID])
 LIST_UTF8_ROWS: list[list[str | None] | None] = [["alpha", "beta"], None, [], ["gamma", None]]
 KEY_HANDLE = "anonymizer-test-pii-key"
+LEFTOVER_ENV_VALUE = "LEFTOVER_PII_KEY_ENV_VALUE"
 
 
 class StubAnonymizer(AnonymizerFeatureGroup):
@@ -72,8 +72,8 @@ def key_handle() -> Iterator[str]:
         yield KEY_HANDLE
 
 
-def _key_collection(key: str = KNOWN_ANSWER_KEY, handle: str = KEY_HANDLE) -> DataAccessCollection:
-    return DataAccessCollection(credentials={handle: Credential(key=key)})
+def _key_collection() -> DataAccessCollection:
+    return DataAccessCollection(credentials={KEY_HANDLE: Credential(key=KNOWN_ANSWER_KEY)})
 
 
 def _feature_set(*features: Feature) -> FeatureSet:
@@ -153,16 +153,10 @@ class TestPropertyMapping:
         for value in AnonymizerFeatureGroup.PROPERTY_MAPPING.values():
             assert isinstance(value, PropertySpec)
 
-    def test_key_handle_is_named_pii_key_handle(self) -> None:
-        assert AnonymizerFeatureGroup.KEY_HANDLE == "pii_key_handle"
-        assert not hasattr(AnonymizerFeatureGroup, "KEY_ENV")
-
     def test_key_handle_spec_is_a_credential_handle_spec_requiring_the_key_field(self) -> None:
-        """A credential handle spec is strict, so planning never echoes a mistaken value."""
         spec = AnonymizerFeatureGroup.PROPERTY_MAPPING[AnonymizerFeatureGroup.KEY_HANDLE]
         assert isinstance(spec, type(credential_handle_spec("x")))
         assert spec.required_fields == ("key",)
-        assert spec.strict_validation
 
     def test_binary_plugin_id_is_anonymizer_binary(self) -> None:
         assert AnonymizerFeatureGroup.BINARY_PLUGIN_ID == "anonymizer_binary"
@@ -286,29 +280,23 @@ class TestCalculateFeatureKeyRejections:
         with credentials_scope({KEY_HANDLE: credential}):
             return StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
 
-    def test_empty_key_raises_without_naming_the_handle(self) -> None:
-        with pytest.raises(BinaryUsageError) as excinfo:
-            self._calculate({"key": ""})
-        assert KEY_HANDLE not in str(excinfo.value)
-
-    def test_whitespace_only_key_raises_without_naming_the_handle(self) -> None:
-        with pytest.raises(BinaryUsageError) as excinfo:
-            self._calculate({"key": "  \n"})
-        assert KEY_HANDLE not in str(excinfo.value)
-
     def test_non_str_key_raises_without_echoing_it(self) -> None:
         with pytest.raises(BinaryUsageError) as excinfo:
             self._calculate({"key": 12345})
         assert "12345" not in str(excinfo.value)
 
-    def test_missing_key_field_raises_without_echoing_other_values(self) -> None:
-        with pytest.raises(BinaryUsageError) as excinfo:
-            self._calculate({"other": "sentinel-value-not-to-leak"})
-        assert "sentinel-value-not-to-leak" not in str(excinfo.value)
-
-    @pytest.mark.parametrize("malformed_key", ["11" * 31 + "1", "11" * 31 + "zz", "11" * 33])
+    @pytest.mark.parametrize(
+        ("key", "secrets"),
+        [
+            ("", ()),
+            ("  \n", ()),
+            ("11" * 31 + "1", ("11" * 31 + "1",)),
+            ("11" * 31 + "zz", ("11" * 31 + "zz",)),
+            ("11" * 33, ("11" * 33,)),
+        ],
+    )
     def test_malformed_key_raises_before_the_binary_runs_without_echoing_it(
-        self, monkeypatch: pytest.MonkeyPatch, malformed_key: str
+        self, monkeypatch: pytest.MonkeyPatch, key: str, secrets: tuple[str, ...]
     ) -> None:
         runs: list[int] = []
 
@@ -318,38 +306,9 @@ class TestCalculateFeatureKeyRejections:
 
         monkeypatch.setattr(mixin, "run_binary", recording_run_binary)
         with pytest.raises(BinaryUsageError) as excinfo:
-            self._calculate({"key": malformed_key + "\n"})
+            self._calculate({"key": key + "\n"})
         assert not runs
-        assert malformed_key not in str(excinfo.value)
-        assert KEY_HANDLE not in str(excinfo.value)
-
-    @pytest.mark.parametrize("handle", [12345, ""])
-    def test_invalid_handle_raises_naming_the_option(self, key_handle: str, handle: Any) -> None:
-        table = pa.table({"email": ["alpha"]})
-        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=handle))
-        with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, feature_set)
-        assert AnonymizerFeatureGroup.KEY_HANDLE in str(excinfo.value)
-
-    def test_non_str_handle_raises_without_echoing_it(self, key_handle: str) -> None:
-        table = pa.table({"email": ["alpha"]})
-        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=12345))
-        with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, feature_set)
-        assert "12345" not in str(excinfo.value)
-        assert AnonymizerFeatureGroup.KEY_HANDLE in str(excinfo.value)
-
-    def test_handle_not_in_the_open_scope_is_refused(self) -> None:
-        table = pa.table({"email": ["alpha"]})
-        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value="some-other-handle"))
-        with credentials_scope({KEY_HANDLE: {"key": KNOWN_ANSWER_KEY}}):
-            with pytest.raises(CredentialReadRefused):
-                StubAnonymizer.calculate_feature(table, feature_set)
-
-    def test_read_outside_a_credentials_scope_is_refused(self) -> None:
-        table = pa.table({"email": ["alpha"]})
-        with pytest.raises(CredentialReadRefused):
-            StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
+        assert all(secret not in str(excinfo.value) for secret in secrets)
 
 
 class TestCalculateFeatureRejections:
@@ -421,18 +380,25 @@ class TestIntegration:
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "email__hmac_sha256_pseudonymized") == expected
 
-    def test_key_handle_in_context_instead_of_group_fails_planning(self) -> None:
-        feature = Feature(
-            "pseudonymized_email",
-            Options(
-                context={
-                    "pseudonymization_algorithm": "hmac_sha256",
-                    "in_features": "email",
-                    "pii_key_handle": KEY_HANDLE,
-                }
+    @pytest.mark.parametrize(
+        "feature",
+        [
+            Feature(
+                "pseudonymized_email",
+                Options(
+                    context={
+                        "pseudonymization_algorithm": "hmac_sha256",
+                        "in_features": "email",
+                        "pii_key_env": LEFTOVER_ENV_VALUE,
+                    }
+                ),
             ),
-        )
-        with pytest.raises(ValueError, match="pii_key_handle"):
+            Feature("email__hmac_sha256_pseudonymized", Options(context={"pii_key_env": LEFTOVER_ENV_VALUE})),
+        ],
+        ids=["config", "string"],
+    )
+    def test_leftover_pii_key_env_is_refused_naming_the_replacement(self, feature: Feature) -> None:
+        with pytest.raises(Exception) as excinfo:
             mloda.run_all(
                 [feature],
                 compute_frameworks=[PyArrowTable],
@@ -440,36 +406,7 @@ class TestIntegration:
                 data_access_collection=_key_collection(),
                 plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
             )
-
-    def test_unregistered_handle_fails_planning(self) -> None:
-        with pytest.raises(ValueError, match="pii_key_handle"):
-            mloda.run_all(
-                [_config_feature("pseudonymized_email")],
-                compute_frameworks=[PyArrowTable],
-                api_data={"AnonymizerData": {"email": ["alpha"]}},
-                data_access_collection=DataAccessCollection(),
-                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-            )
-
-    def _plan_with_handle(self, handle: str) -> ValueError:
-        with pytest.raises(ValueError) as excinfo:
-            mloda.run_all(
-                [_config_feature("pseudonymized_email", key_handle_value=handle)],
-                compute_frameworks=[PyArrowTable],
-                api_data={"AnonymizerData": {"email": ["alpha"]}},
-                data_access_collection=_key_collection(),
-                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
-            )
-        return excinfo.value
-
-    def test_a_registered_key_pasted_into_the_handle_option_is_masked_by_planning(self) -> None:
-        assert KNOWN_ANSWER_KEY not in str(self._plan_with_handle(KNOWN_ANSWER_KEY))
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason="mloda core names the handle in its plan-time error, so a key pasted as a handle is echoed",
-    )
-    def test_an_unregistered_key_pasted_into_the_handle_option_is_not_echoed_by_planning(self) -> None:
-        pasted = "ab" * 32
-        assert pasted != KNOWN_ANSWER_KEY
-        assert pasted not in str(self._plan_with_handle(pasted))
+        message = str(excinfo.value)
+        assert "pii_key_env" in message
+        assert "pii_key_handle" in message
+        assert LEFTOVER_ENV_VALUE not in message

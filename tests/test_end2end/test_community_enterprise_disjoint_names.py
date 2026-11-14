@@ -32,7 +32,6 @@ from tests.test_end2end.test_entry_points import _plugin_packages
 _FEATURE_GROUPS = "mloda.feature_groups"
 _COMMUNITY = "mloda/community/"
 _ENTERPRISE = "mloda/enterprise/"
-_STRING_CONTEXT: dict[str, Any] = dict(PERMISSIVE_OPTIONS.context)
 _KEY_HANDLE_GROUP: dict[str, Any] = {"pii_key_handle": "some-handle"}
 
 
@@ -47,7 +46,7 @@ class Example:
 
 
 def _string_options() -> Options:
-    return Options(group=dict(_KEY_HANDLE_GROUP), context=dict(_STRING_CONTEXT))
+    return Options(group=dict(_KEY_HANDLE_GROUP), context=dict(PERMISSIVE_OPTIONS.context))
 
 
 def _enterprise_examples() -> list[Example]:

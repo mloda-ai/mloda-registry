@@ -263,7 +263,7 @@ The full expired/in-grace/valid license state machine is covered against the rea
 | `pii_key_handle` | Credential handle whose `key` field holds the key (64 hex characters); a group option |
 | `in_features` | The single source column |
 
-The key never goes into Options, which mloda hashes and echoes: register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. `pii_key_handle` replaces the former `pii_key_env`. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
+Register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
 ```python
 feature = Feature(
