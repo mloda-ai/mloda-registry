@@ -17,9 +17,9 @@ EXTENDERS: list[type[Extender]]
 
 _mismatch = mismatch_message()
 
-# Guarded here, not by a mloda.optional_dependencies marker: PluginLoader re-raises a missing module whose root
-# equals the entry point's own root (mloda), so an unguarded import would break every enterprise install
-# without the openlineage extra.
+# Guarded here, not by a mloda.optional_dependencies marker: the mloda-enterprise bundle ships this leaf, so a
+# bare install lacks the openlineage extra by design, and a marker skip would log a WARNING in every process.
+# The guard keeps it at DEBUG with the install hint, like the anonymizer manifest.
 if _mismatch is not None:
     logger.warning("%s", _mismatch)
     EXTENDERS = []
