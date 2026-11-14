@@ -69,11 +69,14 @@ Three rules keep it predictable:
 ## The chain
 
 ```
-gdpdu_journal            GdpduReader / DatevExtfReader                    rows (or legs)
-gdpdu_journal__admitted  your AdmissibilityPolicyGroup subclass           rows, cleared + stamped
-revenue, receivables     SkrAccountFeatureGroup                           concept at line grain
-revenue__sources         SourcesFeatureGroup                              total + citations
+ledger_journal            GdpduReader / DatevExtfReader                   rows (or legs)
+ledger_journal__admitted  your AdmissibilityPolicyGroup subclass          rows, cleared + stamped
+revenue, receivables      SkrAccountFeatureGroup                          concept at line grain
+revenue__sources          SourcesFeatureGroup                             total + citations
 ```
+
+Both formats write one `ledger_journal` dataset, told apart by the reader's data-access
+identity (`datev:` / `gdpdu:`).
 
 A single part such as `revenue__sources~value` can be requested and returns only that
 column. The total is still computed and checked whole, so every refusal still applies.
@@ -134,8 +137,9 @@ This package declares:
 | `AdmissibilityPolicyGroup` (policy step) | `policy.verdict` | the policy's affirmative stamp (the verdict a cited total's rows carry, rule parameters included), not this run's outcome |
 | `SkrAccountFeatureGroup` (concept step) | `chart`, `catalogue`, `catalogue.fingerprint` | the chart (SKR03/SKR04), the catalogue's name, and a fingerprint over the whole catalogue in force |
 
-The selected profile (which columns were read as account and amount) and the sign convention
-depend on the data, so they live in `~basis`, a JSON string on the concept's rows. The total
+The selected profile (which columns were read as account and amount), the sign convention and
+the chart source (`books` when every row states its chart, else `host`) depend on the data,
+so they live in `~basis`, a JSON string on the concept's rows. The total
 carries it as `<concept>~basis` beside `~value` and `~origins`, or null when its rows carry
 none. Rows computed under two bases are refused: one total has one basis.
 
@@ -150,9 +154,9 @@ Pinning one reader by option key also resolves a single folder that holds both f
   no `mlodaDeclared` facet; its OTel span and audit record (status `error`) still carry the
   declared stamp, which is not the run's outcome.
 - **Result attributes:** once all totals of a step are built, each total's profile, sign,
-  catalogue and catalogue fingerprint are published as
-  `<concept>__sources.profile|sign|catalogue|catalogue.fingerprint` (OTel `mloda.result.<key>`);
-  a refused step publishes none, and the `~basis` column stays authoritative.
+  chart source, catalogue and catalogue fingerprint are published as
+  `<concept>__sources.profile|sign|chart.source|catalogue|catalogue.fingerprint`
+  (OTel `mloda.result.<key>`); a refused step publishes none, and the `~basis` column stays authoritative.
 - **Classification:** both readers declare `mloda.data.classification = confidential`, so an
   audit `ClassificationPolicy` needs clearance `confidential` or above; a gate below it is
   refused. `exempt_readers` skips only the plan-time probe, not the run-start check. Raising the
@@ -190,8 +194,8 @@ A folder holding both formats is refused, not resolved to one of them.
   4000–4499, receivables 1200–1249. `SKR03_2025`: revenue 8000–8499, receivables 1400–1449.
   The host names its chart once (`SkrAccountFeatureGroup.CHART = "03"`, default `"04"`). A
   DATEV header that states a different SKR is refused (`ChartConflict`). An empty header
-  leaves the host's chart as the only word, so a host must state it: under the wrong chart,
-  SKR03 Bank 1200 counts as SKR04 receivables.
+  leaves the host's chart as the only word (`chart_source: host` in `~basis`), so a host must
+  state it: under the wrong chart, SKR03 Bank 1200 counts as SKR04 receivables.
 - **Gross DATEV revenue:** a revenue leg on an automatic account, or with any BU key other
   than 40, includes VAT. The automatic accounts are those Odoo's `l10n_de` templates give a
   taxable default (SKR03 8196, 8300, 8310, 8315, 8400, 8410; SKR04 4186, 4200, 4300, 4310,

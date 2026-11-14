@@ -184,6 +184,7 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if doc.get("profile") is not None
             else None,
             "sign": doc.get("sign"),
+            "chart.source": doc.get("chart_source"),
             "catalogue": catalogue.get("name") if isinstance(catalogue, dict) else None,
             "catalogue.fingerprint": catalogue.get("fingerprint") if isinstance(catalogue, dict) else None,
         }

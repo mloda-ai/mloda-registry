@@ -15,7 +15,7 @@ isolated.composite_datev.
 
 import json
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -101,6 +101,19 @@ def _values(mapped: pa.Table, name: str) -> list[tuple[object, object]]:
     return [(v, o) for v, o in pairs if o is not None]
 
 
+def _journal(skr_column: list[str] | None, n: int = 2) -> pa.Table:
+    """A DATEV-shaped journal of n 4400 legs whose SKR column holds the given values (None: no column)."""
+    columns: dict[str, Any] = {
+        "Konto": ["4400"] * n,
+        "Betrag": pa.array([Decimal("100.00")] * n, type=pa.decimal128(38, 2)),
+        "BU-Schlüssel": [""] * n,
+        "__origin": [f"EXTF_x.csv@abc:{i}/G" for i in range(n)],
+    }
+    if skr_column is not None:
+        columns["SKR"] = skr_column
+    return pa.table(columns)
+
+
 def _basis(concept: str) -> dict[str, Any]:
     mapped = SkrAccountFeatureGroup._map_accounts(
         GdpduReader.load_data(str(DOSSIER_A), FeatureSet()), _features(concept)
@@ -117,6 +130,7 @@ def test_a_concept_states_the_basis_it_was_computed_on() -> None:
     basis = _basis("revenue")
     assert basis["profile"] == {"account_column": "Konto", "amount_column": "Betrag", "sign": None}
     assert basis["chart"] == "SKR04"
+    assert basis["chart_source"] == "host"
     assert basis["catalogue"]["name"] == "SKR04_2025"
     assert basis["catalogue"]["accounts"] == [[4000, 4499]]
     assert basis["sign"] == "as-declared"
@@ -211,6 +225,24 @@ def test_a_header_chart_that_agrees_with_the_host_is_read(chart: None, tmp_path:
     SkrAccountFeatureGroup.CHART = "03"
     mapped = SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
     assert _values(mapped, "receivables") == []
+    assert json.loads(mapped.column("receivables~basis")[0].as_py())["chart_source"] == "books"
+
+
+@pytest.mark.parametrize(
+    ("make", "source"),
+    [
+        (lambda _: _journal(["03", "03"]), "books"),
+        (_ledermann, "host"),
+        (lambda _: _journal(["03", ""]), "host"),
+        (lambda _: _journal(None), "host"),
+        (lambda _: _journal([], n=0), "host"),
+    ],
+    ids=["stated", "empty header", "mixed rows", "no SKR column", "no rows"],
+)
+def test_the_books_are_the_chart_source_only_when_every_row_states_it(
+    make: Callable[[Path], pa.Table], source: str, tmp_path: Path
+) -> None:
+    assert skr._chart_source(make(tmp_path)) == source
 
 
 # --- Sachkontenlänge -----------------------------------------------------------------------------

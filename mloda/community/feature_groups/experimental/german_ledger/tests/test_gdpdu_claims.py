@@ -87,7 +87,7 @@ def test_collision_gate() -> None:
     def claimed(name: str) -> Any:
         return claim([FIX / "dossier_a"], name, {JournalFeatureGroup}).feature_group
 
-    assert claimed("gdpdu_journal") is JournalFeatureGroup
+    assert claimed("ledger_journal") is JournalFeatureGroup
     assert claimed("revenue__sources") is None
 
     facts = run_isolated("collision")
@@ -124,7 +124,7 @@ def test_no_ledger_source_names_each_readers_rejection(
         with pytest.raises(FeatureResolutionError) as exc:
             _run(Path(tmp), [Feature("revenue", options)], PLUGINS)
     message = str(exc.value)
-    assert "'gdpdu_journal'" in message, message
+    assert "'ledger_journal'" in message, message
     assert gdpdu_reason in message, message
     assert datev_reason in message, message
 
@@ -141,7 +141,7 @@ def test_plugin_loader_all() -> None:
     assert facts["unscoped"] == columns, facts
     assert facts["csv_revenue"] == [100, 250], facts
     assert facts["csv_cost_sources"] == [40, 90], facts
-    no_groups = "FeatureResolutionError: No feature groups found for feature name: 'gdpdu_journal'"
+    no_groups = "FeatureResolutionError: No feature groups found for feature name: 'ledger_journal'"
     assert str(facts["csv_sources"]).startswith(no_groups), facts
     assert "no GDPdU dossier" in str(facts["csv_sources"]), facts
 
@@ -279,6 +279,7 @@ def _published_by(rows: pa.Table) -> dict[str, Any] | None:
 _FULL_BASIS = {
     "profile": {"b": 2, "a": [1, 2]},
     "sign": "credit_positive",
+    "chart_source": "host",
     "catalogue": {"name": "SKR04_2025", "fingerprint": "0123456789ab"},
 }
 
@@ -288,6 +289,7 @@ def test_the_total_publishes_the_basis_as_result_attributes() -> None:
     assert _published_by(_stamped_rows(basis, basis)) == {
         "revenue__sources.profile": '{"a":[1,2],"b":2}',
         "revenue__sources.sign": "credit_positive",
+        "revenue__sources.chart.source": "host",
         "revenue__sources.catalogue": "SKR04_2025",
         "revenue__sources.catalogue.fingerprint": "0123456789ab",
     }
@@ -361,6 +363,7 @@ def test_the_published_attributes_equal_the_basis_column_on_a_run() -> None:
         {
             "revenue__sources.profile": json.dumps(basis["profile"], sort_keys=True, separators=(",", ":")),
             "revenue__sources.sign": basis["sign"],
+            "revenue__sources.chart.source": basis["chart_source"],
             "revenue__sources.catalogue": basis["catalogue"]["name"],
             "revenue__sources.catalogue.fingerprint": basis["catalogue"]["fingerprint"],
         }
@@ -1096,7 +1099,7 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
     # InadmissibleTotal backstop catches the concept wired past the policy.
     assert facts["without_policy"].startswith("FeatureResolutionError: "), facts
     assert facts["bypass"].startswith("InadmissibleTotal: "), facts
-    assert "No feature groups found for feature name: 'gdpdu_journal__admitted'" in facts["without_policy"], facts
+    assert "No feature groups found for feature name: 'ledger_journal__admitted'" in facts["without_policy"], facts
     assert facts["two_policies"].startswith("FeatureResolutionError: Multiple feature groups found"), facts
     assert "Closing2025Again" in facts["two_policies"], facts
     assert "TestClosing2025" in facts["two_policies"], facts

@@ -3,11 +3,11 @@
 Core discards an extender's return value, so a policy cannot stamp rows from `INPUT_DATA_LOAD`.
 The verdict is a feature in its own right instead:
 
-    gdpdu_journal            GdpduReader             the dossier's rows, every declared column
-                             DatevExtfReader         or a DATEV folder's legs
-    gdpdu_journal__admitted  <host policy subclass>  the same rows, cleared and stamped
-    revenue, receivables     SkrAccountFeatureGroup  concepts at line grain, stamp carried
-    revenue__sources         SourcesFeatureGroup     totals only affirmatively stamped rows
+    ledger_journal            GdpduReader             the dossier's rows, every declared column
+                              DatevExtfReader         or a DATEV folder's legs
+    ledger_journal__admitted  <host policy subclass>  the same rows, cleared and stamped
+    revenue, receivables      SkrAccountFeatureGroup  concepts at line grain, stamp carried
+    revenue__sources          SourcesFeatureGroup     totals only affirmatively stamped rows
 
 The policy is a step in the resolution graph, so it is visible in `RunResult.plan`, and
 removing it is a resolution failure rather than an unvetted total. Only one policy group can
@@ -399,11 +399,11 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
 
 
 class AdmissibilityPolicyGroup(FeatureGroup):
-    """`gdpdu_journal__admitted`: the journal's rows, cleared by the host's admissibility rules.
+    """`ledger_journal__admitted`: the journal's rows, cleared by the host's admissibility rules.
 
     Inert until a host subclass configures it -- the base matches nothing, so importing this
     module admits nothing. Exactly one configured subclass may be live in a process: none
-    leaves `gdpdu_journal__admitted` unresolvable, and two are refused by resolution as
+    leaves `ledger_journal__admitted` unresolvable, and two are refused by resolution as
     "Multiple feature groups found". Either way there is no number. A host that needs several
     checks lists them in RULES; they run in this one step and write one combined stamp:
 

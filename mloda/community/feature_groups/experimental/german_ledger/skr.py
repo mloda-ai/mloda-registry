@@ -166,6 +166,13 @@ class GrossRevenueRefused(Exception):
     """A revenue leg whose booked amount includes VAT, with no declared net derivation."""
 
 
+def _chart_source(table: pa.Table) -> str:
+    """Return "books" when the journal has rows and every row states its chart, else "host"."""
+    if "SKR" not in table.column_names or table.num_rows == 0:
+        return "host"
+    return "books" if all(table.column("SKR").to_pylist()) else "host"
+
+
 def _chart(host: str, table: pa.Table) -> dict[str, range]:
     """The host's chart, checked against whatever the books say about themselves.
 
@@ -235,7 +242,7 @@ def _fingerprint(chart: str) -> str:
     return hashlib.sha256(json.dumps(whole, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> str:
+def _basis(concept: str, chart: str, chart_source: str, profile: LedgerProfile, signed: bool) -> str:
     """What a concept's values were computed on, as one JSON document riding with the rows."""
     catalogue = CHARTS[chart]
     accounts = catalogue[concept]
@@ -244,6 +251,7 @@ def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> st
             "concept": concept,
             "profile": asdict(profile),
             "chart": f"SKR{chart}",
+            "chart_source": chart_source,
             "catalogue": {
                 "name": CATALOGUE_NAMES[chart],
                 "fingerprint": _fingerprint(chart),
@@ -261,7 +269,7 @@ PARTS = ("value", "origins", "basis")
 class SkrAccountFeatureGroup(FeatureGroup):
     """Maps SKR accounts onto concepts, over the ADMITTED journal only.
 
-    Its one input is `gdpdu_journal__admitted`, so a concept cannot be computed from rows
+    Its one input is `ledger_journal__admitted`, so a concept cannot be computed from rows
     no policy has seen: with no policy configured the input does not resolve.
 
     Each concept returns three columns at row-preserving line grain -- ``name~value``,
@@ -334,6 +342,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
         declared = set(table.column_names)
         profile = select_profile(cls.PROFILES, declared)
 
+        chart_source = _chart_source(table)
         catalogue = _chart(cls.CHART, table)
         _refuse_long_sachkonten(table, profile)
 
@@ -398,7 +407,9 @@ class SkrAccountFeatureGroup(FeatureGroup):
             # The basis rides at line grain like the stamp, so nothing between here and the
             # total can drop the definition while keeping the numbers it defined.
             signed = SOLL_POSITIVE in conventions
-            out[f"{name}~basis"] = pa.array([_basis(str(name), cls.CHART, profile, signed)] * n, type=pa.string())
+            out[f"{name}~basis"] = pa.array(
+                [_basis(str(name), cls.CHART, chart_source, profile, signed)] * n, type=pa.string()
+            )
 
         # The evidence rides along at the same grain. Dropping it here would let a total be
         # computed from rows whose admissibility nobody established -- the transform must not
