@@ -1125,6 +1125,20 @@ def _external_extra_entries(
     return [(bundle, extra, list(names), list(binaries)) for bundle, extra, names, binaries in entries]
 
 
+def _external_verification_jobs(
+    entries: list[tuple[str, str, list[str], list[str]]],
+    packages: dict[str, dict[str, Any]],
+    version: str,
+    surface: Callable[[str], tuple[str, ...]],
+    **kwargs: Any,
+) -> list[tuple[str, tuple[str, ...], list[str], list[str]]]:
+    """The (specifier, owner modules, names, binaries) install jobs verify_extras derives from external entries."""
+    jobs = _script_fn(
+        _EXTRAS_SCRIPT, "external_verification_jobs", "derive the third-party extra install jobs with extra imports"
+    )(entries, packages, version, surface, **kwargs)
+    return [(spec, tuple(owners), list(names), list(binaries)) for spec, owners, names, binaries in jobs]
+
+
 def _external_extra_probe(distributions: list[str], binary_distributions: list[str]) -> str:
     """The probe program source verify_extras runs in the venv of an external-extra install."""
     source: str = _script_fn(
@@ -1217,6 +1231,61 @@ def test_external_bundle_extras_yields_exactly_the_third_party_bundle_extras() -
         ("mloda-enterprise", "anonymizer", ["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"]),
     ]
     assert entries == expected, f"external_bundle_extras() yielded {entries!r}, expected exactly {expected!r}"
+
+
+_LICENSE_TOKEN_MODULE = "mloda.enterprise.licensing.license_token"  # nosec B105
+
+
+def _stub_surface(path: str) -> tuple[str, ...]:
+    """A stand-in for the bundle surface: the package path as a dotted module."""
+    return (path.replace("/", "."),)
+
+
+def test_external_verification_jobs_import_the_license_token_only_in_the_ed25519_job() -> None:
+    """Only the mloda-enterprise[ed25519] job imports the license token module, after the bundle surface."""
+    packages = _packages()
+    entries = _external_extra_entries(packages)
+    jobs = _external_verification_jobs(entries, packages, "9.9.9", _stub_surface)
+
+    assert [(spec, names, binaries) for spec, _owners, names, binaries in jobs] == [
+        (f"{bundle}[{extra}]==9.9.9", names, binaries) for bundle, extra, names, binaries in entries
+    ], "the jobs must match the external entries one to one"
+    owners_by_spec = {spec: owners for spec, owners, _names, _binaries in jobs}
+    surface = _stub_surface(str(packages["mloda-enterprise"]["path"]))
+    assert owners_by_spec["mloda-enterprise[ed25519]==9.9.9"] == (*surface, _LICENSE_TOKEN_MODULE)
+    others = {spec: owners for spec, owners in owners_by_spec.items() if spec != "mloda-enterprise[ed25519]==9.9.9"}
+    assert others, "expected other external jobs"
+    assert all(_LICENSE_TOKEN_MODULE not in owners for owners in others.values()), others
+
+    extra_only: dict[tuple[str, str], tuple[str, ...]] = load_script(
+        _EXTRAS_SCRIPT.stem, _EXTRAS_SCRIPT
+    ).EXTRA_ONLY_IMPORTS
+    external = {(bundle, extra) for bundle, extra, _names, _binaries in entries}
+    stale = sorted(set(extra_only) - external)
+    assert not stale, (
+        f"EXTRA_ONLY_IMPORTS keys {stale} are not external (bundle, extra) entries, so they verify nothing"
+    )
+    for (bundle, extra), modules in extra_only.items():
+        prefix = str(packages[bundle]["path"]).replace("/", ".") + "."
+        for module in modules:
+            assert module.startswith(prefix), f"{module} ({bundle}[{extra}]) must live under {prefix}"
+            base = _REPO_ROOT / module.replace(".", "/")
+            assert base.with_suffix(".py").is_file() or (base / "__init__.py").is_file(), (
+                f"{module} ({bundle}[{extra}]) resolves to no file in the checkout; was it renamed?"
+            )
+
+
+def test_external_verification_jobs_append_extra_imports_only_to_the_matching_job() -> None:
+    """An explicit extra_imports entry is appended after the surface modules of its (bundle, extra) job only."""
+    packages: dict[str, dict[str, Any]] = {"sb": {"path": "sb/path"}}
+    entries = [("sb", "one", ["a"], []), ("sb", "two", ["b"], ["b"])]
+    jobs = _external_verification_jobs(
+        entries, packages, "1.0", _stub_surface, extra_imports={("sb", "two"): ("sb.extra_mod",)}
+    )
+    assert jobs == [
+        ("sb[one]==1.0", ("sb.path",), ["a"], []),
+        ("sb[two]==1.0", ("sb.path", "sb.extra_mod"), ["b"], ["b"]),
+    ]
 
 
 def test_external_bundle_extras_synthetic_config_applies_every_rule() -> None:

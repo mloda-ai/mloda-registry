@@ -37,6 +37,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # The dev extra is tooling, never shipped code.
 DEV_EXTRA = "dev"
 
+# Modules only the extra makes importable; no configured package path or entry point reaches them.
+EXTRA_ONLY_IMPORTS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("mloda-enterprise", "ed25519"): ("mloda.enterprise.licensing.license_token",)
+}
+
 # Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
     "load_sibling"
@@ -179,6 +184,25 @@ def verification_jobs(
     return jobs
 
 
+def external_verification_jobs(
+    external_entries: list[tuple[str, str, list[str], list[str]]],
+    packages: dict[str, dict[str, Any]],
+    version: str,
+    surface: Callable[[str], tuple[str, ...]],
+    extra_imports: dict[tuple[str, str], tuple[str, ...]] = EXTRA_ONLY_IMPORTS,
+) -> list[tuple[str, tuple[str, ...], list[str], list[str]]]:
+    """(specifier, imports, names, binaries) jobs per external entry, adding the extra's own imports."""
+    return [
+        (
+            f"{bundle}[{extra}]=={version}",
+            surface(str(packages[bundle]["path"])) + extra_imports.get((bundle, extra), ()),
+            names,
+            binaries,
+        )
+        for bundle, extra, names, binaries in external_entries
+    ]
+
+
 _verify_common = _load_sibling("verify_common")
 install: Callable[[list[str], str], str | None] = _verify_common.install
 venv_dir: Callable[[str], Path] = _verify_common.venv_dir
@@ -306,10 +330,7 @@ def main() -> int:
     max_workers: int = _load_sibling("verify_independent_installs").MAX_WORKERS
 
     jobs = verification_jobs(entries, args.version)
-    external_jobs = [
-        (f"{bundle}[{extra}]=={args.version}", surface(str(packages[bundle]["path"])), names, binaries)
-        for bundle, extra, names, binaries in external_entries
-    ]
+    external_jobs = external_verification_jobs(external_entries, packages, args.version, surface)
     workers = min(len(jobs) + len(external_jobs), max_workers)
     print(f"\nInstalling {len(jobs) + len(external_jobs)} jobs at {args.version}, {workers} at a time...")
 
