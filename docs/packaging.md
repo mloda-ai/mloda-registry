@@ -36,7 +36,8 @@ uv-ecosystem updates for the same reason: its floor moves through
 
 Single source for values every package shares. `core_dependency` is substituted
 into any `{core_dependency}` placeholder in `packages.toml`, so the mloda floor
-is declared once. The `[build-system]` setuptools floor tracks the PEP 639 SPDX
+is declared once; moving it must release a minor (see
+[Following a core minor](releasing.md#following-a-core-minor)). The `[build-system]` setuptools floor tracks the PEP 639 SPDX
 `license` string the generator emits (accepted only from setuptools 77.0.1 on),
 so it cannot be lowered without changing that form. The root `pyproject.toml`
 keeps its own, higher, independent setuptools floor: it is the dev-only
@@ -110,7 +111,7 @@ leaves the lineage extender unregistered and makes importing it raise ImportErro
 change ships as a `minor:` commit; any other type (`fix:`, `feat:`, `refactor:`, even with a `!` breaking
 marker) is a patch release, which `~=` admits. A PR that changes the seam tables in
 `mloda/testing/extenders/openlineage.py` needs a `minor:` title and commit, checked by
-`scripts/check_seam_release_type.py`.
+`scripts/check_minor_release_type.py`.
 
 Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders-shared>={version}"`
 because its runtime code uses only public names from it and subclasses none of its classes

@@ -120,6 +120,21 @@ Conventional commits determine the bump. This project deviates from the standard
 only `minor:` bumps the minor version, everything else (`feat:`, `fix:`, `docs:`,
 `chore:`, `ci:`) is a patch. See `.releaserc.yaml`.
 
+## Following a core minor
+
+When a new mloda minor reaches PyPI, the registry releases against it:
+
+1. Move both bounds of `core_dependency` in `config/shared.toml`.
+2. Run `python scripts/generate_pyproject.py`.
+3. Relock `uv.lock` (see [Add a test-only dependency](packaging.md#add-a-test-only-dependency)).
+4. Merge with a `minor:` PR title and commit.
+
+Enforced by:
+
+- commit-lint fails a `core_dependency` change not typed `minor:` (title and a commit).
+- The lock test fails when the locked mloda is outside `core_dependency`.
+- `core-minor-watch.yaml` checks PyPI daily and opens one issue per core minor above the cap.
+
 ## Required secrets
 
 | Secret | Purpose |
@@ -143,3 +158,4 @@ packages share one out-dir and prefix siblings (`mloda-community` vs
 - `.github/workflows/release.yaml` - release workflow
 - `.github/workflows/verify-published.yaml` - weekly post-release verification
 - `.github/workflows/commit-lint.yaml` - gates PRs on Conventional Commits, protects commit-analyzer's input
+- `.github/workflows/core-minor-watch.yaml` - daily check of PyPI mloda against the `core_dependency` cap

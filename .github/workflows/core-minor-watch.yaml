@@ -1,0 +1,37 @@
+name: Core Minor Watch
+
+# Opens one issue per mloda minor on PyPI at or above the core_dependency cap (config/shared.toml).
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare PyPI mloda with the core_dependency cap
+        id: check
+        run: python3 scripts/check_core_minor.py
+      - name: Open an issue for the new core minor
+        if: steps.check.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          minor=$(cut -d. -f1,2 <<< "$VERSION")
+          export TITLE="mloda $minor is on PyPI: release the registry against it"
+          existing=$(gh issue list --state all --search "$TITLE in:title" --json title --jq '[.[] | select(.title == env.TITLE)] | length')
+          if [ "$existing" != "0" ]; then
+            echo "Issue already exists: $TITLE"
+            exit 0
+          fi
+          current=$(python3 -c 'import tomllib; print(tomllib.load(open("config/shared.toml", "rb"))["defaults"]["core_dependency"])')
+          gh issue create --title "$TITLE" --label enhancement --body "mloda $VERSION is on PyPI, at or above the cap of the current \`core_dependency\` (\`$current\`). Follow it: see docs/releasing.md#following-a-core-minor."

@@ -18,6 +18,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from packaging.requirements import Requirement
+from packaging.version import Version
+
 from tests.script_loader import load_script
 from tests.toml_loader import load_toml
 
@@ -25,6 +28,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
+_UV_LOCK = _REPO_ROOT / "uv.lock"
 
 # A pinned mloda-core specifier: the package name ``mloda`` (not ``mloda-...``)
 # followed by a floor version constraint.
@@ -113,3 +117,16 @@ def test_generated_pyprojects_use_core_dependency() -> None:
             )
 
     assert checked_core > 0, "Expected at least one generated pyproject.toml to depend on mloda-core."
+
+
+def test_locked_mloda_satisfies_core_dependency() -> None:
+    """Every mloda version in uv.lock satisfies the shared core_dependency specifier."""
+    core = _core_dependency()
+    specifier = Requirement(core).specifier
+    locked = [p["version"] for p in load_toml(_UV_LOCK).get("package", []) if p.get("name") == "mloda"]
+    assert locked, "uv.lock has no [[package]] named 'mloda'."
+    outside = [v for v in locked if Version(v) not in specifier]
+    assert outside == [], (
+        f"uv.lock pins mloda {outside!r}, outside core_dependency {core!r}. Regenerate with "
+        '`python scripts/generate_pyproject.py`, then relock with `uv tool run --from "uv==0.13.5" uv lock`.'
+    )
