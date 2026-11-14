@@ -104,7 +104,7 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
         )
         if isinstance(value, str) and value != value.strip():
             raise BinaryUsageError(
-                f"{prefix}, but it has leading or trailing whitespace: strip it before registering the Credential"
+                f"{prefix}, without leading or trailing whitespace; strip it before registering the Credential"
             )
         if not isinstance(value, str) or not _KEY_PATTERN.fullmatch(value):
             raise BinaryUsageError(prefix)
