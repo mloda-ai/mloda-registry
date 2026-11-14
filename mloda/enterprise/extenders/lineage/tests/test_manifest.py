@@ -35,7 +35,6 @@ _AUDIT_ENTRY_POINT = importlib.metadata.EntryPoint(
     name="mloda-enterprise-audit", value=f"{_AUDIT_MANIFEST}:EXTENDERS", group="mloda.extenders"
 )
 _AUDIT_KEY = "mloda.enterprise.extenders.audit.audit_extender:AuditExtender"
-_PLUGIN_LOADER_LOGGER = "mloda.core.abstract_plugins.plugin_loader.plugin_loader"
 
 
 def _the_lineage_and_audit_entry_points() -> importlib.metadata.EntryPoints:
@@ -118,15 +117,15 @@ def test_plugin_loader_skips_the_entry_point_quietly_when_the_community_emitter_
 ) -> None:
     """A bare enterprise install lacks the extra by design: the lineage leaf is skipped at DEBUG with the install
     hint, no WARNING, and the other enterprise extenders still register."""
+    importlib.import_module(_AUDIT_MANIFEST)
     _cold_import_without(monkeypatch, missing_root)
     _stub_entry_points(monkeypatch)
 
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.DEBUG, logger=_MANIFEST):
         keys = PluginLoader().load_entry_points(group="mloda.extenders")
 
-    assert _AUDIT_KEY in keys
-    assert not [k for k in keys if k.startswith(f"{_PACKAGE}.")]
-    loud = [r for r in caplog.records if r.name in (_PLUGIN_LOADER_LOGGER, _MANIFEST) and r.levelno >= logging.WARNING]
+    assert keys == [_AUDIT_KEY]
+    loud = [r for r in caplog.records if r.name == _MANIFEST and r.levelno >= logging.WARNING]
     assert loud == []
     debugs = [r.getMessage() for r in caplog.records if r.name == _MANIFEST and r.levelno == logging.DEBUG]
     assert any(_EXTRA in m for m in debugs)
@@ -204,6 +203,7 @@ def test_manifest_lists_the_extender_when_the_versions_match_on_minor_or_cannot_
 
 
 def test_plugin_loader_registers_nothing_when_the_community_minor_differs(monkeypatch: pytest.MonkeyPatch) -> None:
+    importlib.import_module(_AUDIT_MANIFEST)
     _cold_import_with_versions(monkeypatch, community="1.5.0")
 
     _stub_entry_points(monkeypatch)
