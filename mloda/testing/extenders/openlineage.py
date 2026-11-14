@@ -631,9 +631,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
         context_identity = "s3://bucket/key.parquet"
         # A different path than the context identity, so an extender that records raw args[0] is caught too.
         param_marker = "SENSITIVE_PATH_PARAM_VALUE_xyz123"
+        encoded_marker = "SENSITIVE_ENCODED_PARAM_VALUE_xyz123"
         raw = (
-            f"s3://{userinfo_marker}:{userinfo_marker}@bucket/raw;token={param_marker}/key.parquet"
-            f"?X-Amz-Signature={marker}"
+            f"s3://{userinfo_marker}:{userinfo_marker}@bucket/raw;token={param_marker}"
+            f"/sub%3Btoken={encoded_marker}/key.parquet?X-Amz-Signature={marker}"
         )
 
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
@@ -650,6 +651,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
             assert marker not in Serde.to_json(event), "URI query string reached an event"
             assert userinfo_marker not in Serde.to_json(event), "URI user information reached an event"
             assert param_marker not in Serde.to_json(event), "URI path parameter reached an event"
+            assert encoded_marker not in Serde.to_json(event), "percent-encoded path parameter reached an event"
         input_names = [
             (dataset.namespace, dataset.name) for event in transport.events for dataset in event.inputs or []
         ]

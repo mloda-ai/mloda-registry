@@ -502,7 +502,7 @@ The mixin pins:
 - the carrier parents the span; without a carrier and without a run root, the trace id derives from `run_id`
 - `run_all` spans form one well-formed trace: one trace id, exactly one span without a parent (the root) and every other span's parent among the spans; the calculate span is found by `mloda.operation.name == "calculate"`
 - an interrupt (a `BaseException` that is not an `Exception`) leaves the span status unset, sets `mloda.cancel.type` instead of `error.type`, and never leaks the exception message
-- when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string and user information of a nested load's raw data access (`args[0]`) never reach any span attribute; a load nested inside a calculate call is a child of that calculate span
+- when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string, user information and path parameters (literal or percent-encoded) of a nested load's raw data access (`args[0]`) never reach any span attribute; a load nested inside a calculate call is a child of that calculate span
 
 A host that must record the raw URI redefines `test_otel_input_data_load_query_string_never_reaches_span_attributes` and declares it in `switched_off` with a `Cause`.
 
@@ -553,14 +553,14 @@ The mixin pins:
 - no event ever leaks the exception message, and the WARNING for a wrapped failure names the exception type, never the message
 - the parent facet ties the run to the ambient `run_id`
 - a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook; the input is attributed before the load runs, so a failing load still appears on the FAIL event, and inputs mean attempted reads
-- a nested `INPUT_DATA_LOAD` becomes an input named from the context's `data_access_identity` (an `s3://bucket/key` identity is namespace `s3://bucket`, name `key`), and the URI query string and user information of its raw data access (`args[0]`) reach no event, when the extender wraps that hook
+- a nested `INPUT_DATA_LOAD` becomes an input named from the context's `data_access_identity` (an `s3://bucket/key` identity is namespace `s3://bucket`, name `key`), and the URI query string, user information and path parameters (literal or percent-encoded) of its raw data access (`args[0]`) reach no event, when the extender wraps that hook
 - the calculate context's declared `input_features` become inputs too, on both COMPLETE and FAIL, so a host must report them
 - a START emit failure under warning-only mode never prevents the wrapped call from running
 - `run_all` emits exactly one parent START and one COMPLETE for the root job, and every step's parent runId equals that run id; the parent run carries the `mlodaPlan` facet with the plan id and structure hash and a `processingEngine` facet with the mloda version; a failing run gives FAIL; preparing once and running twice gives two parent runs with the same plan id and structure hash
 - a calculate step's runId equals `step_run_id(...)` (see [Run correlation](#run-correlation)); its events carry an `mlodaStep` run facet with the context's feature group version, plugin version, compute framework, and each COMPLETE output an `outputStatistics` facet with the context's `rows_out` (a host that does not subclass `OpenLineageExtender` must emit these, the `processingEngine` facet and `mlodaPlan` too)
 - with a recording OpenTelemetry span current, the step's START and terminal events carry an `mlodaTrace` run facet with that span's ids, and none otherwise (see [Traces and lineage](12-export-telemetry.md#traces-and-lineage))
 
-Record the context's `data_access_identity`, not `args[0]`: a host that records the raw data access fails, and so does one that drops the identity, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, or `user:password@` in a published dataset name is a credential leak; a host that must publish the raw URI redefines `test_openlineage_input_data_load_query_string_never_reaches_events` and declares it in `switched_off` with a `Cause`.
+Record the context's `data_access_identity`, not `args[0]`: a host that records the raw data access fails, and so does one that drops the identity, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, `user:password@` or a URI path parameter (`;token=...`, also percent-encoded as `%3B`) in a published dataset name is a credential leak; a host that must publish the raw URI redefines `test_openlineage_input_data_load_query_string_never_reaches_events` and declares it in `switched_off` with a `Cause`.
 
 `RecordingTransport`, `LockHoldingTransport`, `FileTransport` (writes emitted event types to a marker file, for `make_real_worker_extender_and_marker`) and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 
