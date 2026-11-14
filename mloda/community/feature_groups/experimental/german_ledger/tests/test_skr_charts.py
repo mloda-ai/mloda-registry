@@ -123,7 +123,7 @@ def _journal(skr_column: list[str] | None, n: int = 2) -> pa.Table:
     return pa.table(columns)
 
 
-def _chart_source(table: pa.Table) -> str:
+def _basis_chart_source(table: pa.Table) -> str:
     mapped = SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
     [basis] = set(mapped.column("receivables~basis").to_pylist())
     return str(json.loads(basis)["chart_source"])
@@ -247,29 +247,16 @@ def test_a_header_chart_that_agrees_with_the_host_is_read(chart: None, tmp_path:
     SkrAccountFeatureGroup.CHART = "03"
     mapped = SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
     assert _values(mapped, "receivables") == []
-    assert _chart_source(table) == "books"
-
-
-def test_the_chart_source_is_the_host_unless_every_row_states_it(chart: None, tmp_path: Path) -> None:
-    SkrAccountFeatureGroup.CHART = "04"
-    assert _chart_source(_ledermann(tmp_path)) == "host"
-    assert _chart_source(_journal(["04", ""])) == "host"
-    assert _chart_source(_journal(None)) == "host"
-    assert _chart_source(_journal(["04", "04"])) == "books"
-
-
-def test_a_stated_chart_is_admitted_under_the_requirement(chart: None, require_stated: None, tmp_path: Path) -> None:
-    SkrAccountFeatureGroup.CHART = "03"
-    SkrAccountFeatureGroup.REQUIRE_STATED_CHART = True
-    SkrAccountFeatureGroup._map_accounts(_ledermann(tmp_path, skr=b'"03"'), _features("receivables"))
+    assert _basis_chart_source(table) == "books"
 
 
 @pytest.mark.parametrize("required", [True, False], ids=["required", "default"])
-@pytest.mark.parametrize("kind", ["empty header", "mixed rows", "no SKR column", "no rows"])
+@pytest.mark.parametrize("kind", ["stated", "empty header", "mixed rows", "no SKR column", "no rows"])
 def test_an_unstated_chart_is_refused_only_when_the_host_asks(
     kind: str, required: bool, chart: None, require_stated: None, tmp_path: Path
 ) -> None:
     tables = {
+        "stated": lambda: _journal(["03", "03"]),
         "empty header": lambda: _ledermann(tmp_path),
         "mixed rows": lambda: _journal(["03", ""]),
         "no SKR column": lambda: _journal(None),
@@ -277,11 +264,18 @@ def test_an_unstated_chart_is_refused_only_when_the_host_asks(
     }
     SkrAccountFeatureGroup.CHART = "03"
     SkrAccountFeatureGroup.REQUIRE_STATED_CHART = required
-    if required:
-        with pytest.raises(ChartNotStated, match="REQUIRE_STATED_CHART"):
-            SkrAccountFeatureGroup._map_accounts(tables[kind](), _features("receivables"))
+    table = tables[kind]()
+    if kind == "stated":
+        assert _basis_chart_source(table) == "books"
+    elif required:
+        message = "no rows" if kind == "no rows" else "REQUIRE_STATED_CHART"
+        with pytest.raises(ChartNotStated, match="REQUIRE_STATED_CHART") as info:
+            SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
+        assert message in str(info.value)
+    elif kind != "no rows":
+        assert _basis_chart_source(table) == "host"
     else:
-        SkrAccountFeatureGroup._map_accounts(tables[kind](), _features("receivables"))
+        SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
 
 
 def test_a_conflicting_chart_is_a_conflict_before_it_is_unstated(

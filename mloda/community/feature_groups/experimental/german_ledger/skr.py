@@ -171,13 +171,13 @@ class GrossRevenueRefused(Exception):
 
 
 def _chart_source(table: pa.Table) -> str:
-    """ "books" when the journal has rows and every row states its chart, else "host"."""
+    """Return "books" when the journal has rows and every row states its chart, else "host"."""
     if "SKR" not in table.column_names or table.num_rows == 0:
         return "host"
     return "books" if all(table.column("SKR").to_pylist()) else "host"
 
 
-def _chart(host: str, table: pa.Table, require_stated: bool = False) -> dict[str, range]:
+def _chart(host: str, table: pa.Table, chart_source: str, require_stated: bool = False) -> dict[str, range]:
     """The host's chart, checked against whatever the books say about themselves.
 
     A DATEV header may state its SKR (field 27; often empty). Empty leaves the host's word
@@ -195,13 +195,16 @@ def _chart(host: str, table: pa.Table, require_stated: bool = False) -> dict[str
                 "The same account number means different things in the two charts, so one of "
                 "them is wrong and neither is picked."
             )
-    if require_stated and _chart_source(table) != "books":
-        example = ""
-        if table.num_rows:
-            origins = table.column(GdpduReader.ORIGIN_COLUMN).to_pylist()
-            skr = table.column("SKR").to_pylist() if "SKR" in table.column_names else [None] * len(origins)
-            missing = next((o for o, v in zip(origins, skr) if not v), None)
-            example = f" (e.g. {missing})" if missing else ""
+    if require_stated and chart_source != "books":
+        if not table.num_rows:
+            raise ChartNotStated(
+                "REQUIRE_STATED_CHART is set and the journal has no rows to state a chart. "
+                f"Without it the host's SKR{host} is assumed."
+            )
+        origins = table.column(GdpduReader.ORIGIN_COLUMN).to_pylist()
+        skr = table.column("SKR").to_pylist() if "SKR" in table.column_names else [None] * len(origins)
+        missing = next((o for o, v in zip(origins, skr) if not v), None)
+        example = f" (e.g. {missing})" if missing else ""
         raise ChartNotStated(
             f"REQUIRE_STATED_CHART is set and the books do not state their chart on every row{example}. "
             f"Without it the host's SKR{host} is assumed."
@@ -364,8 +367,8 @@ class SkrAccountFeatureGroup(FeatureGroup):
         declared = set(table.column_names)
         profile = select_profile(cls.PROFILES, declared)
 
-        catalogue = _chart(cls.CHART, table, cls.REQUIRE_STATED_CHART)
         chart_source = _chart_source(table)
+        catalogue = _chart(cls.CHART, table, chart_source, cls.REQUIRE_STATED_CHART)
         _refuse_long_sachkonten(table, profile)
 
         konto = table.column(profile.account_column).to_pylist()

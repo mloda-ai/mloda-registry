@@ -138,7 +138,8 @@ This package declares:
 | `SkrAccountFeatureGroup` (concept step) | `chart`, `catalogue`, `catalogue.fingerprint`, `chart.source` | the chart (SKR03/SKR04), the catalogue's name, and a fingerprint over the whole catalogue in force; `chart.source = books` only under `REQUIRE_STATED_CHART` |
 
 The selected profile (which columns were read as account and amount), the sign convention and
-the chart source (`books` when every row states its chart, else `host`) depend on the data, so they live in `~basis`, a JSON string on the concept's rows. The total
+the chart source (`books` when every row states its chart, else `host`) depend on the data,
+so they live in `~basis`, a JSON string on the concept's rows. The total
 carries it as `<concept>~basis` beside `~value` and `~origins`, or null when its rows carry
 none. Rows computed under two bases are refused: one total has one basis.
 
@@ -151,11 +152,13 @@ Pinning one reader by option key also resolves a single folder that holds both f
   enterprise `LineageFacetsExtender` alike), and the audit record's
   `feature_group_declared_attributes`. A refused policy step emits no COMPLETE event, so it has
   no `mlodaDeclared` facet; its OTel span and audit record (status `error`) still carry the
-  declared stamp, which is not the run's outcome.
+  declared stamp, which is not the run's outcome. Likewise a `ChartNotStated` run has no concept
+  facet, yet its span and audit record (status `error`) still show the declared
+  `chart.source = books`, which is not the run's outcome.
 - **Result attributes:** once all totals of a step are built, each total's profile, sign,
   chart source, catalogue and catalogue fingerprint are published as
-  `<concept>__sources.profile|sign|chart.source|catalogue|catalogue.fingerprint` (OTel `mloda.result.<key>`);
-  a refused step publishes none, and the `~basis` column stays authoritative.
+  `<concept>__sources.profile|sign|chart.source|catalogue|catalogue.fingerprint`
+  (OTel `mloda.result.<key>`); a refused step publishes none, and the `~basis` column stays authoritative.
 - **Classification:** both readers declare `mloda.data.classification = confidential`, so an
   audit `ClassificationPolicy` needs clearance `confidential` or above; a gate below it is
   refused. `exempt_readers` skips only the plan-time probe, not the run-start check. Raising the
@@ -170,9 +173,9 @@ Pinning one reader by option key also resolves a single folder that holds both f
 `refused`, `unevaluated`, `malformed`, `unstamped`), and say it in the message.
 
 **Mapping to OpenLineage.** The policy step's `mlodaDeclared` output-dataset facet carries
-`policy.verdict` and the concept step's carries the catalogue keys. The per-run chart source
-reaches spans and `~basis`, not `mlodaDeclared`. The reader's
-`data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset. Nothing here
+`policy.verdict` and the concept step's carries the catalogue keys, plus `chart.source` only
+under `REQUIRE_STATED_CHART`; otherwise the per-run chart source reaches spans (result
+attribute) and `~basis` only. The reader's `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset. Nothing here
 is tamper-proof: anything inside the process can write these attributes.
 
 ## Formats
