@@ -6,9 +6,11 @@ reference_frame_aggregate from the testing library.
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 
 import pyarrow as pa
+import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
@@ -59,7 +61,7 @@ class TestReferenceTimeWindow:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_frame_aggregate(table, fs)
+        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
         col = result.column("my_time_sum").to_pylist()
 
         # 2-day window:
@@ -68,6 +70,67 @@ class TestReferenceTimeWindow:
         # Jan 4: window includes Jan 2, Jan 4 (Jan 1 is >2 days before Jan 4) => [20, 30] => 50
         # Jan 5: window includes Jan 4, Jan 5 (Jan 2 is >2 days before Jan 5) => [30, 40] => 70
         assert col == [10, 30, 50, 70]
+
+    @staticmethod
+    def _calendar_sum(stamps: list[datetime], unit: str) -> list[int]:
+        """Sum over a 1-unit time frame; row i holds the value 10**i, so each sum names its members."""
+        table = pa.table({"region": ["A"] * len(stamps), "ts": stamps, "value": [10**i for i in range(len(stamps))]})
+        feature = Feature(
+            "my_time_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "frame_type": "time",
+                    "frame_size": 1,
+                    "frame_unit": unit,
+                    "in_features": "value",
+                    "partition_by": ["region"],
+                    "order_by": "ts",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        values: list[int] = (
+            reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs).column("my_time_sum").to_pylist()
+        )
+        return values
+
+    def test_month_window_clamps_to_february_end_in_a_non_leap_year(self) -> None:
+        """Mar 31 minus one month is Feb 28: Feb 28 is in, Feb 27 is out."""
+        stamps = [datetime(2023, 2, d, tzinfo=timezone.utc) for d in (27, 28)] + [
+            datetime(2023, 3, 31, tzinfo=timezone.utc)
+        ]
+        assert self._calendar_sum(stamps, "month")[-1] == 110
+
+    def test_month_window_clamps_to_february_end_in_a_leap_year(self) -> None:
+        """Mar 31 minus one month is Feb 29: Feb 29 is in, Feb 28 is out."""
+        stamps = [datetime(2024, 2, d, tzinfo=timezone.utc) for d in (28, 29)] + [
+            datetime(2024, 3, 31, tzinfo=timezone.utc)
+        ]
+        assert self._calendar_sum(stamps, "month")[-1] == 110
+
+    def test_year_window_from_leap_day_reaches_february_28(self) -> None:
+        """Feb 29 minus one year is Feb 28: Feb 28 is in, Feb 27 is out."""
+        stamps = [datetime(2023, 2, d, tzinfo=timezone.utc) for d in (27, 28)] + [
+            datetime(2024, 2, 29, tzinfo=timezone.utc)
+        ]
+        assert self._calendar_sum(stamps, "year")[-1] == 110
+
+    def test_month_window_start_keeps_the_time_of_day(self) -> None:
+        """Mar 31 12:00 minus one month starts at Feb 28 12:00."""
+        stamps = [
+            datetime(2023, 2, 28, 11, tzinfo=timezone.utc),
+            datetime(2023, 2, 28, 13, tzinfo=timezone.utc),
+            datetime(2023, 3, 31, 12, tzinfo=timezone.utc),
+        ]
+        assert self._calendar_sum(stamps, "month")[-1] == 110
+
+    def test_month_window_runs_without_dateutil(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setitem(sys.modules, "dateutil", None)
+        monkeypatch.setitem(sys.modules, "dateutil.relativedelta", None)
+        stamps = [datetime(2023, 2, 28, tzinfo=timezone.utc), datetime(2023, 3, 31, tzinfo=timezone.utc)]
+        assert self._calendar_sum(stamps, "month") == [1, 11]
 
 
 class TestReferenceNullHandling:
@@ -89,7 +152,7 @@ class TestReferenceNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_frame_aggregate(table, fs)
+        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
         col = result.column("value__sum_rolling_3").to_pylist()
 
         assert col == [10, 10, 40, 70]
@@ -110,7 +173,7 @@ class TestReferenceNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_frame_aggregate(table, fs)
+        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
         col = result.column("value__cumsum").to_pylist()
 
         assert col == [130, 10, 30]
@@ -131,7 +194,7 @@ class TestReferenceNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_frame_aggregate(table, fs)
+        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
         col = result.column("value__cumsum").to_pylist()
 
         assert col == [None, None]

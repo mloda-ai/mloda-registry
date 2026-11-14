@@ -11,10 +11,6 @@ from typing import Any
 import pyarrow as pa
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
-    OffsetFeatureGroup,
-)
-
 
 def _compute_offset(
     table: pa.Table,
@@ -97,6 +93,6 @@ def _compute_offset(
     return table.append_column(feature_name, new_col)
 
 
-def reference_offset(table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the shared offset loop with the PyArrow-backed reference compute."""
-    return OffsetFeatureGroup.offset(table, features, compute_offset=_compute_offset)
+def reference_offset(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the group's offset loop with the PyArrow-backed reference compute."""
+    return group.offset(table, features, compute_offset=_compute_offset)

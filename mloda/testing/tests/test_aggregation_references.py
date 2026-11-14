@@ -25,6 +25,9 @@ class TestReferenceWindowFirstLast:
     def _agg_no_warning(agg_type: str, expected: list[Any]) -> None:
         import warnings
 
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+            WindowAggregationFeatureGroup,
+        )
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
@@ -36,7 +39,7 @@ class TestReferenceWindowFirstLast:
 
         with warnings.catch_warnings():
             warnings.simplefilter("error", FutureWarning)
-            result = reference_window_aggregation(arrow_table, fs)
+            result = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table, fs)
 
         result_col = extract_column(result, f"value_int__{agg_type}_window")
         assert result_col == expected
@@ -246,6 +249,9 @@ class TestReferenceScalarAggregateRejectsUnsupported:
     """The scalar reference rejects agg types outside the family's _SUPPORTED_AGG_TYPES."""
 
     def test_nunique_raises_value_error(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+            ScalarAggregateFeatureGroup,
+        )
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
         from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
@@ -254,19 +260,41 @@ class TestReferenceScalarAggregateRejectsUnsupported:
 
         fs = make_feature_set("value_int__nunique_scalar")
         with pytest.raises(ValueError, match="nunique"):
-            reference_scalar_aggregate(PyArrowDataOpsTestDataCreator.create(), fs)
+            reference_scalar_aggregate(ScalarAggregateFeatureGroup, PyArrowDataOpsTestDataCreator.create(), fs)
 
 
 class TestReferenceAggregationRejectsNonNumericSum:
     """sum over a string column raises ValueError, not the kernel's TypeError."""
 
     def test_sum_on_string_column_raises_value_error(self) -> None:
+        from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         table = pa.table({"g": ["a", "a"], "value": ["x", "y"]})
         with pytest.raises(ValueError, match="string"):
-            reference_aggregation(table, make_feature_set("value__sum_agg", ["g"]))
+            reference_aggregation(AggregationFeatureGroup, table, make_feature_set("value__sum_agg", ["g"]))
+
+
+class TestReferenceAggregationMask:
+    """A masked reference run sums only the rows passing the mask, per group."""
+
+    def test_masked_sum_per_group_with_a_fully_masked_group(self) -> None:
+        from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+
+        table = pa.table(
+            {
+                "g": ["a", "a", "b", "b", "c"],
+                "c": ["X", "Y", "X", "X", "Y"],
+                "value": [1, 10, 2, 3, 100],
+            }
+        )
+        fs = make_feature_set("value__sum_agg", ["g"], mask=("c", "equal", "X"))
+        result = reference_aggregation(AggregationFeatureGroup, table, fs)
+        assert extract_column(result, "g") == ["a", "b", "c"]
+        assert extract_column(result, "value__sum_agg") == [1, 5, None]
 
 
 class TestReferenceFrameRejectsUnknownFrameType:

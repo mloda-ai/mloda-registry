@@ -290,7 +290,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_offset(table, fs)
+        result = reference_offset(OffsetFeatureGroup, table, fs)
         assert isinstance(result, pa.Table)
         assert "my_lag" in result.column_names
         assert result.num_rows == 12
@@ -497,5 +497,7 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
     def compute_values(cls, options: Options) -> list[Any] | None:
         # Offset reads order_by inline in calculate_feature rather than through an extractor,
         # so only a run through the backend shows a container reaching it unwrapped.
-        result = reference_offset(PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options))
+        result = reference_offset(
+            OffsetFeatureGroup, PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options)
+        )
         return extract_column(result, "my_lag")

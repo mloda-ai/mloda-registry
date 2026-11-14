@@ -147,6 +147,8 @@ Every family has this shape; the reference each family compares against is liste
 
 ## Step 4: Write the operation's test bases
 
+Every family test base inherits a check of the group's `CONTRACT_VERSION` against `contract_version()` (default 1); override it when the family's contract version moves.
+
 File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`.
 
 ```py

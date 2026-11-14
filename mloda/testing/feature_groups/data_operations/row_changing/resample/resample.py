@@ -67,6 +67,7 @@ from mloda.user import Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
+    feature_group_of,
     make_feature_set,
     make_multi_feature_set,
 )
@@ -632,12 +633,13 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     def test_empty_feature_set_returns_input(self) -> None:
         """A FeatureSet without features returns the input unchanged and never calls compute_resample."""
-        from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
 
         def fail(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError("compute_resample must not run for an empty FeatureSet")
 
-        result = ResampleFeatureGroup.resample(self.test_data, FeatureSet(), compute_resample=fail)
+        result = feature_group_of(self.implementation_class()).resample(
+            self.test_data, FeatureSet(), compute_resample=fail
+        )
         assert result is self.test_data
 
     @pytest.mark.parametrize(

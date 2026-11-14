@@ -30,6 +30,7 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import inspect
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -292,7 +293,7 @@ class DataOpsIntegrationTestBase(ABC):
             if isinstance(base, type)
             and issubclass(base, FeatureGroup)
             and base is not FeatureGroup
-            and base.__module__.startswith("mloda.community.feature_groups.data_operations")
+            and inspect.isabstract(base)
             and "PREFIX_PATTERN" in vars(base)
         ]
         options = Options(context=self.primary_feature_options())

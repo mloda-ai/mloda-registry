@@ -14,10 +14,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
-from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
-    PercentileFeatureGroup,
-)
+from mloda.testing.feature_groups.data_operations.helpers import masked_column
 
 _IDX_COL = "__mloda_pctl_idx__"
 _MASKED_COL = "__mloda_pctl_masked__"
@@ -38,7 +35,7 @@ def _compute_percentile(
     agg_source = source_col
     if mask_spec is not None:
         agg_source = _MASKED_COL
-        t_with_idx = t_with_idx.append_column(_MASKED_COL, apply_pyarrow_mask(table, source_col, mask_spec))
+        t_with_idx = t_with_idx.append_column(_MASKED_COL, masked_column(table, source_col, mask_spec))
 
     grouped = t_with_idx.group_by(partition_by).aggregate(
         [
@@ -73,6 +70,6 @@ def _compute_percentile(
     return table.append_column(feature_name, pa.array(result_values))
 
 
-def reference_percentile(table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the shared percentile loop with the PyArrow-backed reference compute."""
-    return PercentileFeatureGroup.percentile(table, features, compute_percentile=_compute_percentile)
+def reference_percentile(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the group's percentile loop with the PyArrow-backed reference compute."""
+    return group.percentile(table, features, compute_percentile=_compute_percentile)

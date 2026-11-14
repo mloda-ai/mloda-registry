@@ -21,7 +21,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -29,6 +29,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
+    SUPPORTED_SCALAR_AGG_TYPES,
+)
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -125,21 +128,7 @@ class ScalarAggregateTestBase(
             "missing_order_by_column": None,
         }
 
-    ALL_AGG_TYPES = {
-        "sum",
-        "min",
-        "max",
-        "avg",
-        "mean",
-        "count",
-        "std",
-        "var",
-        "std_pop",
-        "std_samp",
-        "var_pop",
-        "var_samp",
-        "median",
-    }
+    ALL_AGG_TYPES = set(SUPPORTED_SCALAR_AGG_TYPES)
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
@@ -210,7 +199,7 @@ class ScalarAggregateTestBase(
             reference_scalar_aggregate,
         )
 
-        return reference_scalar_aggregate(table, features)
+        return reference_scalar_aggregate(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete tests ------------------------------------------------------
 

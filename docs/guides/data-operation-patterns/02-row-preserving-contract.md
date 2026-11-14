@@ -66,7 +66,7 @@ If your framework reorders, you will see row-count assertions pass but value com
 
 ## Aggregation is different
 
-Aggregations under `data_operations/aggregation/` are **not** row-preserving. They reduce to one row per partition key. The [reference implementation](03-reference-implementation.md) still applies (a pure Python reference defines the expected result, through the function `reference_aggregation(table, features)`), but row count is expected to shrink.
+Aggregations under `data_operations/aggregation/` are **not** row-preserving. They reduce to one row per partition key. The [reference implementation](03-reference-implementation.md) still applies (a pure Python reference defines the expected result, through the function `reference_aggregation(group, table, features)`), but row count is expected to shrink.
 
 ---
 

@@ -464,7 +464,7 @@ class FrameAggregateTestBase(
             reference_frame_aggregate,
         )
 
-        return reference_frame_aggregate(table, features)
+        return reference_frame_aggregate(feature_group_of(cls.implementation_class()), table, features)
 
     ALL_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
     ALL_TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
@@ -480,7 +480,7 @@ class FrameAggregateTestBase(
 
         SQLite, for example, excludes ``month``/``year`` because its native
         ``datetime(ts, '-N months')`` uses day-of-month rollover (Mar 31 -1mo
-        = Mar 3) rather than ``relativedelta`` semantics (= Feb 28).
+        = Mar 3) rather than clamping to the month end (= Feb 28).
         """
         return cls.ALL_TIME_UNITS
 

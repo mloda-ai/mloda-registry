@@ -372,7 +372,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = reference_rank(table, fs)
+        result = reference_rank(RankFeatureGroup, table, fs)
         assert isinstance(result, pa.Table)
         assert "my_rank_result" in result.column_names
         assert result.num_rows == 12
@@ -586,5 +586,7 @@ class TestRankMatchValidation(MatchValidationTestBase):
     def compute_values(cls, options: Options) -> list[Any] | None:
         # Rank reads order_by inline in calculate_feature rather than through an extractor,
         # so only a run through the backend shows a container reaching it unwrapped.
-        result = reference_rank(PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_rank_result", options))
+        result = reference_rank(
+            RankFeatureGroup, PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_rank_result", options)
+        )
         return extract_column(result, "my_rank_result")

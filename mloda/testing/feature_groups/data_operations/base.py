@@ -8,6 +8,7 @@ offset, rank, binning, datetime, frame_aggregate, string). It provides:
   extract_column, get_row_count, get_expected_type) that framework mixins
   or concrete test classes implement once.
 - ``source_arrow_table``: overridable hook for the fixture setup_method builds from.
+- ``contract_version``: hook plus an inherited check against the group's ``CONTRACT_VERSION``.
 - Shared setup_method / teardown_method (connection lifecycle).
 - A ``_skip_if_unsupported`` helper for operations not available on every framework.
 - A ``_compare_with_reference`` cross-framework comparison helper.
@@ -27,7 +28,12 @@ import pytest
 from mloda.provider import DivergenceKind, Implementation
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, is_null, result_column_names
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    feature_group_of,
+    is_null,
+    result_column_names,
+)
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 
 # Capability methods ``_skip_if_unsupported`` probes, in order. Operation families
@@ -101,6 +107,19 @@ class DataOpsTestBase(ABC):
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
         """Run the reference (a FeatureGroup or Implementation class) on the canonical PyArrow table; override for a function."""
         return calculate_with(cls.reference_implementation_class(), table, features)
+
+    @classmethod
+    def contract_version(cls) -> int:
+        """Group contract version this base's expected values were written for; override when a family's tables move."""
+        return 1
+
+    def test_group_contract_version_is_the_kit_version(self) -> None:
+        group = feature_group_of(self.implementation_class())
+        actual = getattr(group, "CONTRACT_VERSION", None)
+        assert actual == self.contract_version(), (
+            f"{group.__name__}.CONTRACT_VERSION is {actual}, but the kit expects {self.contract_version()}; "
+            "override contract_version() once the expected values follow the new contract"
+        )
 
     # -- Setup / teardown ------------------------------------------------------
 

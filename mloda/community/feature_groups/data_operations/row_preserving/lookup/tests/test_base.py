@@ -100,6 +100,9 @@ class TestConstants:
     def test_unmatched_error_is_value_error(self) -> None:
         assert issubclass(LookupUnmatchedError, ValueError)
 
+    def test_group_declares_its_unmatched_error(self) -> None:
+        assert LookupFeatureGroup.UNMATCHED_ERROR is LookupUnmatchedError
+
     @pytest.mark.parametrize("clone", [lambda e: pickle.loads(pickle.dumps(e)), copy.copy], ids=["pickle", "copy"])  # nosec
     def test_unmatched_error_survives_clone(self, clone: Any) -> None:
         error = build_unmatched_error("f__lookup", 3, ["x", "y"], {"x": "why"})

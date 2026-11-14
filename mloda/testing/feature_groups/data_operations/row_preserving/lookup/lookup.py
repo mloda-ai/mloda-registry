@@ -25,11 +25,11 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
-from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupUnmatchedError
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
+    feature_group_of,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -203,6 +203,9 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def reserved_columns_helper_names(cls) -> set[str]:
         return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_lk0__", "__mloda_lv0__"}
 
+    def unmatched_error(self) -> Any:
+        return feature_group_of(self.implementation_class()).UNMATCHED_ERROR
+
     @classmethod
     def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
@@ -247,7 +250,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return calculate_with(self.implementation_class(), self.test_data if data is None else data, fs)
 
     def _unmatched_error(self, feature_name: str, mapping: dict[Any, Any], policy: str | None = None) -> Any:
-        with pytest.raises(LookupUnmatchedError) as excinfo:
+        with pytest.raises(self.unmatched_error()) as excinfo:
             self._run(feature_name, mapping, policy)
         return excinfo.value
 
@@ -381,7 +384,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         keys = [f"K{i:02d}" for i in range(12)]
         table = self.create_test_data(pa.table({"k": pa.array(["K11", *keys, None], type=pa.string())}))
         fs = make_feature_set("k__lookup", lookup_mapping={"zzz": "x"}, on_unmatched="raise")
-        with pytest.raises(LookupUnmatchedError) as excinfo:
+        with pytest.raises(self.unmatched_error()) as excinfo:
             calculate_with(self.implementation_class(), table, fs)
         err = excinfo.value
         assert err.unmatched_rows == 13
@@ -414,7 +417,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         source = feature_name.removesuffix("__lookup")
         with pytest.raises(ValueError, match=source) as excinfo:
             self._run(feature_name, mapping, policy)
-        assert not isinstance(excinfo.value, LookupUnmatchedError)
+        assert not isinstance(excinfo.value, self.unmatched_error())
 
     @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
     @pytest.mark.parametrize(
@@ -437,7 +440,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         table = self.create_test_data(pa.table({"v": column}))
         with pytest.raises(ValueError, match="'v'") as excinfo:
             self._run("v__lookup", mapping, policy, data=table)
-        assert not isinstance(excinfo.value, LookupUnmatchedError)
+        assert not isinstance(excinfo.value, self.unmatched_error())
 
     # -- Integer width and range ----------------------------------------------
 
@@ -496,7 +499,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_int_key_outside_source_width_still_matches_in_range_key_under_raise(self) -> None:
         table = self.create_test_data(pa.table({"v": pa.array([1, 2, None], type=pa.int32())}))
-        with pytest.raises(LookupUnmatchedError) as excinfo:
+        with pytest.raises(self.unmatched_error()) as excinfo:
             self._run("v__lookup", {1: 10, 2**40: 20}, "raise", data=table)
         err = excinfo.value
         assert (err.unmatched_rows, err.distinct_keys, err.sample) == (1, 1, (2,))
@@ -510,7 +513,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             pytest.skip("framework cannot hold uint64 values above int64")
         with pytest.raises(ValueError) as excinfo:
             self._run("v__lookup", {1: 10}, policy, data=table)
-        assert not isinstance(excinfo.value, LookupUnmatchedError)
+        assert not isinstance(excinfo.value, self.unmatched_error())
 
     # -- All-null sources ---------------------------------------------------------
 
@@ -524,7 +527,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         if self.untyped_null_source_becomes_int() and isinstance(next(iter(mapping)), str):
             with pytest.raises(ValueError) as excinfo:
                 self._run("v__lookup", mapping, policy, data=table)
-            assert not isinstance(excinfo.value, LookupUnmatchedError)
+            assert not isinstance(excinfo.value, self.unmatched_error())
             return
         result = self._run("v__lookup", mapping, policy, data=table)
         assert self.get_row_count(result) == 3
@@ -540,7 +543,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             return
         with pytest.raises(ValueError, match="'v'") as excinfo:
             self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
-        assert not isinstance(excinfo.value, LookupUnmatchedError)
+        assert not isinstance(excinfo.value, self.unmatched_error())
 
     # -- Hook path --------------------------------------------------------------
 
@@ -587,7 +590,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_hook_reasons_in_error(self) -> None:
         hook = self._hook()
         name = f"product_code__{HOOK_SUFFIX}"
-        with pytest.raises(LookupUnmatchedError) as excinfo:
+        with pytest.raises(self.unmatched_error()) as excinfo:
             calculate_with(self.implementation_class(), self.test_data, make_feature_set(name), group=hook)
         err = excinfo.value
         assert dict(err.reasons) == HOOK_REASONS

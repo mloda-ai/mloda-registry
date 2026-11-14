@@ -15,6 +15,7 @@ Provides:
 - ``feature_group_of``: The FeatureGroup class of a FeatureGroup class or an Implementation class.
 - ``load_implementation``: A named Implementation of a family package; skips when its optional backend is missing.
 - ``canonical_table_empty``: Canonical table with the same schema and zero rows, for empty-input cases.
+- ``masked_column``: A table column with rows failing any mask condition set to null.
 """
 
 from __future__ import annotations
@@ -51,6 +52,23 @@ def calculate_with(plugin: Any, data: Any, features: FeatureSet, *, group: Any =
         features.implementation = plugin
         return (group or plugin.feature_group).calculate_feature(data, features)
     return plugin.calculate_feature(data, features)
+
+
+_MASK_OPERATORS = frozenset({"equal", "greater_than", "greater_equal", "less_equal", "less_than", "is_in"})
+
+
+def masked_column(table: pa.Table, source_col: str, mask_spec: list[tuple[str, str, Any]]) -> Any:
+    """The ``source_col`` array with rows failing any ``(column, operator, value)`` condition set to null."""
+    import pyarrow.compute as pc
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import PyArrowMaskEngine
+
+    mask = PyArrowMaskEngine.all_true(table)
+    for column, operator, value in mask_spec:
+        if operator not in _MASK_OPERATORS:
+            raise ValueError(f"Unsupported mask operator '{operator}'. Supported: {sorted(_MASK_OPERATORS)}")
+        mask = PyArrowMaskEngine.combine(mask, getattr(PyArrowMaskEngine, operator)(table, column, value))
+    null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
+    return pc.if_else(mask, table.column(source_col), null_scalar)
 
 
 def canonical_table_empty() -> pa.Table:

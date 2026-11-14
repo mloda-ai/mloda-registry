@@ -10,18 +10,15 @@ from typing import Any
 import pyarrow as pa
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
-    WindowAggregationFeatureGroup,
-)
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
     SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
     group_rows,
     order_key,
+    unsupported_agg_type_error,
 )
+from mloda.testing.feature_groups.data_operations.helpers import masked_column
 
 
 def _compute_window(
@@ -38,7 +35,7 @@ def _compute_window(
 
     keys = [table.column(c).to_pylist() for c in partition_by]
     # Keys and order stay unmasked; only the aggregated values are masked.
-    source = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
+    source = masked_column(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
     values = source.to_pylist()
     order_vals = table.column(order_by).to_pylist() if order_by else None
 
@@ -53,6 +50,6 @@ def _compute_window(
     return table.append_column(feature_name, pa.array(result, type=out_type))
 
 
-def reference_window_aggregation(table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the shared window aggregation loop with the pure Python reference compute."""
-    return WindowAggregationFeatureGroup.aggregate(table, features, compute_window=_compute_window)
+def reference_window_aggregation(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the group's window aggregation loop with the pure Python reference compute."""
+    return group.aggregate(table, features, compute_window=_compute_window)

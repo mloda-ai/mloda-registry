@@ -5,23 +5,22 @@ pa.Table is only the I/O container; grouping, ordering and windowing run on ``to
 
 from __future__ import annotations
 
+import calendar
+from datetime import timedelta
 from typing import Any
 
 import pyarrow as pa
 from mloda.provider import FeatureSet
 
-from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
-    FrameAggregateFeatureGroup,
-)
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
     SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
     group_rows,
     order_key,
+    unsupported_agg_type_error,
 )
+from mloda.testing.feature_groups.data_operations.helpers import masked_column
 
 
 def _compute_frame(
@@ -43,7 +42,7 @@ def _compute_frame(
     num_rows = table.num_rows
     keys = [table.column(col).to_pylist() for col in partition_by]
     order_vals = table.column(order_by).to_pylist()  # unmasked: the mask must not null the order key
-    source = apply_pyarrow_mask(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
+    source = masked_column(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
     source_vals = source.to_pylist()
 
     result_values: list[Any] = [None] * num_rows
@@ -65,6 +64,14 @@ def _compute_frame(
     return table.append_column(feature_name, pa.array(result_values, type=out_type))
 
 
+def _subtract_calendar_months(value: Any, months: int) -> Any:
+    """``value`` minus whole calendar months, the day clamped to the target month's length."""
+    index = value.year * 12 + (value.month - 1) - months
+    year, month = divmod(index, 12)
+    month += 1
+    return value.replace(year=year, month=month, day=min(value.day, calendar.monthrange(year, month)[1]))
+
+
 def _time_window(
     rows: list[tuple[int, Any, Any]],
     pos: int,
@@ -74,31 +81,25 @@ def _time_window(
 ) -> list[Any]:
     """Collect values within a time-based window ending at the current row.
 
-    Uses timedelta for second, minute, hour, day, and week units, and
-    relativedelta for month and year units to ensure calendar-accurate windows.
+    Second, minute, hour, day and week subtract a timedelta; month and year subtract calendar
+    months (a year is 12), clamping the day to the target month's length.
     """
-    from datetime import timedelta
-
-    from dateutil.relativedelta import relativedelta
-
-    unit_map = {
-        "second": timedelta(seconds=size),
-        "minute": timedelta(minutes=size),
-        "hour": timedelta(hours=size),
-        "day": timedelta(days=size),
-        "week": timedelta(weeks=size),
-        "month": relativedelta(months=size),
-        "year": relativedelta(years=size),
-    }
-    delta = unit_map.get(unit, timedelta(days=size))
-
     if current_order is None:
         return [rows[pos][2]]
 
-    window_start = current_order - delta
+    if unit in ("month", "year"):
+        window_start = _subtract_calendar_months(current_order, size * (12 if unit == "year" else 1))
+    else:
+        deltas = {
+            "second": timedelta(seconds=size),
+            "minute": timedelta(minutes=size),
+            "hour": timedelta(hours=size),
+            "week": timedelta(weeks=size),
+        }
+        window_start = current_order - deltas.get(unit, timedelta(days=size))
     return [r[2] for r in rows[: pos + 1] if r[1] is not None and r[1] >= window_start]
 
 
-def reference_frame_aggregate(table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the shared frame aggregate loop with the pure-Python reference compute."""
-    return FrameAggregateFeatureGroup.aggregate(table, features, compute_frame=_compute_frame)
+def reference_frame_aggregate(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
+    """Run the group's frame aggregate loop with the pure-Python reference compute."""
+    return group.aggregate(table, features, compute_frame=_compute_frame)

@@ -278,7 +278,7 @@ regression_test:
 
 - **Operations**: `row_preserving/frame_aggregate` (only `time` frame type with `month`/`year` units).
 - **Mitigation kind**: Excluded unit.
-- **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the reference. Pandas `.rolling(window="...", on=ts)` only accepts fixed-frequency offsets and has no native calendar-anchored option. Rather than fall back to a Python loop (which would defeat the point of running inside the engine), both `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` and `PandasFrameAggregate.SUPPORTED_TIME_UNITS` exclude `month`/`year` and `accepts` reads them, so features like `value__sum_1_month_window` fail resolution on those frameworks. Both support `second`/`minute`/`hour`/`day`/`week`. Polars and DuckDB express month/year natively and remain ✓ for those units.
+- **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from the reference, which clamps to the month end (= Feb 28). Pandas `.rolling(window="...", on=ts)` only accepts fixed-frequency offsets and has no native calendar-anchored option. Rather than fall back to a Python loop (which would defeat the point of running inside the engine), both `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` and `PandasFrameAggregate.SUPPORTED_TIME_UNITS` exclude `month`/`year` and `accepts` reads them, so features like `value__sum_1_month_window` fail resolution on those frameworks. Both support `second`/`minute`/`hour`/`day`/`week`. Polars and DuckDB express month/year natively and remain ✓ for those units.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
 

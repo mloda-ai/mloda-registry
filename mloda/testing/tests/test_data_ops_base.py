@@ -332,6 +332,99 @@ def test_reference_calculate_defaults_to_the_reference_class_calculate_feature()
     assert _RecordingImpl.seen == [{"partition_by": ["g"]}]
 
 
+# -- DataOpsTestBase.contract_version ------------------------------------------
+
+
+class _VersionedPlugin:
+    """FeatureGroup stand-in declaring a contract version."""
+
+    CONTRACT_VERSION = 1
+
+
+class _NewerVersionedPlugin:
+    CONTRACT_VERSION = 2
+
+
+def _contract_stub(impl: Any, version: int | None = None) -> _StubDataOpsTestBase:
+    class _ContractStub(_StubDataOpsTestBase):
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return impl
+
+        if version is not None:
+
+            @classmethod
+            def contract_version(cls) -> int:
+                return version
+
+    return _ContractStub()
+
+
+def test_contract_version_defaults_to_one() -> None:
+    assert _StubDataOpsTestBase.contract_version() == 1
+
+
+def test_group_contract_version_passes_when_it_matches_the_kit() -> None:
+    _contract_stub(_VersionedPlugin).test_group_contract_version_is_the_kit_version()
+
+
+def test_group_contract_version_passes_for_an_implementation_of_a_matching_group() -> None:
+    def check(group: Any, impl: Any) -> None:
+        group.CONTRACT_VERSION = 1
+        _contract_stub(impl).test_group_contract_version_is_the_kit_version()
+
+    _with_probe_impl(check)
+
+
+def test_group_contract_version_fails_naming_both_versions_on_a_mismatch() -> None:
+    with pytest.raises(AssertionError) as excinfo:
+        _contract_stub(_NewerVersionedPlugin).test_group_contract_version_is_the_kit_version()
+    message = str(excinfo.value)
+    assert "2" in message
+    assert "1" in message
+    assert "contract_version" in message
+
+
+def test_group_contract_version_passes_when_the_stub_overrides_the_kit_version() -> None:
+    _contract_stub(_NewerVersionedPlugin, version=2).test_group_contract_version_is_the_kit_version()
+
+
+def test_group_contract_version_fails_for_a_group_declaring_none() -> None:
+    with pytest.raises(AssertionError) as excinfo:
+        _contract_stub(_FeatureGroupPlugin).test_group_contract_version_is_the_kit_version()
+    assert "None" in str(excinfo.value)
+
+
+# -- helpers.masked_column ----------------------------------------------------
+
+_MASK_TABLE = pa.table({"v": [1, 2, 3, 4], "c": ["X", "Y", "X", "Z"], "n": [5, 6, None, 8]})
+
+
+@pytest.mark.parametrize(
+    ("mask_spec", "expected"),
+    [
+        pytest.param([("c", "equal", "X")], [1, None, 3, None], id="equal"),
+        pytest.param([("c", "equal", "X"), ("v", "greater_than", 1)], [None, None, 3, None], id="and-combined"),
+        pytest.param([("c", "is_in", ["X", "Z"]), ("v", "less_than", 4)], [1, None, 3, None], id="is-in-and-less-than"),
+        pytest.param([("c", "is_in", ["Y", "Z"])], [None, 2, None, 4], id="is-in"),
+        pytest.param([("n", "greater_equal", 6)], [None, 2, None, 4], id="null-mask-value-is-masked-out"),
+        pytest.param([("v", "greater_than", 2), ("v", "less_equal", 3)], [None, None, 3, None], id="range"),
+    ],
+)
+def test_masked_column_nulls_rows_failing_any_condition(mask_spec: list[tuple[str, str, Any]], expected: Any) -> None:
+    assert helpers.masked_column(_MASK_TABLE, "v", mask_spec).to_pylist() == expected
+
+
+def test_masked_column_keeps_the_source_column_type() -> None:
+    table = pa.table({"v": pa.array([1.5, 2.5], type=pa.float32()), "c": ["X", "Y"]})
+    assert helpers.masked_column(table, "v", [("c", "equal", "X")]).type == pa.float32()
+
+
+def test_masked_column_rejects_an_unknown_operator() -> None:
+    with pytest.raises(ValueError, match="bogus"):
+        helpers.masked_column(_MASK_TABLE, "v", [("c", "bogus", "X")])
+
+
 def _make_impl(
     divergences: tuple[Any, ...] | None = None,
     accepts: Callable[..., bool] | None = None,

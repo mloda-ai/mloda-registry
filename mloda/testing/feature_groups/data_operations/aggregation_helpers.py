@@ -8,15 +8,20 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Iterable
 from typing import Any
 
 import pyarrow as pa
 
-from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-
 # Sentinel key for NaN in mode, nunique and group keys: values come from to_pylist(), so every NaN
 # is a distinct float object and equality cannot merge them.
 _NAN_KEY = object()
+
+
+def unsupported_agg_type_error(agg_type: str, supported: Iterable[str], *, framework: str | None = None) -> ValueError:
+    """A ``ValueError`` naming the rejected aggregation type and the sorted supported types."""
+    prefix = "Unsupported aggregation type" + (f" for {framework}" if framework is not None else "")
+    return ValueError(f"{prefix}: {agg_type!r}. Supported types: {', '.join(sorted(set(supported)))}.")
 
 
 def _is_nan(v: Any) -> bool:
