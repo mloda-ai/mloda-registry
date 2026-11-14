@@ -369,7 +369,7 @@ regression_test:
 <!-- machine-checked
 operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate
 framework: pandas, sqlite
-condition: pandas and SQLite skip NaN in sum/avg/count (pandas also in mode and std/var), pandas resample returns null for an all-NaN bucket
+condition: pandas and SQLite skip NaN in sum/avg/count (pandas also in mode and std/var, drops it in nunique and skips it in first/last), pandas resample returns null for an all-NaN bucket
 mitigation_location:
 - mloda/community/feature_groups/data_operations/pandas_helpers.py
 - mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py
@@ -393,10 +393,10 @@ regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_sqlite.py::TestSqliteFrameAggregate::test_mixin_nan_policy
 -->
 
-- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only).
+- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp`/`nunique`/`first`/`last` (Pandas only); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only).
 - **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`.
-- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max/std/var.
-- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
+- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. `nunique` counts NaN as one value and `first`/`last` skip only None. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max/std/var.
+- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null. Pandas' `nunique` also drops NaN, `first`/`last` skip it like null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
 - **Mitigation kind**: Accepted divergence. Neither pandas nor SQLite can represent NaN separately from null. The records are `DivergenceKind.VARIANT` records named `nan_as_null`: those Implementations run only for a feature whose group options set `allow_variants: "nan_as_null"`; otherwise another framework serves the step, or resolution fails naming the option.
 - **How**: The divergences are declared as `nan_as_null` variant records on the Implementations, listed under [Declared divergence records](#declared-divergence-records). `nan_divergent_agg_types()` reads them, so declaration and test cannot drift. With several frameworks enabled, the step runs on an Implementation without the record.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
@@ -582,9 +582,9 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | `avg`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
+| Pandas | variant | `nan_as_null` | backend | `avg`, `first`, `last`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
-| Pandas | variant | `nan_as_null` | backend | `mode` | does not count NaN as a value |
+| Pandas | variant | `nan_as_null` | backend | `mode`, `nunique` | does not count NaN as a value |
 | SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
 
@@ -626,9 +626,9 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | `avg`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
+| Pandas | variant | `nan_as_null` | backend | `avg`, `first`, `last`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
-| Pandas | variant | `nan_as_null` | backend | `mode` | does not count NaN as a value |
+| Pandas | variant | `nan_as_null` | backend | `mode`, `nunique` | does not count NaN as a value |
 | Pandas | variant | `nan_as_null` | backend | `first`, `last` | float64 cannot tell NaN from null, so they tie in order_by |
 | SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
