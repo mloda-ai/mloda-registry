@@ -37,9 +37,10 @@ uv-ecosystem updates for the same reason: its floor moves through
 Single source for values every package shares. `core_dependency` is substituted
 into any `{core_dependency}` placeholder in `packages.toml`, so the mloda floor
 is declared once; moving it must release a minor (see
-[Following a core minor](releasing.md#following-a-core-minor)). The `[build-system]` setuptools floor tracks the PEP 639 SPDX
-`license` string the generator emits (accepted only from setuptools 77.0.1 on),
-so it cannot be lowered without changing that form. The root `pyproject.toml`
+[Following a core minor](releasing.md#following-a-core-minor)). The
+`[build-system]` setuptools floor tracks the PEP 639 SPDX `license` string the
+generator emits (accepted only from setuptools 77.0.1 on), so it cannot be
+lowered without changing that form. The root `pyproject.toml`
 keeps its own, higher, independent setuptools floor: it is the dev-only
 workspace package, is never published, declares no `license`, and that floor
 is Dependabot-managed.

@@ -1,5 +1,4 @@
-"""Release-type guards in scripts/check_minor_release_type.py: a change to the OpenLineage seam tables or to
-core_dependency must ship as a ``minor:`` release."""
+"""Guards in scripts/check_minor_release_type.py: seam table or core_dependency changes need ``minor:``."""
 
 from __future__ import annotations
 
@@ -177,17 +176,23 @@ class TestEvaluate:
     def test_no_change_with_fix_passes(self, guard_factory: Any, base: str, changed: str, missing: str) -> None:
         assert chk.evaluate(guard_factory(), base, base, "fix: other", ["fix: other"]) is None
 
-    def test_head_without_value_errors(self, guard_factory: Any, base: str, changed: str, missing: str) -> None:
+    @pytest.mark.parametrize("absent", ["none", "missing"])
+    def test_head_without_value_errors(
+        self, guard_factory: Any, base: str, changed: str, missing: str, absent: str
+    ) -> None:
         guard = guard_factory()
-        for head in (None, missing):
-            error = chk.evaluate(guard, base, head, "minor: change", ["minor: change"])
-            assert error is not None
-            assert "not found" in error
-            assert guard.path in error
-            assert "scripts/check_minor_release_type.py" in error
+        head = None if absent == "none" else missing
+        error = chk.evaluate(guard, base, head, "minor: change", ["minor: change"])
+        assert error is not None
+        assert "not found" in error
+        assert guard.path in error
+        assert "scripts/check_minor_release_type.py" in error
 
-    def test_base_without_value_is_a_change(self, guard_factory: Any, base: str, changed: str, missing: str) -> None:
+    @pytest.mark.parametrize("absent", ["none", "missing"])
+    def test_base_without_value_is_a_change(
+        self, guard_factory: Any, base: str, changed: str, missing: str, absent: str
+    ) -> None:
         guard = guard_factory()
-        for old in (None, missing):
-            assert chk.evaluate(guard, old, base, "fix: change", ["fix: change"]) is not None
-            assert chk.evaluate(guard, old, base, "minor: change", ["minor: change"]) is None
+        old = None if absent == "none" else missing
+        assert chk.evaluate(guard, old, base, "fix: change", ["fix: change"]) is not None
+        assert chk.evaluate(guard, old, base, "minor: change", ["minor: change"]) is None
