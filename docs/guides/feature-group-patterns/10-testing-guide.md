@@ -57,6 +57,8 @@ class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
 
 ## Level 1: Unit Test Example
 
+`assert_feature_group_shape` from `mloda.testing.feature_group_shape` is the shipped check of a plain FeatureGroup's match contract (pass `input_data=` to also check the run).
+
 ```python
 def test_matching():
     # Class name matching

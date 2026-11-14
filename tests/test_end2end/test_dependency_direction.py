@@ -520,21 +520,27 @@ def _is_mloda_testing_import(node: ast.AST) -> bool:
     return False
 
 
-def _runtime_modules(root_dir: Path) -> Iterator[tuple[Path, ast.Module]]:
-    """(relative path, parsed tree) of every .py file under root_dir, outside any tests/ directory,
-    build artifact directory and egg-info directory."""
+def _runtime_modules(root_dir: Path, include_tests: bool = False) -> Iterator[tuple[Path, ast.Module]]:
+    """(relative path, parsed tree) of every .py file under root_dir, outside any tests/ directory (unless
+    include_tests), build artifact directory and egg-info directory."""
     for py_file in sorted(root_dir.rglob("*.py")):
         rel_path = py_file.relative_to(root_dir)
         parts = rel_path.parts
-        if "tests" in parts or any(part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts):
+        if ("tests" in parts and not include_tests) or any(
+            part in _SKIP_DIR_NAMES or part.endswith(".egg-info") for part in parts
+        ):
             continue
         yield rel_path, ast.parse(py_file.read_text(encoding="utf-8"))
 
 
-def _files_with_import(root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[Path]:
-    """Every .py file under root_dir, outside any tests/ directory, with a node matching predicate
-    at any depth (module level, function level, or inside a TYPE_CHECKING block)."""
-    return [rel_path for rel_path, tree in _runtime_modules(root_dir) if any(predicate(n) for n in ast.walk(tree))]
+def _files_with_import(root_dir: Path, predicate: Callable[[ast.AST], bool], include_tests: bool = False) -> list[Path]:
+    """Every .py file under root_dir, outside any tests/ directory unless include_tests, with a node matching
+    predicate at any depth (module level, function level, or inside a TYPE_CHECKING block)."""
+    return [
+        rel_path
+        for rel_path, tree in _runtime_modules(root_dir, include_tests)
+        if any(predicate(n) for n in ast.walk(tree))
+    ]
 
 
 _PLUGIN_PACKAGES = ("mloda.community", "mloda.enterprise")
@@ -742,6 +748,32 @@ def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None
     assert not offenders, f"mloda.testing imported outside tests/: {offenders}"
 
 
+def _is_core_testing_import(node: ast.AST) -> bool:
+    """True for an Import or ImportFrom of ``mloda._testing`` (core's non-public conformance kit) at any depth."""
+    if isinstance(node, ast.Import):
+        return any(alias.name == "mloda._testing" or alias.name.startswith("mloda._testing.") for alias in node.names)
+    if isinstance(node, ast.ImportFrom):
+        if node.module is None:
+            return False
+        if node.module == "mloda":
+            return any(alias.name == "_testing" for alias in node.names)
+        return node.module == "mloda._testing" or node.module.startswith("mloda._testing.")
+    return False
+
+
+def test_no_plugin_file_imports_core_testing_directly() -> None:
+    """Plugins, tests included, reach core's suites only through mloda.testing."""
+    offenders: list[str] = []
+    for root_name in ("community", "enterprise", "registry"):
+        root_dir = _REPO_ROOT / "mloda" / root_name
+        assert root_dir.is_dir(), f"expected {root_dir} to exist"
+        offenders.extend(
+            f"mloda/{root_name}/{path.as_posix()}"
+            for path in _files_with_import(root_dir, _is_core_testing_import, include_tests=True)
+        )
+    assert not offenders, f"mloda._testing imported by plugin code, use mloda.testing instead: {offenders}"
+
+
 def _write(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body)
@@ -766,6 +798,23 @@ def test_walker_ignores_import_inside_a_tests_directory(tmp_path: Path) -> None:
     tests_dir.mkdir()
     _write(tests_dir / "test_m.py", "from mloda.testing.base import FeatureGroupTestBase\n")
     assert _files_importing_mloda_testing(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("body", "flagged"),
+    [
+        pytest.param("import mloda._testing.suite\n", True, id="plain-import"),
+        pytest.param("from mloda._testing.suite import Suite\n", True, id="from-import"),
+        pytest.param("from mloda import _testing\n", True, id="from-package-import"),
+        pytest.param("def f() -> None:\n    from mloda._testing import result\n", True, id="function-level"),
+        pytest.param("from mloda.testing.suite import Suite\n", False, id="public-door"),
+        pytest.param("from mloda._testing_other import x\n", False, id="prefix-collision"),
+    ],
+)
+def test_core_testing_import_predicate_inside_tests(tmp_path: Path, body: str, flagged: bool) -> None:
+    _write(tmp_path / "tests" / "test_m.py", body)
+    expected = [Path("tests/test_m.py")] if flagged else []
+    assert _files_with_import(tmp_path, _is_core_testing_import, include_tests=True) == expected
 
 
 @pytest.mark.parametrize(
