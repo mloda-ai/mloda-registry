@@ -79,6 +79,18 @@ class TestResolveBinary:
         with pytest.raises(BinaryNotInstalledError):
             binary.resolve_binary("whatever", str(tmp_path / "missing-binary"), env={"PATH": os.defpath}, timeout=10.0)
 
+    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX permission bits")
+    def test_existing_non_executable_file_override_is_not_runnable(self, tmp_path: Path) -> None:
+        not_executable = tmp_path / "binary-without-x"
+        not_executable.write_text("not a script")
+        not_executable.chmod(0o600)
+        with pytest.raises(BinaryNotRunnableError):
+            binary.resolve_binary(PLUGIN_ID, str(not_executable), env={"PATH": os.defpath}, timeout=10.0)
+
+    def test_existing_directory_override_is_not_runnable(self, tmp_path: Path) -> None:
+        with pytest.raises(BinaryNotRunnableError):
+            binary.resolve_binary(PLUGIN_ID, str(tmp_path), env={"PATH": os.defpath}, timeout=10.0)
+
     @pytest.mark.parametrize("override", [[], ()])
     def test_empty_override_is_unavailable(self, override: Any) -> None:
         with pytest.raises(BinaryNotRunnableError, match="must not be empty"):

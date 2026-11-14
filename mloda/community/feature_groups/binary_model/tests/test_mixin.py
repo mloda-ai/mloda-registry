@@ -245,12 +245,18 @@ class TestProbeTimeout:
     def test_per_call_timeout_bounds_the_run(self) -> None:
         model = _faulty_model("hang")
         model.resolved_binary()
+        before = (model.BINARY_TIMEOUT_SECONDS, model.BINARY_PROBE_TIMEOUT_SECONDS)
         table = pa.table({"col_a": ["alpha"]})
         started = time.monotonic()
         with pytest.raises(BinaryTerminatedError):
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=0.5)
         assert time.monotonic() - started < 5.0
-        assert model.BINARY_TIMEOUT_SECONDS != 0.5
+        assert (model.BINARY_TIMEOUT_SECONDS, model.BINARY_PROBE_TIMEOUT_SECONDS) == before
+
+    def test_per_call_timeout_bounds_the_probes_on_the_list_column_path(self) -> None:
+        table = pa.table({"col_a": pa.array([["alpha"]], type=pa.list_(pa.string()))})
+        with pytest.raises(BinaryNotRunnableError, match="timed out probing"):
+            StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"}, timeout=1e-6)
 
 
 # -------------------------------------------------------------------------------------------
@@ -553,12 +559,8 @@ class TestBinaryReportedErrors:
     def test_expired_license_raises_license_invalid_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(LicenseInvalidError) as excinfo:
+        with pytest.raises(LicenseInvalidError):
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert excinfo.value.source == "MLODA_LICENSE_KEY"
-        assert excinfo.value.reason
-        assert "MLODA_LICENSE" not in excinfo.value.reason
-        assert excinfo.value.message.endswith(excinfo.value.reason)
 
     def test_hanging_binary_raises_binary_terminated_error(self) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)

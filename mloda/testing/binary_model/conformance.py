@@ -689,6 +689,9 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
                     "BINARY_COMMAND_OVERRIDE": self.binary_cmd,
                     "LICENSE_FILE_OVERRIDE": str(license_path),
                     "LICENSE_KEY_OVERRIDE": None,
+                    "binary_environment": classmethod(
+                        lambda cls: {**self.platform_env({}), **cls._forwarded_environment()}
+                    ),
                 },
             ),
         )
@@ -697,7 +700,12 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         try:
             with pytest.raises(LicenseInvalidError) as excinfo:
                 model.run_binary_model(
-                    table, config["input_columns"], config["operation"], config["parameters"], config["output_columns"]
+                    table,
+                    config["input_columns"],
+                    config["operation"],
+                    config["parameters"],
+                    config["output_columns"],
+                    timeout=self.binary_timeout_seconds,
                 )
         finally:
             binary.clear_capability_cache()

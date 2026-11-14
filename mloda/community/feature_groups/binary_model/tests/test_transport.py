@@ -366,6 +366,20 @@ class TestInvocationDirectory:
         with InvocationDirectory(parent=parent):
             assert parent.is_dir()
 
+    def test_parent_creation_failure_with_nothing_at_the_path_raises_not_runnable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+
+        def failing_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+            raise PermissionError(errno.EACCES, "denied")
+
+        monkeypatch.setattr(Path, "mkdir", failing_mkdir)
+        with pytest.raises(BinaryNotRunnableError, match="cannot create"):
+            with InvocationDirectory(parent=parent):
+                pass
+        assert not parent.exists()
+
     def test_parent_created_by_the_class_has_owner_only_mode(self, tmp_path: Path) -> None:
         parent = tmp_path / TEMP_PARENT_NAME
         assert not parent.exists()

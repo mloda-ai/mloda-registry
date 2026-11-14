@@ -18,7 +18,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.binary_model import mixin
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import (
-    BinaryUnavailableError,
+    BinaryNotInstalledError,
     BinaryUsageError,
     LicenseInvalidError,
     LicenseMissingError,
@@ -326,7 +326,7 @@ class TestCalculateFeatureRejections:
     def test_production_class_without_override_raises_binary_unavailable(self, key_env: str) -> None:
         table = pa.table({"email": ["alpha"]})
         feature = _config_feature("pseudonymized_email")
-        with pytest.raises(BinaryUnavailableError, match="anonymizer_binary"):
+        with pytest.raises(BinaryNotInstalledError, match="anonymizer_binary"):
             AnonymizerFeatureGroup.calculate_feature(table, _feature_set(feature))
 
     def test_no_license_raises_license_missing(self, key_env: str, monkeypatch: pytest.MonkeyPatch) -> None:
