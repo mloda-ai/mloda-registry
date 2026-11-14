@@ -400,9 +400,9 @@ def _make_rewriting_identity_host(rewrite_identity: Callable[[HookContext, tuple
 
 
 class TestQueryStringIdentityContract:
-    """Proves the query-string and user-information contract test fails for an extender that publishes the raw
-    identity, keeps its user information (whole or with only the password masked), publishes a sanitized raw
-    identity, or drops it."""
+    """Proves the URI identity contract test fails for an extender that publishes the raw identity, keeps its user
+    information (whole or with only the password masked), publishes a sanitized raw path, cuts path parameters but
+    records the raw path, or drops the identity."""
 
     @pytest.mark.parametrize(
         ("rewrite_identity", "match"),
@@ -420,8 +420,15 @@ class TestQueryStringIdentityContract:
             ),
             pytest.param(
                 lambda context, args: re.sub(r"//[^/@]*@", "//", str(args[0]).partition("?")[0]),
-                "not attributed as an input",
+                "URI path parameter reached an event",
                 id="records-sanitized-raw-path",
+            ),
+            pytest.param(
+                lambda context, args: re.sub(
+                    r";[^/]*", ";***", re.sub(r"//[^/@]*@", "//", str(args[0]).partition("?")[0])
+                ),
+                "not attributed as an input",
+                id="cuts-path-parameters-keeps-raw-path",
             ),
             pytest.param(lambda context, args: None, "not attributed as an input", id="drops-the-identity"),
         ],
