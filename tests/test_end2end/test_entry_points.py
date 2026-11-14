@@ -185,20 +185,26 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
                     assert not cls.__module__.endswith(".base"), f"{manifest_name}.{attr_name}: {cls!r} lives in a base"
 
 
+def _is_test_module(module_name: str) -> bool:
+    return ".tests" in module_name
+
+
 def test_every_operation_group_declares_contract_version_1() -> None:
     """Every operation group shipped under mloda.community / mloda.enterprise declares CONTRACT_VERSION = 1 in its
     own class body, found by importing every module (not through manifests)."""
     for namespace in ("mloda.community", "mloda.enterprise"):
         package = importlib.import_module(namespace)
         for module_info in pkgutil.walk_packages(package.__path__, prefix=f"{namespace}."):
-            if ".tests" in module_info.name:
+            if _is_test_module(module_info.name):
                 continue
             importlib.import_module(module_info.name)
 
     groups = {
         cls
         for cls in get_all_subclasses(OperationFeatureGroup)
-        if cls.__module__.startswith(("mloda.community", "mloda.enterprise")) and not inspect.isabstract(cls)
+        if cls.__module__.startswith(("mloda.community", "mloda.enterprise"))
+        and not _is_test_module(cls.__module__)
+        and not inspect.isabstract(cls)
     }
     assert groups, "expected at least one concrete OperationFeatureGroup under mloda.community or mloda.enterprise"
     offenders = sorted(
