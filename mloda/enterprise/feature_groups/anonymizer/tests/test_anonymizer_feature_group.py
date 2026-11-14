@@ -7,12 +7,20 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Iterator
 from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import ApiDataFG, FeatureSet, PropertySpec
-from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda.provider import (
+    ApiDataFG,
+    CredentialReadRefused,
+    FeatureSet,
+    PropertySpec,
+    credential_handle_spec,
+    credentials_scope,
+)
+from mloda.user import Credential, DataAccessCollection, Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.binary_model import mixin
@@ -43,8 +51,7 @@ STUB_CMD = [
 ]
 VALID_LICENSE_KEY = valid_license_token([AnonymizerFeatureGroup.BINARY_PLUGIN_ID])
 LIST_UTF8_ROWS: list[list[str | None] | None] = [["alpha", "beta"], None, [], ["gamma", None]]
-KEY_ENV = "ANONYMIZER_TEST_PII_KEY"
-UNSET_KEY_ENV = "ANONYMIZER_TEST_UNSET_PII_KEY"
+KEY_HANDLE = "anonymizer-test-pii-key"
 
 
 class StubAnonymizer(AnonymizerFeatureGroup):
@@ -60,9 +67,13 @@ def _clear_capability_cache_before_each_test() -> None:
 
 
 @pytest.fixture
-def key_env(monkeypatch: pytest.MonkeyPatch) -> str:
-    monkeypatch.setenv(KEY_ENV, KNOWN_ANSWER_KEY)
-    return KEY_ENV
+def key_handle() -> Iterator[str]:
+    with credentials_scope({KEY_HANDLE: {"key": KNOWN_ANSWER_KEY}}):
+        yield KEY_HANDLE
+
+
+def _key_collection(key: str = KNOWN_ANSWER_KEY, handle: str = KEY_HANDLE) -> DataAccessCollection:
+    return DataAccessCollection(credentials={handle: Credential(key=key)})
 
 
 def _feature_set(*features: Feature) -> FeatureSet:
@@ -72,17 +83,13 @@ def _feature_set(*features: Feature) -> FeatureSet:
     return feature_set
 
 
-def _config_feature(name: str, source: str = "email", key_env_value: Any = KEY_ENV) -> Feature:
-    context: dict[str, Any] = {
-        "pseudonymization_algorithm": "hmac_sha256",
-        "pii_key_env": key_env_value,
-        "in_features": source,
-    }
-    return Feature(name, Options(context=context))
+def _config_feature(name: str, source: str = "email", key_handle_value: Any = KEY_HANDLE) -> Feature:
+    context: dict[str, Any] = {"pseudonymization_algorithm": "hmac_sha256", "in_features": source}
+    return Feature(name, Options(group={"pii_key_handle": key_handle_value}, context=context))
 
 
 def _string_feature(source: str = "email") -> Feature:
-    return Feature(f"{source}__hmac_sha256_pseudonymized", Options(context={"pii_key_env": KEY_ENV}))
+    return Feature(f"{source}__hmac_sha256_pseudonymized", Options(group={"pii_key_handle": KEY_HANDLE}))
 
 
 def _matches(name: str, options: Options) -> bool:
@@ -137,7 +144,7 @@ class TestPropertyMapping:
     def test_property_mapping_has_exactly_the_three_option_keys(self) -> None:
         expected = {
             AnonymizerFeatureGroup.ALGORITHM,
-            AnonymizerFeatureGroup.KEY_ENV,
+            AnonymizerFeatureGroup.KEY_HANDLE,
             "in_features",
         }
         assert set(AnonymizerFeatureGroup.PROPERTY_MAPPING) == expected
@@ -146,13 +153,16 @@ class TestPropertyMapping:
         for value in AnonymizerFeatureGroup.PROPERTY_MAPPING.values():
             assert isinstance(value, PropertySpec)
 
-    def test_key_env_spec_is_not_strict_and_has_no_match_guard(self) -> None:
-        """A strict spec or a match_guard would let mloda's validators echo a mistaken value, which
-        may be the key itself."""
-        spec = AnonymizerFeatureGroup.PROPERTY_MAPPING[AnonymizerFeatureGroup.KEY_ENV]
-        assert isinstance(spec, PropertySpec)
-        assert not spec.strict_validation
-        assert spec.match_guard is None
+    def test_key_handle_is_named_pii_key_handle(self) -> None:
+        assert AnonymizerFeatureGroup.KEY_HANDLE == "pii_key_handle"
+        assert not hasattr(AnonymizerFeatureGroup, "KEY_ENV")
+
+    def test_key_handle_spec_is_a_credential_handle_spec_requiring_the_key_field(self) -> None:
+        """A credential handle spec is strict, so planning never echoes a mistaken value."""
+        spec = AnonymizerFeatureGroup.PROPERTY_MAPPING[AnonymizerFeatureGroup.KEY_HANDLE]
+        assert isinstance(spec, type(credential_handle_spec("x")))
+        assert spec.required_fields == ("key",)
+        assert spec.strict_validation
 
     def test_binary_plugin_id_is_anonymizer_binary(self) -> None:
         assert AnonymizerFeatureGroup.BINARY_PLUGIN_ID == "anonymizer_binary"
@@ -167,31 +177,32 @@ class TestPropertyMapping:
 class TestMatchFeatureGroupCriteria:
     def test_config_path_matches(self) -> None:
         options = Options(
-            context={"pseudonymization_algorithm": "hmac_sha256", "pii_key_env": KEY_ENV, "in_features": "email"}
+            group={"pii_key_handle": KEY_HANDLE},
+            context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"},
         )
         assert _matches("pseudonymized_email", options)
 
-    def test_string_path_matches_with_key_env(self) -> None:
-        assert _matches("email__hmac_sha256_pseudonymized", Options(context={"pii_key_env": KEY_ENV}))
+    def test_string_path_matches_with_key_handle(self) -> None:
+        assert _matches("email__hmac_sha256_pseudonymized", Options(group={"pii_key_handle": KEY_HANDLE}))
 
     def test_rejects_another_algorithm(self) -> None:
-        options = Options(context={"pseudonymization_algorithm": "md5", "pii_key_env": KEY_ENV, "in_features": "email"})
+        options = Options(
+            group={"pii_key_handle": KEY_HANDLE},
+            context={"pseudonymization_algorithm": "md5", "in_features": "email"},
+        )
         assert _is_rejected("pseudonymized_email", options)
 
-    def test_rejects_missing_key_env_on_the_config_path(self) -> None:
+    def test_rejects_missing_key_handle_on_the_config_path(self) -> None:
         options = Options(context={"pseudonymization_algorithm": "hmac_sha256", "in_features": "email"})
         assert _is_rejected("pseudonymized_email", options)
 
-    def test_rejects_missing_key_env_on_the_string_path(self) -> None:
+    def test_rejects_missing_key_handle_on_the_string_path(self) -> None:
         assert _is_rejected("email__hmac_sha256_pseudonymized", Options())
 
     def test_rejects_two_in_features(self) -> None:
         options = Options(
-            context={
-                "pseudonymization_algorithm": "hmac_sha256",
-                "pii_key_env": KEY_ENV,
-                "in_features": ["email", "phone"],
-            }
+            group={"pii_key_handle": KEY_HANDLE},
+            context={"pseudonymization_algorithm": "hmac_sha256", "in_features": ["email", "phone"]},
         )
         assert _is_rejected("pseudonymized_email", options)
 
@@ -211,12 +222,12 @@ class TestManifest:
 
 
 class TestCalculateFeature:
-    def test_known_answer(self, key_env: str) -> None:
+    def test_known_answer(self, key_handle: str) -> None:
         table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
         result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
         assert result.column("pseudonymized_email").to_pylist() == [KNOWN_ANSWER_DIGEST]
 
-    def test_matches_the_reference_algorithm_and_keeps_nulls(self, key_env: str) -> None:
+    def test_matches_the_reference_algorithm_and_keeps_nulls(self, key_handle: str) -> None:
         rows: list[str | None] = ["alpha", None, "gamma"]
         table = pa.table({"email": rows, "other": [1, 2, 3]})
         result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
@@ -227,40 +238,39 @@ class TestCalculateFeature:
         assert result.num_rows == table.num_rows
         assert set(result.schema.names) == {"email", "other", "pseudonymized_email"}
 
-    def test_string_path_reads_the_source_from_the_name(self, key_env: str) -> None:
+    def test_string_path_reads_the_source_from_the_name(self, key_handle: str) -> None:
         rows: list[str | None] = ["alpha", "beta"]
         table = pa.table({"email": rows})
         result = StubAnonymizer.calculate_feature(table, _feature_set(_string_feature()))
         expected = compute_expected_hmac_sha256_column(rows, KNOWN_ANSWER_KEY)
         assert result.column("email__hmac_sha256_pseudonymized").to_pylist() == expected
 
-    def test_list_utf8_source_is_pseudonymized_element_wise(self, key_env: str) -> None:
+    def test_list_utf8_source_is_pseudonymized_element_wise(self, key_handle: str) -> None:
         table = pa.table({"email": pa.array(LIST_UTF8_ROWS, type=pa.list_(pa.string()))})
         result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
         out = result.column("pseudonymized_email")
         assert pa.types.is_list(out.type)
         _assert_list_utf8_pseudonymized(out.to_pylist())
 
-    def test_key_with_surrounding_whitespace_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv(KEY_ENV, KNOWN_ANSWER_KEY + "\n")
+    def test_key_with_surrounding_whitespace_is_stripped(self) -> None:
         table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
-        result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
+        with credentials_scope({KEY_HANDLE: {"key": KNOWN_ANSWER_KEY + "\n"}}):
+            result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
         assert result.column("pseudonymized_email").to_pylist() == [KNOWN_ANSWER_DIGEST]
 
-    def test_two_features_in_one_feature_set_each_use_their_own_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_two_features_in_one_feature_set_each_use_their_own_key(self) -> None:
         key_a, key_b = KNOWN_ANSWER_KEY, "22" * 32
-        monkeypatch.setenv("ANONYMIZER_TEST_KEY_A", key_a)
-        monkeypatch.setenv("ANONYMIZER_TEST_KEY_B", key_b)
         rows_a: list[str | None] = ["alpha", None]
         rows_b: list[str | None] = ["beta", "gamma"]
         table = pa.table({"col_a": rows_a, "col_b": rows_b})
-        feature_a = _config_feature("pseudo_a", source="col_a", key_env_value="ANONYMIZER_TEST_KEY_A")
-        feature_b = _config_feature("pseudo_b", source="col_b", key_env_value="ANONYMIZER_TEST_KEY_B")
-        result = StubAnonymizer.calculate_feature(table, _feature_set(feature_a, feature_b))
+        feature_a = _config_feature("pseudo_a", source="col_a", key_handle_value="anonymizer-test-key-a")
+        feature_b = _config_feature("pseudo_b", source="col_b", key_handle_value="anonymizer-test-key-b")
+        with credentials_scope({"anonymizer-test-key-a": {"key": key_a}, "anonymizer-test-key-b": {"key": key_b}}):
+            result = StubAnonymizer.calculate_feature(table, _feature_set(feature_a, feature_b))
         assert result.column("pseudo_a").to_pylist() == compute_expected_hmac_sha256_column(rows_a, key_a)
         assert result.column("pseudo_b").to_pylist() == compute_expected_hmac_sha256_column(rows_b, key_b)
 
-    def test_key_never_appears_in_a_log_record(self, key_env: str, caplog: pytest.LogCaptureFixture) -> None:
+    def test_key_never_appears_in_a_log_record(self, key_handle: str, caplog: pytest.LogCaptureFixture) -> None:
         table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
         with caplog.at_level(logging.DEBUG):
             StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
@@ -269,38 +279,32 @@ class TestCalculateFeature:
 
 
 class TestCalculateFeatureKeyRejections:
-    """The error never echoes the variable name, nor a key a user mistakenly put in ``pii_key_env``."""
+    """The error never echoes a rejected key value."""
 
-    def test_unset_env_var_raises_without_naming_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv(UNSET_KEY_ENV, raising=False)
+    def _calculate(self, credential: dict[str, Any]) -> pa.Table:
         table = pa.table({"email": ["alpha"]})
-        feature = _config_feature("pseudonymized_email", key_env_value=UNSET_KEY_ENV)
-        with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, _feature_set(feature))
-        assert UNSET_KEY_ENV not in str(excinfo.value)
+        with credentials_scope({KEY_HANDLE: credential}):
+            return StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
 
-    def test_empty_env_var_raises_without_naming_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv(KEY_ENV, "")
-        table = pa.table({"email": ["alpha"]})
+    def test_empty_key_raises_without_naming_the_handle(self) -> None:
         with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
-        assert KEY_ENV not in str(excinfo.value)
+            self._calculate({"key": ""})
+        assert KEY_HANDLE not in str(excinfo.value)
 
-    def test_non_str_key_env_raises(self, key_env: str) -> None:
-        table = pa.table({"email": ["alpha"]})
-        feature = _config_feature("pseudonymized_email", key_env_value=12345)
+    def test_whitespace_only_key_raises_without_naming_the_handle(self) -> None:
         with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, _feature_set(feature))
+            self._calculate({"key": "  \n"})
+        assert KEY_HANDLE not in str(excinfo.value)
+
+    def test_non_str_key_raises_without_echoing_it(self) -> None:
+        with pytest.raises(BinaryUsageError) as excinfo:
+            self._calculate({"key": 12345})
         assert "12345" not in str(excinfo.value)
 
-    def test_a_key_planted_in_key_env_is_never_echoed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        planted_key = "ab" * 32
-        monkeypatch.delenv(planted_key, raising=False)
-        table = pa.table({"email": ["alpha"]})
-        feature = _config_feature("pseudonymized_email", key_env_value=planted_key)
+    def test_missing_key_field_raises_without_echoing_other_values(self) -> None:
         with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, _feature_set(feature))
-        assert planted_key not in str(excinfo.value)
+            self._calculate({"other": "sentinel-value-not-to-leak"})
+        assert "sentinel-value-not-to-leak" not in str(excinfo.value)
 
     @pytest.mark.parametrize("malformed_key", ["11" * 31 + "1", "11" * 31 + "zz", "11" * 33])
     def test_malformed_key_raises_before_the_binary_runs_without_echoing_it(
@@ -313,23 +317,49 @@ class TestCalculateFeatureKeyRejections:
             raise AssertionError("the binary must not run for a malformed key")
 
         monkeypatch.setattr(mixin, "run_binary", recording_run_binary)
-        monkeypatch.setenv(KEY_ENV, malformed_key + "\n")
-        table = pa.table({"email": ["alpha"]})
         with pytest.raises(BinaryUsageError) as excinfo:
-            StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
+            self._calculate({"key": malformed_key + "\n"})
         assert not runs
         assert malformed_key not in str(excinfo.value)
-        assert KEY_ENV not in str(excinfo.value)
+        assert KEY_HANDLE not in str(excinfo.value)
+
+    @pytest.mark.parametrize("handle", [12345, ""])
+    def test_invalid_handle_raises_naming_the_option(self, key_handle: str, handle: Any) -> None:
+        table = pa.table({"email": ["alpha"]})
+        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=handle))
+        with pytest.raises(BinaryUsageError) as excinfo:
+            StubAnonymizer.calculate_feature(table, feature_set)
+        assert AnonymizerFeatureGroup.KEY_HANDLE in str(excinfo.value)
+
+    def test_non_str_handle_raises_without_echoing_it(self, key_handle: str) -> None:
+        table = pa.table({"email": ["alpha"]})
+        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value=12345))
+        with pytest.raises(BinaryUsageError) as excinfo:
+            StubAnonymizer.calculate_feature(table, feature_set)
+        assert "12345" not in str(excinfo.value)
+        assert AnonymizerFeatureGroup.KEY_HANDLE in str(excinfo.value)
+
+    def test_handle_not_in_the_open_scope_is_refused(self) -> None:
+        table = pa.table({"email": ["alpha"]})
+        feature_set = _feature_set(_config_feature("pseudonymized_email", key_handle_value="some-other-handle"))
+        with credentials_scope({KEY_HANDLE: {"key": KNOWN_ANSWER_KEY}}):
+            with pytest.raises(CredentialReadRefused):
+                StubAnonymizer.calculate_feature(table, feature_set)
+
+    def test_read_outside_a_credentials_scope_is_refused(self) -> None:
+        table = pa.table({"email": ["alpha"]})
+        with pytest.raises(CredentialReadRefused):
+            StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
 
 
 class TestCalculateFeatureRejections:
-    def test_production_class_without_override_raises_binary_unavailable(self, key_env: str) -> None:
+    def test_production_class_without_override_raises_binary_unavailable(self, key_handle: str) -> None:
         table = pa.table({"email": ["alpha"]})
         feature = _config_feature("pseudonymized_email")
         with pytest.raises(BinaryUnavailableError, match="anonymizer_binary"):
             AnonymizerFeatureGroup.calculate_feature(table, _feature_set(feature))
 
-    def test_no_license_raises_license_missing(self, key_env: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_license_raises_license_missing(self, key_handle: str, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
 
@@ -340,7 +370,7 @@ class TestCalculateFeatureRejections:
         with pytest.raises(LicenseMissingError):
             _NoLicenseAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
 
-    def test_license_for_another_plugin_id_raises_license_invalid(self, key_env: str) -> None:
+    def test_license_for_another_plugin_id_raises_license_invalid(self, key_handle: str) -> None:
         class _WrongLicenseAnonymizer(StubAnonymizer):
             LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
 
@@ -355,35 +385,91 @@ class TestCalculateFeatureRejections:
 
 
 class TestIntegration:
-    def test_config_form_end_to_end(self, key_env: str) -> None:
+    def test_config_form_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"email": ["alpha", None, "gamma"]}
         results = mloda.run_all(
             [_config_feature("pseudonymized_email")],
             compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
+            data_access_collection=_key_collection(),
             plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
         )
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "pseudonymized_email") == expected
 
-    def test_list_utf8_source_end_to_end(self, key_env: str) -> None:
+    def test_list_utf8_source_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"email": LIST_UTF8_ROWS}
         results = mloda.run_all(
             [_config_feature("pseudonymized_email")],
             compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
+            data_access_collection=_key_collection(),
             plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
         )
         out = _result_column(results, "pseudonymized_email")
         _assert_list_utf8_pseudonymized(out)
 
-    def test_string_form_end_to_end(self, key_env: str) -> None:
+    def test_string_form_end_to_end(self) -> None:
         rows: dict[str, list[Any]] = {"email": ["alpha", "beta"]}
         results = mloda.run_all(
             [_string_feature()],
             compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
+            data_access_collection=_key_collection(),
             plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
         )
         expected = compute_expected_hmac_sha256_column(rows["email"], KNOWN_ANSWER_KEY)
         assert _result_column(results, "email__hmac_sha256_pseudonymized") == expected
+
+    def test_key_handle_in_context_instead_of_group_fails_planning(self) -> None:
+        feature = Feature(
+            "pseudonymized_email",
+            Options(
+                context={
+                    "pseudonymization_algorithm": "hmac_sha256",
+                    "in_features": "email",
+                    "pii_key_handle": KEY_HANDLE,
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="pii_key_handle"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks=[PyArrowTable],
+                api_data={"AnonymizerData": {"email": ["alpha"]}},
+                data_access_collection=_key_collection(),
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+            )
+
+    def test_unregistered_handle_fails_planning(self) -> None:
+        with pytest.raises(ValueError, match="pii_key_handle"):
+            mloda.run_all(
+                [_config_feature("pseudonymized_email")],
+                compute_frameworks=[PyArrowTable],
+                api_data={"AnonymizerData": {"email": ["alpha"]}},
+                data_access_collection=DataAccessCollection(),
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+            )
+
+    def _plan_with_handle(self, handle: str) -> ValueError:
+        with pytest.raises(ValueError) as excinfo:
+            mloda.run_all(
+                [_config_feature("pseudonymized_email", key_handle_value=handle)],
+                compute_frameworks=[PyArrowTable],
+                api_data={"AnonymizerData": {"email": ["alpha"]}},
+                data_access_collection=_key_collection(),
+                plugin_collector=PluginCollector.enabled_feature_groups({ApiDataFG, StubAnonymizer}),
+            )
+        return excinfo.value
+
+    def test_a_registered_key_pasted_into_the_handle_option_is_masked_by_planning(self) -> None:
+        assert KNOWN_ANSWER_KEY not in str(self._plan_with_handle(KNOWN_ANSWER_KEY))
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="mloda core names the handle in its plan-time error, so a key pasted as a handle is echoed",
+    )
+    def test_an_unregistered_key_pasted_into_the_handle_option_is_not_echoed_by_planning(self) -> None:
+        pasted = "ab" * 32
+        assert pasted != KNOWN_ANSWER_KEY
+        assert pasted not in str(self._plan_with_handle(pasted))

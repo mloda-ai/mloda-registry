@@ -32,7 +32,8 @@ from tests.test_end2end.test_entry_points import _plugin_packages
 _FEATURE_GROUPS = "mloda.feature_groups"
 _COMMUNITY = "mloda/community/"
 _ENTERPRISE = "mloda/enterprise/"
-_STRING_CONTEXT: dict[str, Any] = {**PERMISSIVE_OPTIONS.context, "pii_key_env": "SOME_ENV"}
+_STRING_CONTEXT: dict[str, Any] = dict(PERMISSIVE_OPTIONS.context)
+_KEY_HANDLE_GROUP: dict[str, Any] = {"pii_key_handle": "some-handle"}
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ class Example:
 
 
 def _string_options() -> Options:
-    return Options(context=dict(_STRING_CONTEXT))
+    return Options(group=dict(_KEY_HANDLE_GROUP), context=dict(_STRING_CONTEXT))
 
 
 def _enterprise_examples() -> list[Example]:
@@ -58,8 +59,9 @@ def _enterprise_examples() -> list[Example]:
         for alg in algorithms
     ]
     for alg in algorithms:
-        config = {AnonymizerFeatureGroup.ALGORITHM: alg, "pii_key_env": "SOME_ENV", "in_features": "email"}
-        examples.append(Example(anonymizer, AnonymizerFeatureGroup, "email_pseudonym", Options(context=config)))
+        config = {AnonymizerFeatureGroup.ALGORITHM: alg, "in_features": "email"}
+        options = Options(group=dict(_KEY_HANDLE_GROUP), context=config)
+        examples.append(Example(anonymizer, AnonymizerFeatureGroup, "email_pseudonym", options))
     for op in operations:
         binary = {BinaryExampleFeatureGroup.OPERATION: op, "binary_input_columns": ["col_a"]}
         examples.append(
@@ -199,7 +201,7 @@ def test_detector_reports_planted_colliding_community_group() -> None:
         MAX_IN_FEATURES = 1
         PROPERTY_MAPPING: ClassVar = {
             "pseudonymization_algorithm": property_spec("Algorithm", allowed_values={"hmac_sha256": "HMAC"}),
-            "pii_key_env": property_spec("Key environment variable"),
+            "pii_key_handle": property_spec("Key credential handle"),
             DefaultOptionKeys.in_features: property_spec("Source column"),
         }
 
