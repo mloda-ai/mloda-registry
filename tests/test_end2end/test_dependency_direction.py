@@ -507,17 +507,24 @@ def test_mloda_testing_binary_model_extra_pins_the_enterprise_license_token_extr
     assert spec in extra, f"mloda-testing: the binary-model extra must contain {spec!r}, got {extra!r}"
 
 
-def _is_mloda_testing_import(node: ast.AST) -> bool:
-    """True for an Import whose dotted name starts with 'mloda.testing', or an ImportFrom whose
-    module starts with 'mloda.testing'. No exemption for function scope or TYPE_CHECKING blocks:
-    the caller walks the whole tree with ast.walk, not a scope-limited traversal."""
+def _is_import_of(node: ast.AST, dotted: str, from_parent: bool = False) -> bool:
+    """True for an Import or ImportFrom of ``dotted`` or a submodule; with from_parent, also ``from <parent> import <leaf>``.
+    No scope exemption: callers walk the whole tree with ast.walk."""
     if isinstance(node, ast.Import):
-        return any(alias.name == "mloda.testing" or alias.name.startswith("mloda.testing.") for alias in node.names)
+        return any(alias.name == dotted or alias.name.startswith(dotted + ".") for alias in node.names)
     if isinstance(node, ast.ImportFrom):
         if node.module is None:
             return False
-        return node.module == "mloda.testing" or node.module.startswith("mloda.testing.")
+        parent, _, leaf = dotted.rpartition(".")
+        if from_parent and node.module == parent:
+            return any(alias.name == leaf for alias in node.names)
+        return node.module == dotted or node.module.startswith(dotted + ".")
     return False
+
+
+def _is_mloda_testing_import(node: ast.AST) -> bool:
+    """True for an import of ``mloda.testing`` or a submodule, at any depth (no TYPE_CHECKING exemption)."""
+    return _is_import_of(node, "mloda.testing")
 
 
 def _runtime_modules(root_dir: Path, include_tests: bool = False) -> Iterator[tuple[Path, ast.Module]]:
@@ -749,16 +756,8 @@ def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None
 
 
 def _is_core_testing_import(node: ast.AST) -> bool:
-    """True for an Import or ImportFrom of ``mloda._testing`` (core's non-public conformance kit) at any depth."""
-    if isinstance(node, ast.Import):
-        return any(alias.name == "mloda._testing" or alias.name.startswith("mloda._testing.") for alias in node.names)
-    if isinstance(node, ast.ImportFrom):
-        if node.module is None:
-            return False
-        if node.module == "mloda":
-            return any(alias.name == "_testing" for alias in node.names)
-        return node.module == "mloda._testing" or node.module.startswith("mloda._testing.")
-    return False
+    """True for an import of ``mloda._testing`` (core's non-public conformance kit) at any depth."""
+    return _is_import_of(node, "mloda._testing", from_parent=True)
 
 
 def test_no_plugin_file_imports_core_testing_directly() -> None:

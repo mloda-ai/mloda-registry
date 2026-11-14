@@ -65,7 +65,9 @@ def _is_not_reexported(name: str) -> bool:
 
 def _core_testing_modules() -> list[str]:
     names = [m.name for m in pkgutil.walk_packages(mloda._testing.__path__, "mloda._testing.")]
-    return sorted(name for name in names if not _is_not_reexported(name))
+    return sorted(
+        name for name in names if not _is_not_reexported(name) and not name.rsplit(".", 1)[-1].startswith("_")
+    )
 
 
 def _public_names_defined(module_name: str) -> set[str]:

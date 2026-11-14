@@ -1,4 +1,4 @@
-"""Self-test: a toy ReadFileFG passes the source suite reached through the public mloda.testing door."""
+"""Self-test: the guide's sensor CSV ReadFileFG passes the source suite reached through the public mloda.testing door."""
 
 from __future__ import annotations
 
@@ -15,39 +15,40 @@ def _cell(text: str) -> Any:
     return int(text) if text.lstrip("-").isdigit() else text
 
 
-class MlodaTestingToyFileFG(ReadFileFG):
-    """Header line of comma-separated column names, then comma-separated rows; unique suffix keeps it inert."""
+class MlodaTestingSensorCsvFG(ReadFileFG):
+    """Sensor CSV from the input-data readers guide: a #sensor-schema header line, then comma-separated rows."""
 
     @classmethod
     def suffixes(cls) -> tuple[str, ...]:
-        return (".mlodatestingtoy",)
+        return (".mlodatestingsensorcsv",)
 
     @classmethod
     def column_names(cls, path: str) -> Collection[str]:
         with open(path, encoding="utf-8") as handle:
-            header = handle.readline().rstrip("\n")
-        if not header:
-            raise ValueError(f"{path} has an empty header")
-        return header.split(",")
+            header = handle.readline()
+        if "#sensor-schema" not in header:
+            raise ValueError("its header lacks the #sensor-schema marker")
+        return header.replace("#sensor-schema", "").strip().split(",")
 
     @classmethod
     def load_neutral(cls, match: Any, features: FeatureSet) -> Any:
         import pyarrow as pa
 
         with open(match.access, encoding="utf-8") as handle:
-            header = handle.readline().rstrip("\n").split(",")
+            header = handle.readline().replace("#sensor-schema", "").strip().split(",")
             rows = [line.rstrip("\n").split(",") for line in handle if line.strip()]
         return pa.table(
             {name: [_cell(row[header.index(name)]) for row in rows] for name in sorted(features.get_all_names())}
         )
 
 
-class TestMlodaTestingToyFileFG(ReadFileFGTestMixin):
-    feature_group_class = MlodaTestingToyFileFG
-    present_column = "mlodatesting_toy_present"
-    missing_column = "mlodatesting_toy_missing"
+class TestMlodaTestingSensorCsvFG(ReadFileFGTestMixin):
+    feature_group_class = MlodaTestingSensorCsvFG
+    present_column = "mlodatesting_sensor_present"
+    missing_column = "mlodatesting_sensor_missing"
 
     def write_file(self, path: Path, columns: dict[str, list[Any]]) -> None:
         names = list(columns)
-        rows = zip(*(columns[n] for n in names))
-        path.write_text(",".join(names) + "\n" + "".join(",".join(str(v) for v in r) + "\n" for r in rows))
+        rows = zip(*(columns[name] for name in names))
+        lines = ["#sensor-schema " + ",".join(names), *(",".join(str(v) for v in row) for row in rows)]
+        path.write_text("\n".join(lines) + "\n")

@@ -336,7 +336,8 @@ class TestSensorCsvFG(ReadFileFGTestMixin):
     def write_file(self, path: Path, columns: dict[str, list[Any]]) -> None:
         names = list(columns)
         rows = zip(*(columns[name] for name in names))
-        path.write_text(",".join(names) + "\n" + "".join(",".join(str(v) for v in row) + "\n" for row in rows))
+        lines = ["#sensor-schema " + ",".join(names), *(",".join(str(v) for v in row) for row in rows)]
+        path.write_text("\n".join(lines) + "\n")
 ```
 
 Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:
