@@ -18,6 +18,7 @@ from mloda.user import ParallelizationMode
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
     CountingExtender,
+    expected_plus_one,
     expected_value_int,
     failing_feature_group,
     run_credentialed_uri_feature,
@@ -65,11 +66,11 @@ class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
 
     def _run_all(self, *extenders: Extender, **kwargs: Any) -> tuple[list[Any], list[Any]]:
         """Run the runner whose hooks match wraps(); return (values, expected)."""
-        wraps = self.make_extender().wraps()
+        wraps = extenders[0].wraps()
         if wraps & _VALUE_INT_HOOKS:
             return run_value_int(*extenders, **kwargs), expected_value_int()
         if ExtenderHook.VALIDATE_INPUT_FEATURE in wraps:
-            return run_two_features(*extenders, **kwargs), [2, 3]
+            return run_two_features(*extenders, **kwargs), expected_plus_one()
         if ExtenderHook.JOIN in wraps:
             return sorted(run_joined_features(*extenders, **kwargs)), [110, 220]
         if wraps & _LOAD_HOOKS:
@@ -445,8 +446,14 @@ class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
     def test_contract_run_all_own_failure_propagates_when_raise_on_error_true(self) -> None:
         extender = self.make_extender(raise_on_error=True)
         with self.own_failure():
-            with pytest.raises(RuntimeError):
+            with pytest.raises(Exception) as excinfo:
                 self._run_all(extender)
+        chain: list[BaseException] = []
+        error: BaseException | None = excinfo.value
+        while error is not None and error not in chain:
+            chain.append(error)
+            error = error.__cause__ or error.__context__
+        assert any(isinstance(e, RuntimeError) for e in chain), f"no RuntimeError in {chain!r}"
 
     def test_contract_unconfigured_extender_emits_nothing(self) -> None:
         if not self.has_backend_sink():

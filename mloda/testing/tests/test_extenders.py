@@ -538,19 +538,6 @@ class _BareExtender(Extender):
         return func(*args, **kwargs)
 
 
-class _BareLoadOnlyExtender(Extender):
-    """Pass-through Extender wrapping INPUT_DATA_LOAD only, with no __init__; counts calls on the class."""
-
-    fired = 0
-
-    def wraps(self) -> set[ExtenderHook]:
-        return {ExtenderHook.INPUT_DATA_LOAD}
-
-    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        type(self).fired += 1
-        return func(*args, **kwargs)
-
-
 class TestPassThroughExtenderContract(ExtenderContractTestMixin):
     """Done-when: a bare pass-through Extender is covered by declaring `plugin` alone."""
 
@@ -561,15 +548,49 @@ class TestPassThroughExtenderContract(ExtenderContractTestMixin):
             assert self.make_extender(raise_on_error=value).raise_on_error is value
 
 
-class TestLoadOnlyExtenderContract(ExtenderContractTestMixin):
-    """A load-only Extender is covered by `plugin` alone; the runner follows wraps()."""
+def _make_single_hook_host(hook: ExtenderHook) -> None:
+    """Register a module-level bare Extender wrapping only `hook` (counting calls on its class) and a
+    contract host with `plugin` alone; both pickle by class reference."""
+    stem = "".join(part.capitalize() for part in hook.name.split("_"))
+    extender_name = f"_Bare{stem}Extender"
+    host_name = f"Test{stem}ExtenderContract"
 
-    plugin = _BareLoadOnlyExtender
+    def wraps(self: Extender) -> set[ExtenderHook]:
+        return {hook}
 
-    def test_run_all_contract_tests_fire_the_wrapped_hook(self) -> None:
-        _BareLoadOnlyExtender.fired = 0
+    def call(self: Extender, func: Any, *args: Any, **kwargs: Any) -> Any:
+        type(self).fired += 1  # type: ignore[attr-defined]
+        return func(*args, **kwargs)
+
+    extender = type(
+        extender_name,
+        (Extender,),
+        {"fired": 0, "wraps": wraps, "__call__": call, "__module__": __name__, "__qualname__": extender_name},
+    )
+
+    def test_run_all_contract_tests_fire_the_wrapped_hook(self: ExtenderContractTestMixin) -> None:
+        extender.fired = 0  # type: ignore[attr-defined]
         self.test_contract_run_all_leaves_result_unchanged()
-        assert _BareLoadOnlyExtender.fired >= 1
+        assert extender.fired >= 1  # type: ignore[attr-defined]
+
+    host = type(
+        host_name,
+        (ExtenderContractTestMixin,),
+        {
+            "plugin": extender,
+            "test_run_all_contract_tests_fire_the_wrapped_hook": test_run_all_contract_tests_fire_the_wrapped_hook,
+            "__module__": __name__,
+            "__qualname__": host_name,
+        },
+    )
+    globals()[extender_name] = extender
+    globals()[host_name] = host
+
+
+# One pass-through host per hook; CALCULATE is covered by TestPassThroughExtenderContract.
+for _hook in ExtenderHook:
+    if _hook is not ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+        _make_single_hook_host(_hook)
 
 
 class TestProbeExtenderContract(ExtenderContractTestMixin):
@@ -1260,12 +1281,21 @@ class TestKitsAreSuites:
         with pytest.raises(HookError):
             type("TestMisspelledHost", (kit,), {near_miss: lambda self: None})
 
-    def test_redefining_a_contract_test_without_a_cause_raises_switched_off_error(self) -> None:
+    @pytest.mark.parametrize("kit", ["extender_contract", "binary_model"])
+    def test_redefining_a_contract_test_without_a_cause_raises_switched_off_error(self, kit: str) -> None:
         from mloda._testing.suite import SwitchedOffError
 
+        from mloda.testing.binary_model.conformance import BinaryModelConformanceBase
+
+        base: type
+        attrs: dict[str, Any]
+        if kit == "extender_contract":
+            base, attrs = ExtenderContractTestMixin, {"plugin": _BareExtender}
+            name = "test_contract_extender_pickles"
+        else:
+            base, attrs = BinaryModelConformanceBase, {}
+            names = [n for n in dir(BinaryModelConformanceBase) if n.startswith("test_")]
+            assert names
+            name = names[0]
         with pytest.raises(SwitchedOffError):
-            type(
-                "TestRedefinedHost",
-                (ExtenderContractTestMixin,),
-                {"plugin": _BareExtender, "test_contract_extender_pickles": lambda self: None},
-            )
+            type("TestRedefinedHost", (base,), {**attrs, name: lambda self: None})
