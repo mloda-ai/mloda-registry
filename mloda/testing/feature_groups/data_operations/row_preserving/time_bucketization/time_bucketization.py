@@ -71,7 +71,7 @@ _BUCKET_TIMESTAMPS: list[datetime | None] = [
 
 
 def _create_bucket_data() -> TypedTestData:
-    """Create the 8-row typed data used by every time-bucketization test."""
+    """Create the typed data used by every time-bucketization test."""
     return TypedTestData({"timestamp": (DataType.TIMESTAMP_MICROS_TZ, _BUCKET_TIMESTAMPS)})
 
 

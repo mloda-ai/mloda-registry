@@ -104,7 +104,7 @@ VARIED_EXPECTED_QUARTER: list[Any] = [2, 3, 4, None]
 
 
 def _create_varied_times_data() -> TypedTestData:
-    """Create 4 rows of typed data with non-midnight UTC timestamps."""
+    """Create typed data with non-midnight UTC timestamps."""
     return TypedTestData({"timestamp": (DataType.TIMESTAMP_MICROS_TZ, _VARIED_TIMES_TIMESTAMPS)})
 
 

@@ -137,12 +137,7 @@ class _SharedDuckDBAdapter(DuckDBAdapter):
 
 
 class AdapterTestMixin:
-    """Implements the ``DataOpsTestBase`` adapter methods through ``adapter_class``.
-
-    ``setup_method`` opens the adapter and exposes its connection as ``self.conn``; ``teardown_method``
-    closes the adapter, its single owner. Fixtures with ``arrow_types`` overrides go through Arrow for every
-    framework (PythonDict included), so they are Arrow-only.
-    """
+    """Implements the ``DataOpsTestBase`` adapter methods through ``adapter_class``; ``arrow_types`` overrides make a fixture Arrow-only."""
 
     adapter_class: ClassVar[type[FrameworkAdapter]]
 
@@ -227,9 +222,8 @@ class PandasNullableIntTestMixin(PandasTestMixin):
 class DuckdbTestMixin(AdapterTestMixin):
     """Adapter methods for DuckDB; guard concrete modules with ``pytest.importorskip("duckdb")``.
 
-    ``self.conn`` is a cursor on a shared in-memory database. Session settings and TEMP objects are per test, but
-    non-temp tables/macros and global-scope settings (``threads``, ``memory_limit``) are database-wide; a test that
-    needs them should open a private ``duckdb.connect()``.
+    ``self.conn`` is a cursor on a shared database: non-temp tables, macros and global settings are database-wide, so
+    tests needing them should open a private ``duckdb.connect()``.
     """
 
     adapter_class = _SharedDuckDBAdapter

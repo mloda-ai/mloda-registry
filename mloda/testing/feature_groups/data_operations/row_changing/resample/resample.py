@@ -132,7 +132,7 @@ def _resample_columns() -> dict[str, tuple[DataType, list[Any]]]:
 
 
 def _create_resample_data(*, drop: str | None = None) -> TypedTestData:
-    """Create the 12-row typed data used by every resample test, optionally without one column."""
+    """Create the typed data used by every resample test, optionally without one column."""
     return TypedTestData({n: c for n, c in _resample_columns().items() if n != drop})
 
 

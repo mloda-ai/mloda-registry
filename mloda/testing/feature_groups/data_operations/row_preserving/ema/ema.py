@@ -124,7 +124,7 @@ _EMA_VALUES: list[float | None] = [
 
 
 def _create_ema_data() -> TypedTestData:
-    """Create the 12-row typed data used by every EMA test."""
+    """Create the typed data used by every EMA test."""
     return TypedTestData(
         {
             "id": (DataType.INT64, _EMA_IDS),

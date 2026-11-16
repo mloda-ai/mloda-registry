@@ -110,7 +110,7 @@ _FFILL_VALUES: list[float | None] = [
 
 
 def _create_ffill_data() -> TypedTestData:
-    """Create the 10-row typed data used by every ffill test."""
+    """Create the typed data used by every ffill test."""
     return TypedTestData(
         {
             "id": (DataType.INT64, _FFILL_IDS),

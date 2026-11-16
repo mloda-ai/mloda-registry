@@ -137,7 +137,7 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def source_data(cls) -> TypedTestData:
-        """Typed fixture setup_method builds ``self.test_data`` from; default: the canonical 12-row dataset."""
+        """Typed fixture setup_method builds ``self.test_data`` from; default: the canonical dataset."""
         return DataOperationsTestDataCreator.typed_data()
 
     @classmethod

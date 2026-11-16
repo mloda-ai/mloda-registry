@@ -120,7 +120,7 @@ _SESSION_TIMESTAMPS: list[datetime] = [datetime(2023, 1, 1, h, m, 0, tzinfo=_U) 
 
 
 def _create_sessionization_data() -> TypedTestData:
-    """Create the 9-row typed data used by every sessionization test."""
+    """Create the typed data used by every sessionization test."""
     return TypedTestData(
         {
             "id": (DataType.INT64, _SESSION_IDS),
