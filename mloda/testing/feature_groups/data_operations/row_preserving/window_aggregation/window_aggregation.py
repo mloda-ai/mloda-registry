@@ -16,9 +16,8 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import DivergenceKind, FeatureSet, Implementation
-from mloda.user import Options
+from mloda.user import DataType, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase

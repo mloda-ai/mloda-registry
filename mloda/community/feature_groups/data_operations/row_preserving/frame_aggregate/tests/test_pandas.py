@@ -10,11 +10,10 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
 
 pytest.importorskip("pandas")
 
-from mloda.user import Options
+from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,

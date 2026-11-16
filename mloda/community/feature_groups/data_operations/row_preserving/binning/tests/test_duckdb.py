@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
+from mloda.user import DataType
 
 duckdb = pytest.importorskip("duckdb")
 

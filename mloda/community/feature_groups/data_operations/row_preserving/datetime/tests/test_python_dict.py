@@ -6,7 +6,7 @@ from datetime import date
 from typing import Any
 
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
+from mloda.user import DataType
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.python_dict_datetime import (
     PythonDictDateTimeExtraction,

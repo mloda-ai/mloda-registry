@@ -6,7 +6,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
+from mloda.user import DataType
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.sqlite_offset import SqliteOffset
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set

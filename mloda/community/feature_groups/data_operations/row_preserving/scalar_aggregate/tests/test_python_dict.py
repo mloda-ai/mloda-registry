@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.user import Options
+from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.python_dict_scalar_aggregate import (
     PythonDictScalarAggregate,

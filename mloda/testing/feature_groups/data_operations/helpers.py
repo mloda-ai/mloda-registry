@@ -29,9 +29,8 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet, Implementation
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator

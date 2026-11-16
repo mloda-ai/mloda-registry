@@ -5,8 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.user import Options
+from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.aggregation.python_dict_aggregation import (

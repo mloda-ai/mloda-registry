@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-from mloda.core.abstract_plugins.components.data_types import DataType
+from mloda.user import DataType
 
 from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
     PyArrowStringOps,

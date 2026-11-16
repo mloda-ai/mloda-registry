@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
+from mloda.user import DataType
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.python_dict_offset import (
     PythonDictOffset,

@@ -13,8 +13,8 @@ import functools
 from datetime import date, datetime, timezone
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import ComputeFramework, DataCreatorFeatureGroup, FeatureSet
+from mloda.user import DataType
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.testing.typed_data import TypedTestData

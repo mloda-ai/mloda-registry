@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, ClassVar
 
 import pytest
-from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet
+from mloda.user import DataType
 
 from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column

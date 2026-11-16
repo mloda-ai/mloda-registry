@@ -8,9 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
     SqliteFrameAggregate,
