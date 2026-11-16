@@ -76,7 +76,7 @@ Core calls each worker copy's `close()` when a `MULTIPROCESSING` worker exits, n
 
 ## Secrets
 
-`read_credential` is refused inside every hook: the readable window is open only inside `calculate_feature` and an artifact saver, never around an extender. An extender that needs a key takes it as a constructor argument, and the caller reads the environment or a secret store, as with `OtelLogAuditSink(user_hash_key=...)`. Such a key is fixed for the session (no per-run rotation; prepare a new session to change it) and travels in the pickled extender under `MULTIPROCESSING`, so treat that pickle as secret material. Feature groups read secrets by handle instead (see [Secrets](feature-group-patterns/11-options.md#secrets)).
+`read_credential` is refused inside every hook: the readable window is open only inside `calculate_feature` (a source group's `load_neutral` included) and an artifact saver, never around an extender. An extender that needs a key takes it as a constructor argument, and the caller reads the environment or a secret store, as with `OtelLogAuditSink(user_hash_key=...)`. Such a key is fixed for the session (no per-run rotation; prepare a new session to change it) and travels in the pickled extender under `MULTIPROCESSING`, so treat that pickle as secret material. Feature groups read secrets by handle instead (see [Secrets](feature-group-patterns/11-options.md#secrets)).
 
 ## Emitting on the calculation thread
 
