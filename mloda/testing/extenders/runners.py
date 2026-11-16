@@ -19,6 +19,8 @@ from mloda.provider import (
 )
 from mloda.steward import Extender, ExtenderHook
 from mloda.user import (
+    Credential,
+    DataAccessCollection,
     Feature,
     FeatureName,
     Index,
@@ -291,6 +293,36 @@ def run_credentialed_uri_feature(
         [Feature("alpha", options={MlodaTestingUriFileFG.__name__: CREDENTIALED_URI})],
         compute_frameworks=[PyArrowTable],
         plugin_collector=PluginCollector.enabled_feature_groups({MlodaTestingUriFileFG}),
+        function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+        flight_server=flight_server,
+        carrier=carrier,
+    )
+    return _alpha_column(results)
+
+
+def run_credentialed_source_feature(
+    *extenders: Extender,
+    parallelization_modes: set[ParallelizationMode] | None = None,
+    flight_server: Any | None = None,
+    carrier: dict[str, str] | None = None,
+) -> list[Any]:
+    """Run `alpha` from a source whose load reads a declared credential; the column is [1, 3] only if that read worked."""
+    from mloda.testing.extenders.uri_source import (
+        CREDENTIAL_HANDLE,
+        CREDENTIAL_TOKEN,
+        CREDENTIALED_URI,
+        MlodaTestingCredentialedUriFileFG,
+    )
+
+    group = MlodaTestingCredentialedUriFileFG
+    results = mloda.run_all(
+        [Feature("alpha", options={group.__name__: CREDENTIALED_URI, group.HANDLE_OPTION: CREDENTIAL_HANDLE})],
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups({group}),
+        data_access_collection=DataAccessCollection(
+            credentials={CREDENTIAL_HANDLE: Credential({"token": CREDENTIAL_TOKEN})}
+        ),
         function_extender=set(extenders),
         parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
         flight_server=flight_server,

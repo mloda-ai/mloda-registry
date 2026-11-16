@@ -382,6 +382,10 @@ class _ProbeHost(OtelExtenderTestMixin):
     def extender_class(cls) -> type[Extender]:
         return _CachedTracerProbeOtelExtender
 
+    @classmethod
+    def supports_record_tenant(cls) -> bool:
+        return False
+
     def make_otel_extender(self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None) -> Extender:
         return _CachedTracerProbeOtelExtender(tracer_provider=tracer_provider)
 

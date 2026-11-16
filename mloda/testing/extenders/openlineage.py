@@ -8,6 +8,7 @@ import inspect
 import json
 import logging
 import os
+import pickle  # nosec
 import sys
 import textwrap
 import threading
@@ -21,7 +22,7 @@ from uuid import UUID
 
 import pyarrow as pa
 import pytest
-from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
+from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, verified_context
 from openlineage.client.client import Event, OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
 from openlineage.client.facet_v2 import parent_run
@@ -1096,6 +1097,122 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
                 if value != producer
             ]
             assert not offending, offending
+
+    _PRINCIPAL = "principal-never-exported-xyz"
+
+    @classmethod
+    def supports_record_tenant(cls) -> bool:
+        """Hosts whose extender has no record_tenant parameter (probes) return False."""
+        return True
+
+    def make_tenant_extender(self, client: OpenLineageClient, **options: Any) -> Extender:
+        """The extender built with the record_tenant flag; skips when the host's extender has no such parameter."""
+        if not self.supports_record_tenant():
+            pytest.skip("host does not support record_tenant")
+        return self.extender_class()(client=client, **options)  # type: ignore[call-arg]
+
+    def _step_tenant_facets(self, extender: Extender, transport: RecordingTransport, **identity: Any) -> list[Any]:
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, **identity).activate():
+            extender(lambda: None)
+        assert len(transport.events) == 2
+        return [_run_facet(event, "mlodaTenant") for event in transport.events]
+
+    def test_openlineage_record_tenant_adds_tenant_facet_to_step_events(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_tenant_extender(client, record_tenant=True)
+        identity = {"tenant_id": "tenant-a", "project_id": "project-b", "principal": self._PRINCIPAL}
+        facets = self._step_tenant_facets(extender, transport, **identity)
+        for facet in facets:
+            assert facet is not None
+            assert facet["tenantId"] == "tenant-a"
+            assert facet["projectId"] == "project-b"
+        assert self._PRINCIPAL not in "".join(Serde.to_json(event) for event in transport.events)
+
+    @pytest.mark.parametrize("blank", [None, "", "   "])
+    def test_openlineage_record_tenant_omits_blank_fields_and_the_facet_when_both_are_blank(
+        self, blank: str | None
+    ) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_tenant_extender(client, record_tenant=True)
+        facets = self._step_tenant_facets(extender, transport, tenant_id=blank, project_id="project-b")
+        for facet in facets:
+            assert facet is not None
+            assert facet.get("tenantId") is None
+            assert facet["projectId"] == "project-b"
+
+        client, transport = make_recording_client()
+        extender = self.make_tenant_extender(client, record_tenant=True)
+        assert self._step_tenant_facets(extender, transport, tenant_id=blank, project_id=blank) == [None, None]
+
+    def test_openlineage_record_tenant_is_off_by_default(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_tenant_extender(client)
+        identity = {"tenant_id": "tenant-a", "project_id": "project-b", "principal": self._PRINCIPAL}
+        assert self._step_tenant_facets(extender, transport, **identity) == [None, None]
+        assert self._PRINCIPAL not in "".join(Serde.to_json(event) for event in transport.events)
+
+    def test_openlineage_record_tenant_step_facet_survives_a_calculate_facets_override(self) -> None:
+        client, transport = make_recording_client()
+        base = self.extender_class()
+        if not self.supports_record_tenant():
+            pytest.skip("host does not support record_tenant")
+
+        class _NoSeamFacets(base):  # type: ignore[valid-type, misc]
+            def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
+                return {}
+
+        extender = _NoSeamFacets(client=client, record_tenant=True)
+        facets = self._step_tenant_facets(extender, transport, tenant_id="tenant-a", project_id="project-b")
+        assert [facet and facet["tenantId"] for facet in facets] == ["tenant-a", "tenant-a"]
+
+    def test_openlineage_record_tenant_run_all_tags_parent_and_step_events(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_tenant_extender(client, record_tenant=True)
+        with verified_context(tenant_id="tenant-a", project_id="project-b", principal=self._PRINCIPAL):
+            run_two_features(extender)
+        roots = _root_events(transport.events)
+        steps = self.calculate_run_events(transport.events)
+        assert {event.eventType for event in roots} >= {RunState.START, RunState.COMPLETE}
+        assert steps
+        for event in [*roots, *steps]:
+            facet = _run_facet(event, "mlodaTenant")
+            assert facet is not None, (event.job.name, event.eventType)
+            assert facet["tenantId"] == "tenant-a"
+            assert facet["projectId"] == "project-b"
+        assert self._PRINCIPAL not in "".join(Serde.to_json(event) for event in transport.events)
+
+    def test_openlineage_record_tenant_run_all_is_off_by_default(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_tenant_extender(client)
+        with verified_context(tenant_id="tenant-a", project_id="project-b", principal=self._PRINCIPAL):
+            run_two_features(extender)
+        assert transport.events
+        assert all(_run_facet(event, "mlodaTenant") is None for event in transport.events)
+        assert self._PRINCIPAL not in "".join(Serde.to_json(event) for event in transport.events)
+
+    def test_openlineage_record_tenant_never_changes_the_structure_hash(self) -> None:
+        hashes: list[Any] = []
+        for tenant in ("tenant-a", "tenant-b"):
+            client, transport = make_recording_client()
+            extender = self.make_tenant_extender(client, record_tenant=True)
+            with verified_context(tenant_id=tenant, project_id="project-b"):
+                run_two_features(extender)
+            hashes.append({_mloda_plan_field(event, "structureHash") for event in _root_events(transport.events)})
+        assert hashes[0] == hashes[1]
+        assert None not in hashes[0]
+
+    def test_openlineage_record_tenant_survives_pickling(self) -> None:
+        with self.injected_sink_capture() as captured:
+            client, _ = make_recording_client()
+            copy = pickle.loads(pickle.dumps(self.make_tenant_extender(client, record_tenant=True)))  # nosec
+            with make_hook_context(
+                hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, tenant_id="tenant-a", project_id="project-b"
+            ).activate():
+                copy(lambda: None)
+            assert captured
+            payloads = [json.loads(Serde.to_json(event)) for event in captured]
+        for payload in payloads:
+            assert payload["run"]["facets"]["mlodaTenant"]["tenantId"] == "tenant-a"
 
 
 _POSITIONAL = inspect.Parameter.POSITIONAL_OR_KEYWORD

@@ -319,6 +319,10 @@ class _NestedRunHost(OpenLineageExtenderTestMixin):
     def extender_class(cls) -> type[Extender]:
         return _NestedRunProbeOpenLineageExtender
 
+    @classmethod
+    def supports_record_tenant(cls) -> bool:
+        return False
+
     def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
         if raise_on_error is None:
             return _NestedRunProbeOpenLineageExtender(client=client)

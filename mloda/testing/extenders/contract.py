@@ -5,14 +5,22 @@ from __future__ import annotations
 import logging
 import pickle  # nosec
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from mloda._testing.suite import ConformanceSuite
-from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, verified_context
+from mloda.provider import read_credential
+from mloda.steward import (
+    CompositeExtender,
+    CredentialReadRefused,
+    Extender,
+    ExtenderHook,
+    HookContext,
+    verified_context,
+)
 from mloda.user import ParallelizationMode
 
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -21,6 +29,7 @@ from mloda.testing.extenders.runners import (
     expected_plus_one,
     expected_value_int,
     failing_feature_group,
+    run_credentialed_source_feature,
     run_credentialed_uri_feature,
     run_csv_feature,
     run_failing_feature,
@@ -320,6 +329,44 @@ class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
         identities, emitted = probe()
         assert identities == [CREDENTIALED_URI_IDENTITY]
         assert URI_SECRET not in emitted
+
+    def test_contract_run_all_extender_hooks_cannot_read_credentials(self) -> None:
+        from mloda.testing.extenders.uri_source import CREDENTIAL_HANDLE
+
+        extender_class = self.extender_class()
+        attempts: list[bool] = []
+
+        def attempt() -> None:
+            try:
+                read_credential(CREDENTIAL_HANDLE)
+            except CredentialReadRefused:
+                attempts.append(True)
+            else:
+                attempts.append(False)
+
+        def wrap(original: Callable[..., Any]) -> Callable[..., Any]:
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                attempt()
+                try:
+                    return original(*args, **kwargs)
+                finally:
+                    attempt()
+
+            return wrapper
+
+        extender = self.make_extender()
+        if not extender.wraps() & (_VALUE_INT_HOOKS | _LOAD_HOOKS):
+            pytest.skip("extender wraps no hook the credentialed source run fires")
+        names = ["__call__", "on_run_start", "on_run_complete", "on_plan_start", "on_plan_complete"]
+        with ExitStack() as stack:
+            for name in names:
+                if name == "__call__" or name in vars(extender_class):
+                    original = getattr(extender_class, name)
+                    stack.enter_context(patch.object(extender_class, name, wrap(original)))
+            values = run_credentialed_source_feature(extender)
+        assert values == [1, 3], "the source's own credential read did not succeed"
+        assert attempts, "no extender hook ran"
+        assert all(attempts), "an extender hook read a credential"
 
     def test_contract_run_all_wrapped_failure_propagates_and_runs_once(self) -> None:
         fg = failing_feature_group(f"{self.extender_class().__name__.lower()}_boom_feature")

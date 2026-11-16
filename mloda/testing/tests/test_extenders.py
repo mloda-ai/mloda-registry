@@ -938,6 +938,7 @@ class TestExtenderContractTestMixinShape:
         "name",
         [
             "test_contract_run_all_credentialed_uri_is_recorded_without_the_credentials",
+            "test_contract_run_all_extender_hooks_cannot_read_credentials",
             "test_contract_wraps_expected_hooks",
             "test_contract_raise_on_error_is_configurable",
             "test_contract_call_without_hook_context_passes_through",

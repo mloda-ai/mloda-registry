@@ -39,6 +39,7 @@ from mloda.community.extenders.shared.provider_sink import drop_unpicklable_prov
 from mloda.community.extenders.shared.step_run_id import owner_name as owner_name
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, capped_close_timeout
+from mloda.community.extenders.shared.tenant import tenant_identity
 from mloda.community.extenders.shared.trace_context import active_step_span_ids
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
@@ -189,6 +190,21 @@ def _step_facets(context: HookContext, producer: str) -> dict[str, Any]:
     }
 
 
+def _tenant_facets(context: Any, producer: str) -> dict[str, Any]:
+    """The mlodaTenant run facet from the context's non-blank identity, {} when there is none."""
+    # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+    from mloda.community.extenders.openlineage._facets import MlodaTenantRunFacet
+
+    identity = tenant_identity(context)
+    if not identity:
+        return {}
+    return {
+        "mlodaTenant": MlodaTenantRunFacet(
+            tenantId=identity.get("tenant_id"), projectId=identity.get("project_id"), producer=producer
+        )
+    }
+
+
 def _requested_features(steps: Any) -> list[str] | None:
     """Sorted union of the requested feature names of the compute steps, None when there are none or on odd input."""
     try:
@@ -296,7 +312,9 @@ class OpenLineageExtender(Extender):
         parent_from_env: bool = False,
         classification_undeclared: str | None = None,
         dataset_owners: Mapping[tuple[str, str], str | Sequence[str]] | None = None,
+        record_tenant: bool = False,
     ) -> None:
+        self.record_tenant = record_tenant
         self._dataset_owners = _normalize_dataset_owners(dataset_owners)
         self._classifications = RunClassifications(classification_undeclared, type(self).__name__)
         self.raise_on_error = raise_on_error
@@ -469,6 +487,8 @@ class OpenLineageExtender(Extender):
         engine = _processing_engine_facet(self.producer)
         if engine is not None:
             facets["processingEngine"] = engine
+        if self.record_tenant:
+            facets.update(_tenant_facets(run, self.producer))
         return RunEvent(
             eventType=state,
             eventTime=event_time,
@@ -697,7 +717,11 @@ class OpenLineageExtender(Extender):
                 name=owner_name(context, func),
                 facets=_job_ownership_facets(declared, self.producer),
             ),
-            run_facets={**self._calculate_run_facets(context, func, args), **_step_facets(context, self.producer)},
+            run_facets={
+                **self._calculate_run_facets(context, func, args),
+                **_step_facets(context, self.producer),
+                **(_tenant_facets(context, self.producer) if self.record_tenant else {}),
+            },
             declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)
                 for name in sorted(context.input_features or ())
