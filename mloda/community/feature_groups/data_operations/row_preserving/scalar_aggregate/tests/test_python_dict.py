@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.python_dict_scalar_aggregate import (
     PythonDictScalarAggregate,
 )
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
     ScalarAggregateTestBase,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictScalarAggregate(CapabilityHookTestMixin, PythonDictTestMixin, ScalarAggregateTestBase):
@@ -42,7 +45,6 @@ class TestPythonDictMinMaxSkipsNan:
 
     @staticmethod
     def _agg_via(agg_type: str) -> tuple[Any, Any]:
-        import pyarrow as pa
 
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
             PyArrowScalarAggregate,
@@ -53,7 +55,7 @@ class TestPythonDictMinMaxSkipsNan:
             make_feature_set,
         )
 
-        arrow_table = pa.table({"val": pa.array([float("nan"), 1.0, 3.0], type=pa.float64())})
+        arrow_table = arrow_table_of(TypedTestData({"val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}))
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"val__{agg_type}_scalar")
 

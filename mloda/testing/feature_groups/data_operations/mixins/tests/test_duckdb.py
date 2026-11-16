@@ -9,7 +9,7 @@ import pytest
 duckdb = pytest.importorskip("duckdb")
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin, duckdb_test_connection
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin, duckdb_test_connection
 
 
 def _timezone(cursor: Any) -> str:

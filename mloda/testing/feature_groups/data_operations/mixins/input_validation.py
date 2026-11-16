@@ -11,16 +11,17 @@ case, which checks rejection of a zero-length ``in_features``, and
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar
 from unittest.mock import patch
 
-import pyarrow as pa
 import pytest
 from mloda.user import FeatureName, Options
 
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # The input-rejection kinds every op test base must address (declare, opt
 # out with a reason, or mark not-applicable with None).
@@ -37,14 +38,15 @@ _INPUT_VALIDATION_KINDS: tuple[str, ...] = (
 class InputValidationCase:
     """One input-rejection case: the feature to run, its context, and the expected error match.
 
-    ``table`` is ``None`` to reuse ``self.test_data``, or a ``pa.Table`` to build fresh test
-    data from (e.g. to omit a source column).
+    ``data`` is ``None`` to reuse ``self.test_data``, or ``TypedTestData`` to build fresh test
+    data from (e.g. to omit a source column); ``arrow_types`` overrides its physical types.
     """
 
     feature_name: str
     context: dict[str, Any]
     match: str
-    table: pa.Table | None = None
+    data: TypedTestData | None = None
+    arrow_types: Mapping[str, Any] | None = None
 
 
 class InputValidationTestMixin(CaseParametrizationTestMixin):
@@ -55,7 +57,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
-    - ``create_test_data(arrow_table)``
+    - ``create_test_data(data, arrow_types)``
     - ``test_data``
     """
 
@@ -100,8 +102,10 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
     # -- Shared helper -------------------------------------------------------
 
     def _case_test_data(self, case: InputValidationCase) -> Any:
-        """Return the shared test data, or fresh data built from ``case.table``."""
-        return self.test_data if case.table is None else self.create_test_data(case.table)  # type: ignore[attr-defined]
+        """Return the shared test data, or fresh data built from ``case.data``."""
+        if case.data is None:
+            return self.test_data  # type: ignore[attr-defined]
+        return self.create_test_data(case.data, case.arrow_types)  # type: ignore[attr-defined]
 
     # -- Concrete test methods ------------------------------------------------
 

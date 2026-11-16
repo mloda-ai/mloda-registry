@@ -5,11 +5,12 @@ Uses the unified FrameAggregateTestBase.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 
 pytest.importorskip("pandas")
 
@@ -20,7 +21,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
@@ -28,6 +29,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
     FrameAggregateTestBase,
     time_frame_options,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAggregateTestBase):
@@ -88,13 +90,18 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         """A non-time rolling frame over a datetime or timedelta source is rejected with a ValueError too."""
         timestamps = [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5)]
         column = "ts" if source_kind == "datetime" else "dur"
-        data: dict[str, Any] = {"region": ["A", "A", "A"], "ts": timestamps}
+        columns: dict[str, Any] = {
+            "region": (DataType.STRING, ["A", "A", "A"]),
+            "ts": (DataType.TIMESTAMP_MICROS_TZ, timestamps),
+        }
+        arrow_types: dict[str, pa.DataType] = {}
         if source_kind == "timedelta":
-            data["dur"] = [timedelta(days=d) for d in (1, 3, 5)]
-        table = pa.table(data)
+            columns["dur"] = (DataType.INT64, [d * 86_400_000_000 for d in (1, 3, 5)])
+            arrow_types["dur"] = pa.duration("us")  # duration has no DataType; values are microseconds
+        table = TypedTestData(columns)
         fs = make_feature_set(f"{column}__{agg_type}_rolling_3", partition_by=["region"], order_by="ts")
         with pytest.raises(ValueError, match=rf"{source_kind}.*{column}|{column}.*{source_kind}"):
-            calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+            calculate_with(self.implementation_class(), self.create_test_data(table, arrow_types), fs)
 
     def test_pandas_dep_pinned_to_22_for_lowercase_freq_codes(self) -> None:
         """_FIXED_FREQ_CODES uses lowercase 's','min','h' which require pandas>=2.2."""

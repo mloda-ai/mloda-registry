@@ -27,10 +27,15 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    append_typed_columns,
+    calculate_with,
+    make_feature_set,
+)
+from mloda.testing.typed_data import TypedTestData
 
 
 class ReservedColumnsTestMixin:
@@ -44,8 +49,8 @@ class ReservedColumnsTestMixin:
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
-    - ``_arrow_table`` attribute (set in setup_method)
-    - ``create_test_data(arrow_table)``
+    - ``_source`` attribute (set in setup_method)
+    - ``create_test_data(data, arrow_types)``
     - ``_compare_with_reference(...)`` (only for ``reserved_columns_extra_feature_names``)
     """
 
@@ -124,12 +129,9 @@ class ReservedColumnsTestMixin:
         non-``None`` result.
         """
         colliding_name = "__MLODA_USER_COL__"
-        base_table: pa.Table = self._arrow_table  # type: ignore[attr-defined]
-        colliding_table = base_table.append_column(
-            colliding_name,
-            pa.array([0] * base_table.num_rows, type=pa.int64()),
-        )
-        colliding_data = self.create_test_data(colliding_table)  # type: ignore[attr-defined]
+        base: TypedTestData = self._source  # type: ignore[attr-defined]
+        colliding = append_typed_columns(base, {colliding_name: (DataType.INT64, [0] * base.row_count)})
+        colliding_data = self.create_test_data(colliding, self.source_arrow_types())  # type: ignore[attr-defined]
         fs = make_feature_set(
             self.reserved_columns_feature_name(),
             partition_by=self.reserved_columns_partition_by(),
@@ -158,13 +160,12 @@ class ReservedColumnsTestMixin:
         if not helper_names:
             pytest.skip("op opts out of the helper-column survival test")
 
-        base_table: pa.Table = self._arrow_table  # type: ignore[attr-defined]
-        n = base_table.num_rows
+        base: TypedTestData = self._source  # type: ignore[attr-defined]
+        n = base.row_count
         # A distinct value range per helper column so a cross-column mix-up is caught too.
         expected = {name: [1000 * (j + 1) + i for i in range(n)] for j, name in enumerate(sorted(helper_names))}
-        colliding_table = base_table
-        for name, values in expected.items():
-            colliding_table = colliding_table.append_column(name, pa.array(values, type=pa.int64()))
+        colliding = append_typed_columns(base, {name: (DataType.INT64, values) for name, values in expected.items()})
+        arrow_types = self.source_arrow_types()  # type: ignore[attr-defined]
         runs: list[tuple[str, dict[str, Any], bool]] = [(self.reserved_columns_feature_name(), {}, False)]
         for entry in self.reserved_columns_extra_feature_names():
             extra_name, extra_ctx = (entry, {}) if isinstance(entry, str) else entry
@@ -180,7 +181,7 @@ class ReservedColumnsTestMixin:
             fs = make_feature_set(feature_name, **kwargs)
             result = calculate_with(
                 self.implementation_class(),  # type: ignore[attr-defined]
-                self.create_test_data(colliding_table),  # type: ignore[attr-defined]
+                self.create_test_data(colliding, arrow_types),  # type: ignore[attr-defined]
                 fs,
             )
             assert self.get_row_count(result) == n, label  # type: ignore[attr-defined]
@@ -191,6 +192,6 @@ class ReservedColumnsTestMixin:
                 self._compare_with_reference(  # type: ignore[attr-defined]
                     feature_name,
                     use_approx=True,
-                    data=self.create_test_data(colliding_table),  # type: ignore[attr-defined]
+                    data=self.create_test_data(colliding, arrow_types),  # type: ignore[attr-defined]
                     **kwargs,
                 )

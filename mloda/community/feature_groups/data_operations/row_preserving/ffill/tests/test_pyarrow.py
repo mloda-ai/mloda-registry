@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow
     PyArrowFfill,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import (
     FfillTestBase,
 )

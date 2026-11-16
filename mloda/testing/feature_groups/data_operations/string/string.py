@@ -22,18 +22,19 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set, typed_data_without
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -116,7 +117,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
                 "name__trim",
                 {},
                 "Source column 'name' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["name"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "name"),
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,
@@ -282,12 +283,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
     def test_all_null_column_upper(self) -> None:
         """Upper on an all-null column should produce all None."""
         self._skip_if_unsupported("upper")
-        table = pa.table(
-            {
-                "name": pa.array([None, None, None], type=pa.string()),
-            }
-        )
-        data = self.create_test_data(table)
+        data = self.create_test_data(TypedTestData({"name": (DataType.STRING, [None, None, None])}))
         fs = make_feature_set("name__upper")
         result = calculate_with(self.implementation_class(), data, fs)
 
@@ -296,12 +292,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
 
     def test_all_null_column_length(self) -> None:
         """Length on an all-null column should produce all None."""
-        table = pa.table(
-            {
-                "name": pa.array([None, None, None], type=pa.string()),
-            }
-        )
-        data = self.create_test_data(table)
+        data = self.create_test_data(TypedTestData({"name": (DataType.STRING, [None, None, None])}))
         fs = make_feature_set("name__length")
         result = calculate_with(self.implementation_class(), data, fs)
 

@@ -1,7 +1,7 @@
 """Reusable NaN-policy test mixin for data-operations feature groups.
 
 Provides ``test_mixin_nan_policy``: runs ``DataOpsTestBase.nan_policy_table()``
-through the reference and the framework under test, and asserts both match the
+through the framework under test and the reference, and asserts both match the
 reference policy, or a framework's pinned divergence. See
 ``docs/guides/data-operation-patterns/03-reference-implementation.md`` and
 ``docs/guides/data-operation-patterns/known-divergences.md``.
@@ -17,7 +17,7 @@ from typing import Any, Callable, ClassVar
 import pytest
 from mloda.provider import FeatureSet
 
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
@@ -32,7 +32,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
     - ``nan_policy_table()``
     - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
     - ``implementation_class()``
-    - ``create_test_data(arrow_table)``
+    - ``create_test_data(data, arrow_types)``
     - ``extract_column(result, column_name)``
     - ``nan_divergent_agg_types()``
     - ``_skip_if_unsupported(op)`` (only used by the default skip hook)
@@ -92,10 +92,6 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
         fs = self.nan_policy_feature_set(feature_name)
         policy_expected = self.nan_policy_cases()[case]
 
-        ref = self.reference_calculate(table, fs)  # type: ignore[attr-defined]
-        ref_values = self.nan_policy_extract_values(ref, feature_name, _extract_column)
-        assert ref_values == pytest.approx(policy_expected, nan_ok=True), f"{case} reference: {ref_values!r}"
-
         divergent_cases = self.nan_policy_divergent_cases()
         if agg_type in self.nan_divergent_agg_types():  # type: ignore[attr-defined]
             assert any(self.nan_policy_agg_type(divergent_case) == agg_type for divergent_case in divergent_cases), (
@@ -119,3 +115,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
             self.extract_column,  # type: ignore[attr-defined]
         )
         assert result_values == pytest.approx(expected, nan_ok=True), f"{case} backend: {result_values!r}"
+
+        ref = self.reference_calculate(arrow_table_of(table), fs)  # type: ignore[attr-defined]
+        ref_values = self.nan_policy_extract_values(ref, feature_name, _extract_column)
+        assert ref_values == pytest.approx(policy_expected, nan_ok=True), f"{case} reference: {ref_values!r}"

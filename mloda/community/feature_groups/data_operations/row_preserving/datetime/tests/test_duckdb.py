@@ -18,7 +18,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.duck
     DuckdbDateTimeExtraction,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin, duckdb_test_connection
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin, duckdb_test_connection
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )

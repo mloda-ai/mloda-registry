@@ -16,12 +16,19 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
+    calculate_with,
+    feature_group_of,
+    make_feature_set,
+    typed_data_without,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
@@ -36,6 +43,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SingleValueStdVarTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -163,7 +171,7 @@ class WindowAggregationTestBase(
                 "value_int__sum_window",
                 {"partition_by": ["region"]},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             "empty_partition_by": InputValidationCase(
                 "value_int__sum_window",
@@ -618,11 +626,11 @@ class WindowAggregationTestBase(
     ) -> None:
         """Tied order values keep input order for first and last."""
         self._skip_if_unsupported(op)
-        table = pa.table({"g": g, "t": pa.array(t, type=pa.int64()), "v": pa.array(v, type=pa.float64())})
+        table = TypedTestData({"g": (DataType.STRING, g), "t": (DataType.INT64, t), "v": (DataType.DOUBLE, v)})
         data = self.create_test_data(table)
         fs = make_feature_set(f"v__{op}_window", ["g"], "t")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, f"v__{op}_window")
         assert result_col == expected
@@ -702,11 +710,11 @@ class WindowAggregationTestBase(
     def test_multiple_null_order_by_first(self) -> None:
         """Two or more null order_by values must not crash when using first aggregation."""
         self._skip_if_unsupported("first")
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "ts": [None, 1, None, 2],
-                "value": [100, 10, 200, 20],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "ts": (DataType.INT64, [None, 1, None, 2]),
+                "value": (DataType.INT64, [100, 10, 200, 20]),
             }
         )
         data = self.create_test_data(table)
@@ -722,11 +730,11 @@ class WindowAggregationTestBase(
     def test_multiple_null_order_by_last(self) -> None:
         """Two or more null order_by values must not crash when using last aggregation."""
         self._skip_if_unsupported("last")
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "ts": [None, 1, None, 2],
-                "value": [100, 10, 200, 20],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "ts": (DataType.INT64, [None, 1, None, 2]),
+                "value": (DataType.INT64, [100, 10, 200, 20]),
             }
         )
         data = self.create_test_data(table)
@@ -741,12 +749,7 @@ class WindowAggregationTestBase(
 
     def test_signed_zero_partition_keys(self) -> None:
         """Partition keys 0.0 and -0.0: the reference and most backends merge them into one group."""
-        table = pa.table(
-            {
-                "k": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
-                "v": pa.array([1, 2, 3], type=pa.int64()),
-            }
-        )
+        table = TypedTestData({"k": (DataType.DOUBLE, [0.0, -0.0, -0.0]), "v": (DataType.INT64, [1, 2, 3])})
         feature_name = "v__count_window"
         fs = make_feature_set(feature_name, ["k"])
 
@@ -759,12 +762,7 @@ class WindowAggregationTestBase(
     def test_signed_zero_nunique_values(self) -> None:
         """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
         self._skip_if_unsupported("nunique")
-        table = pa.table(
-            {
-                "k": pa.array(["a", "a", "a"], type=pa.string()),
-                "v": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
-            }
-        )
+        table = TypedTestData({"k": (DataType.STRING, ["a", "a", "a"]), "v": (DataType.DOUBLE, [0.0, -0.0, -0.0])})
         feature_name = "v__nunique_window"
         fs = make_feature_set(feature_name, ["k"])
 
@@ -784,11 +782,11 @@ class WindowAggregationTestBase(
         for agg, order, values, reference, tied in cases:
             if agg not in self.supported_agg_types():
                 continue
-            table = pa.table(
+            table = TypedTestData(
                 {
-                    "g": ["a"] * len(order),
-                    "o": pa.array(order, type=pa.float64()),
-                    "v": pa.array(values, type=pa.int64()),
+                    "g": (DataType.STRING, ["a"] * len(order)),
+                    "o": (DataType.DOUBLE, order),
+                    "v": (DataType.INT64, values),
                 }
             )
             feature_name = f"v__{agg}_window"
@@ -805,12 +803,8 @@ class WindowAggregationTestBase(
         if "first" not in self.supported_agg_types():
             return
         nan = float("nan")
-        table = pa.table(
-            {
-                "g": ["a", "a"],
-                "o": pa.array([1.0, 2.0], type=pa.float64()),
-                "v": pa.array([nan, 1.0], type=pa.float64()),
-            }
+        table = TypedTestData(
+            {"g": (DataType.STRING, ["a", "a"]), "o": (DataType.DOUBLE, [1.0, 2.0]), "v": (DataType.DOUBLE, [nan, 1.0])}
         )
         feature_name = "v__first_window"
         fs = make_feature_set(feature_name, ["g"], order_by="o")
@@ -821,8 +815,8 @@ class WindowAggregationTestBase(
         expected = [1.0, 1.0] if "first" in self.nan_divergent_agg_types() else [nan, nan]
         assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
 
-    def _ref_column(self, table: pa.Table, fs: FeatureSet, feature_name: str) -> list[Any]:
-        column: list[Any] = self.reference_calculate(table, fs).column(feature_name).to_pylist()
+    def _ref_column(self, table: TypedTestData, fs: FeatureSet, feature_name: str) -> list[Any]:
+        column: list[Any] = self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist()
         return column
 
     def test_multi_key_float_avg(self) -> None:

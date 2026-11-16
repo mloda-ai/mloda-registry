@@ -49,7 +49,7 @@ class TestAggregationComputeRejection:
         from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
             DuckdbAggregation,
         )
-        from mloda.testing.feature_groups.data_operations.mixins.duckdb import duckdb_test_connection
+        from mloda.testing.feature_groups.data_operations.mixins.frameworks import duckdb_test_connection
 
         conn = duckdb_test_connection()
         arrow_table = PyArrowDataOpsTestDataCreator.create()

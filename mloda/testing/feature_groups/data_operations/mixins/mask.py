@@ -14,15 +14,17 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 
 from mloda.testing.feature_groups.data_operations.helpers import (
+    append_typed_columns,
     calculate_with,
     is_null,
     make_feature_set,
     make_multi_feature_set,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class MaskTestMixin:
@@ -33,9 +35,9 @@ class MaskTestMixin:
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
-    - ``create_test_data(arrow_table)``
+    - ``create_test_data(data, arrow_types)``
     - ``test_data`` attribute (set in setup_method)
-    - ``_arrow_table`` attribute (set in setup_method)
+    - ``_source`` attribute (set in setup_method)
     - ``extract_column(result, column_name)``
     - ``get_row_count(result)``
     """
@@ -225,11 +227,11 @@ class MaskTestMixin:
         if self.mask_is_reducing():
             pytest.skip("reducing ops do not return input columns")
         helper_name = "__mloda_masked_src__"
-        n = self._arrow_table.num_rows  # type: ignore[attr-defined]
-        table = self._arrow_table.append_column(  # type: ignore[attr-defined]
-            helper_name, pa.array([1000 + i for i in range(n)], type=pa.int64())
-        )
-        data = self.create_test_data(table)  # type: ignore[attr-defined]
+        source: TypedTestData = self._source  # type: ignore[attr-defined]
+        n = source.row_count
+        helper_values = [1000 + i for i in range(n)]
+        table = append_typed_columns(source, {helper_name: (DataType.INT64, helper_values)})
+        data = self.create_test_data(table, self.source_arrow_types())  # type: ignore[attr-defined]
         source_name = self.mask_feature_name().split("__")[0]
         fs = make_feature_set(
             self.mask_feature_name(),
@@ -337,15 +339,13 @@ class MaskTestMixin:
         """Mixin: a null/NaN mask column follows core's missing-value rule for every feature group."""
         # Expectations come from a control run (missing values replaced by finite stand-ins) rather
         # than static per-group config, so the same test runs unchanged across every feature group.
-        actual_table = self._arrow_table.append_column(  # type: ignore[attr-defined]
-            "mask_metric", pa.array(metric_values, type=pa.float64())
-        )
-        control_table = self._arrow_table.append_column(  # type: ignore[attr-defined]
-            "mask_metric", pa.array(control_values, type=pa.float64())
-        )
+        source: TypedTestData = self._source  # type: ignore[attr-defined]
+        actual_table = append_typed_columns(source, {"mask_metric": (DataType.DOUBLE, metric_values)})
+        control_table = append_typed_columns(source, {"mask_metric": (DataType.DOUBLE, control_values)})
 
-        actual_data = self.create_test_data(actual_table)  # type: ignore[attr-defined]
-        control_data = self.create_test_data(control_table)  # type: ignore[attr-defined]
+        arrow_types = self.source_arrow_types()  # type: ignore[attr-defined]
+        actual_data = self.create_test_data(actual_table, arrow_types)  # type: ignore[attr-defined]
+        control_data = self.create_test_data(control_table, arrow_types)  # type: ignore[attr-defined]
 
         fs_actual = make_feature_set(
             self.mask_feature_name(), self.mask_partition_by(), self.mask_order_by(), mask=mask_spec

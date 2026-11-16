@@ -15,20 +15,29 @@ Provides:
 - ``feature_group_of``: The FeatureGroup class of a FeatureGroup class or an Implementation class.
 - ``load_implementation``: A named Implementation of a family package; skips when its optional backend is missing.
 - ``canonical_table_empty``: Canonical table with the same schema and zero rows, for empty-input cases.
+- ``canonical_data_empty``: The typed counterpart of ``canonical_table_empty``.
+- ``arrow_table_of``: Typed test data as an Arrow table; skips under pytest without pyarrow.
+- ``append_typed_columns``: Typed test data plus extra typed columns.
 - ``masked_column``: A table column with rows failing any mask condition set to null.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet, Implementation
 from mloda.user import Feature, Options
 
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.framework_adapter import to_arrow_table
+from mloda.testing.import_isolation import require_pyarrow
+from mloda.testing.typed_data import TypedTestData
 
 
 def feature_group_of(plugin: Any) -> Any:
@@ -60,20 +69,53 @@ _MASK_OPERATORS = frozenset({"equal", "greater_than", "greater_equal", "less_equ
 def masked_column(table: pa.Table, source_col: str, mask_spec: list[tuple[str, str, Any]]) -> Any:
     """The ``source_col`` array with rows failing any ``(column, operator, value)`` condition set to null."""
     import pyarrow.compute as pc
-    from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import PyArrowMaskEngine
+    from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_mask_engine import (
+        PythonDictMaskEngine,
+    )
 
-    mask = PyArrowMaskEngine.all_true(table)
+    data = table.to_pydict()
+    mask = PythonDictMaskEngine.all_true(data)
     for column, operator, value in mask_spec:
         if operator not in _MASK_OPERATORS:
             raise ValueError(f"Unsupported mask operator '{operator}'. Supported: {sorted(_MASK_OPERATORS)}")
-        mask = PyArrowMaskEngine.combine(mask, getattr(PyArrowMaskEngine, operator)(table, column, value))
+        if column not in data:
+            raise KeyError(column)
+        mask = PythonDictMaskEngine.combine(mask, getattr(PythonDictMaskEngine, operator)(data, column, value))
     null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
-    return pc.if_else(mask, table.column(source_col), null_scalar)
+    return pc.if_else(pa.array(mask, type=pa.bool_()), table.column(source_col), null_scalar)
+
+
+def arrow_table_of(data: TypedTestData, arrow_types: Mapping[str, pa.DataType] | None = None) -> pa.Table:
+    """The typed data as an Arrow table; skips under pytest when pyarrow is missing."""
+    require_pyarrow()
+    return to_arrow_table(data, arrow_types)
+
+
+def append_typed_columns(data: TypedTestData, columns: Mapping[str, tuple[DataType, Sequence[Any]]]) -> TypedTestData:
+    """The data plus extra ``name -> (type, values)`` columns."""
+    base = {name: (data_type, data.to_python_dict()[name]) for name, data_type in data.types.items()}
+    return TypedTestData({**base, **columns})
+
+
+def typed_data_without(data: TypedTestData, *columns: str) -> TypedTestData:
+    """The typed data minus the named columns; raises KeyError for an unknown column."""
+    unknown = [column for column in columns if column not in data.types]
+    if unknown:
+        raise KeyError(unknown[0])
+    values = data.to_python_dict()
+    return TypedTestData({name: (kind, values[name]) for name, kind in data.types.items() if name not in columns})
 
 
 def canonical_table_empty() -> pa.Table:
     """Return the canonical table's schema with zero rows, for empty-input cases."""
     return PyArrowDataOpsTestDataCreator.create().schema.empty_table()
+
+
+def canonical_data_empty() -> TypedTestData:
+    """The canonical typed data's columns with zero rows."""
+    return TypedTestData(
+        {name: (data_type, []) for name, data_type in DataOperationsTestDataCreator.typed_data().types.items()}
+    )
 
 
 def result_column_names(result: Any) -> list[str]:

@@ -16,26 +16,30 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Callable, ClassVar
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet
 
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # grp A holds three values (Jan 1, 10, 11); grp B holds exactly one value (Jan 1),
 # the single-value group each case's std/var must resolve to 0.0 for.
-_SINGLE_VALUE_TABLE: pa.Table = pa.table(
+_SINGLE_VALUE_TABLE = TypedTestData(
     {
-        "grp": ["A", "A", "A", "B"],
-        "ts": [
-            datetime(2023, 1, 1, tzinfo=timezone.utc),
-            datetime(2023, 1, 10, tzinfo=timezone.utc),
-            datetime(2023, 1, 11, tzinfo=timezone.utc),
-            datetime(2023, 1, 1, tzinfo=timezone.utc),
-        ],
-        "val": [10, 20, 30, 40],
+        "grp": (DataType.STRING, ["A", "A", "A", "B"]),
+        "ts": (
+            DataType.TIMESTAMP_MICROS_TZ,
+            [
+                datetime(2023, 1, 1, tzinfo=timezone.utc),
+                datetime(2023, 1, 10, tzinfo=timezone.utc),
+                datetime(2023, 1, 11, tzinfo=timezone.utc),
+                datetime(2023, 1, 1, tzinfo=timezone.utc),
+            ],
+        ),
+        "val": (DataType.INT64, [10, 20, 30, 40]),
     }
 )
 
@@ -55,7 +59,7 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
-    - ``create_test_data(arrow_table)``
+    - ``create_test_data(data, arrow_types)``
     - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
     - ``extract_column(result, column_name)``
     - ``_skip_if_unsupported(op)`` (used by the default skip hook)
@@ -81,7 +85,7 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
         return case
 
     @classmethod
-    def single_value_table(cls) -> pa.Table:
+    def single_value_table(cls) -> TypedTestData:
         """The fixture table to run cases against. Default: the shared grp/ts/val table."""
         return _SINGLE_VALUE_TABLE
 
@@ -113,10 +117,6 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
         expected = self.single_value_cases()[case]
         fs = self.single_value_feature_set(feature_name)
 
-        ref = self.reference_calculate(table, fs)  # type: ignore[attr-defined]
-        ref_values = self.single_value_extract_values(ref, feature_name, _extract_column)
-        assert ref_values == pytest.approx(expected, nan_ok=True), f"{case} reference: {ref_values!r}"
-
         result = calculate_with(
             self.implementation_class(),  # type: ignore[attr-defined]
             self.create_test_data(table),  # type: ignore[attr-defined]
@@ -124,3 +124,7 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
         )
         result_values = self.single_value_extract_values(result, feature_name, self.extract_column)  # type: ignore[attr-defined]
         assert result_values == pytest.approx(expected, nan_ok=True), f"{case} backend: {result_values!r}"
+
+        ref = self.reference_calculate(arrow_table_of(table), fs)  # type: ignore[attr-defined]
+        ref_values = self.single_value_extract_values(ref, feature_name, _extract_column)
+        assert ref_values == pytest.approx(expected, nan_ok=True), f"{case} reference: {ref_values!r}"

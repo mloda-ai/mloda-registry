@@ -18,12 +18,13 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
     make_feature_set,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -78,7 +79,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
                 "value_int__add_constant",
                 {"constant": 5},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,
@@ -274,7 +275,7 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         """A backend that cannot detect a boolean source computes it as 0/1."""
         if "boolean" in self.detects_non_numeric_source():
             pytest.skip("Backend rejects boolean source columns")
-        flags = self._arrow_table.column("is_active").to_pylist()
+        flags = self._source.to_python_dict()["is_active"]
         expected = [None if f is None else int(f) + 5 for f in flags]
         fs = make_feature_set("is_active__add_constant", constant=5)
         result = calculate_with(self.implementation_class(), self.test_data, fs)

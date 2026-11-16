@@ -11,12 +11,12 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.duckdb_time_bucketization import (
     DuckdbTimeBucketization,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     EXPECTED_FLOOR_1_DAY,
     TimeBucketizationTestBase,
-    _create_bucket_arrow_table,
+    _create_bucket_data,
 )
 
 
@@ -80,9 +80,9 @@ class TestDuckdbTimeBucketizationCalendarRound:
             PyArrowTimeBucketization,
         )
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
+        from mloda.testing.feature_groups.data_operations.mixins.frameworks import pin_connection_utc_via_core
 
-        arrow_table = _create_bucket_arrow_table()
+        arrow_table = arrow_table_of(_create_bucket_data())
 
         con = duckdb.connect()
         pin_connection_utc_via_core(con)
@@ -120,13 +120,13 @@ class TestDuckdbTimeBucketizationNonUtcSession:
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
+        from mloda.testing.feature_groups.data_operations.mixins.frameworks import pin_connection_utc_via_core
 
         con = duckdb.connect()
         con.execute("SET TimeZone='America/New_York'")
         pin_connection_utc_via_core(con)
 
-        rel = DuckdbRelation.from_arrow(con, _create_bucket_arrow_table())
+        rel = DuckdbRelation.from_arrow(con, arrow_table_of(_create_bucket_data()))
         fs = make_feature_set("timestamp__floor_1_day")
         result = calculate_with(DuckdbTimeBucketization, rel, fs)
 

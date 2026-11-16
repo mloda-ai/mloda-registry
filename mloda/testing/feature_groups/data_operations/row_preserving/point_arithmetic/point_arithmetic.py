@@ -21,12 +21,13 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
     make_feature_set,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -118,7 +119,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
                 "value_int&amount__add_point",
                 {},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,
@@ -390,8 +391,8 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         """A backend that cannot detect a boolean source computes it as 0/1 in either position."""
         if "boolean" in self.detects_non_numeric_source():
             pytest.skip("Backend rejects boolean source columns")
-        values = self._arrow_table.column("value_int").to_pylist()
-        flags = self._arrow_table.column("is_active").to_pylist()
+        values = self._source.to_python_dict()["value_int"]
+        flags = self._source.to_python_dict()["is_active"]
         expected = [None if v is None or f is None else v + int(f) for v, f in zip(values, flags)]
         for name in ("is_active&value_int__add_point", "value_int&is_active__add_point"):
             result = calculate_with(self.implementation_class(), self.test_data, make_feature_set(name))

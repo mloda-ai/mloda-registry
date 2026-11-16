@@ -7,7 +7,7 @@ offset, rank, binning, datetime, frame_aggregate, string). It provides:
 - 5 abstract adapter methods (implementation_class, create_test_data,
   extract_column, get_row_count, get_expected_type) that framework mixins
   or concrete test classes implement once.
-- ``source_arrow_table``: overridable hook for the fixture setup_method builds from.
+- ``source_data`` / ``source_arrow_types``: overridable typed fixture setup_method builds from.
 - ``contract_version``: hook plus an inherited check against the group's ``CONTRACT_VERSION``.
 - Shared setup_method / teardown_method (connection lifecycle).
 - A ``_skip_if_unsupported`` helper for operations not available on every framework.
@@ -20,14 +20,17 @@ class and add their own expected values and concrete test methods.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import DivergenceKind, Implementation
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
     feature_group_of,
@@ -35,6 +38,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     result_column_names,
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
+from mloda.testing.typed_data import TypedTestData
 
 # Capability methods ``_skip_if_unsupported`` probes, in order. Operation families
 # spell the same idea differently: aggregation has "agg_types", binning "ops",
@@ -81,8 +85,8 @@ class DataOpsTestBase(ABC):
         """Return the feature-group implementation class under test."""
 
     @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the canonical PyArrow test table to the framework's native format."""
+    def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, pa.DataType] | None = None) -> Any:
+        """Convert typed test data to the framework's native format; ``arrow_types`` overrides physical types."""
 
     @abstractmethod
     def extract_column(self, result: Any, column_name: str) -> list[Any]:
@@ -132,27 +136,38 @@ class DataOpsTestBase(ABC):
     # -- Setup / teardown ------------------------------------------------------
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        """PyArrow table setup_method builds ``self._arrow_table`` / ``self.test_data`` from.
+    def source_data(cls) -> TypedTestData:
+        """Typed fixture setup_method builds ``self.test_data`` from; default: the canonical 12-row dataset."""
+        return DataOperationsTestDataCreator.typed_data()
 
-        Default: canonical 12-row dataset, override for a dedicated fixture.
-        """
-        return PyArrowDataOpsTestDataCreator.create()
+    @classmethod
+    def source_arrow_types(cls) -> Mapping[str, pa.DataType]:
+        """Arrow physical-type overrides for ``source_data()``; a non-empty mapping makes the fixture Arrow-only."""
+        return {}
+
+    @property
+    def _arrow_table(self) -> pa.Table:
+        """The source fixture as an Arrow table, built on first use (the reference side needs pyarrow)."""
+        cached = self.__dict__.get("_arrow_table_cache")
+        if cached is None:
+            cached = helpers.arrow_table_of(self._source, self.source_arrow_types())
+            self.__dict__["_arrow_table_cache"] = cached
+        return cached
 
     def setup_method(self) -> None:
-        """Create test data from ``source_arrow_table()``.
+        """Create test data from ``source_data()``.
 
-        Connection-based mixins (DuckdbTestMixin, SqliteTestMixin) create
-        ``self.conn`` first, then call ``super().setup_method()``.
+        Adapter mixins (``AdapterTestMixin``) open ``self.adapter`` first, then call ``super().setup_method()``.
         """
-        self._arrow_table = self.source_arrow_table()
-        self.test_data = self.create_test_data(self._arrow_table)
+        self._source = self.source_data()
+        self.test_data = self.create_test_data(self._source, self.source_arrow_types())
 
     def teardown_method(self) -> None:
-        """Close ``self.conn`` if set by a connection-based mixin."""
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
+        """Close ``self.conn`` only when no adapter owns it."""
+        if getattr(self, "adapter", None) is None:
+            conn = getattr(self, "conn", None)
+            if conn is not None:
+                conn.close()
 
     # -- Helpers ---------------------------------------------------------------
 
@@ -195,7 +210,7 @@ class DataOpsTestBase(ABC):
     # -- Shared NaN-policy fixture -----------------------------------------
 
     @classmethod
-    def nan_policy_table(cls) -> pa.Table:
+    def nan_policy_table(cls) -> TypedTestData:
         """Shared grp/ts/val fixture for sum/avg/count/median/mode/min/max/std/var/nunique/first/last NaN-policy tests.
 
         Consumed by ``NanPolicyTestMixin.test_mixin_nan_policy`` (see
@@ -203,19 +218,22 @@ class DataOpsTestBase(ABC):
         val mixes NaN with real values; no grp or window is all-NaN, but resampling into
         1-day buckets does produce all-NaN buckets on purpose.
         """
-        return pa.table(
+        return TypedTestData(
             {
-                "grp": ["A", "A", "A", "B", "B", "B", "B"],
-                "ts": [
-                    datetime(2024, 1, 1, tzinfo=timezone.utc),
-                    datetime(2024, 1, 2, tzinfo=timezone.utc),
-                    datetime(2024, 1, 3, tzinfo=timezone.utc),
-                    datetime(2024, 1, 1, tzinfo=timezone.utc),
-                    datetime(2024, 1, 2, tzinfo=timezone.utc),
-                    datetime(2024, 1, 3, tzinfo=timezone.utc),
-                    datetime(2024, 1, 4, tzinfo=timezone.utc),
-                ],
-                "val": pa.array([2.0, float("nan"), 1.0, 1.0, float("nan"), 3.0, float("nan")], type=pa.float64()),
+                "grp": (DataType.STRING, ["A", "A", "A", "B", "B", "B", "B"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        datetime(2024, 1, 2, tzinfo=timezone.utc),
+                        datetime(2024, 1, 3, tzinfo=timezone.utc),
+                        datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        datetime(2024, 1, 2, tzinfo=timezone.utc),
+                        datetime(2024, 1, 3, tzinfo=timezone.utc),
+                        datetime(2024, 1, 4, tzinfo=timezone.utc),
+                    ],
+                ),
+                "val": (DataType.DOUBLE, [2.0, float("nan"), 1.0, 1.0, float("nan"), 3.0, float("nan")]),
             }
         )
 

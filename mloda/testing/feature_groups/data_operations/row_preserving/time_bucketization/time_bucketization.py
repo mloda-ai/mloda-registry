@@ -36,8 +36,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
@@ -53,6 +53,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Dedicated 8-row fixture (UTC timestamps)
@@ -70,16 +71,9 @@ _BUCKET_TIMESTAMPS: list[datetime | None] = [
 ]
 
 
-def _create_bucket_arrow_table() -> pa.Table:
-    """Create the 8-row PyArrow table used by every time-bucketization test."""
-    return pa.table(
-        {
-            "timestamp": pa.array(
-                _BUCKET_TIMESTAMPS,
-                type=pa.timestamp("us", tz="UTC"),
-            ),
-        }
-    )
+def _create_bucket_data() -> TypedTestData:
+    """Create the 8-row typed data used by every time-bucketization test."""
+    return TypedTestData({"timestamp": (DataType.TIMESTAMP_MICROS_TZ, _BUCKET_TIMESTAMPS)})
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +248,8 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
     # -- Setup: use the dedicated 8-row bucketization fixture ---------------
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        return _create_bucket_arrow_table()
+    def source_data(cls) -> TypedTestData:
+        return _create_bucket_data()
 
     # -- Per-op / per-unit pinned-value tests --------------------------------
 
@@ -492,9 +486,8 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
 
     def test_non_timestamp_source_rejected(self) -> None:
         """A non-timestamp source column must be rejected with a clear ValueError."""
-        # Build a one-column table where ``name`` is string-typed.
-        string_table = pa.table({"name": pa.array(["a", "b", "c"], type=pa.string())})
-        data = self.create_test_data(string_table)
+        # Build a one-column dataset where ``name`` is string-typed.
+        data = self.create_test_data(TypedTestData({"name": (DataType.STRING, ["a", "b", "c"])}))
         fs = make_feature_set("name__floor_1_day")
         import re
 
@@ -509,7 +502,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
 
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
-        missing_timestamp_table = pa.table({"not_timestamp": pa.array([1, 2, 3], type=pa.int64())})
+        missing_timestamp_data = TypedTestData({"not_timestamp": (DataType.INT64, [1, 2, 3])})
         return {
             "multi_column_in_features": InputValidationCase(
                 "bad_multi_col",
@@ -520,7 +513,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
                 "timestamp__floor_1_day",
                 {},
                 "Source column 'timestamp' is not present",
-                table=missing_timestamp_table,
+                data=missing_timestamp_data,
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,

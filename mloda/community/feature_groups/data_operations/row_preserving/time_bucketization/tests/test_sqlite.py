@@ -7,12 +7,12 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.sqlite_time_bucketization import (
     SqliteTimeBucketization,
 )
-from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     SqliteComputedColumnTestMixin,
     SqliteTestMixin,
     SqliteViewTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )

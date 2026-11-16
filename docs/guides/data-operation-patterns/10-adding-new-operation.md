@@ -280,7 +280,7 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.{category}.{your_op}.pandas_{your_op} import (
     PandasYourOp,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.{category}.{your_op}.{your_op} import (
     YourOpTestBase,
 )
@@ -294,7 +294,7 @@ class TestPandasYourOp(PandasTestMixin, YourOpTestBase):
 
 No test method bodies; everything is inherited. `implementation_class` returns the Implementation, and the test base reads its `supported`, so no skip override is needed. To also pin the match-time capability per framework, mix in `CapabilityHookTestMixin` (see `aggregation/tests/test_sqlite.py`).
 
-`PandasTestMixin` stores an int column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints. New SQLite ops also add a `SqliteViewTestMixin` class so the suite also runs on a view input (every feature after the first sees one).
+From typed data, `PandasTestMixin` stores an `INT64` column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints. New SQLite ops also add a `SqliteViewTestMixin` class so the suite also runs on a view input (every feature after the first sees one).
 
 ---
 
@@ -335,7 +335,7 @@ A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mlo
 
 Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/output_contract.py`), which covers the result-type, row-count, and new-column checks that used to be hand-written per base. Override `output_contract_feature_set` (an instance method) to return the `FeatureSet` to exercise, and `output_contract_expected_row_count` when the op changes the row count (return the expected count for the test dataset).
 
-Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/input_validation.py`) and overrides `input_validation_cases()`, declaring each of `multi_column_in_features`, `missing_source_column`, `empty_partition_by`, `missing_partition_by_column`, and `missing_order_by_column` as an `InputValidationCase` (feature name, context, `match`, and optionally a `table` for fresh test data), a reason string (skips with that reason), or `None` (does not apply to this op). The `multi_column_in_features` case also drives the inherited `test_mixin_empty_in_features` zero-in_features check, so declare it as an `InputValidationCase` (config-based) or a reason string to skip.
+Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/input_validation.py`) and overrides `input_validation_cases()`, declaring each of `multi_column_in_features`, `missing_source_column`, `empty_partition_by`, `missing_partition_by_column`, and `missing_order_by_column` as an `InputValidationCase` (feature name, context, `match`, and optionally `data` (a `TypedTestData`) for fresh test data; a fixture overrides `source_data()`), a reason string (skips with that reason), or `None` (does not apply to this op). The `multi_column_in_features` case also drives the inherited `test_mixin_empty_in_features` zero-in_features check, so declare it as an `InputValidationCase` (config-based) or a reason string to skip.
 
 ---
 

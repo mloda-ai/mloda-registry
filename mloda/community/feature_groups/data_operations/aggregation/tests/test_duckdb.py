@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregati
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 
 
 class TestDuckdbAggregation(DuckdbTestMixin, AggregationTestBase):

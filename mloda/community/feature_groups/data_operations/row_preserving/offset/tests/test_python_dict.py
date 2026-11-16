@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
+
 from mloda.community.feature_groups.data_operations.row_preserving.offset.python_dict_offset import (
     PythonDictOffset,
 )
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import OffsetTestBase
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictOffset(PythonDictTestMixin, OffsetTestBase):
@@ -43,12 +47,14 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
             make_feature_set,
         )
 
-        arrow_table = pa.table(
-            {
-                "grp": pa.array([float("nan"), float("nan"), 1.0, 2.0], type=pa.float64()),
-                "ord": pa.array([1, 2, 3, 4], type=pa.int64()),
-                "val": pa.array([10.0, 20.0, 100.0, 200.0], type=pa.float64()),
-            }
+        arrow_table = arrow_table_of(
+            TypedTestData(
+                {
+                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                    "ord": (DataType.INT64, [1, 2, 3, 4]),
+                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+                }
+            )
         )
 
         t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))

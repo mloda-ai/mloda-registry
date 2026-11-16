@@ -11,7 +11,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
     PyArrowSessionization,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
 )

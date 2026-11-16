@@ -14,18 +14,24 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import FeatureSet
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    calculate_with,
+    feature_group_of,
+    make_feature_set,
+    typed_data_without,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -101,7 +107,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
                 "value_int__bin_3",
                 {},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,
@@ -219,8 +225,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_ec011_all_identical_values(self) -> None:
         """EC-011: All identical values should produce one bin, no division-by-zero."""
         identical_data = {"value_int": [5, 5, 5, 5, 5]}
-        arrow_table = pa.table(identical_data)
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, identical_data["value_int"])}))
 
         fs = make_feature_set("value_int__bin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -231,8 +236,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_ec015_single_value(self) -> None:
         """EC-015: Single value in column should produce one bin."""
         single_data = {"value_int": [42]}
-        arrow_table = pa.table(single_data)
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, single_data["value_int"])}))
 
         fs = make_feature_set("value_int__bin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -244,8 +248,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """Quantile binning with all identical values should produce bin 0."""
         self._skip_if_unsupported("qbin")
         identical_data = {"value_int": [5, 5, 5, 5, 5]}
-        arrow_table = pa.table(identical_data)
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, identical_data["value_int"])}))
 
         fs = make_feature_set("value_int__qbin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -264,8 +267,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """Quantile binning with a single value."""
         self._skip_if_unsupported("qbin")
         single_data = {"value_int": [42]}
-        arrow_table = pa.table(single_data)
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, single_data["value_int"])}))
 
         fs = make_feature_set("value_int__qbin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -301,8 +303,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_n_bins_greater_than_row_count(self) -> None:
         """n_bins > row count: should not error, bins are sparse."""
         small_data = {"value_int": [10, 20, 30, 40, 50]}
-        arrow_table = pa.table(small_data)
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, small_data["value_int"])}))
 
         fs = make_feature_set("value_int__bin_100")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -314,8 +315,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     def test_all_null_column(self) -> None:
         """All-null column should produce all-null bin assignments."""
-        arrow_table = pa.table({"value_int": pa.array([None, None, None], type=pa.int64())})
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, [None, None, None])}))
 
         fs = make_feature_set("value_int__bin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -326,8 +326,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_all_null_column_qbin(self) -> None:
         """All-null column should produce all-null qbin assignments."""
         self._skip_if_unsupported("qbin")
-        arrow_table = pa.table({"value_int": pa.array([None, None, None], type=pa.int64())})
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, [None, None, None])}))
 
         fs = make_feature_set("value_int__qbin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -346,8 +345,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         val=30: (30-0)/10 = 3.0 -> clamped to bin 2
         """
         boundary_data = {"value_int": [0, 10, 20, 30]}
-        arrow_table = pa.table(boundary_data)
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(TypedTestData({"value_int": (DataType.INT64, boundary_data["value_int"])}))
 
         fs = make_feature_set("value_int__bin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -366,8 +364,9 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         val=1: (1-1)/2=0.0 -> 0, val=NaN: None, val=3: (3-1)/2=1.0 -> 1,
         val=5: (5-1)/2=2.0 -> 2, val=7: (7-1)/2=3.0 -> clamped to 2
         """
-        arrow_table = pa.table({"value_int": pa.array([1.0, float("nan"), 3.0, 5.0, 7.0])})
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(
+            TypedTestData({"value_int": (DataType.DOUBLE, [1.0, float("nan"), 3.0, 5.0, 7.0])})
+        )
 
         fs = make_feature_set("value_int__bin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -384,8 +383,9 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         rank 2 -> 6//4=1, rank 3 -> 9//4=2
         """
         self._skip_if_unsupported("qbin")
-        arrow_table = pa.table({"value_int": pa.array([1.0, float("nan"), 3.0, 5.0, 7.0])})
-        test_data = self.create_test_data(arrow_table)
+        test_data = self.create_test_data(
+            TypedTestData({"value_int": (DataType.DOUBLE, [1.0, float("nan"), 3.0, 5.0, 7.0])})
+        )
 
         fs = make_feature_set("value_int__qbin_3")
         result = calculate_with(self.implementation_class(), test_data, fs)

@@ -10,7 +10,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     SqliteScalarAggregate,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
     ScalarAggregateTestBase,
 )

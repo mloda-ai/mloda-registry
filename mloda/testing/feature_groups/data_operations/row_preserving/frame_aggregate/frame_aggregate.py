@@ -18,17 +18,20 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import Feature, Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
     feature_group_of,
     is_null,
     make_feature_set,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.helpers import (
     extract_column as _extract_column,
@@ -46,6 +49,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -306,7 +310,7 @@ class FrameAggregateTestBase(
                 # order_by is "amount" so it stays present once the source column is dropped.
                 {"partition_by": ["region"], "order_by": "amount"},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             # partition_by=[] means one whole-table group; every backend must support it.
             "empty_partition_by": None,
@@ -616,15 +620,18 @@ class FrameAggregateTestBase(
         if "month" not in self.supported_time_units():
             pytest.skip("This framework does not support month time units")
 
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 1, 31, tzinfo=timezone.utc),
-                    datetime(2023, 3, 1, tzinfo=timezone.utc),
-                ],
-                "value": [10, 20, 30],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 1, 31, tzinfo=timezone.utc),
+                        datetime(2023, 3, 1, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [10, 20, 30]),
             }
         )
         data = self.create_test_data(table)
@@ -660,15 +667,18 @@ class FrameAggregateTestBase(
         if "year" not in self.supported_time_units():
             pytest.skip("This framework does not support year time units")
 
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [
-                    datetime(2024, 1, 1, tzinfo=timezone.utc),
-                    datetime(2024, 12, 31, tzinfo=timezone.utc),
-                    datetime(2025, 1, 1, tzinfo=timezone.utc),
-                ],
-                "value": [10, 20, 30],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        datetime(2024, 12, 31, tzinfo=timezone.utc),
+                        datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [10, 20, 30]),
             }
         )
         data = self.create_test_data(table)
@@ -797,18 +807,21 @@ class FrameAggregateTestBase(
         from partition_by=["region"]: the global window can span both regions.
         A user column named like the polars time-frame helper must come back unchanged.
         """
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "B", "A", "B", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 1, 3, tzinfo=timezone.utc),
-                    datetime(2023, 1, 5, tzinfo=timezone.utc),
-                    datetime(2023, 1, 7, tzinfo=timezone.utc),
-                    datetime(2023, 1, 10, tzinfo=timezone.utc),
-                ],
-                "value": [10, 20, 30, 40, 50],
-                "__mloda_synth_ts__": [1000, 1001, 1002, 1003, 1004],
+                "region": (DataType.STRING, ["A", "B", "A", "B", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 1, 3, tzinfo=timezone.utc),
+                        datetime(2023, 1, 5, tzinfo=timezone.utc),
+                        datetime(2023, 1, 7, tzinfo=timezone.utc),
+                        datetime(2023, 1, 10, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [10, 20, 30, 40, 50]),
+                "__mloda_synth_ts__": (DataType.INT64, [1000, 1001, 1002, 1003, 1004]),
             }
         )
         data = self.create_test_data(table)
@@ -821,7 +834,7 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         assert self.get_row_count(result) == 5
         result_col = self.extract_column(result, feature_name)
@@ -831,16 +844,19 @@ class FrameAggregateTestBase(
 
     def test_cross_framework_time_window_week(self) -> None:
         """A 1-week time window must match the reference on integer sums."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 1, 8, tzinfo=timezone.utc),
-                    datetime(2023, 1, 15, tzinfo=timezone.utc),
-                    datetime(2023, 1, 22, tzinfo=timezone.utc),
-                ],
-                "value": [1, 2, 3, 4],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 1, 8, tzinfo=timezone.utc),
+                        datetime(2023, 1, 15, tzinfo=timezone.utc),
+                        datetime(2023, 1, 22, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [1, 2, 3, 4]),
             }
         )
         data = self.create_test_data(table)
@@ -853,7 +869,7 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -863,16 +879,19 @@ class FrameAggregateTestBase(
         """A 1-month time window must match the reference on integer sums."""
         if "month" not in self.supported_time_units():
             pytest.skip("This framework does not support month time units")
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 1, 31, tzinfo=timezone.utc),
-                    datetime(2023, 3, 1, tzinfo=timezone.utc),
-                    datetime(2023, 4, 30, tzinfo=timezone.utc),
-                ],
-                "value": [10, 20, 30, 40],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 1, 31, tzinfo=timezone.utc),
+                        datetime(2023, 3, 1, tzinfo=timezone.utc),
+                        datetime(2023, 4, 30, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [10, 20, 30, 40]),
             }
         )
         data = self.create_test_data(table)
@@ -885,7 +904,7 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -895,16 +914,19 @@ class FrameAggregateTestBase(
         """A 1-year time window must match the reference on integer sums."""
         if "year" not in self.supported_time_units():
             pytest.skip("This framework does not support year time units")
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 6, 1, tzinfo=timezone.utc),
-                    datetime(2024, 1, 1, tzinfo=timezone.utc),
-                    datetime(2025, 1, 1, tzinfo=timezone.utc),
-                ],
-                "value": [100, 200, 300, 400],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 6, 1, tzinfo=timezone.utc),
+                        datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [100, 200, 300, 400]),
             }
         )
         data = self.create_test_data(table)
@@ -917,7 +939,7 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -931,15 +953,18 @@ class FrameAggregateTestBase(
         windows and ``polars.rolling_*_by`` natively include all peers, which
         diverges from the reference; backends must compensate. See known-divergences.md.
         """
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    datetime(2023, 1, 6, tzinfo=timezone.utc),
-                ],
-                "value": [10, 20, 30],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        datetime(2023, 1, 6, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [10, 20, 30]),
             }
         )
         data = self.create_test_data(table)
@@ -952,7 +977,7 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -968,15 +993,18 @@ class FrameAggregateTestBase(
         if not self.supports_null_order_in_time_window():
             pytest.skip("Native time-window primitive rejects null order_by")
 
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, tzinfo=timezone.utc),
-                    None,
-                    datetime(2023, 1, 10, tzinfo=timezone.utc),
-                ],
-                "value": [10, 99, 30],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, tzinfo=timezone.utc),
+                        None,
+                        datetime(2023, 1, 10, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [10, 99, 30]),
             }
         )
         data = self.create_test_data(table)
@@ -989,7 +1017,7 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -1006,11 +1034,14 @@ class FrameAggregateTestBase(
             pytest.skip("This framework does not support time frames")
 
         # Interleaved regions and mixed categories, so the mask changes counts both per region and globally.
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "B", "A", "B", "A"],
-                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
-                "category": ["X", "Y", "X", "X", "Y"],
+                "region": (DataType.STRING, ["A", "B", "A", "B", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                ),
+                "category": (DataType.STRING, ["X", "Y", "X", "X", "Y"]),
             }
         )
         data = self.create_test_data(table)
@@ -1023,7 +1054,7 @@ class FrameAggregateTestBase(
             return
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         assert self.extract_column(result, feature_name) == _extract_column(ref, feature_name)
         assert self.extract_column(result, "ts") == _extract_column(ref, "ts")
@@ -1032,27 +1063,30 @@ class FrameAggregateTestBase(
         "table, mask_spec",
         [
             pytest.param(
-                pa.table(
+                TypedTestData(
                     {
-                        "region": ["A"] * 5,
-                        "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
-                        "category": ["X", "Y", "X", "X", "Y"],
-                        "value": [10, 20, 30, 40, 50],
+                        "region": (DataType.STRING, ["A"] * 5),
+                        "ts": (
+                            DataType.TIMESTAMP_MICROS_TZ,
+                            [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                        ),
+                        "category": (DataType.STRING, ["X", "Y", "X", "X", "Y"]),
+                        "value": (DataType.INT64, [10, 20, 30, 40, 50]),
                     }
                 ),
                 ("category", "equal", "X"),
                 id="category_equal",
             ),
             pytest.param(
-                pa.table(
+                TypedTestData(
                     {
-                        "region": ["A"] * 5,
-                        "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
-                        # Every 3-day window keeps exactly one passing row (row0, row2, or row4),
-                        # so a wrongly-passing NaN (row1) or null (row3) widens the window instead
-                        # of leaving it empty, which would hit an unrelated fully-masked-window case.
-                        "metric": pa.array([20.0, float("nan"), 20.0, None, 20.0], type=pa.float64()),
-                        "value": [10, 20, 30, 40, 50],
+                        "region": (DataType.STRING, ["A"] * 5),
+                        "ts": (
+                            DataType.TIMESTAMP_MICROS_TZ,
+                            [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                        ),
+                        "metric": (DataType.DOUBLE, [20.0, float("nan"), 20.0, None, 20.0]),
+                        "value": (DataType.INT64, [10, 20, 30, 40, 50]),
                     }
                 ),
                 ("metric", "greater_equal", 15.0),
@@ -1061,12 +1095,15 @@ class FrameAggregateTestBase(
             # Only row 2 passes the mask (category "X"); the 3-day windows of
             # rows 0, 1 and 4 hold no passing row, so those windows must aggregate to null.
             pytest.param(
-                pa.table(
+                TypedTestData(
                     {
-                        "region": ["A"] * 5,
-                        "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
-                        "category": ["Y", "Y", "X", "Y", "Y"],
-                        "value": [10, 20, 30, 40, 50],
+                        "region": (DataType.STRING, ["A"] * 5),
+                        "ts": (
+                            DataType.TIMESTAMP_MICROS_TZ,
+                            [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                        ),
+                        "category": (DataType.STRING, ["Y", "Y", "X", "Y", "Y"]),
+                        "value": (DataType.INT64, [10, 20, 30, 40, 50]),
                     }
                 ),
                 ("category", "equal", "X"),
@@ -1077,7 +1114,7 @@ class FrameAggregateTestBase(
     @pytest.mark.parametrize("agg_type", ["sum", "avg", "min", "max", "count"])
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     def test_cross_framework_time_window_with_mask(
-        self, table: pa.Table, mask_spec: tuple[Any, ...], agg_type: str, partition_by: list[str]
+        self, table: TypedTestData, mask_spec: tuple[Any, ...], agg_type: str, partition_by: list[str]
     ) -> None:
         """A masked time window must match the reference, whole-table (partition_by=[]) included."""
         if "time" not in self.supported_frame_types():
@@ -1093,7 +1130,7 @@ class FrameAggregateTestBase(
         )
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
@@ -1118,13 +1155,10 @@ class FrameAggregateTestBase(
 
     def test_all_null_values_returns_null(self) -> None:
         """When all values in the source column are null, results should be null."""
-        all_null_table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "value_int": [None, None, None],
-            }
+        all_null_table = TypedTestData(
+            {"region": (DataType.STRING, ["A", "A", "A"]), "value_int": (DataType.INT64, [None, None, None])}
         )
-        data = self.create_test_data(all_null_table)
+        data = self.create_test_data(all_null_table, {"value_int": pa.null()})  # null type, no DataType
         fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
         result = calculate_with(self.implementation_class(), data, fs)
 
@@ -1147,11 +1181,11 @@ class FrameAggregateTestBase(
 
     def test_multiple_null_order_by_values(self) -> None:
         """Two or more null order_by values must not crash during sorting."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "ts": [None, 1, None, 2],
-                "value": [100, 10, 200, 20],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "ts": (DataType.INT64, [None, 1, None, 2]),
+                "value": (DataType.INT64, [100, 10, 200, 20]),
             }
         )
         data = self.create_test_data(table)
@@ -1231,11 +1265,11 @@ class FrameAggregateTestBase(
 
     def test_null_order_by_key(self) -> None:
         """Null in order_by column should sort last (nulls last)."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [None, 1, 2],
-                "value": [100, 10, 20],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (DataType.INT64, [None, 1, 2]),
+                "value": (DataType.INT64, [100, 10, 20]),
             }
         )
         data = self.create_test_data(table)
@@ -1252,18 +1286,18 @@ class FrameAggregateTestBase(
 
     def test_nan_orders_before_none(self) -> None:
         """order_by [None, NaN, 1.0]: the reference puts NaN before None in the cumulative frame."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "g": ["a", "a", "a"],
-                "o": pa.array([None, float("nan"), 1.0], type=pa.float64()),
-                "v": pa.array([10, 20, 30], type=pa.int64()),
+                "g": (DataType.STRING, ["a", "a", "a"]),
+                "o": (DataType.DOUBLE, [None, float("nan"), 1.0]),
+                "v": (DataType.INT64, [10, 20, 30]),
             }
         )
         feature_name = "v__cumsum"
         self._skip_if_frame_feature_unsupported(feature_name, ["g"], "o")
         fs = make_feature_set(feature_name, ["g"], "o")
 
-        assert self.reference_calculate(table, fs).column(feature_name).to_pylist() == [60, 50, 30]
+        assert self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist() == [60, 50, 30]
 
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = [60, 50, 30] if self.orders_nan_before_none() else [40, 60, 30]
@@ -1300,19 +1334,15 @@ class FrameAggregateTestBase(
     ) -> None:
         """Rows tied on order_by keep input order (the tie is deliberate)."""
         day = [datetime(2023, 1, d, tzinfo=timezone.utc) for d in n_days]
-        table = pa.table(
-            {
-                "g": ["a"] * len(v),
-                "t": pa.array(day, type=pa.timestamp("us", tz="UTC")),
-                "v": pa.array(v, type=pa.int64()),
-            }
+        table = TypedTestData(
+            {"g": (DataType.STRING, ["a"] * len(v)), "t": (DataType.TIMESTAMP_MICROS_TZ, day), "v": (DataType.INT64, v)}
         )
         self._skip_if_frame_feature_unsupported(feature_name, ["g"], "t")
         fs = make_feature_set(feature_name, ["g"], "t")
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
 
         assert self.extract_column(result, feature_name) == expected
-        assert self.reference_calculate(table, fs).column(feature_name).to_pylist() == expected
+        assert self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist() == expected
 
     # No ``supported_agg_types`` exists on this base, so a feature's support is probed
     # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.

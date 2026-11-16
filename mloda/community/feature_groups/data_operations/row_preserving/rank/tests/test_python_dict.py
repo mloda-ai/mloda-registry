@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.python_dict_rank import (
     PythonDictRank,
 )
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, PythonDictTestMixin, RankTestBase):
@@ -90,11 +93,13 @@ class TestPythonDictRankNanPartitionKeyGrouping:
             make_feature_set,
         )
 
-        arrow_table = pa.table(
-            {
-                "grp": pa.array([float("nan"), float("nan"), 1.0, 2.0], type=pa.float64()),
-                "val": pa.array([10.0, 20.0, 100.0, 200.0], type=pa.float64()),
-            }
+        arrow_table = arrow_table_of(
+            TypedTestData(
+                {
+                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+                }
+            )
         )
 
         t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))

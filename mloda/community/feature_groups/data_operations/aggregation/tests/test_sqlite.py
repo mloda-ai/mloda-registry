@@ -13,7 +13,7 @@ from mloda.testing.feature_groups.data_operations.aggregation.aggregation import
     AggregationTestBase,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin
 
 
 class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, AggregationTestBase):

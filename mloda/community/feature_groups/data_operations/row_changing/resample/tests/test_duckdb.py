@@ -14,11 +14,11 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda.community.feature_groups.data_operations.row_changing.resample.duckdb_resample import (
     DuckdbResample,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     ResampleTestBase,
-    _create_resample_arrow_table,
+    _create_resample_data,
 )
 
 
@@ -38,13 +38,13 @@ class TestDuckdbResampleNonUtcSession:
     """
 
     def test_resample_1_day_utc_anchored_on_non_utc_session(self) -> None:
-        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
+        from mloda.testing.feature_groups.data_operations.mixins.frameworks import pin_connection_utc_via_core
 
         con = duckdb.connect()
         con.execute("SET TimeZone='America/New_York'")
         pin_connection_utc_via_core(con)
 
-        rel = DuckdbRelation.from_arrow(con, _create_resample_arrow_table())
+        rel = DuckdbRelation.from_arrow(con, arrow_table_of(_create_resample_data()))
         feature_name = "value__resample_1_day_mean"
         fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
         result = calculate_with(DuckdbResample, rel, fs)
@@ -70,13 +70,13 @@ class TestDuckdbResampleNonUtcSession:
             PyArrowResample,
         )
         from mloda.testing.feature_groups.data_operations.helpers import extract_column
-        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
+        from mloda.testing.feature_groups.data_operations.mixins.frameworks import pin_connection_utc_via_core
 
         con = duckdb.connect()
         con.execute("SET TimeZone='Asia/Kolkata'")  # UTC+5:30, non-UTC session
         pin_connection_utc_via_core(con)
 
-        arrow_table = _create_resample_arrow_table()
+        arrow_table = arrow_table_of(_create_resample_data())
         rel = DuckdbRelation.from_arrow(con, arrow_table)
         feature_name = "value__resample_15_minute_mean"
         fs = make_feature_set(feature_name, partition_by=[], time_column="ts")

@@ -13,8 +13,24 @@ import functools
 from datetime import date, datetime, timezone
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.provider import ComputeFramework, DataCreatorFeatureGroup, FeatureSet
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+from mloda.testing.typed_data import TypedTestData
+
+_COLUMN_TYPES: dict[str, DataType] = {
+    "region": DataType.STRING,
+    "category": DataType.STRING,
+    "timestamp": DataType.TIMESTAMP_MICROS_TZ,
+    "event_date": DataType.DATE,
+    "value_int": DataType.INT64,
+    "value_float": DataType.DOUBLE,
+    "amount": DataType.DOUBLE,
+    "name": DataType.STRING,
+    "is_active": DataType.BOOLEAN,
+    "score": DataType.DOUBLE,
+}
 
 
 class DataOperationsTestDataCreator(DataCreatorFeatureGroup):
@@ -91,6 +107,11 @@ class DataOperationsTestDataCreator(DataCreatorFeatureGroup):
             # All-null column (aggregation edge case)
             "score": [None, None, None, None, None, None, None, None, None, None, None, None],
         }
+
+    @classmethod
+    def typed_data(cls) -> TypedTestData:
+        """The canonical dataset with a declared DataType per column."""
+        return TypedTestData({name: (_COLUMN_TYPES[name], values) for name, values in cls.get_raw_data().items()})
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

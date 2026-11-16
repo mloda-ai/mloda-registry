@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.components.data_types import DataType
 
 pytest.importorskip("polars")
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.polars_lazy_scalar_arithmetic import (
     PolarsLazyScalarArithmetic,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import append_typed_columns, calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     ScalarArithmeticTestBase,
@@ -41,12 +41,10 @@ class TestPolarsLazyScalarArithmetic(ReservedColumnsTestMixin, PolarsLazyTestMix
         exists) and processed normally.
         """
         colliding_name = "__MLODA_USER_COL__"
-        base_table: pa.Table = self._arrow_table
-        colliding_table = base_table.append_column(
-            colliding_name,
-            pa.array([0] * base_table.num_rows, type=pa.int64()),
+        colliding_typed = append_typed_columns(
+            self._source, {colliding_name: (DataType.INT64, [0] * self._source.row_count)}
         )
-        colliding_data = self.create_test_data(colliding_table)
+        colliding_data = self.create_test_data(colliding_typed)
         fs = make_feature_set(self.reserved_columns_feature_name(), constant=5)
         result = calculate_with(self.implementation_class(), colliding_data, fs)
         assert result is not None

@@ -18,7 +18,7 @@ class OutputContractTestMixin:
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
     - ``test_data`` attribute (set in setup_method)
-    - ``_arrow_table`` attribute (set in setup_method)
+    - ``_source`` attribute (set in setup_method)
     - ``extract_column(result, column_name)``
     - ``get_row_count(result)``
     - ``get_expected_type()``
@@ -37,7 +37,7 @@ class OutputContractTestMixin:
 
     def output_contract_expected_row_count(self) -> int:
         """Defaults to the input row count; override for ops that change the row count."""
-        return int(self._arrow_table.num_rows)  # type: ignore[attr-defined]
+        return int(self._source.row_count)  # type: ignore[attr-defined]
 
     # -- Helper ------------------------------------------------------------
 

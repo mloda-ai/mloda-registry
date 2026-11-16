@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     PandasScalarAggregate,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
