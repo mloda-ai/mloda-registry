@@ -1,9 +1,4 @@
-"""Pinning rows of every reference: hand-computed inputs and expected outputs, run against the reference.
-
-The tables live next to each reference as ``pinning_rows.py`` in ``mloda.testing``; the runner builds each
-row's input table, calls ``reference_<operation>`` on the group under test and compares with the strict
-comparison of ``assert_values_with_nulls``. The guards keep the tables well formed and complete.
-"""
+"""Runs every ``pinning_rows.py`` table in ``mloda.testing`` against its reference, strictly, and guards the tables."""
 
 from __future__ import annotations
 
@@ -39,7 +34,7 @@ PENDING_REFERENCES = frozenset({"rank", "offset", "percentile"})
 
 
 def discover_pinning_tables() -> list[tuple[str, PinningTable]]:
-    """``(module name, PINNING)`` of every ``pinning_rows`` module in the kit, sorted by module name."""
+    """``(module name, PINNING)`` of every ``pinning_rows`` module, sorted by name."""
     names = sorted(
         info.name
         for info in pkgutil.walk_packages(kit_package.__path__, kit_package.__name__ + ".")
@@ -57,13 +52,13 @@ ROW_PARAMS = [
 
 
 def group_under_test(operation: str) -> Any:
-    """The production FeatureGroup class of a catalog operation, resolved as ``catalog._build_operation`` does."""
+    """The production FeatureGroup class of a catalog operation."""
     spec = next(spec for spec in _OPERATION_SPECS if spec.name == operation)
     return getattr(importlib.import_module(spec.package + ".base"), spec.base_class)
 
 
 def reference_of(module: str, operation: str) -> Any:
-    """``reference_<operation>`` from the ``reference`` module next to a ``pinning_rows`` module."""
+    """``reference_<operation>`` from the ``reference`` module beside a ``pinning_rows`` module."""
     sibling = module.rsplit(".", 1)[0] + ".reference"
     return getattr(importlib.import_module(sibling), f"reference_{operation}")
 
@@ -73,7 +68,6 @@ def _column(values: tuple[Any, ...], alias: str | None) -> pa.Array:
 
 
 def input_table(row: PinningRow) -> pa.Table:
-    """The row's input columns as a table, typed by ``row.types`` where it names a column."""
     return pa.table({name: _column(values, row.types.get(name)) for name, values in row.inputs.items()})
 
 

@@ -98,7 +98,7 @@ PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Py
 
 ## Pinned cases
 
-Each reference ships `pinning_rows.py` next to it: hand-computed inputs and expected outputs, not produced by running the reference. `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py` runs every row against its reference and checks this block; regenerate it from `render_pinning_block` when a row changes.
+Each reference ships `pinning_rows.py` next to it: hand-computed rows, never produced by running the reference. `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py` runs every row against its reference and checks this block; regenerate it from `render_pinning_block` when a row changes.
 
 <!-- BEGIN GENERATED: reference-pinning -->
 
