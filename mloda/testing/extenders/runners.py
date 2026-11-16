@@ -277,6 +277,29 @@ def run_csv_feature(
     return _alpha_column(results)
 
 
+def _run_alpha_from_source(
+    group: type[FeatureGroup],
+    options: dict[str, Any],
+    extenders: tuple[Extender, ...],
+    parallelization_modes: set[ParallelizationMode] | None,
+    flight_server: Any | None,
+    carrier: dict[str, str] | None,
+    data_access_collection: DataAccessCollection | None = None,
+) -> list[Any]:
+    """Run `alpha` with `options` from the single source `group` through mloda.run_all; return the column."""
+    results = mloda.run_all(
+        [Feature("alpha", options=options)],
+        compute_frameworks=[PyArrowTable],
+        plugin_collector=PluginCollector.enabled_feature_groups({group}),
+        data_access_collection=data_access_collection,
+        function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+        flight_server=flight_server,
+        carrier=carrier,
+    )
+    return _alpha_column(results)
+
+
 def run_credentialed_uri_feature(
     *extenders: Extender,
     parallelization_modes: set[ParallelizationMode] | None = None,
@@ -289,16 +312,14 @@ def run_credentialed_uri_feature(
     # Imported here so importing this module does not register the source group for every unrestricted run.
     from mloda.testing.extenders.uri_source import CREDENTIALED_URI, MlodaTestingUriFileFG
 
-    results = mloda.run_all(
-        [Feature("alpha", options={MlodaTestingUriFileFG.__name__: CREDENTIALED_URI})],
-        compute_frameworks=[PyArrowTable],
-        plugin_collector=PluginCollector.enabled_feature_groups({MlodaTestingUriFileFG}),
-        function_extender=set(extenders),
-        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
-        flight_server=flight_server,
-        carrier=carrier,
+    return _run_alpha_from_source(
+        MlodaTestingUriFileFG,
+        {MlodaTestingUriFileFG.__name__: CREDENTIALED_URI},
+        extenders,
+        parallelization_modes,
+        flight_server,
+        carrier,
     )
-    return _alpha_column(results)
 
 
 def run_credentialed_source_feature(
@@ -316,19 +337,17 @@ def run_credentialed_source_feature(
     )
 
     group = MlodaTestingCredentialedUriFileFG
-    results = mloda.run_all(
-        [Feature("alpha", options={group.__name__: CREDENTIALED_URI, group.HANDLE_OPTION: CREDENTIAL_HANDLE})],
-        compute_frameworks=[PyArrowTable],
-        plugin_collector=PluginCollector.enabled_feature_groups({group}),
+    return _run_alpha_from_source(
+        group,
+        {group.__name__: CREDENTIALED_URI, group.HANDLE_OPTION: CREDENTIAL_HANDLE},
+        extenders,
+        parallelization_modes,
+        flight_server,
+        carrier,
         data_access_collection=DataAccessCollection(
             credentials={CREDENTIAL_HANDLE: Credential({"token": CREDENTIAL_TOKEN})}
         ),
-        function_extender=set(extenders),
-        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
-        flight_server=flight_server,
-        carrier=carrier,
     )
-    return _alpha_column(results)
 
 
 class CountingExtender(Extender):
