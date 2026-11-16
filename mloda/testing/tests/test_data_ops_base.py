@@ -112,6 +112,41 @@ def test_assert_values_with_nulls_length_mismatch() -> None:
         helpers.assert_values_with_nulls([1], [1, 2])
 
 
+def test_assert_values_with_nulls_strict_passes_exact_values() -> None:
+    helpers.assert_values_with_nulls(
+        [1, 2.5, float("nan"), None, True, "x"], [1, 2.5, float("nan"), None, True, "x"], strict=True
+    )
+
+
+@pytest.mark.parametrize(
+    ("actual", "expected"),
+    [
+        pytest.param(5.0, 5, id="float_is_not_int"),
+        pytest.param(5, 5.0, id="int_is_not_float"),
+        pytest.param(1, True, id="int_is_not_bool"),
+        pytest.param(True, 1, id="bool_is_not_int"),
+        pytest.param(None, float("nan"), id="none_is_not_nan"),
+        pytest.param(float("nan"), None, id="nan_is_not_none"),
+        pytest.param(1.0, float("nan"), id="value_is_not_nan"),
+        pytest.param(float("nan"), 1.0, id="nan_is_not_value"),
+        pytest.param(-0.0, 0.0, id="negative_zero_is_not_zero"),
+        pytest.param(0.0, -0.0, id="zero_is_not_negative_zero"),
+        pytest.param(1.5, 2.5, id="different_floats"),
+    ],
+)
+def test_assert_values_with_nulls_strict_rejects(actual: Any, expected: Any) -> None:
+    with pytest.raises(AssertionError):
+        helpers.assert_values_with_nulls([actual], [expected], strict=True)
+
+
+def test_assert_values_with_nulls_strict_floats_compare_approximately() -> None:
+    helpers.assert_values_with_nulls([0.1 + 0.2], [0.3], strict=True)
+
+
+def test_assert_values_with_nulls_not_strict_keeps_loose_equality() -> None:
+    helpers.assert_values_with_nulls([5.0, 1], [5, True])
+
+
 def test_assert_values_with_nulls_none_vs_none_passes() -> None:
     helpers.assert_values_with_nulls([None], [None])
 

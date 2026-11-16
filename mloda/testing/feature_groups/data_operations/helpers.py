@@ -20,6 +20,7 @@ Provides:
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any, Callable
 
@@ -115,6 +116,19 @@ def result_column_values(results: list[Any], name: str) -> list[list[Any]]:
     return found
 
 
+def _assert_strict_equal(actual: Any, expected: Any, row: int, rel: float) -> None:
+    """One value of ``assert_values_with_nulls(strict=True)``."""
+    assert type(actual) is type(expected), f"row {row}: {actual!r} is not the type of {expected!r}"
+    if isinstance(expected, float):
+        if math.isnan(expected):
+            assert math.isnan(actual), f"row {row}: {actual!r} != NaN"
+            return
+        assert actual == pytest.approx(expected, rel=rel), f"row {row}: {actual!r} != {expected!r}"
+        assert math.copysign(1.0, actual) == math.copysign(1.0, expected), f"row {row}: zero sign of {actual!r}"
+    else:
+        assert actual == expected, f"row {row}: {actual!r} != {expected!r}"
+
+
 def assert_values_with_nulls(
     actual: list[Any],
     expected: list[Any],
@@ -124,12 +138,15 @@ def assert_values_with_nulls(
     nan_is_null: bool = False,
     parse_iso: bool = False,
     cast: Callable[[Any], Any] | None = None,
+    strict: bool = False,
 ) -> None:
     """Assert two lists are equal row by row, treating null consistently.
 
     ``nan_is_null`` treats NaN and None as interchangeable nulls, ``parse_iso`` parses a str
     actual value via ``datetime.fromisoformat``, ``cast`` converts the actual value before
-    comparing, and ``approx`` compares with ``pytest.approx`` instead of exact equality.
+    comparing, and ``approx`` compares with ``pytest.approx`` instead of exact equality. ``strict`` pins
+    values exactly: an expected NaN needs a float NaN, an expected float compares with ``pytest.approx``
+    and the same zero sign, and anything else must be equal and of the same type (``5`` is not ``5.0``).
     """
     assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
     for i, (a, e) in enumerate(zip(actual, expected)):
@@ -143,7 +160,9 @@ def assert_values_with_nulls(
                 a = datetime.fromisoformat(a)
             if cast is not None:
                 a = cast(a)
-            if approx:
+            if strict:
+                _assert_strict_equal(a, e, i, rel)
+            elif approx:
                 assert a == pytest.approx(e, rel=rel), f"row {i}: {a!r} != {e!r}"
             else:
                 assert a == e, f"row {i}: {a!r} != {e!r}"

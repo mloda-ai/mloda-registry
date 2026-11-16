@@ -1,6 +1,6 @@
 """Tests for the reference frame aggregate implementation.
 
-Covers time window and null handling edge cases using
+Covers time window edge cases (null handling lives in the frame pinning rows) using
 reference_frame_aggregate from the testing library.
 """
 
@@ -124,70 +124,3 @@ class TestReferenceTimeWindow:
         monkeypatch.setitem(sys.modules, "dateutil.relativedelta", None)
         stamps = [datetime(2023, 2, 28, tzinfo=timezone.utc), datetime(2023, 3, 31, tzinfo=timezone.utc)]
         assert self._calendar_sum(stamps, "month") == [1, 11]
-
-
-class TestReferenceNullHandling:
-    """Reference-specific null handling edge case tests."""
-
-    def test_rolling_sum_skips_nulls(self) -> None:
-        """Null values in the source column should be skipped by the aggregation."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A", "A"],
-                "ts": [1, 2, 3, 4],
-                "value": [10, None, 30, 40],
-            }
-        )
-        feature = Feature(
-            "value__sum_rolling_3",
-            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
-        col = result.column("value__sum_rolling_3").to_pylist()
-
-        assert col == [10, 10, 40, 70]
-
-    def test_cumsum_with_null_order_by(self) -> None:
-        """Rows with null order_by values should be sorted last."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "ts": [None, 1, 2],
-                "value": [100, 10, 20],
-            }
-        )
-        feature = Feature(
-            "value__cumsum",
-            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
-        col = result.column("value__cumsum").to_pylist()
-
-        assert col == [130, 10, 30]
-
-    def test_all_null_values_returns_none(self) -> None:
-        """When all values in the window are null, the result should be None."""
-        table = pa.table(
-            {
-                "region": ["A", "A"],
-                "ts": [1, 2],
-                "value": [None, None],
-            }
-        )
-        feature = Feature(
-            "value__cumsum",
-            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = reference_frame_aggregate(FrameAggregateFeatureGroup, table, fs)
-        col = result.column("value__cumsum").to_pylist()
-
-        assert col == [None, None]

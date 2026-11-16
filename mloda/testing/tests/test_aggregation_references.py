@@ -276,6 +276,19 @@ class TestReferenceAggregationRejectsNonNumericSum:
             reference_aggregation(AggregationFeatureGroup, table, make_feature_set("value__sum_agg", ["g"]))
 
 
+class TestReferenceAggregationSumOverflow:
+    """An int64 group sum that overflows raises instead of wrapping or widening."""
+
+    def test_int64_sum_overflow_raises(self) -> None:
+        from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        table = pa.table({"g": ["a", "a"], "value": pa.array([2**63 - 1, 1], type=pa.int64())})
+        with pytest.raises(OverflowError):
+            reference_aggregation(AggregationFeatureGroup, table, make_feature_set("value__sum_agg", ["g"]))
+
+
 class TestReferenceAggregationMask:
     """A masked reference run sums only the rows passing the mask, per group."""
 
