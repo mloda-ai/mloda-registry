@@ -288,7 +288,8 @@ def _plan_attributes(plan: PlanContext) -> dict[str, str]:
 
 def _tenant_attributes(context: Any) -> dict[str, str]:
     """The mloda.tenant.id / mloda.project.id attributes of the context's non-blank identity."""
-    return {f"mloda.{key.removesuffix('_id')}.id": value for key, value in tenant_identity(context).items()}
+    names = {"tenant_id": "mloda.tenant.id", "project_id": "mloda.project.id"}
+    return {names[key]: value for key, value in tenant_identity(context).items() if key in names}
 
 
 class OtelExtender(Extender):

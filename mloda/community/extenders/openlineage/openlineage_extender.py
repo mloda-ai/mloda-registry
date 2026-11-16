@@ -292,7 +292,8 @@ class OpenLineageExtender(Extender):
     cannot drop it there), each COMPLETE output an outputStatistics facet when rows_out is known and an
     mlodaFailedRows facet (counts and reason codes, never positions) when failed rows were reported for it, and the
     parent run a processingEngine facet. COMPLETE outputs carry the step's result attributes as an mlodaResult output
-    facet, strings scrubbed."""
+    facet, strings scrubbed. record_tenant (default False) adds an mlodaTenant run facet with the non-blank tenant and
+    project to parent and step runs, never the principal."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -720,7 +721,6 @@ class OpenLineageExtender(Extender):
             run_facets={
                 **self._calculate_run_facets(context, func, args),
                 **_step_facets(context, self.producer),
-                **(_tenant_facets(context, self.producer) if self.record_tenant else {}),
             },
             declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)
@@ -753,6 +753,8 @@ class OpenLineageExtender(Extender):
             else None
         )
         run_id = derived or str(uuid.uuid4())
+        if self.record_tenant and context is not None:
+            run_facets = {**run_facets, **_tenant_facets(context, self.producer)}
         run = Run(runId=run_id, facets=self._with_trace_facet(run_id, run_facets))
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 
