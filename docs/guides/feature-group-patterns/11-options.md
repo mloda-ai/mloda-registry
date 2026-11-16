@@ -62,7 +62,7 @@ Use the push sparingly; most context should remain local. Typical use: a key the
 
 ## Secrets
 
-Never put a secret in options: they are hashed, locked and shown in `explain()`. The data user registers a `Credential` under a handle in the `DataAccessCollection`; the group declares an option naming that handle and reads the credential while it runs.
+Never put a secret in options: they are hashed, locked and shown in `explain()`. The one exception is a `Credential` as a source group's class-name pointer value (`{"SqliteFG": Credential(...)}`); core refuses it under any other key (see [Credentials](27-input-data-readers.md#credentials-bound-at-match-time-or-read-at-run-time)). Prefer a named slot. The data user registers a `Credential` under a handle in the `DataAccessCollection`; the group declares an option naming that handle and reads the credential while it runs.
 
 - **Imports**: `credential_handle_spec`, `read_credential` and `credentials_scope` from `mloda.provider`; `Credential` and `DataAccessCollection` from `mloda.user`.
 - **A group option**: `credential_handle_spec` fixes the key to group options, since the handle picks what a step reads, so it splits steps and enters the plan lock. A handle placed in `context` is refused at plan time.
