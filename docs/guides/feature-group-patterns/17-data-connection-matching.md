@@ -157,19 +157,21 @@ so the meaning comes from the type, not the nesting depth:
 ```python
 from mloda.user import Credential, DataAccessCollection
 
-# kwargs form and dict form are equivalent
+# a dict names each slot by handle (recommended); the value must itself be a mapping
+DataAccessCollection(credentials={"pg-prod": Credential(host="h")})
+
+# auto-named: kwargs form and dict form are equivalent
 DataAccessCollection(credentials=Credential(sqlite="/data/app.db"))
 DataAccessCollection(credentials=Credential({"sqlite": "/data/app.db"}))
 
-# a list registers each entry as its own auto-named slot
+# auto-named: a list registers each entry as its own slot
 DataAccessCollection(credentials=[Credential(host="h"), {"host": "h2"}])
-# a dict names each slot by handle; the value must itself be a mapping
-DataAccessCollection(credentials={"pg-prod": Credential(host="h")})
 ```
 
-`Credential` is unwrapped to a plain dict at registration, so feature groups and
-`is_valid_credentials` implementations keep receiving plain dicts. Nothing changes
-downstream.
+A registered credential (a `Credential` or a plain dict) is stored as a
+`RegisteredCredential` (a dict subclass with a redacted repr, so
+`is_valid_credentials` still receives a mapping). `match_credentials` must return
+this entry, not a copy.
 
 A named-form value that is not a mapping (for example
 `credentials={"prod": "dsn-string"}`) now raises `ValueError` at construction
@@ -177,7 +179,9 @@ instead of silently mis-matching later. Keep the handle and make the value a
 mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
 `credentials={"prod": Credential(dsn="dsn-string")}`. A bare
 `credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
-slot, so a later handle lookup for `"prod"` would no longer find it.
+slot, so a later handle lookup for `"prod"` would no longer find it. An auto-named slot is
+recorded as `<unnamed>` in the plan, lock and hook contexts and no
+`credential_handle_spec` option can name it, so register under a name.
 
 Resolver ambiguity errors redact credential values (keys stay visible, values render
 as `***`), so secrets stay out of logs and tracebacks.
