@@ -3,9 +3,11 @@
 import ast
 import importlib
 import importlib.util
+import os
 import pkgutil
 import subprocess  # nosec
 import sys
+from pathlib import Path
 from typing import Any
 
 import mloda._testing
@@ -104,6 +106,113 @@ def test_pyarrow_guarded_package_skips_without_pyarrow(
     block_root(monkeypatch, "pyarrow")
     with pytest.raises(pytest.skip.Exception, match=r"requires mloda-testing\[pyarrow\]"):
         importlib.import_module(module)
+
+
+_OUTSIDE_PYTEST_PROBE = """
+import importlib
+import pkgutil
+import sys
+
+sys.modules["pyarrow"] = None
+
+import mloda.testing
+
+GUARDED = ("mloda.testing.feature_groups.data_operations", "mloda.testing.extenders")
+for package in GUARDED:
+    try:
+        importlib.import_module(package)
+    except ModuleNotFoundError as exc:
+        assert exc.name == "pyarrow", exc.name
+        assert "requires mloda-testing[pyarrow]" in str(exc), str(exc)
+    else:
+        raise AssertionError(package + " imported without pyarrow")
+    for name in [n for n in sys.modules if n == package or n.startswith(package + ".")]:
+        del sys.modules[name]
+
+failed = []
+list(pkgutil.walk_packages(mloda.testing.__path__, "mloda.testing.", onerror=failed.append))
+assert set(GUARDED) <= set(failed), failed
+print("ok")
+"""
+
+
+def test_pyarrow_guard_raises_module_not_found_outside_pytest() -> None:
+    """Outside pytest the guard raises ModuleNotFoundError."""
+    result = subprocess.run(  # nosec
+        [sys.executable, "-c", _OUTSIDE_PYTEST_PROBE], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
+
+
+_PYTEST_MAIN_PROBE = (
+    "import sys; sys.modules['pyarrow'] = None; import pytest; raise SystemExit(pytest.main(sys.argv[1:]))"
+)
+
+_GUARDED_IMPORT = "import mloda.testing.extenders.contract\n"
+
+_ROOT_CONFTEST_LAYOUT = {
+    "conftest.py": _GUARDED_IMPORT,
+    "test_trivial.py": "def test_trivial() -> None:\n    pass\n",
+}
+
+_SKIPS_LAYOUT = {
+    "conftest.py": (
+        "import pytest\n\n\n@pytest.fixture\ndef guarded() -> None:\n"
+        "    import mloda.testing.feature_groups.data_operations.base\n"
+    ),
+    "test_fixture.py": "def test_fixture_skip(guarded: None) -> None:\n    pass\n",
+    "test_top.py": _GUARDED_IMPORT + "\n\ndef test_top() -> None:\n    pass\n",
+    "sub/conftest.py": "import mloda.testing.feature_groups.data_operations.base\n",
+    "sub/test_sub.py": "def test_sub() -> None:\n    pass\n",
+}
+
+
+def _run_pytest_without_pyarrow(project: Path, files: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    for relative, content in files.items():
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    ini = project / "empty.ini"
+    ini.write_text("[pytest]\n")
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")}
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    command = [
+        sys.executable,
+        "-c",
+        _PYTEST_MAIN_PROBE,
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "no:xdist",
+        "-c",
+        str(ini),
+        "--rootdir",
+        str(project),
+        "-rs",
+        str(project),
+    ]
+    return subprocess.run(command, capture_output=True, text=True, env=env, timeout=120)  # nosec
+
+
+def test_pyarrow_guard_in_root_conftest_is_a_usage_error(tmp_path: Path) -> None:
+    """A root conftest importing a guarded module without pyarrow is a usage error."""
+    result = _run_pytest_without_pyarrow(tmp_path, _ROOT_CONFTEST_LAYOUT)
+    assert result.returncode == 4, result.stdout + result.stderr
+    assert "requires mloda-testing[pyarrow]" in result.stderr
+    assert "INTERNALERROR" not in result.stdout + result.stderr
+
+
+def test_pyarrow_guard_skips_during_collection_and_tests(tmp_path: Path) -> None:
+    """Nested conftests, test modules and fixtures skip when pyarrow is missing."""
+    result = _run_pytest_without_pyarrow(tmp_path, _SKIPS_LAYOUT)
+    output = result.stdout
+    assert result.returncode == 0, output + result.stderr
+    skip_lines = [line for line in output.splitlines() if line.startswith("SKIPPED")]
+    assert all("requires mloda-testing[pyarrow]" in line for line in skip_lines), skip_lines
+    assert any("test_fixture.py" in line for line in skip_lines), skip_lines
+    summary = output.strip().splitlines()[-1]
+    assert "3 skipped" in summary, summary  # fixture test, top-level module, sub directory
 
 
 def test_contract_mixin_assert_reports_compared_values() -> None:
