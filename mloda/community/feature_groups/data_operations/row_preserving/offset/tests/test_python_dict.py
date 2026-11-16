@@ -47,15 +47,14 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
             make_feature_set,
         )
 
-        arrow_table = arrow_table_of(
-            TypedTestData(
-                {
-                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
-                    "ord": (DataType.INT64, [1, 2, 3, 4]),
-                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
-                }
-            )
+        typed = TypedTestData(
+            {
+                "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                "ord": (DataType.INT64, [1, 2, 3, 4]),
+                "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+            }
         )
+        arrow_table = arrow_table_of(typed)
 
         t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
         grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
@@ -67,7 +66,7 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
             f"group, got {nan_group_rows!r}"
         )
 
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        data = typed.to_python_dict()
         fs = make_feature_set("val__lag_1_offset", ["grp"], "ord")
         result = calculate_with(PythonDictOffset, data, fs)
         result_col = extract_column(result, "val__lag_1_offset")

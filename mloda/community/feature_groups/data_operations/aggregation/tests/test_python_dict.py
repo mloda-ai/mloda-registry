@@ -54,7 +54,6 @@ class TestPythonDictNanPartitionKeyGrouping:
     """
 
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
-
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
@@ -62,15 +61,14 @@ class TestPythonDictNanPartitionKeyGrouping:
             make_feature_set,
         )
 
-        arrow_table = arrow_table_of(
-            TypedTestData(
-                {
-                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
-                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
-                }
-            )
+        typed = TypedTestData(
+            {
+                "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+            }
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        arrow_table = arrow_table_of(typed)
+        data = typed.to_python_dict()
         fs = make_feature_set("val__sum_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)
@@ -107,7 +105,6 @@ class TestPythonDictMinMaxSkipsNan:
 
     @staticmethod
     def _agg_via(agg_type: str) -> tuple[Any, Any]:
-
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
@@ -115,12 +112,11 @@ class TestPythonDictMinMaxSkipsNan:
             make_feature_set,
         )
 
-        arrow_table = arrow_table_of(
-            TypedTestData(
-                {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
-            )
+        typed = TypedTestData(
+            {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        arrow_table = arrow_table_of(typed)
+        data = typed.to_python_dict()
         fs = make_feature_set(f"val__{agg_type}_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)

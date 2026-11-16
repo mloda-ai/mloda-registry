@@ -54,6 +54,7 @@ def duckdb_test_connection() -> Any:
 
 def _nullable_int_types_mapper(arrow_type: pa.DataType) -> Any:
     """Map Arrow integer types to pandas nullable integer dtypes, others to None."""
+    # Not core's PandasAdapter mapping: core applies nullable dtypes only to columns holding nulls.
     import pandas as pd
     import pyarrow as pa
 
@@ -145,7 +146,11 @@ class AdapterTestMixin:
         self.adapter = self.adapter_class()
         self.adapter.open()
         self.conn = self.adapter.connection
-        super().setup_method()  # type: ignore[misc]
+        try:
+            super().setup_method()  # type: ignore[misc]
+        except BaseException:
+            self.adapter.close()
+            raise
 
     def teardown_method(self) -> None:
         self.adapter.close()
@@ -163,7 +168,7 @@ class AdapterTestMixin:
         return self.adapter.row_count(result)
 
     def compute_framework_class(self) -> Any:
-        return self.adapter.compute_framework()
+        return self.adapter_class().compute_framework()
 
 
 class PythonDictTestMixin(AdapterTestMixin):
@@ -201,11 +206,6 @@ class PandasTestMixin(AdapterTestMixin):
     """Adapter methods for Pandas; guard concrete modules with ``pytest.importorskip("pandas")``."""
 
     adapter_class: ClassVar[type[PandasAdapter]] = _ProductionPandasAdapter
-
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        import pandas as pd
-
-        return [None if pd.isna(v) else v for v in result[column_name].tolist()]
 
     def get_expected_type(self) -> Any:
         import pandas as pd

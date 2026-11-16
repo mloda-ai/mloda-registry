@@ -179,6 +179,39 @@ def test_typed_data_without_unknown_column_raises_key_error() -> None:
         helpers.typed_data_without(DataOperationsTestDataCreator.typed_data(), "no_such_column")
 
 
+# -- helpers.append_typed_columns and helpers.empty_like ---------------------
+
+
+def test_append_typed_columns_rejects_an_existing_column_name() -> None:
+    with pytest.raises(ValueError, match="value_int"):
+        helpers.append_typed_columns(
+            DataOperationsTestDataCreator.typed_data(), {"value_int": (DataType.INT64, [0] * 12)}
+        )
+
+
+def test_append_typed_columns_keeps_values_and_types_of_the_others() -> None:
+    canonical = DataOperationsTestDataCreator.typed_data()
+    result = helpers.append_typed_columns(canonical, {"extra": (DataType.INT64, list(range(12)))})
+    assert list(result.types) == [*canonical.types, "extra"]
+    assert result.types == {**canonical.types, "extra": DataType.INT64}
+    assert result.to_python_dict() == {**canonical.to_python_dict(), "extra": list(range(12))}
+
+
+def test_empty_like_keeps_columns_and_types_with_zero_rows() -> None:
+    canonical = DataOperationsTestDataCreator.typed_data()
+    result = helpers.empty_like(canonical)
+    assert list(result.types) == list(canonical.types)
+    assert result.types == canonical.types
+    assert result.to_python_dict() == {name: [] for name in canonical.types}
+
+
+def test_canonical_data_empty_equals_empty_like_of_the_canonical_data() -> None:
+    expected = helpers.empty_like(DataOperationsTestDataCreator.typed_data())
+    actual = helpers.canonical_data_empty()
+    assert actual.types == expected.types
+    assert actual.to_python_dict() == expected.to_python_dict()
+
+
 # -- DataOpsTestBase.source_data ----------------------------------------------
 
 
@@ -250,7 +283,22 @@ def test_canonical_typed_data_declares_the_expected_types() -> None:
 
 def test_canonical_typed_data_matches_the_arrow_table() -> None:
     typed = DataOperationsTestDataCreator.typed_data()
+    schema = pa.schema(
+        [
+            ("region", pa.string()),
+            ("category", pa.string()),
+            ("timestamp", pa.timestamp("us", tz="UTC")),
+            ("event_date", pa.date32()),
+            ("value_int", pa.int64()),
+            ("value_float", pa.float64()),
+            ("amount", pa.float64()),
+            ("name", pa.string()),
+            ("is_active", pa.bool_()),
+            ("score", pa.float64()),
+        ]
+    )
     assert typed.to_python_dict() == to_arrow_table(typed).to_pydict()
+    assert to_arrow_table(typed).schema == schema
     assert to_arrow_table(typed).equals(PyArrowDataOpsTestDataCreator.create())
 
 

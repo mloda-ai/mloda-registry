@@ -29,6 +29,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
+    empty_like,
     feature_group_of,
     make_feature_set,
     typed_data_without,
@@ -307,7 +308,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         assert self.extract_column(result, "product_code") == _PRODUCT_CODES
 
     def test_empty_table(self) -> None:
-        empty = self.create_test_data(TypedTestData({name: (kind, []) for name, kind in self._source.types.items()}))
+        empty = self.create_test_data(empty_like(self._source))
         for policy in ("raise", "null", "keep"):
             result = self._run("product_code__lookup", PARTIAL_STR_MAP, policy, data=empty)
             assert self.get_row_count(result) == 0

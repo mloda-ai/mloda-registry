@@ -16,7 +16,11 @@ from mloda.user import DataType
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin, duckdb_test_connection
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
+    DuckdbTestMixin,
+    PythonDictTestMixin,
+    duckdb_test_connection,
+)
 from mloda.testing.typed_data import TypedTestData
 
 
@@ -148,9 +152,13 @@ def test_python_dict_setup_never_builds_arrow(monkeypatch: pytest.MonkeyPatch) -
     def boom(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("Arrow was built")
 
+    frameworks = _frameworks_module()
+
     monkeypatch.setattr(helpers, "arrow_table_of", boom, raising=False)
     monkeypatch.setattr(framework_adapter, "to_arrow_table", boom)
     monkeypatch.setattr(core_adapter, "to_arrow_table", boom)
+    monkeypatch.setattr(frameworks, "arrow_table_of", boom)
+    monkeypatch.setattr(helpers, "to_arrow_table", boom)
     probe = _probe(_mixin("PythonDictTestMixin", None))
     probe.setup_method()
     try:
@@ -158,6 +166,40 @@ def test_python_dict_setup_never_builds_arrow(monkeypatch: pytest.MonkeyPatch) -
         assert probe.test_data == DataOperationsTestDataCreator.typed_data().to_python_dict()
     finally:
         probe.teardown_method()
+
+
+def test_compute_framework_class_works_before_setup() -> None:
+    from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
+        PythonDictFramework,
+    )
+
+    probe = _probe(_mixin("PythonDictTestMixin", None))
+    assert probe.compute_framework_class() is PythonDictFramework
+
+
+def test_setup_closes_the_adapter_when_the_base_setup_raises() -> None:
+    class _Failing(PythonDictTestMixin, DataOpsTestBase):
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return object
+
+        @classmethod
+        def source_data(cls) -> TypedTestData:
+            raise RuntimeError("source_data failed")
+
+    probe = _Failing()
+    closed: list[int] = []
+    original = _frameworks_module().PythonDictAdapter.close
+
+    def recording_close(adapter: Any) -> None:
+        closed.append(1)
+        original(adapter)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(_frameworks_module().PythonDictAdapter, "close", recording_close)
+        with pytest.raises(RuntimeError, match="source_data failed"):
+            probe.setup_method()
+    assert closed == [1]
 
 
 # -- Connection ownership ---------------------------------------------------------

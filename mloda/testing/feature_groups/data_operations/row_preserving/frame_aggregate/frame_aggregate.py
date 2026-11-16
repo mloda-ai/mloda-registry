@@ -1084,6 +1084,9 @@ class FrameAggregateTestBase(
                             DataType.TIMESTAMP_MICROS_TZ,
                             [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
                         ),
+                        # Every 3-day window keeps exactly one passing row (row0, row2, or row4),
+                        # so a wrongly-passing NaN (row1) or null (row3) widens the window instead
+                        # of leaving it empty, which would hit an unrelated fully-masked-window case.
                         "metric": (DataType.DOUBLE, [20.0, float("nan"), 20.0, None, 20.0]),
                         "value": (DataType.INT64, [10, 20, 30, 40, 50]),
                     }
