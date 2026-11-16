@@ -1011,3 +1011,96 @@ def test_kit_allowlisted_import_must_sit_inside_a_function(tmp_path: Path, body:
     _write(tmp_path / "a.py", body)
     assert _unallowed_kit_plugin_imports(tmp_path, {pair}) == ([pair] if offends else [])
     assert _stale_kit_allowlist_entries(tmp_path, {pair}) == []
+
+
+kit_map = load_script("kit_modules", _REPO_ROOT / "scripts" / "kit_modules.py")
+
+
+def _kit_modules_flat() -> dict[str, str | None]:
+    """Dotted name of every shipped kit module, mapped to its gating extra."""
+    return {module: gate for gate, modules in kit_map.kit_modules().items() for module in modules}
+
+
+def test_kit_gates_extras_equal_the_non_dev_extras_of_mloda_testing() -> None:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    extras = set(packages["mloda-testing"].get("optional_dependencies", {})) - {"dev"}
+    assert set(kit_map.KIT_GATES.values()) == extras, (
+        f"KIT_GATES extras {sorted(set(kit_map.KIT_GATES.values()))} must equal mloda-testing's non-dev extras "
+        f"{sorted(extras)}"
+    )
+
+
+def test_every_kit_gate_prefix_matches_a_shipped_module() -> None:
+    root = _REPO_ROOT / kit_map.KIT_PATH
+    rel_paths = [p.relative_to(root).as_posix() for p in root.rglob("*.py")]
+    unmatched = [prefix for prefix in kit_map.KIT_GATES if not any(p.startswith(prefix) for p in rel_paths)]
+    assert unmatched == [], f"KIT_GATES prefixes that match no shipped kit module: {unmatched}"
+
+
+@pytest.mark.parametrize(
+    ("module", "gate"),
+    [
+        pytest.param("mloda.testing.compute_framework.filter_suite", None, id="ungated"),
+        pytest.param("mloda.testing.extenders.otel", "otel", id="otel"),
+        pytest.param("mloda.testing.extenders.runners", "pyarrow", id="extenders-pyarrow"),
+    ],
+)
+def test_real_kit_module_gate(module: str, gate: str | None) -> None:
+    flat = _kit_modules_flat()
+    assert module in flat, f"{module} is not a shipped kit module"
+    assert flat[module] == gate, f"{module} is gated by {flat[module]!r}, expected {gate!r}"
+
+
+def test_real_kit_has_a_binary_model_module_and_no_tests_module() -> None:
+    flat = _kit_modules_flat()
+    assert "binary-model" in set(flat.values()), "no shipped kit module is gated by binary-model"
+    assert all(g == "binary-model" for m, g in flat.items() if m.startswith("mloda.testing.binary_model.")), flat
+    assert [m for m in flat if "tests" in m.split(".")] == [], "a tests module is listed as a shipped kit module"
+
+
+@pytest.mark.parametrize(
+    ("rel", "gate"),
+    [
+        pytest.param("extenders/otel.py", "otel", id="longest-prefix-file"),
+        pytest.param("extenders/openlineage.py", "openlineage", id="longest-prefix-other-file"),
+        pytest.param("extenders/runners.py", "pyarrow", id="shorter-prefix"),
+        pytest.param("binary_model/a/b.py", "binary-model", id="directory-prefix"),
+        pytest.param("feature_groups/data_operations/x.py", "pyarrow", id="data-operations"),
+        pytest.param("feature_groups/other.py", None, id="sibling-directory-ungated"),
+        pytest.param("base.py", None, id="top-level-ungated"),
+    ],
+)
+def test_kit_gate_picks_the_longest_matching_prefix(rel: str, gate: str | None) -> None:
+    assert kit_map.kit_gate(rel) == gate
+
+
+def test_kit_modules_groups_sorts_and_names_packages(tmp_path: Path) -> None:
+    _write(tmp_path / "__init__.py", "")
+    _write(tmp_path / "b.py", "")
+    _write(tmp_path / "a.py", "")
+    _write(tmp_path / "pkg" / "__init__.py", "")
+    _write(tmp_path / "pkg" / "m.py", "")
+    _write(tmp_path / "extenders" / "otel.py", "")
+    _write(tmp_path / "extenders" / "runners.py", "")
+    assert kit_map.kit_modules(tmp_path) == {
+        None: ["mloda.testing", "mloda.testing.a", "mloda.testing.b", "mloda.testing.pkg", "mloda.testing.pkg.m"],
+        "otel": ["mloda.testing.extenders.otel"],
+        "pyarrow": ["mloda.testing.extenders.runners"],
+    }
+
+
+@pytest.mark.parametrize(
+    "skipped",
+    [
+        pytest.param("tests/test_m.py", id="tests"),
+        pytest.param("pkg/tests/test_m.py", id="nested-tests"),
+        pytest.param("__pycache__/m.py", id="pycache"),
+        pytest.param("build/m.py", id="build"),
+        pytest.param("dist/m.py", id="dist"),
+        pytest.param("x.egg-info/m.py", id="egg-info"),
+    ],
+)
+def test_kit_modules_skips_build_and_test_directories(tmp_path: Path, skipped: str) -> None:
+    _write(tmp_path / "keep.py", "")
+    _write(tmp_path / skipped, "")
+    assert kit_map.kit_modules(tmp_path) == {None: ["mloda.testing.keep"]}

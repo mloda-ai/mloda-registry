@@ -38,6 +38,7 @@ _STEP_RE = re.compile(
 _TIMEOUT_RE = re.compile(r"timeout-minutes:\s*(\d+)")
 
 module = load_script("verify_independent_installs", _SCRIPT_PATH)
+kit_map = load_script("kit_modules", _SCRIPTS_DIR / "kit_modules.py")
 
 
 class _FakeCompletedProcess:
@@ -220,3 +221,76 @@ def test_independent_install_step_has_no_longer_timeout_than_the_other_verify_st
         f"Verify steps' minimum {min(others.values())} ({others}); parallelize the per-distribution "
         "loop instead of extending the timeout."
     )
+
+
+def _kit_jobs() -> dict[str, str]:
+    """Requirement specifier to probe source for every kit job main() must run."""
+    fn: Callable[[str], list[tuple[str, str]]] | None = getattr(module, "kit_jobs", None)
+    assert callable(fn), "verify_independent_installs.kit_jobs must be a callable"
+    return dict(fn("9.9.9"))
+
+
+def _probe_imports(probe: str) -> list[str]:
+    return [line.split()[1] for line in probe.splitlines() if line.startswith("import ")]
+
+
+def test_bare_kit_job_probes_ungated_modules_with_no_plugin_package_present() -> None:
+    """The bare mloda-testing probe asserts no community/enterprise package and imports only ungated modules."""
+    probe = _kit_jobs()["mloda-testing==9.9.9"]
+    for package in ("mloda.community", "mloda.enterprise"):
+        assert f'find_spec("{package}") is None' in probe or f"find_spec('{package}') is None" in probe, (
+            f"bare kit probe does not assert find_spec({package!r}) is None: {probe!r}"
+        )
+    ungated = kit_map.kit_modules()[None]
+    assert sorted(_probe_imports(probe)) == sorted(ungated), "bare kit probe must import exactly the ungated modules"
+
+
+def test_one_kit_job_per_gate_extra_imports_exactly_that_extras_modules() -> None:
+    jobs = _kit_jobs()
+    gated = {gate: modules for gate, modules in kit_map.kit_modules().items() if gate is not None}
+    assert set(jobs) == {"mloda-testing==9.9.9"} | {f"mloda-testing[{gate}]==9.9.9" for gate in gated}, sorted(jobs)
+    for gate, modules in gated.items():
+        imported = sorted(_probe_imports(jobs[f"mloda-testing[{gate}]==9.9.9"]))
+        assert imported == sorted(modules), f"the [{gate}] kit job imports {imported}, expected {sorted(modules)}"
+
+
+def test_every_kit_module_is_imported_by_exactly_one_kit_job() -> None:
+    imported = [m for probe in _kit_jobs().values() for m in _probe_imports(probe)]
+    expected = [m for modules in kit_map.kit_modules().values() for m in modules]
+    assert sorted(imported) == sorted(expected), "each shipped kit module must be imported once across the kit jobs"
+
+
+def _record_installs(monkeypatch: pytest.MonkeyPatch, fail_on: str | None = None) -> list[str]:
+    """Fake subprocess.run; the list collects every requirement passed to 'uv pip install'."""
+    requirements: list[str] = []
+    lock = threading.Lock()
+
+    def _fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeCompletedProcess:
+        if command[:3] == ["uv", "pip", "install"]:
+            with lock:
+                requirements.extend(command[5:])
+            if fail_on is not None and fail_on in command[5:]:
+                return _FakeCompletedProcess(returncode=1, stderr="boom")
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    return requirements
+
+
+def test_main_installs_every_kit_job_specifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    requirements = _record_installs(monkeypatch)
+    exit_code = _run_main(monkeypatch)
+    assert exit_code == 0, f"main() exited {exit_code!r} against an all-success fake, expected 0"
+    missing = [spec for spec in _kit_jobs() if spec not in requirements]
+    assert missing == [], f"main() never installed the kit job specifier(s) {missing}"
+
+
+def test_main_fails_and_reports_a_failing_kit_job(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    failing = "mloda-testing[otel]==9.9.9"
+    _record_installs(monkeypatch, fail_on=failing)
+    exit_code = _run_main(monkeypatch)
+    out = capsys.readouterr().out
+    assert exit_code == 1, f"main() exited {exit_code!r} with a failing kit job, expected 1"
+    assert failing in out, f"main() output does not name the failing kit job {failing!r}: {out!r}"

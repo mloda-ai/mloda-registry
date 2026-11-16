@@ -17,6 +17,9 @@ from mloda.steward import Extender, ExtenderHook
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.import_isolation import block_root, evict_package
+from tests.script_loader import load_script
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[3] / "scripts"
 
 
 def test_feature_group_test_base_import() -> None:
@@ -38,7 +41,8 @@ def test_import_does_not_load_pytest_outside_pytest() -> None:
 _WITHOUT_PYARROW_PROBE = """
 import sys
 
-sys.modules["pyarrow"] = None
+for poisoned in ("pyarrow", "opentelemetry", "openlineage", "pandas", "polars", "duckdb", "mloda.community", "mloda.enterprise"):
+    sys.modules[poisoned] = None
 
 import importlib
 from typing import Any
@@ -83,9 +87,10 @@ print(group.failures, framework.failures, sys.modules["pyarrow"])
 
 
 def test_kit_works_without_pyarrow() -> None:
-    """With pyarrow blocked, every mirror of a core testing module imports and the PythonDict shape checks pass."""
+    """With every optional root blocked, each mirror and ungated kit module imports and the PythonDict shape checks pass."""
     mirrors = [name.replace("mloda._testing", "mloda.testing", 1) for name in _core_testing_modules()]
-    command = [sys.executable, "-c", _WITHOUT_PYARROW_PROBE, *mirrors]
+    ungated = load_script("kit_modules", _SCRIPTS_DIR / "kit_modules.py").kit_modules()[None]
+    command = [sys.executable, "-c", _WITHOUT_PYARROW_PROBE, *mirrors, *ungated]
     result = subprocess.run(command, capture_output=True, text=True)  # nosec
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "() () None"
