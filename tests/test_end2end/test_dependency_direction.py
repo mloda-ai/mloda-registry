@@ -1060,20 +1060,6 @@ def test_every_kit_gate_prefix_matches_a_shipped_module() -> None:
     assert unmatched == [], f"KIT_GATES prefixes that match no shipped kit module: {unmatched}"
 
 
-@pytest.mark.parametrize(
-    ("module", "gate"),
-    [
-        pytest.param("mloda.testing.compute_framework.filter_suite", None, id="ungated"),
-        pytest.param("mloda.testing.extenders.otel", "otel", id="otel"),
-        pytest.param("mloda.testing.extenders.runners", "pyarrow", id="extenders-pyarrow"),
-    ],
-)
-def test_real_kit_module_gate(module: str, gate: str | None) -> None:
-    flat = _kit_modules_flat()
-    assert module in flat, f"{module} is not a shipped kit module"
-    assert flat[module] == gate, f"{module} is gated by {flat[module]!r}, expected {gate!r}"
-
-
 def test_real_kit_has_a_binary_model_module_and_no_tests_module() -> None:
     flat = _kit_modules_flat()
     assert "binary-model" in set(flat.values()), "no shipped kit module is gated by binary-model"

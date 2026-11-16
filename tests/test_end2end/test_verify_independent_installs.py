@@ -28,7 +28,7 @@ _INDEPENDENT_STEP = "Verify packages install independently"
 _FIRST_VERIFY_STEP = "Verify published packages (all together)"
 
 # Published distributions whose 'uv pip install' the fakes below fail, to check isolation.
-_FAILING_DISTRIBUTIONS = ["mloda-community-ema", "mloda-community-rank"]
+_FAILING_DISTRIBUTIONS = ["mloda-community-ema", "mloda-community-rank", "mloda-testing[otel]"]
 
 # A step name line, followed by its body up to the next step at the same indent or end of file.
 _STEP_RE = re.compile(
@@ -175,9 +175,9 @@ def test_main_reports_every_failing_distribution_while_running_concurrently(
         f"main() never ran more than {state['max_in_flight']} subprocess call(s) at once; the "
         "per-distribution cycle must run through a bounded thread pool, not the current serial loop"
     )
-    assert exit_code == 1, f"main() exited {exit_code!r} with two failing distributions, expected 1"
+    assert exit_code == 1, f"main() exited {exit_code!r} with failing distributions (including a kit job), expected 1"
     for name in _FAILING_DISTRIBUTIONS:
-        assert name in out, f"main() output does not name failing distribution {name!r}: {out!r}"
+        assert f"✗ {name}" in out, f"main() output does not report failing distribution {name!r}: {out!r}"
 
 
 def test_later_verify_steps_run_independently_of_earlier_failures() -> None:
@@ -260,7 +260,7 @@ def test_every_kit_module_is_imported_by_exactly_one_kit_job() -> None:
     assert sorted(imported) == sorted(expected), "each shipped kit module must be imported once across the kit jobs"
 
 
-def _record_installs(monkeypatch: pytest.MonkeyPatch, fail_on: str | None = None) -> list[str]:
+def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Fake subprocess.run; the list collects every requirement passed to 'uv pip install'."""
     requirements: list[str] = []
     lock = threading.Lock()
@@ -269,8 +269,6 @@ def _record_installs(monkeypatch: pytest.MonkeyPatch, fail_on: str | None = None
         if command[:3] == ["uv", "pip", "install"]:
             with lock:
                 requirements.extend(command[5:])
-            if fail_on is not None and fail_on in command[5:]:
-                return _FakeCompletedProcess(returncode=1, stderr="boom")
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
@@ -283,14 +281,3 @@ def test_main_installs_every_kit_job_specifier(monkeypatch: pytest.MonkeyPatch) 
     assert exit_code == 0, f"main() exited {exit_code!r} against an all-success fake, expected 0"
     missing = [spec for spec in _kit_jobs() if spec not in requirements]
     assert missing == [], f"main() never installed the kit job specifier(s) {missing}"
-
-
-def test_main_fails_and_reports_a_failing_kit_job(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    failing = "mloda-testing[otel]==9.9.9"
-    _record_installs(monkeypatch, fail_on=failing)
-    exit_code = _run_main(monkeypatch)
-    out = capsys.readouterr().out
-    assert exit_code == 1, f"main() exited {exit_code!r} with a failing kit job, expected 1"
-    assert failing in out, f"main() output does not name the failing kit job {failing!r}: {out!r}"
