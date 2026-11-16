@@ -328,7 +328,7 @@ def run_credentialed_source_feature(
     flight_server: Any | None = None,
     carrier: dict[str, str] | None = None,
 ) -> list[Any]:
-    """Run `alpha` from a source whose load reads a declared credential; the column is [1, 3] only if that read worked."""
+    """Run `alpha` from a source whose load reads a declared credential; the column is CREDENTIALED_VALUES only if that read worked."""
     from mloda.testing.extenders.uri_source import (
         CREDENTIAL_HANDLE,
         CREDENTIAL_TOKEN,

@@ -44,6 +44,7 @@ _VALUE_INT_HOOKS = {
     ExtenderHook.VALIDATE_OUTPUT_FEATURE,
 }
 _LOAD_HOOKS = {ExtenderHook.INPUT_DATA_LOAD, ExtenderHook.INPUT_DATA_MATCH}
+_LIFECYCLE_HOOKS = ["on_run_start", "on_run_complete", "on_plan_start", "on_plan_complete"]
 
 
 def _unset(host: Any, hook: str) -> NotImplementedError:
@@ -331,9 +332,8 @@ class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
         assert URI_SECRET not in emitted
 
     def test_contract_run_all_extender_hooks_cannot_read_credentials(self) -> None:
-        from mloda.testing.extenders.uri_source import CREDENTIAL_HANDLE
+        from mloda.testing.extenders.uri_source import CREDENTIAL_HANDLE, CREDENTIALED_VALUES
 
-        extender_class = self.extender_class()
         attempts: list[bool] = []
 
         def attempt() -> None:
@@ -357,14 +357,14 @@ class ExtenderContractTestMixin(ConformanceSuite, suite_base=True):
         extender = self.make_extender()
         if not extender.wraps() & (_VALUE_INT_HOOKS | _LOAD_HOOKS):
             pytest.skip("extender wraps no hook the credentialed source run fires")
-        names = ["__call__", "on_run_start", "on_run_complete", "on_plan_start", "on_plan_complete"]
+        cls = type(extender)
+        names = ["__call__", *_LIFECYCLE_HOOKS]
         with ExitStack() as stack:
             for name in names:
-                if name == "__call__" or name in vars(extender_class):
-                    original = getattr(extender_class, name)
-                    stack.enter_context(patch.object(extender_class, name, wrap(original)))
+                if name == "__call__" or getattr(cls, name) is not getattr(Extender, name):
+                    stack.enter_context(patch.object(cls, name, wrap(getattr(cls, name))))
             values = run_credentialed_source_feature(extender)
-        assert values == [1, 3], "the source's own credential read did not succeed"
+        assert values == CREDENTIALED_VALUES, "the source's own credential read did not succeed"
         assert attempts, "no extender hook ran"
         assert all(attempts), "an extender hook read a credential"
 

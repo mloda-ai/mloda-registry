@@ -176,6 +176,14 @@ class TestOpenLineageExtenderTestMixinShape:
     def test_raise_on_error_default_is_false(self) -> None:
         assert OpenLineageExtenderTestMixin.raise_on_error_default() is False
 
+    def test_supports_record_tenant_follows_the_extender_signature(self) -> None:
+        assert _NestedRunHost.supports_record_tenant() is False
+
+    def test_tenant_extender_skips_when_the_extender_lacks_record_tenant(self) -> None:
+        client, _ = make_recording_client()
+        with pytest.raises(pytest.skip.Exception):
+            _NestedRunHost().make_tenant_extender(client)
+
     def test_ambient_sink_captured_reads_events_from_the_spy_transports(self) -> None:
         client, transport = make_recording_client()
         event = _build_run_event()
@@ -318,10 +326,6 @@ class _NestedRunHost(OpenLineageExtenderTestMixin):
     @classmethod
     def extender_class(cls) -> type[Extender]:
         return _NestedRunProbeOpenLineageExtender
-
-    @classmethod
-    def supports_record_tenant(cls) -> bool:
-        return False
 
     def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
         if raise_on_error is None:

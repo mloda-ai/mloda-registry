@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import math
@@ -715,8 +716,8 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
 
     @classmethod
     def supports_record_tenant(cls) -> bool:
-        """Hosts whose extender has no record_tenant parameter (probes) return False."""
-        return True
+        """True when the host's extender takes a record_tenant parameter; override to opt out."""
+        return "record_tenant" in inspect.signature(cls.extender_class()).parameters
 
     def make_tenant_extender(self, tracer_provider: Any, **options: Any) -> Extender:
         """The extender built with the record_tenant flag; skips when the host's extender has no such parameter."""

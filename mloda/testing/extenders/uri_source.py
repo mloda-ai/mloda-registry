@@ -56,6 +56,7 @@ CREDENTIALED_URI_IDENTITY = "memory://host/data.mlodatesting"
 
 CREDENTIAL_HANDLE = "mlodatesting-token"
 CREDENTIAL_TOKEN = "s3cr3t-token-value"  # nosec
+CREDENTIALED_VALUES = [2, 4]  # distinct from the parent source's [1, 3]: only a successful credential read yields these
 
 
 class MlodaTestingCredentialedUriFileFG(MlodaTestingUriFileFG):
@@ -78,4 +79,4 @@ class MlodaTestingCredentialedUriFilePyArrowTable(Implementation[MlodaTestingCre
         cls, group: type[MlodaTestingCredentialedUriFileFG], data: SourceMatch, features: FeatureSet, framework: Any
     ) -> Any:
         token = read_credential(features.get_options_key(group.HANDLE_OPTION))["token"]
-        return pa.table({"alpha": [1, 3] if token == CREDENTIAL_TOKEN else [-1]})
+        return pa.table({"alpha": CREDENTIALED_VALUES if token == CREDENTIAL_TOKEN else [-1]})
