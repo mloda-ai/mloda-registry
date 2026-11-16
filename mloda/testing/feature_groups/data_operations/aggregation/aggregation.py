@@ -127,10 +127,14 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "var_pop": {"A": float("nan"), "B": float("nan")},
     "std_samp": {"A": float("nan"), "B": float("nan")},
     "var_samp": {"A": float("nan"), "B": float("nan")},
+    "nunique": {"A": 3, "B": 3},
+    "first": {"A": 2.0, "B": 1.0},
+    "last": {"A": 1.0, "B": float("nan")},
 }
 # Known per-backend divergences, declared by the implementation's ``divergences``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
-# both skip it in sum/avg/count; pandas also skips NaN in std/var.
+# both skip it in sum/avg/count; pandas also skips NaN in std/var, drops it in nunique and
+# skips it in first/last (first equals the policy here because no group starts with NaN).
 NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "mode": {"A": 2.0, "B": 1.0},
     "sum": {"A": 3.0, "B": 4.0},
@@ -143,6 +147,9 @@ NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "var_pop": {"A": 0.25, "B": 1.0},
     "std_samp": {"A": 0.5**0.5, "B": 2.0**0.5},
     "var_samp": {"A": 0.5, "B": 2.0},
+    "nunique": {"A": 2, "B": 2},
+    "first": {"A": 2.0, "B": 1.0},
+    "last": {"A": 1.0, "B": 3.0},
 }
 
 # (agg_type, needs_skip) for aggregations over the all-null ``score`` column.
@@ -1074,6 +1081,23 @@ class AggregationTestBase(
         assert result_map[("C", "Y")] == 40
         assert result_map[("C", "X")] == 15
         assert result_map[(None, "X")] == -10
+
+    def test_first_keeps_leading_nan(self) -> None:
+        """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
+        self._skip_if_unsupported("first")
+        nan = float("nan")
+        table = pa.table({"grp": ["a", "a"], "val": pa.array([nan, 1.0], type=pa.float64())})
+        feature_name = "val__first_agg"
+        fs = make_feature_set(feature_name, ["grp"])
+
+        ref = self.reference_calculate(table, fs)
+        reference = _build_result_map(ref.column("grp").to_pylist(), ref.column(feature_name).to_pylist())
+        assert reference == pytest.approx({"a": nan}, nan_ok=True)
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        actual = _build_result_map(self.extract_column(result, "grp"), self.extract_column(result, feature_name))
+        expected = {"a": 1.0 if "first" in self.nan_divergent_agg_types() else nan}
+        assert actual == pytest.approx(expected, nan_ok=True)
 
     # -- Unsupported operation raises ----------------------------------------
 

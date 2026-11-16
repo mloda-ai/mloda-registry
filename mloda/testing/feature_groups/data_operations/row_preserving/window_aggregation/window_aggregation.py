@@ -91,10 +91,14 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "var_pop": [float("nan")] * 7,
     "std_samp": [float("nan")] * 7,
     "var_samp": [float("nan")] * 7,
+    "nunique": [3] * 7,
+    "first": [2.0] * 3 + [1.0] * 4,
+    "last": [1.0] * 3 + [float("nan")] * 4,
 }
 # Known per-backend divergences, declared by the implementation's ``divergences``: pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
-# both skip it in sum/avg/count; pandas also skips NaN in std/var.
+# both skip it in sum/avg/count; pandas also skips NaN in std/var, drops it in nunique and
+# skips it in first/last (first equals the policy here because no group starts with NaN).
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
     "sum": [3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0],
@@ -107,6 +111,9 @@ NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "var_pop": [0.25] * 3 + [1.0] * 4,
     "std_samp": [0.5**0.5] * 3 + [2.0**0.5] * 4,
     "var_samp": [0.5] * 3 + [2.0] * 4,
+    "nunique": [2] * 7,
+    "first": [2.0] * 3 + [1.0] * 4,
+    "last": [1.0] * 3 + [3.0] * 4,
 }
 
 # Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
@@ -322,6 +329,13 @@ class WindowAggregationTestBase(
     @classmethod
     def nan_policy_feature_name(cls, case: str) -> str:
         return f"val__{case}_window"
+
+    @classmethod
+    def nan_policy_feature_set(cls, feature_name: str) -> FeatureSet:
+        # first/last are order dependent and need order_by
+        if feature_name.startswith(("val__first_", "val__last_")):
+            return make_feature_set(feature_name, ["grp"], order_by="ts")
+        return make_feature_set(feature_name, ["grp"])
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
@@ -785,6 +799,27 @@ class WindowAggregationTestBase(
             result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
             expected = reference if self.orders_nan_before_none() else tied
             assert self.extract_column(result, feature_name) == expected
+
+    def test_first_keeps_leading_nan(self) -> None:
+        """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
+        if "first" not in self.supported_agg_types():
+            return
+        nan = float("nan")
+        table = pa.table(
+            {
+                "g": ["a", "a"],
+                "o": pa.array([1.0, 2.0], type=pa.float64()),
+                "v": pa.array([nan, 1.0], type=pa.float64()),
+            }
+        )
+        feature_name = "v__first_window"
+        fs = make_feature_set(feature_name, ["g"], order_by="o")
+
+        assert self._ref_column(table, fs, feature_name) == pytest.approx([nan, nan], nan_ok=True)
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [1.0, 1.0] if "first" in self.nan_divergent_agg_types() else [nan, nan]
+        assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
 
     def _ref_column(self, table: pa.Table, fs: FeatureSet, feature_name: str) -> list[Any]:
         column: list[Any] = self.reference_calculate(table, fs).column(feature_name).to_pylist()
