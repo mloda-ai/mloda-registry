@@ -1,8 +1,4 @@
-"""GdpduReader: descriptor parsing of untrusted index.xml files.
-
-The end-to-end GDPdU claims are in test_gdpdu_claims.py; this file holds the descriptor
-parser's own checks.
-"""
+"""GdpduReader: descriptor parsing, reader overlap, citations and containment, plus the source suite hosts."""
 
 from __future__ import annotations
 
@@ -13,8 +9,8 @@ from typing import Any
 from xml.etree.ElementTree import ParseError  # nosec B405
 
 import pytest
-from mloda.provider import FeatureSet
-from mloda.user import Options
+from mloda.provider import CoreDeclineCode, FeatureSet
+from mloda.user import DataAccessCollection, Options
 
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
 from mloda.community.feature_groups.experimental.german_ledger.reader import (
@@ -23,8 +19,9 @@ from mloda.community.feature_groups.experimental.german_ledger.reader import (
     parse_citation,
     parse_descriptor_bytes,
 )
+from mloda.testing.source.source_suite import SourceFeatureGroupTestMixin
 
-from .isolated import claim, claimant, source_match
+from .isolated import claim, claimant, elimination_codes, source_match
 
 HERE = Path(__file__).parent
 DOSSIER_A = HERE / "fixtures" / "dossier_a"
@@ -309,6 +306,7 @@ def test_an_index_link_leaving_the_dossier_is_refused_unclaimed_and_unfingerprin
     assert "index.xml" in str(refused.error)
     assert "links outside its folder" in str(refused.error)
     assert str(outside) not in str(refused.error)
+    assert elimination_codes(folder)[GdpduReader] is CoreDeclineCode.FOLDER_ESCAPE
 
     # A link that stays inside the dossier still reads.
     inner = tmp_path / "inner"
@@ -345,3 +343,46 @@ def test_a_descriptor_url_naming_a_symlink_loop_is_a_value_error_not_a_crash(tmp
     assert GdpduReader.data_access_identity(source_match(folder)) == f"gdpdu:{folder.name}"
     with pytest.raises(ValueError, match="absent"):
         GdpduReader.load_data(str(folder), FeatureSet())
+
+
+# --- source suite hosts -------------------------------------------------------------------------
+
+FIXTURES = HERE / "fixtures"
+
+
+class _JournalReaderSuite(SourceFeatureGroupTestMixin, suite_base=True):
+    present_column = JOURNAL
+    missing_column = "ledger_journal_missing"
+    own_folder: Path
+    own_kind_other_folder: Path
+    foreign_folder: Path
+
+    def own_dac(self) -> DataAccessCollection:
+        return DataAccessCollection(folders={str(self.own_folder)})
+
+    def foreign_dac(self) -> DataAccessCollection:
+        return DataAccessCollection(folders={str(self.foreign_folder)})
+
+    def own_pointer(self) -> Any:
+        return str(self.own_folder)
+
+    def other_pointer(self) -> tuple[Any, str]:
+        folder = self.own_kind_other_folder
+        return str(folder), os.path.abspath(folder)
+
+
+# The identities are pinned on purpose: every extender receives them, so a fixture byte change must show here.
+class TestGdpduReaderSourceSuite(_JournalReaderSuite):
+    feature_group_class = GdpduReader
+    own_folder = DOSSIER_A
+    own_kind_other_folder = FIXTURES / "dossier_b"
+    foreign_folder = FIXTURES / "datev_ledermann"
+    expected_source = "gdpdu:dossier_a@642915ba8de6"
+
+
+class TestDatevExtfReaderSourceSuite(_JournalReaderSuite):
+    feature_group_class = DatevExtfReader
+    own_folder = FIXTURES / "datev_ledermann"
+    own_kind_other_folder = FIXTURES / "twin_2025" / "datev"
+    foreign_folder = DOSSIER_A
+    expected_source = "datev:datev_ledermann@09647dca785d"

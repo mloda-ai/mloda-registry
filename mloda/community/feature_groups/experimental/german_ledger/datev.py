@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import INPUT_DATA_STAGE, FeatureSet, SourceMatch, record_match_rejection
+from mloda.provider import INPUT_DATA_STAGE, CoreDeclineCode, FeatureSet, SourceMatch, record_match_rejection
 
 from .reader import _ORIGIN_COLUMN, _ReaderJournal, _within
 
@@ -442,7 +442,12 @@ class DatevExtfReader(_ReaderJournal):
             return None
         if not any(_within(path, p) for p in files):
             name = os.path.basename(files[0])
-            record_match_rejection(cls.get_class_name(), f"{name} links outside its folder", stage=INPUT_DATA_STAGE)
+            record_match_rejection(
+                cls.get_class_name(),
+                f"{name} links outside its folder",
+                stage=INPUT_DATA_STAGE,
+                code=CoreDeclineCode.FOLDER_ESCAPE,
+            )
             return None
         return path
 

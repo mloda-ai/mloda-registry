@@ -21,6 +21,7 @@ import pyarrow as pa
 from mloda.provider import (
     INPUT_DATA_STAGE,
     ClaimRoute,
+    CoreDeclineCode,
     FeatureSet,
     NamePolicy,
     SourceFeatureGroup,
@@ -609,7 +610,12 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         if pointer is not None:
             candidates = [options.get(pointer)]
             if not isinstance(candidates[0], (str, os.PathLike)):
-                record_match_rejection(cls.get_class_name(), "the pointer value must be a path", stage=INPUT_DATA_STAGE)
+                record_match_rejection(
+                    cls.get_class_name(),
+                    f"the pointer value must be a path, got {type(candidates[0]).__name__}",
+                    stage=INPUT_DATA_STAGE,
+                    code=CoreDeclineCode.POINTER_INVALID,
+                )
                 return []
         elif data_access_collection is not None:
             candidates = [*data_access_collection.folders.values(), *data_access_collection.files.values()]
@@ -626,6 +632,7 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
                 cls.get_class_name(),
                 f"no {cls.SOURCE_LABEL} in the data access collection or the {cls.get_class_name()} option",
                 stage=INPUT_DATA_STAGE,
+                code=CoreDeclineCode.SOURCE_NOT_FOUND,
             )
         return list(found.values())
 
@@ -662,7 +669,10 @@ class GdpduReader(_ReaderJournal):
             return None
         if not _within(found, os.path.realpath(os.path.join(found, INDEX_NAME))):
             record_match_rejection(
-                cls.get_class_name(), f"{INDEX_NAME} links outside its folder", stage=INPUT_DATA_STAGE
+                cls.get_class_name(),
+                f"{INDEX_NAME} links outside its folder",
+                stage=INPUT_DATA_STAGE,
+                code=CoreDeclineCode.FOLDER_ESCAPE,
             )
             return None
         return found
