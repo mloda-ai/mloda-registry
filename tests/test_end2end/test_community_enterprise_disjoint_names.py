@@ -19,6 +19,7 @@ from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_co
     generate_valid_names,
 )
 from mloda.community.feature_groups.example.community_example_feature_group import CommunityExampleFeatureGroup
+from mloda.community.feature_groups.example.credential_example_feature_group import CredentialExampleFeatureGroup
 from mloda.community.feature_groups.example.example_a.example_a_feature_group import ExampleAFeatureGroup
 from mloda.community.feature_groups.experimental.german_ledger import reader as german_ledger_reader
 from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
@@ -87,6 +88,12 @@ def _community_explicit_examples() -> list[Example]:
         Example(ledger, SourcesFeatureGroup, "revenue__sources", _gdpdu()),
         Example("mloda-community-example", CommunityExampleFeatureGroup, "CommunityExampleFeatureGroup", Options()),
         Example("mloda-community-example-a", ExampleAFeatureGroup, "ExampleAFeatureGroup", Options()),
+        Example(
+            "mloda-community-example",
+            CredentialExampleFeatureGroup,
+            "email__hmac_signed",
+            Options(group={"signing_key_handle": "h"}),
+        ),
     ]
 
 

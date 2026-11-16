@@ -91,6 +91,8 @@ def test_calculate_feature():
     assert result.min() >= 0 and result.max() <= 1
 ```
 
+A group that reads a credential calls `calculate_feature` inside `credentials_scope` and keeps one Level 3 test with `data_access_collection=` (see [Secrets](11-options.md#secrets)).
+
 ## Level 3: Integration Test Example
 
 ```python

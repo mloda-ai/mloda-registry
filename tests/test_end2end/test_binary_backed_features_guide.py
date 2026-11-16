@@ -297,3 +297,16 @@ def test_child_processes_snippet_fakes_the_wheel_for_the_production_class(
     expected = compute_expected_hash_column({"col_a": ["x", "y", "z"]}, ["col_a"], None)
     assert proc.returncode == 0, f"stderr was:\n{proc.stderr}"
     assert proc.stdout.strip() == str(expected), f"stdout was:\n{proc.stdout}"
+
+
+def test_paid_featuregroup_snippet_builds_the_feature_and_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The "From the example to a paid FeatureGroup" python block runs on its own and names the key handle."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "## From the example to a paid FeatureGroup", ("\n## ",))
+    match = re.search(r"```python\n(.*?)```", section, re.DOTALL)
+    assert match is not None, "the paid-FeatureGroup section must contain a ```python block"
+    monkeypatch.setenv("PII_KEY", "11" * 32)
+    namespace: dict[str, Any] = {}
+    exec(match.group(1), namespace)  # nosec
+    assert "pii_key_handle" in namespace["feature"].options.group
+    assert "pii-key" in namespace["access"].credentials

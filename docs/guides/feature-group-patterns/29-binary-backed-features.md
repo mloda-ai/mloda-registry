@@ -271,6 +271,10 @@ The full expired/in-grace/valid license state machine is covered against the rea
 Register `Credential(key=...)` under the handle in the `DataAccessCollection` (see [Secrets](11-options.md#secrets)). Errors never echo the key. A malformed key is rejected before the binary runs. A key with leading or trailing whitespace is refused too, so strip one read from a file: `Credential(key=Path("pii.key").read_text().strip())`. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
 ```python
+import os
+
+from mloda.user import Credential, DataAccessCollection, Feature, Options
+
 feature = Feature(
     "pseudonymized_email",
     Options(

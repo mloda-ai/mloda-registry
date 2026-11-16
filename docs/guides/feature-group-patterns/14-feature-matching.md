@@ -228,7 +228,7 @@ Use `match_guard` to check the raw option value with a callable. Despite the nam
 
 After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `match_guard`. A falsy return is a plain non-match (`False`, debug log, no error), so resolution moves on and another candidate may still take the feature. A guard that raises `TypeError`, `ValueError`, or `AttributeError` is treated the same way. Only an absent option skips the guard: an empty container such as `[]` or `()` is a present value, so the guard sees it.
 
-The rejection reaches the user's "No feature groups found" error only when the spec is strict or declares `expected`, a phrase completing "must be ...", as `partition_by` does below. A strict spec echoes the rejected value in full; `expected` shows a scalar value shortened and a composite by its type only. On a key that can carry a secret, such as a token or a connection string, declare neither.
+The rejection reaches the user's "No feature groups found" error only when the spec is strict or declares `expected`, a phrase completing "must be ...", as `partition_by` does below. A strict spec echoes the rejected value in full; `expected` shows a scalar value shortened and a composite by its type only. A secret never goes in an option; name a credential handle instead (see [Secrets](11-options.md#secrets)).
 
 ```python
 from mloda.provider import property_spec
