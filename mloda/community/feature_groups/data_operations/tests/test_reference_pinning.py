@@ -33,11 +33,15 @@ PINNING_END_MARKER = "<!-- END GENERATED: reference-pinning -->"
 PENDING_REFERENCES = frozenset({"rank", "offset", "percentile"})
 
 
+def _reraise(name: str) -> None:
+    raise
+
+
 def discover_pinning_tables() -> list[tuple[str, PinningTable]]:
     """``(module name, PINNING)`` of every ``pinning_rows`` module, sorted by name."""
     names = sorted(
         info.name
-        for info in pkgutil.walk_packages(kit_package.__path__, kit_package.__name__ + ".")
+        for info in pkgutil.walk_packages(kit_package.__path__, kit_package.__name__ + ".", onerror=_reraise)
         if info.name.endswith(PINNING_SUFFIX)
     )
     return [(name, importlib.import_module(name).PINNING) for name in names]
@@ -104,6 +108,15 @@ class TestTableGuards:
         ]
         assert bad == []
 
+    def test_every_types_key_names_a_column(self, module: str, table: PinningTable) -> None:
+        bad = [
+            (row.feature, key)
+            for row in table.rows
+            for key in row.types
+            if key not in row.inputs and key not in row.expected
+        ]
+        assert bad == []
+
     def test_every_feature_is_requestable(self, module: str, table: PinningTable) -> None:
         group = group_under_test(table.operation)
         bad = [
@@ -140,6 +153,8 @@ def _value(value: Any) -> str:
     if isinstance(value, float) and value != value:
         return "NaN"
     if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
         return repr(value)
     return str(value)
 
@@ -254,7 +269,7 @@ def test_render_pinning_block_rules_and_rows() -> None:
         "",
         "| Case | Feature | Context | Input | Expected |",
         "|---|---|---|---|---|",
-        "| none | `v__sum_aggr` | partition_by=[k, j], ddof=1 | k=[a\\|b, c]; v=[1, None] (int32) | v__sum_aggr=[1, None] |",
+        "| none | `v__sum_aggr` | partition_by=['k', 'j'], ddof=1 | k=['a\\|b', 'c']; v=[1, None] (int32) | v__sum_aggr=[1, None] |",
         "| nan | `v__max_aggr` | - | v=[NaN, -0.0] | v__max_aggr=[NaN] |",
         "",
         "### scalar_aggregate",

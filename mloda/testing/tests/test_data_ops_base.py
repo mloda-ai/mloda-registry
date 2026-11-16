@@ -139,6 +139,44 @@ def test_assert_values_with_nulls_strict_rejects(actual: Any, expected: Any) -> 
         helpers.assert_values_with_nulls([actual], [expected], strict=True)
 
 
+@pytest.mark.parametrize(
+    ("actual", "expected"),
+    [
+        pytest.param([1.0, float("nan"), None], [1.0, float("nan"), None], id="nested_list_with_nan"),
+        pytest.param((1, 2), (1, 2), id="tuple"),
+        pytest.param({"a": 1.0, "b": float("nan")}, {"a": 1.0, "b": float("nan")}, id="dict_with_nan"),
+        pytest.param({"a": [1, {"b": None}]}, {"a": [1, {"b": None}]}, id="nested_dict_in_list"),
+    ],
+)
+def test_assert_values_with_nulls_strict_recurses_and_passes(actual: Any, expected: Any) -> None:
+    helpers.assert_values_with_nulls([actual], [expected], strict=True)
+
+
+@pytest.mark.parametrize(
+    ("actual", "expected"),
+    [
+        pytest.param([5.0], [5], id="nested_float_is_not_int"),
+        pytest.param([True], [1], id="nested_bool_is_not_int"),
+        pytest.param([1.0, float("nan")], [1.0, 2.0], id="nested_nan_is_not_value"),
+        pytest.param([None], [float("nan")], id="nested_none_is_not_nan"),
+        pytest.param([-0.0], [0.0], id="nested_negative_zero_is_not_zero"),
+        pytest.param([1, 2], [1, 2, 3], id="list_length_differs"),
+        pytest.param({"a": 5.0}, {"a": 5}, id="dict_float_is_not_int"),
+        pytest.param({"a": 1}, {"b": 1}, id="dict_keys_differ"),
+        pytest.param({"a": 1}, {"a": 1, "b": 2}, id="dict_key_set_differs"),
+        pytest.param({"a": [True]}, {"a": [1]}, id="dict_value_recurses_into_list"),
+    ],
+)
+def test_assert_values_with_nulls_strict_recursion_rejects(actual: Any, expected: Any) -> None:
+    with pytest.raises(AssertionError):
+        helpers.assert_values_with_nulls([actual], [expected], strict=True)
+
+
+def test_assert_values_with_nulls_strict_with_nan_is_null_is_contradictory() -> None:
+    with pytest.raises(ValueError):
+        helpers.assert_values_with_nulls([1.0], [1.0], strict=True, nan_is_null=True)
+
+
 def test_assert_values_with_nulls_strict_floats_compare_approximately() -> None:
     helpers.assert_values_with_nulls([0.1 + 0.2], [0.3], strict=True)
 

@@ -73,7 +73,7 @@ Do not "fix" a non-PyArrow framework to agree with the PyArrow bug. The referenc
 
 ## Pure Python reference for the aggregating operations
 
-Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. Other operations do not have this reference yet. The rules (None, NaN, signed zero, std and var, mode, partition keys, dtype, order, row order) and their pinned rows are in [Pinned cases](#pinned-cases). Aggregation returns one row per group and is compared by key. avg, mean, median, std* and var* accept only integer, floating or null sources and raise `ValueError` naming the type otherwise; sum over a null-typed source gives float64, any other non-numeric type raises `ValueError`; an int64 sum that overflows raises.
+Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. Other operations do not have this reference yet. The rules (None, NaN, signed zero, std and var, mode, partition keys, dtype, order, row order) and their pinned rows are in [Pinned cases](#pinned-cases). Aggregation returns one row per group and is compared by key. avg, mean, median, std* and var* accept only integer, floating or null sources and raise `ValueError` naming the type otherwise; sum over a null-typed source gives float64, any other type it does not widen raises `ValueError` (bool widens, it does not raise); an int64 sum that overflows raises.
 
 - **Tolerance**: floats compare with `pytest.approx(rel=1e-6)` where a test sets `use_approx=True`.
 - **Masks**: non-matching rows become None before the aggregate. The mask semantics belong to mloda core's mask engine, so the references call the kit helper `masked_column` (`mloda/testing/feature_groups/data_operations/helpers.py`), which applies core's PyArrow mask engine, and only `to_pylist()` its output.
@@ -98,7 +98,7 @@ PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Py
 
 ## Pinned cases
 
-Each reference ships `pinning_rows.py` next to it: hand-computed rows, never produced by running the reference. `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py` runs every row against its reference and checks this block; regenerate it from `render_pinning_block` when a row changes.
+The aggregating references ship `pinning_rows.py` next to them, and every new reference must (rank, offset and percentile are pending): hand-computed rows, never produced by running the reference. `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py` runs every row against its reference and checks this block; regenerate it from `render_pinning_block` when a row changes.
 
 <!-- BEGIN GENERATED: reference-pinning -->
 
@@ -114,58 +114,62 @@ Rendered from each reference's `pinning_rows.py`; every row is run against its r
 | std_var | Population for std, var, std_pop and var_pop; ddof=1 for the *_samp types; fewer than ddof+1 values gives None. | aggregation, frame_aggregate, scalar_aggregate |
 | mode | Ties keep the first occurrence. | aggregation |
 | partition_keys | NaN keys form one group, None is its own key, groups come in first-occurrence order; partition_by=[] is one whole-table group, also on an empty table. | aggregation, frame_aggregate |
-| dtype | count and nunique are int64; avg, mean, median, std* and var* are float64; sum widens signed integers to int64, unsigned integers to uint64 and floats to float64; min, max, first, last and mode keep the source type. | aggregation, frame_aggregate, scalar_aggregate, window_aggregation |
-| order | Within a group, order_by sorts ascending: real values, then NaN, then None, stable. | frame_aggregate, window_aggregation |
+| dtype | count and nunique are int64; avg, mean, median, std* and var* are float64; sum widens signed integers to int64, unsigned integers and bool to uint64 and floats to float64; min, max, first, last and mode keep the source type. | aggregation, frame_aggregate, scalar_aggregate, window_aggregation |
+| order | Within a group, order_by (window first and last, frame) sorts ascending: real values, then NaN, then None, stable. | frame_aggregate, window_aggregation |
 | row_order | Window, frame and scalar keep input order. | frame_aggregate, scalar_aggregate, window_aggregation |
 
 ### aggregation
 
 | Case | Feature | Context | Input | Expected |
 |---|---|---|---|---|
-| none | `v__sum_agg` | partition_by=[g] | g=[a, a, b]; v=[1, None, 5] | g=[a, b]; v__sum_agg=[1, 5] |
-| none | `v__count_agg` | partition_by=[g] | g=[a, a, a]; v=[1, None, 3] | v__count_agg=[2] |
-| none | `v__count_agg` | partition_by=[g] | g=[a, a, b, b]; v=[None, None, 2, 3] | v__count_agg=[0, 2] |
-| none | `v__sum_agg` | partition_by=[g] | g=[a, a, b, b]; v=[None, None, 2, 3] | v__sum_agg=[None, 5] |
-| nan | `v__sum_agg` | partition_by=[g] | g=[a, a, b]; v=[1.0, NaN, 2.0] | v__sum_agg=[NaN, 2.0] |
-| nan | `v__count_agg` | partition_by=[g] | g=[a, a]; v=[NaN, 1.0] | v__count_agg=[2] |
-| nan | `v__min_agg` | partition_by=[g] | g=[a, a, b]; v=[NaN, 1.0, NaN] | v__min_agg=[1.0, NaN] |
-| nan | `v__max_agg` | partition_by=[g] | g=[a, a, b]; v=[NaN, 1.0, NaN] | v__max_agg=[1.0, NaN] |
-| nan | `v__median_agg` | partition_by=[g] | g=[a, a, a, b]; v=[NaN, 1.0, 3.0, NaN] | v__median_agg=[2.0, None] |
-| nan | `v__first_agg` | partition_by=[g] | g=[a, a, a]; v=[None, NaN, 1.0] | v__first_agg=[NaN] |
-| nan | `v__nunique_agg` | partition_by=[g] | g=[a, a, a, a]; v=[NaN, NaN, 1.0, None] | v__nunique_agg=[2] |
-| signed_zero | `v__nunique_agg` | partition_by=[g] | g=[a, a, a]; v=[0.0, -0.0, -0.0] | v__nunique_agg=[1] |
-| signed_zero | `v__sum_agg` | partition_by=[g] | g=[0.0, -0.0]; v=[1, 2] | g=[0.0]; v__sum_agg=[3] |
-| mode | `v__mode_agg` | partition_by=[g] | g=[a, a, a, a, a]; v=[2, 1, 1, 2, 3] | v__mode_agg=[2] (int64) |
-| std_var | `v__std_pop_agg` | partition_by=[g] | g=[a, a, b]; v=[1.0, 3.0, 5.0] | v__std_pop_agg=[1.0, 0.0] |
-| std_var | `v__var_samp_agg` | partition_by=[g] | g=[a, a, b]; v=[1.0, 3.0, 5.0] | v__var_samp_agg=[2.0, None] |
-| std_var | `v__std_samp_agg` | partition_by=[g] | g=[a, a, b]; v=[1.0, 3.0, 5.0] | v__std_samp_agg=[1.4142135623730951, None] |
-| partition_keys | `v__sum_agg` | partition_by=[g] | g=[NaN, None, 1.0, NaN, None]; v=[1, 2, 3, 4, 5] | g=[NaN, None, 1.0]; v__sum_agg=[5, 7, 3] |
+| none | `v__sum_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[1, None, 5] | g=['a', 'b']; v__sum_agg=[1, 5] |
+| none | `v__count_agg` | partition_by=['g'] | g=['a', 'a', 'a']; v=[1, None, 3] | v__count_agg=[2] |
+| none | `v__count_agg` | partition_by=['g'] | g=['a', 'a', 'b', 'b']; v=[None, None, 2, 3] | v__count_agg=[0, 2] |
+| none | `v__sum_agg` | partition_by=['g'] | g=['a', 'a', 'b', 'b']; v=[None, None, 2, 3] | v__sum_agg=[None, 5] |
+| nan | `v__sum_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[1.0, NaN, 2.0] | v__sum_agg=[NaN, 2.0] |
+| nan | `v__count_agg` | partition_by=['g'] | g=['a', 'a']; v=[NaN, 1.0] | v__count_agg=[2] |
+| nan | `v__min_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[NaN, 1.0, NaN] | v__min_agg=[1.0, NaN] |
+| nan | `v__max_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[NaN, 1.0, NaN] | v__max_agg=[1.0, NaN] |
+| nan | `v__median_agg` | partition_by=['g'] | g=['a', 'a', 'a', 'b']; v=[NaN, 1.0, 3.0, NaN] | v__median_agg=[2.0, None] |
+| nan | `v__first_agg` | partition_by=['g'] | g=['a', 'a', 'a']; v=[None, NaN, 1.0] | v__first_agg=[NaN] |
+| nan | `v__nunique_agg` | partition_by=['g'] | g=['a', 'a', 'a', 'a']; v=[NaN, NaN, 1.0, None] | v__nunique_agg=[2] |
+| signed_zero | `v__nunique_agg` | partition_by=['g'] | g=['a', 'a', 'a']; v=[0.0, -0.0, -0.0] | v__nunique_agg=[1] |
+| signed_zero | `v__sum_agg` | partition_by=['g'] | g=[0.0, -0.0]; v=[1, 2] | g=[0.0]; v__sum_agg=[3] |
+| mode | `v__mode_agg` | partition_by=['g'] | g=['a', 'a', 'a', 'a', 'a']; v=[2, 1, 1, 2, 3] | v__mode_agg=[2] (int64) |
+| std_var | `v__std_pop_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[1.0, 3.0, 5.0] | v__std_pop_agg=[1.0, 0.0] |
+| std_var | `v__var_samp_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[1.0, 3.0, 5.0] | v__var_samp_agg=[2.0, None] |
+| std_var | `v__std_samp_agg` | partition_by=['g'] | g=['a', 'a', 'b']; v=[1.0, 3.0, 5.0] | v__std_samp_agg=[1.4142135623730951, None] |
+| partition_keys | `v__sum_agg` | partition_by=['g'] | g=[NaN, None, 1.0, NaN, None]; v=[1, 2, 3, 4, 5] | g=[NaN, None, 1.0]; v__sum_agg=[5, 7, 3] |
 | partition_keys | `v__count_agg` | partition_by=[] | v=[] (int64) | v__count_agg=[0] |
-| dtype | `v__sum_agg` | partition_by=[g] | g=[a, a]; v=[1, 2] (int32) | v__sum_agg=[3] (int64) |
-| dtype | `v__sum_agg` | partition_by=[g] | g=[a, a]; v=[200, 100] (uint8) | v__sum_agg=[300] (uint64) |
-| dtype | `v__count_agg` | partition_by=[g] | g=[a]; v=[1] (int32) | v__count_agg=[1] (int64) |
-| dtype | `v__avg_agg` | partition_by=[g] | g=[a, a]; v=[1, 2] (int32) | v__avg_agg=[1.5] (float64) |
-| dtype | `v__min_agg` | partition_by=[g] | g=[a, a]; v=[4, 2] (int32) | v__min_agg=[2] (int32) |
+| dtype | `v__sum_agg` | partition_by=['g'] | g=['a', 'a']; v=[1, 2] (int32) | v__sum_agg=[3] (int64) |
+| dtype | `v__sum_agg` | partition_by=['g'] | g=['a', 'a']; v=[200, 100] (uint8) | v__sum_agg=[300] (uint64) |
+| dtype | `v__count_agg` | partition_by=['g'] | g=['a']; v=[1] (int32) | v__count_agg=[1] (int64) |
+| dtype | `v__avg_agg` | partition_by=['g'] | g=['a', 'a']; v=[1, 2] (int32) | v__avg_agg=[1.5] (float64) |
+| dtype | `v__min_agg` | partition_by=['g'] | g=['a', 'a']; v=[4, 2] (int32) | v__min_agg=[2] (int32) |
+| dtype | `v__sum_agg` | partition_by=['g'] | g=['a', 'a', 'a']; v=[True, False, True] (bool) | v__sum_agg=[2] (uint64) |
+| nan | `v__last_agg` | partition_by=['g'] | g=['a', 'a', 'a']; v=[1.0, NaN, None] | v__last_agg=[NaN] |
+| nan | `v__std_agg` | partition_by=['g'] | g=['a', 'a']; v=[1.0, NaN] | v__std_agg=[NaN] |
+| nan | `v__mode_agg` | partition_by=['g'] | g=['a', 'a', 'a', 'a']; v=[NaN, 1.0, NaN, 1.0] | v__mode_agg=[NaN] |
 
 ### frame_aggregate
 
 | Case | Feature | Context | Input | Expected |
 |---|---|---|---|---|
-| none | `value__sum_rolling_3` | partition_by=[region], order_by=ts | region=[A, A, A, A]; ts=[1, 2, 3, 4]; value=[10, None, 30, 40] | value__sum_rolling_3=[10, 10, 40, 70] |
-| none | `value__cumsum` | partition_by=[region], order_by=ts | region=[A, A]; ts=[1, 2]; value=[None, None] | value__cumsum=[None, None] |
-| none | `value__cumcount` | partition_by=[region], order_by=ts | region=[A, A]; ts=[1, 2]; value=[None, None] | value__cumcount=[0, 0] |
-| none | `value__sum_rolling_2` | partition_by=[region], order_by=ts | region=[A, A, A]; ts=[1, 2, 3]; value=[None, None, 5] | value__sum_rolling_2=[None, None, 5] |
-| nan | `value__avg_rolling_2` | partition_by=[region], order_by=ts | region=[A, A, A, A]; ts=[1, 2, 3, 4]; value=[1.0, NaN, 3.0, 5.0] | value__avg_rolling_2=[1.0, NaN, NaN, 4.0] |
-| nan | `value__max_rolling_2` | partition_by=[region], order_by=ts | region=[A, A, A, A]; ts=[1, 2, 3, 4]; value=[1.0, NaN, 3.0, 5.0] | value__max_rolling_2=[1.0, 1.0, 3.0, 5.0] |
-| std_var | `value__std_rolling_2` | partition_by=[region], order_by=ts | region=[A, A, A]; ts=[1, 2, 3]; value=[1.0, 3.0, 3.0] | value__std_rolling_2=[0.0, 1.0, 0.0] |
-| std_var | `value__var_rolling_2` | partition_by=[region], order_by=ts | region=[A, A, A]; ts=[1, 2, 3]; value=[1.0, 3.0, 3.0] | value__var_rolling_2=[0.0, 1.0, 0.0] |
-| order | `value__cumsum` | partition_by=[region], order_by=ts | region=[A, A, A]; ts=[None, 1, 2]; value=[100, 10, 20] | value__cumsum=[130, 10, 30] |
-| order | `value__cumsum` | partition_by=[region], order_by=ts | region=[A, A, A, A]; ts=[None, 3.0, NaN, 1.0]; value=[100, 4, 8, 1] | value__cumsum=[113, 5, 13, 1] |
-| row_order | `value__cumsum` | partition_by=[region], order_by=ts | region=[A, A, A, A]; ts=[3.0, 1.0, NaN, 2.0]; value=[4, 1, 8, 2] | value__cumsum=[7, 1, 15, 3] |
-| partition_keys | `value__cumsum` | partition_by=[region], order_by=ts | region=[NaN, NaN, None, 1.0, None]; ts=[1, 2, 3, 4, 5]; value=[1, 2, 3, 4, 5] | value__cumsum=[1, 3, 3, 4, 8] |
-| signed_zero | `value__cumsum` | partition_by=[region], order_by=ts | region=[0.0, -0.0, 0.0]; ts=[1, 2, 3]; value=[1, 2, 4] | value__cumsum=[1, 3, 7] |
-| dtype | `value__cumsum` | partition_by=[region], order_by=ts | region=[A, A]; ts=[1, 2]; value=[1, 2] (int32) | value__cumsum=[1, 3] (int64) |
-| dtype | `value__cumavg` | partition_by=[region], order_by=ts | region=[A, A]; ts=[1, 2]; value=[1, 2] (int32) | value__cumavg=[1.0, 1.5] (float64) |
+| none | `value__sum_rolling_3` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A', 'A']; ts=[1, 2, 3, 4]; value=[10, None, 30, 40] | value__sum_rolling_3=[10, 10, 40, 70] |
+| none | `value__cumsum` | partition_by=['region'], order_by='ts' | region=['A', 'A']; ts=[1, 2]; value=[None, None] | value__cumsum=[None, None] |
+| none | `value__cumcount` | partition_by=['region'], order_by='ts' | region=['A', 'A']; ts=[1, 2]; value=[None, None] | value__cumcount=[0, 0] |
+| none | `value__sum_rolling_2` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A']; ts=[1, 2, 3]; value=[None, None, 5] | value__sum_rolling_2=[None, None, 5] |
+| nan | `value__avg_rolling_2` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A', 'A']; ts=[1, 2, 3, 4]; value=[1.0, NaN, 3.0, 5.0] | value__avg_rolling_2=[1.0, NaN, NaN, 4.0] |
+| nan | `value__max_rolling_2` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A', 'A']; ts=[1, 2, 3, 4]; value=[1.0, NaN, 3.0, 5.0] | value__max_rolling_2=[1.0, 1.0, 3.0, 5.0] |
+| std_var | `value__std_rolling_2` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A']; ts=[1, 2, 3]; value=[1.0, 3.0, 3.0] | value__std_rolling_2=[0.0, 1.0, 0.0] |
+| std_var | `value__var_rolling_2` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A']; ts=[1, 2, 3]; value=[1.0, 3.0, 3.0] | value__var_rolling_2=[0.0, 1.0, 0.0] |
+| order | `value__cumsum` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A']; ts=[None, 1, 2]; value=[100, 10, 20] | value__cumsum=[130, 10, 30] |
+| order | `value__cumsum` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A', 'A']; ts=[None, 3.0, NaN, 1.0]; value=[100, 4, 8, 1] | value__cumsum=[113, 5, 13, 1] |
+| row_order | `value__cumsum` | partition_by=['region'], order_by='ts' | region=['A', 'A', 'A', 'A']; ts=[3.0, 1.0, NaN, 2.0]; value=[4, 1, 8, 2] | value__cumsum=[7, 1, 15, 3] |
+| partition_keys | `value__cumsum` | partition_by=['region'], order_by='ts' | region=[NaN, NaN, None, 1.0, None]; ts=[1, 2, 3, 4, 5]; value=[1, 2, 3, 4, 5] | value__cumsum=[1, 3, 3, 4, 8] |
+| signed_zero | `value__cumsum` | partition_by=['region'], order_by='ts' | region=[0.0, -0.0, 0.0]; ts=[1, 2, 3]; value=[1, 2, 4] | value__cumsum=[1, 3, 7] |
+| dtype | `value__cumsum` | partition_by=['region'], order_by='ts' | region=['A', 'A']; ts=[1, 2]; value=[1, 2] (int32) | value__cumsum=[1, 3] (int64) |
+| dtype | `value__cumavg` | partition_by=['region'], order_by='ts' | region=['A', 'A']; ts=[1, 2]; value=[1, 2] (int32) | value__cumavg=[1.0, 1.5] (float64) |
 
 ### scalar_aggregate
 
@@ -188,18 +192,18 @@ Rendered from each reference's `pinning_rows.py`; every row is run against its r
 
 | Case | Feature | Context | Input | Expected |
 |---|---|---|---|---|
-| none | `v__sum_window` | partition_by=[g] | g=[a, b, a, b, a]; v=[1, None, 2, 4, None] | v__sum_window=[3, 4, 3, 4, 3] |
-| none | `v__count_window` | partition_by=[g] | g=[a, a, b]; v=[None, None, 7] | v__count_window=[0, 0, 1] |
-| none | `v__sum_window` | partition_by=[g] | g=[a, a, b]; v=[None, None, 7] | v__sum_window=[None, None, 7] |
-| none | `v__first_window` | partition_by=[g], order_by=o | g=[a, a]; v=[None, 7]; o=[1, 2] | v__first_window=[7, 7] |
-| nan | `v__avg_window` | partition_by=[g] | g=[a, a, b]; v=[1.0, NaN, 2.0] | v__avg_window=[NaN, NaN, 2.0] |
-| nan | `v__median_window` | partition_by=[g] | g=[a, a, a]; v=[NaN, 1.0, 3.0] | v__median_window=[2.0, 2.0, 2.0] |
-| order | `v__first_window` | partition_by=[g], order_by=o | g=[a, a, a, a]; v=[10, 20, 30, 40]; o=[3.0, NaN, None, 1.0] | v__first_window=[40, 40, 40, 40] |
-| order | `v__last_window` | partition_by=[g], order_by=o | g=[a, a, a, a]; v=[10, 20, 30, 40]; o=[3.0, NaN, None, 1.0] | v__last_window=[30, 30, 30, 30] |
-| order | `v__first_window` | partition_by=[g], order_by=o | g=[a, a, a]; v=[1, 2, 3]; o=[5, 5, 5] | v__first_window=[1, 1, 1] |
-| order | `v__last_window` | partition_by=[g], order_by=o | g=[a, a, a]; v=[1, 2, 3]; o=[5, 5, 5] | v__last_window=[3, 3, 3] |
-| row_order | `v__min_window` | partition_by=[g] | g=[b, a, b, a]; v=[1, 10, 2, 20] | v__min_window=[1, 10, 1, 10] |
-| dtype | `v__sum_window` | partition_by=[g] | g=[a, a]; v=[1, 2] (int32) | v__sum_window=[3, 3] (int64) |
+| none | `v__sum_window` | partition_by=['g'] | g=['a', 'b', 'a', 'b', 'a']; v=[1, None, 2, 4, None] | v__sum_window=[3, 4, 3, 4, 3] |
+| none | `v__count_window` | partition_by=['g'] | g=['a', 'a', 'b']; v=[None, None, 7] | v__count_window=[0, 0, 1] |
+| none | `v__sum_window` | partition_by=['g'] | g=['a', 'a', 'b']; v=[None, None, 7] | v__sum_window=[None, None, 7] |
+| none | `v__first_window` | partition_by=['g'], order_by='o' | g=['a', 'a']; v=[None, 7]; o=[1, 2] | v__first_window=[7, 7] |
+| nan | `v__avg_window` | partition_by=['g'] | g=['a', 'a', 'b']; v=[1.0, NaN, 2.0] | v__avg_window=[NaN, NaN, 2.0] |
+| nan | `v__median_window` | partition_by=['g'] | g=['a', 'a', 'a']; v=[NaN, 1.0, 3.0] | v__median_window=[2.0, 2.0, 2.0] |
+| order | `v__first_window` | partition_by=['g'], order_by='o' | g=['a', 'a', 'a', 'a']; v=[10, 20, 30, 40]; o=[3.0, NaN, None, 1.0] | v__first_window=[40, 40, 40, 40] |
+| order | `v__last_window` | partition_by=['g'], order_by='o' | g=['a', 'a', 'a', 'a']; v=[10, 20, 30, 40]; o=[3.0, NaN, None, 1.0] | v__last_window=[30, 30, 30, 30] |
+| order | `v__first_window` | partition_by=['g'], order_by='o' | g=['a', 'a', 'a']; v=[1, 2, 3]; o=[5, 5, 5] | v__first_window=[1, 1, 1] |
+| order | `v__last_window` | partition_by=['g'], order_by='o' | g=['a', 'a', 'a']; v=[1, 2, 3]; o=[5, 5, 5] | v__last_window=[3, 3, 3] |
+| row_order | `v__min_window` | partition_by=['g'] | g=['b', 'a', 'b', 'a']; v=[1, 10, 2, 20] | v__min_window=[1, 10, 1, 10] |
+| dtype | `v__sum_window` | partition_by=['g'] | g=['a', 'a']; v=[1, 2] (int32) | v__sum_window=[3, 3] (int64) |
 
 <!-- END GENERATED: reference-pinning -->
 

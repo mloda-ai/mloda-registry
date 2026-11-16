@@ -135,5 +135,22 @@ PINNING = PinningTable(
             BY_G,
             {"v": "int32", "v__min_agg": "int32"},
         ),
+        PinningRow(
+            "dtype",
+            "v__sum_agg",
+            {"g": ("a", "a", "a"), "v": (True, False, True)},
+            {"v__sum_agg": (2,)},
+            BY_G,
+            {"v": "bool", "v__sum_agg": "uint64"},
+        ),
+        PinningRow("nan", "v__last_agg", {"g": ("a", "a", "a"), "v": (1.0, NAN, None)}, {"v__last_agg": (NAN,)}, BY_G),
+        PinningRow("nan", "v__std_agg", {"g": ("a", "a"), "v": (1.0, NAN)}, {"v__std_agg": (NAN,)}, BY_G),
+        PinningRow(
+            "nan",
+            "v__mode_agg",
+            {"g": ("a",) * 4, "v": (NAN, 1.0, NAN, 1.0)},
+            {"v__mode_agg": (NAN,)},
+            BY_G,
+        ),
     ),
 )
