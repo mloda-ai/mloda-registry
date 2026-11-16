@@ -38,7 +38,7 @@ def test_import_does_not_load_pytest_outside_pytest() -> None:
     assert result.stdout.strip() == "False"
 
 
-_WITHOUT_PYARROW_PROBE = """
+_WITHOUT_OPTIONAL_ROOTS_PROBE = """
 import sys
 
 for poisoned in ("pyarrow", "opentelemetry", "openlineage", "pandas", "polars", "duckdb", "mloda.community", "mloda.enterprise"):
@@ -86,11 +86,11 @@ print(group.failures, framework.failures, sys.modules["pyarrow"])
 """
 
 
-def test_kit_works_without_pyarrow() -> None:
+def test_kit_works_without_optional_roots() -> None:
     """With every optional root blocked, each mirror and ungated kit module imports and the PythonDict shape checks pass."""
     mirrors = [name.replace("mloda._testing", "mloda.testing", 1) for name in _core_testing_modules()]
     ungated = load_script("kit_modules", _SCRIPTS_DIR / "kit_modules.py").kit_modules()[None]
-    command = [sys.executable, "-c", _WITHOUT_PYARROW_PROBE, *mirrors, *ungated]
+    command = [sys.executable, "-c", _WITHOUT_OPTIONAL_ROOTS_PROBE, *mirrors, *ungated]
     result = subprocess.run(command, capture_output=True, text=True)  # nosec
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "() () None"

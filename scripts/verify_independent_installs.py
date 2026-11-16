@@ -86,10 +86,13 @@ def kit_jobs(version: str) -> list[tuple[str, str]]:
         f'assert find_spec("{package}") is None, "{package} must be absent"\n'
         for package in ("mloda.community", "mloda.enterprise")
     )
-    bare = "from importlib.util import find_spec\n" + absent + "\n".join(f"import {m}" for m in by_gate.get(None, []))
+    header = "from importlib.util import find_spec\n" + absent
+    bare = header + "\n".join(f"import {m}" for m in by_gate.get(None, []))
     jobs = [(f"mloda-testing=={version}", bare)]
     for gate in sorted(g for g in by_gate if g is not None):
-        jobs.append((f"mloda-testing[{gate}]=={version}", "\n".join(f"import {m}" for m in by_gate[gate])))
+        imports = "\n".join(f"import {m}" for m in by_gate[gate])
+        # The binary-model extra legitimately ships mloda.community, so it skips the absence check.
+        jobs.append((f"mloda-testing[{gate}]=={version}", imports if gate == "binary-model" else header + imports))
     return jobs
 
 
@@ -115,13 +118,12 @@ def main() -> int:
         return 1
 
     modules_by_name = {name: probe_modules(name, packages) for name in names}
-    workers = min(len(names), MAX_WORKERS)
-    print(f"\nInstalling {len(names)} distributions at {args.version}, {workers} at a time...")
+    kit = kit_jobs(args.version)
+    workers = min(len(names) + len(kit), MAX_WORKERS)
+    print(f"\nInstalling {len(names)} distributions + {len(kit)} kit jobs at {args.version}, {workers} at a time...")
 
     def _verify(name: str) -> str | None:
         return verify_distribution(name, args.version, modules_by_name[name])
-
-    kit = kit_jobs(args.version)
 
     def _verify_kit(job: tuple[str, str]) -> str | None:
         error = install_and_probe([job[0]], job[1])

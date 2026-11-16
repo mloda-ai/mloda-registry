@@ -1045,8 +1045,7 @@ def _kit_modules_flat() -> dict[str, str | None]:
 
 
 def test_kit_gates_extras_equal_the_non_dev_extras_of_mloda_testing() -> None:
-    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
-    extras = set(packages["mloda-testing"].get("optional_dependencies", {})) - {"dev"}
+    extras = set(_mloda_testing_config().get("optional_dependencies", {})) - {"dev"}
     assert set(kit_map.KIT_GATES.values()) == extras, (
         f"KIT_GATES extras {sorted(set(kit_map.KIT_GATES.values()))} must equal mloda-testing's non-dev extras "
         f"{sorted(extras)}"
@@ -1054,10 +1053,20 @@ def test_kit_gates_extras_equal_the_non_dev_extras_of_mloda_testing() -> None:
 
 
 def test_every_kit_gate_prefix_matches_a_shipped_module() -> None:
-    root = _REPO_ROOT / kit_map.KIT_PATH
-    rel_paths = [p.relative_to(root).as_posix() for p in root.rglob("*.py")]
+    rel_paths = [rel.as_posix() for rel, _tree in _runtime_modules(_REPO_ROOT / kit_map.KIT_PATH)]
     unmatched = [prefix for prefix in kit_map.KIT_GATES if not any(p.startswith(prefix) for p in rel_paths)]
     assert unmatched == [], f"KIT_GATES prefixes that match no shipped kit module: {unmatched}"
+
+
+def test_child_kit_gate_extra_lists_every_distribution_of_its_parent_gate_extra() -> None:
+    extras = _mloda_testing_config().get("optional_dependencies", {})
+    nested = [(p, c) for p in kit_map.KIT_GATES for c in kit_map.KIT_GATES if c != p and c.startswith(p)]
+    assert nested, "no KIT_GATES prefix extends another; check is vacuous"
+    for parent, child in nested:
+        missing = {_dep_name(d) for d in extras[kit_map.KIT_GATES[parent]]} - {
+            _dep_name(d) for d in extras[kit_map.KIT_GATES[child]]
+        }
+        assert missing == set(), f"the {child} extra lacks {sorted(missing)} of its parent {parent} extra"
 
 
 def test_real_kit_has_a_binary_model_module_and_no_tests_module() -> None:
@@ -1142,8 +1151,11 @@ def _kit_declared_distributions(cfg: dict[str, Any], gate: str | None) -> set[st
 
 
 def _imports_root_via_importorskip(fn: _FunctionNode, root: str, before_line: int) -> bool:
-    """True if `fn` calls importorskip("<root>[.sub]") with a string literal on a line before `before_line`."""
-    for call in ast.walk(fn):
+    """True if a top-level statement of `fn` is importorskip("<root>[.sub]") with a literal, before `before_line`."""
+    if isinstance(fn, ast.Lambda):
+        return False
+    for stmt in fn.body:
+        call = stmt.value if isinstance(stmt, ast.Expr) else None
         if not (isinstance(call, ast.Call) and call.args and call.lineno < before_line):
             continue
         func = call.func
@@ -1182,7 +1194,9 @@ def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | Non
                 if root in _AUTHOR_BACKENDS and fn is not None:
                     continue
                 distribution = _KIT_IMPORT_DISTRIBUTIONS.get(root)
-                if distribution is None:
+                if distribution is None and root in _AUTHOR_BACKENDS:
+                    violations.append(f"{where}: author backend {root!r} must be imported inside a function")
+                elif distribution is None:
                     violations.append(f"{where}: unknown import name {root!r}")
                 elif _dep_name(distribution) in declared:
                     continue
@@ -1209,7 +1223,12 @@ _SKIP_THEN_IMPORT = (
 @pytest.mark.parametrize(
     ("rel", "body", "fragment"),
     [
-        pytest.param("m.py", "import pandas\n", "unknown import name 'pandas'", id="module-level-pandas-ungated"),
+        pytest.param(
+            "m.py",
+            "import pandas\n",
+            "author backend 'pandas' must be imported inside a function",
+            id="module-level-pandas-ungated",
+        ),
         pytest.param("m.py", "def f() -> None:\n    import pandas\n", None, id="function-level-pandas"),
         pytest.param("m.py", "def f() -> None:\n    import pyarrow\n", None, id="function-level-pyarrow-ungated"),
         pytest.param("m.py", "import pyarrow\n", "import 'pyarrow'", id="module-level-pyarrow-ungated"),
@@ -1228,7 +1247,7 @@ _SKIP_THEN_IMPORT = (
         pytest.param(
             "m.py",
             "class C:\n    import pandas\n",
-            "unknown import name 'pandas'",
+            "author backend 'pandas' must be imported inside a function",
             id="class-body-counts-as-module-level",
         ),
         pytest.param("m.py", "import pytest\n", None, id="declared-dependency"),
@@ -1267,6 +1286,20 @@ _SKIP_THEN_IMPORT = (
         ),
         pytest.param(
             "m.py",
+            'import pytest\n\n\ndef f() -> None:\n    def g() -> None:\n        pytest.importorskip("opentelemetry")\n'
+            "    import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="importorskip-in-nested-def",
+        ),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef f(c: bool) -> None:\n    if c:\n        pytest.importorskip("opentelemetry")\n'
+            "    import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="importorskip-in-branch",
+        ),
+        pytest.param(
+            "m.py",
             "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import pandas\n",
             None,
             id="type-checking-import-exempt",
@@ -1274,13 +1307,13 @@ _SKIP_THEN_IMPORT = (
         pytest.param(
             "m.py",
             "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n    import pandas\n",
-            "unknown import name 'pandas'",
+            "author backend 'pandas' must be imported inside a function",
             id="type-checking-else-branch-checked",
         ),
         pytest.param(
             "m.py",
             "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    import pandas\n",
-            "unknown import name 'pandas'",
+            "author backend 'pandas' must be imported inside a function",
             id="spoofed-type-checking",
         ),
         pytest.param("m.py", "import mloda_plugins.x\nfrom mloda.core import y\n", None, id="first-party-ignored"),

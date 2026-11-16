@@ -245,6 +245,16 @@ def test_bare_kit_job_probes_ungated_modules_with_no_plugin_package_present() ->
     assert sorted(_probe_imports(probe)) == sorted(ungated), "bare kit probe must import exactly the ungated modules"
 
 
+@pytest.mark.parametrize("spec", sorted(set(kit_map.kit_modules()) - {"binary-model", None}))
+def test_gated_kit_job_probes_no_plugin_package_present(spec: str) -> None:
+    """Every kit job but binary-model asserts no community/enterprise package is importable."""
+    probe = _kit_jobs()[f"mloda-testing[{spec}]==9.9.9"]
+    for package in ("mloda.community", "mloda.enterprise"):
+        assert f'find_spec("{package}") is None' in probe or f"find_spec('{package}') is None" in probe, (
+            f"[{spec}] kit probe does not assert find_spec({package!r}) is None: {probe!r}"
+        )
+
+
 def test_one_kit_job_per_gate_extra_imports_exactly_that_extras_modules() -> None:
     jobs = _kit_jobs()
     gated = {gate: modules for gate, modules in kit_map.kit_modules().items() if gate is not None}
@@ -252,12 +262,6 @@ def test_one_kit_job_per_gate_extra_imports_exactly_that_extras_modules() -> Non
     for gate, modules in gated.items():
         imported = sorted(_probe_imports(jobs[f"mloda-testing[{gate}]==9.9.9"]))
         assert imported == sorted(modules), f"the [{gate}] kit job imports {imported}, expected {sorted(modules)}"
-
-
-def test_every_kit_module_is_imported_by_exactly_one_kit_job() -> None:
-    imported = [m for probe in _kit_jobs().values() for m in _probe_imports(probe)]
-    expected = [m for modules in kit_map.kit_modules().values() for m in modules]
-    assert sorted(imported) == sorted(expected), "each shipped kit module must be imported once across the kit jobs"
 
 
 def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -275,9 +279,13 @@ def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return requirements
 
 
-def test_main_installs_every_kit_job_specifier(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_installs_every_kit_job_specifier(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     requirements = _record_installs(monkeypatch)
     exit_code = _run_main(monkeypatch)
+    header = next(line for line in capsys.readouterr().out.splitlines() if "Installing" in line)
+    assert f"+ {len(_kit_jobs())} kit jobs" in header, f"main() header does not count the kit jobs: {header!r}"
     assert exit_code == 0, f"main() exited {exit_code!r} against an all-success fake, expected 0"
     missing = [spec for spec in _kit_jobs() if spec not in requirements]
     assert missing == [], f"main() never installed the kit job specifier(s) {missing}"
