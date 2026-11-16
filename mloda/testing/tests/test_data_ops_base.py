@@ -596,6 +596,40 @@ def test_variant_required_case_defaults_to_none() -> None:
     assert OperationGroupIntegrationTestMixin.variant_required_case() is None
 
 
+def test_framework_rejection_loads_group_implementations_before_reading_frameworks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rejection test loads the group's Implementations before it reads the group's frameworks."""
+    pytest.importorskip("polars")
+    from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
+
+    from mloda.testing.feature_groups.data_operations import integration
+    from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+        OperationGroupIntegrationTestMixin,
+    )
+
+    loaded: list[type] = []
+
+    class _StubGroup:
+        @classmethod
+        def compute_framework_definition(cls) -> Any:
+            return {PolarsDataFrame} if loaded else set()
+
+    def fake_load(group: type) -> None:
+        if group is _StubGroup:
+            loaded.append(group)
+
+    monkeypatch.setattr(integration, "load_group_implementations", fake_load)
+
+    class _Host(OperationGroupIntegrationTestMixin):
+        @classmethod
+        def feature_group_class(cls) -> type:
+            return _StubGroup
+
+    with pytest.raises(pytest.skip.Exception, match="eager Polars"):
+        _Host().test_group_is_rejected_when_none_of_its_frameworks_is_enabled()
+
+
 class TestEnabledWithImplementations:
     """The integration helper loads a group's Implementations through its manifest, so tests need no ad hoc imports."""
 

@@ -149,14 +149,16 @@ class OperationGroupIntegrationTestMixin:
         from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
 
         from mloda.testing.data_creator.polars import PolarsDataOpsTestDataCreator
+        from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         group = self.feature_group_class()  # type: ignore[attr-defined]
+        # Building the collector loads the group's Implementations, so it comes first.
+        plugin_collector = enabled_with_implementations({PolarsDataOpsTestDataCreator, group})
         frameworks = group.compute_framework_definition()
         assert frameworks, f"{group.__name__} has no loaded Implementation"
         if PolarsDataFrame in frameworks:
             pytest.skip("eager Polars is served by this group")
 
-        plugin_collector = PluginCollector.enabled_feature_groups({PolarsDataOpsTestDataCreator, group})
         feature = self._make_feature(  # type: ignore[attr-defined]
             self.primary_feature_name(),  # type: ignore[attr-defined]
             self.primary_feature_options(),  # type: ignore[attr-defined]
