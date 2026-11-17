@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 import pyarrow as pa
@@ -67,6 +68,7 @@ def test_reference_matches_pinned_row(
     for name, (data_type, values) in row.expected.items():
         assert_values_with_nulls(result.column(name).to_pylist(), list(values), strict=True)
         assert result.schema.field(name).type == DataType.to_arrow_type(data_type), f"column {name} type"
+    assert set(result.column_names) == set(row.inputs) | set(row.expected)
 
 
 @pytest.mark.parametrize(("group", "table"), TABLE_PARAMS)
@@ -96,9 +98,30 @@ class TestTableGuards:
         for row in table.rows:
             TypedTestData(row.expected)
 
+    def test_input_values_fit_their_declared_type(self, group: type, table: PinningTable) -> None:
+        bad = [
+            (row.feature, name, value)
+            for row in table.rows
+            for name, (data_type, values) in row.inputs.items()
+            for value in values
+            if not _fits(data_type, value)
+        ]
+        assert bad == []
+
     def test_operation_is_known_and_matches_the_group(self, group: Any, table: PinningTable) -> None:
         assert table.operation in OPERATIONS
         assert DataOperationsCatalog.get(table.operation).prefix_pattern == group.PREFIX_PATTERN
+
+
+_FLOAT_TYPES = (DataType.FLOAT, DataType.DOUBLE)
+
+
+def _fits(data_type: DataType, value: Any) -> bool:
+    if value is None:
+        return True
+    if data_type in _FLOAT_TYPES:
+        return isinstance(value, float)
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 _PINNING_REGENERATION_HINT = (
@@ -174,11 +197,120 @@ _REJECTION_PARAMS = [
         "x&y__add_point",
         {},
         {"x": (pa.int64(), [2**63 - 1]), "y": (pa.int64(), [1])},
-        None,
+        "outside",
         id="point-int64-overflow",
     ),
     pytest.param(
-        *_SCALAR, "x__add_constant", {"constant": 1}, {"x": (pa.int64(), [2**63 - 1])}, None, id="scalar-int64-overflow"
+        *_SCALAR,
+        "x__add_constant",
+        {"constant": 1},
+        {"x": (pa.int64(), [2**63 - 1])},
+        "outside",
+        id="scalar-int64-overflow",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__bogus_point",
+        {},
+        {"x": (pa.int64(), []), "y": (pa.int64(), [])},
+        "bogus",
+        id="point-unknown-op-empty",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__bogus_constant",
+        {"constant": 1},
+        {"x": (pa.int64(), [])},
+        "bogus",
+        id="scalar-unknown-op-empty",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__add_point",
+        {},
+        {"x": (pa.int32(), [2**31 - 1]), "y": (pa.int32(), [1])},
+        "outside",
+        id="point-int32-overflow",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__subtract_point",
+        {},
+        {"x": (pa.uint8(), [1]), "y": (pa.uint8(), [2])},
+        "outside",
+        id="point-uint8-underflow",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__multiply_point",
+        {},
+        {"x": (pa.int8(), [100]), "y": (pa.int8(), [100])},
+        "outside",
+        id="point-int8-overflow",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__add_constant",
+        {"constant": 1},
+        {"x": (pa.int32(), [2**31 - 1])},
+        "outside",
+        id="scalar-int32-overflow",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__subtract_constant",
+        {"constant": 2},
+        {"x": (pa.uint8(), [1])},
+        "outside",
+        id="scalar-uint8-underflow",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__add_point",
+        {},
+        {"x": (pa.decimal128(10, 2), [Decimal("1.00")]), "y": (pa.int64(), [1])},
+        "must be numeric",
+        id="point-decimal-source",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__add_point",
+        {},
+        {"x": (pa.null(), [None]), "y": (pa.int64(), [1])},
+        "must be numeric",
+        id="point-null-source",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__add_constant",
+        {"constant": 1},
+        {"x": (pa.decimal128(10, 2), [Decimal("1.00")])},
+        "must be numeric",
+        id="scalar-decimal-source",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__add_constant",
+        {"constant": 1},
+        {"x": (pa.null(), [None])},
+        "must be numeric",
+        id="scalar-null-source",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__divide_constant",
+        {"constant": 0},
+        {"x": (pa.int64(), [1])},
+        "divide by zero",
+        id="scalar-divide-by-zero-int",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__divide_constant",
+        {"constant": -0.0},
+        {"x": (pa.float64(), [1.0])},
+        "divide by zero",
+        id="scalar-divide-by-negative-zero",
     ),
 ]
 

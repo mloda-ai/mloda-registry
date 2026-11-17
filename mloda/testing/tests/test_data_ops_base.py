@@ -143,6 +143,8 @@ def test_assert_values_with_nulls_strict_passes_exact_values() -> None:
         pytest.param(-0.0, 0.0, id="negative_zero_is_not_zero"),
         pytest.param(0.0, -0.0, id="zero_is_not_negative_zero"),
         pytest.param(1.5, 2.5, id="different_floats"),
+        pytest.param(1e-13, 0.0, id="tiny_is_not_zero"),
+        pytest.param(5e-324, 0.0, id="subnormal_is_not_zero"),
     ],
 )
 def test_assert_values_with_nulls_strict_rejects(actual: Any, expected: Any) -> None:

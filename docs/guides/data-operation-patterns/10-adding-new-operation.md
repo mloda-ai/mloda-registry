@@ -182,7 +182,7 @@ class YourOpTestBase(DataOpsTestBase):
         self._compare_with_reference(f"value_int__{op}", partition_by=partition_by)
 ```
 
-The test method calls `_compare_with_reference`, which runs both the Implementation under test and the PyArrow reference and asserts they match. Every framework's concrete test class inherits it.
+The test method calls `_compare_with_reference`, which runs both the Implementation under test and the reference and asserts they match. Every framework's concrete test class inherits it.
 
 Shipped modules under `mloda/testing/` may not import `mloda.community` or `mloda.enterprise` (a guard in `tests/test_end2end/test_dependency_direction.py` enforces it and allowlists only the existing lazy PyArrow reference imports). A new operation therefore ships a kit-owned reference function `(group, table, features)` and overrides `reference_calculate` as aggregation, rank and offset do (see [How the comparison works](03-reference-implementation.md#how-the-comparison-works)). The reference also ships a `pinning_rows.py` of hand-computed rows and one entry in the `PINNED` list of the pinning runner (see [Pinned cases](03-reference-implementation.md#pinned-cases)).
 

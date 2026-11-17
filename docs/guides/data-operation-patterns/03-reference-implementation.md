@@ -110,7 +110,7 @@ PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Py
 
 ## Pinned cases
 
-A reference ships `pinning_rows.py`: hand-computed rows (typed input columns, feature, context, typed expected columns) grouped under the rules they pin. The runner `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py` runs every row of its `PINNED` list against the reference with strict comparison (exact values, types and float sign) and checks that the block below equals `render_pinning_block` (`mloda/testing/feature_groups/data_operations/pinning.py`). To regenerate it, splice the rendered output between the markers. Declared types bind the reference only: for example the reference widens every integer to int64, which PyArrow does not.
+A reference ships `pinning_rows.py`: hand-computed rows (typed input columns, feature, context, typed expected columns) grouped under the rules they pin. The runner `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py` runs every row of its `PINNED` list against the reference with strict comparison (floats at 1e-6 relative with the same sign, NaN only matching NaN, everything else exact and type-equal) and checks that the block below equals `render_pinning_block` (`mloda/testing/feature_groups/data_operations/pinning.py`). To regenerate it, splice the rendered output between the markers. Integer results are declared int64, and a result outside the integer range of its operands raises, where the backends that keep the operand width would wrap.
 
 <!-- BEGIN GENERATED: reference-pinning -->
 
@@ -124,7 +124,7 @@ Rendered from each reference's `pinning_rows.py`; every row is run against its r
 | nan | NaN is a value: it propagates through add, subtract, multiply and divide. | point_arithmetic, scalar_arithmetic |
 | divide_by_zero | Divide follows IEEE 754: x / 0 is inf with sign(a) * sign(b), 0 / 0 and NaN / 0 are NaN; the scalar group rejects a zero constant before compute. | point_arithmetic |
 | signed_zero | A zero result keeps its IEEE sign, so 0.0 * -1.0 is -0.0. | point_arithmetic, scalar_arithmetic |
-| dtype | Integer operands of any width, signed or unsigned, give int64; float64 when either operand is a float or the op is divide; an int64 overflow raises; bool, string, decimal and null-typed sources are rejected. | point_arithmetic, scalar_arithmetic |
+| dtype | Integer operands of any width, signed or unsigned, give int64; float64 when either operand is a float or the op is divide; an integer result outside its operands' integer range raises instead of wrapping; bool, string, decimal and null-typed sources are rejected. | point_arithmetic, scalar_arithmetic |
 | row_order | Output rows keep the input order, also for an empty input. | point_arithmetic, scalar_arithmetic |
 
 ### point_arithmetic
@@ -134,15 +134,18 @@ Rendered from each reference's `pinning_rows.py`; every row is run against its r
 | none | `a&b__add_point` | - | a=[1, None, 3] (INT64); b=[None, 2, 4] (INT64) | a&b__add_point=[None, None, 7] (INT64) |
 | none | `a&b__divide_point` | - | a=[None, 1.0] (DOUBLE); b=[2.0, None] (DOUBLE) | a&b__divide_point=[None, None] (DOUBLE) |
 | nan | `a&b__multiply_point` | - | a=[NaN, 2.0, NaN] (DOUBLE); b=[1.0, NaN, None] (DOUBLE) | a&b__multiply_point=[NaN, NaN, None] (DOUBLE) |
+| nan | `a&b__add_point` | - | a=[NaN, 1.0] (DOUBLE); b=[1.0, NaN] (DOUBLE) | a&b__add_point=[NaN, NaN] (DOUBLE) |
+| nan | `a&b__subtract_point` | - | a=[1.0, NaN] (DOUBLE); b=[NaN, 1.0] (DOUBLE) | a&b__subtract_point=[NaN, NaN] (DOUBLE) |
+| nan | `a&b__divide_point` | - | a=[NaN, 2.0] (DOUBLE); b=[2.0, NaN] (DOUBLE) | a&b__divide_point=[NaN, NaN] (DOUBLE) |
 | divide_by_zero | `a&b__divide_point` | - | a=[1.0, -1.0, 1.0, -1.0, 0.0, NaN, 0.0] (DOUBLE); b=[0.0, 0.0, -0.0, -0.0, 0.0, 0.0, -0.0] (DOUBLE) | a&b__divide_point=[inf, -inf, -inf, inf, NaN, NaN, NaN] (DOUBLE) |
 | divide_by_zero | `a&b__divide_point` | - | a=[1, -1, 0] (INT64); b=[0, 0, 0] (INT64) | a&b__divide_point=[inf, -inf, NaN] (DOUBLE) |
 | signed_zero | `a&b__multiply_point` | - | a=[0.0, -0.0, -0.0] (DOUBLE); b=[-1.0, -1.0, 1.0] (DOUBLE) | a&b__multiply_point=[-0.0, 0.0, -0.0] (DOUBLE) |
 | signed_zero | `a&b__add_point` | - | a=[-0.0, -0.0, 0.0] (DOUBLE); b=[-0.0, 0.0, -0.0] (DOUBLE) | a&b__add_point=[-0.0, 0.0, 0.0] (DOUBLE) |
 | signed_zero | `a&b__subtract_point` | - | a=[0.0, -0.0, 0.0] (DOUBLE); b=[0.0, 0.0, -0.0] (DOUBLE) | a&b__subtract_point=[0.0, -0.0, 0.0] (DOUBLE) |
 | signed_zero | `a&b__divide_point` | - | a=[0.0, -0.0] (DOUBLE); b=[-1.0, -1.0] (DOUBLE) | a&b__divide_point=[-0.0, 0.0] (DOUBLE) |
-| dtype | `a&b__add_point` | - | a=[2147483647] (INT32); b=[1] (INT32) | a&b__add_point=[2147483648] (INT64) |
-| dtype | `a&b__multiply_point` | - | a=[100, -100] (INT8); b=[100, 100] (INT8) | a&b__multiply_point=[10000, -10000] (INT64) |
-| dtype | `a&b__subtract_point` | - | a=[1] (UINT8); b=[2] (UINT8) | a&b__subtract_point=[-1] (INT64) |
+| dtype | `a&b__add_point` | - | a=[2147483646] (INT32); b=[1] (INT32) | a&b__add_point=[2147483647] (INT64) |
+| dtype | `a&b__multiply_point` | - | a=[12, -12] (INT8); b=[10, 10] (INT8) | a&b__multiply_point=[120, -120] (INT64) |
+| dtype | `a&b__subtract_point` | - | a=[3] (UINT8); b=[2] (UINT8) | a&b__subtract_point=[1] (INT64) |
 | dtype | `a&b__add_point` | - | a=[5] (UINT64); b=[7] (UINT64) | a&b__add_point=[12] (INT64) |
 | dtype | `a&b__add_point` | - | a=[1, 2] (INT64); b=[0.5, 0.25] (DOUBLE) | a&b__add_point=[1.5, 2.25] (DOUBLE) |
 | dtype | `a&b__add_point` | - | a=[1] (INT32); b=[0.5] (FLOAT) | a&b__add_point=[1.5] (DOUBLE) |
@@ -156,13 +159,14 @@ Rendered from each reference's `pinning_rows.py`; every row is run against its r
 |---|---|---|---|---|
 | none | `a__add_constant` | constant=1 | a=[1, None, 3] (INT64) | a__add_constant=[2, None, 4] (INT64) |
 | nan | `a__multiply_constant` | constant=2.0 | a=[NaN, None, 1.5] (DOUBLE) | a__multiply_constant=[NaN, None, 3.0] (DOUBLE) |
+| nan | `a__add_constant` | constant=2.0 | a=[NaN, 1.0] (DOUBLE) | a__add_constant=[NaN, 3.0] (DOUBLE) |
 | signed_zero | `a__multiply_constant` | constant=-0.0 | a=[1.0, -1.0, 0.0, -0.0] (DOUBLE) | a__multiply_constant=[-0.0, 0.0, -0.0, 0.0] (DOUBLE) |
 | signed_zero | `a__multiply_constant` | constant=-1 | a=[0.0, -0.0, 2.0] (DOUBLE) | a__multiply_constant=[-0.0, 0.0, -2.0] (DOUBLE) |
 | dtype | `a__add_constant` | constant=0.5 | a=[1, 2] (INT64) | a__add_constant=[1.5, 2.5] (DOUBLE) |
-| dtype | `a__add_constant` | constant=1 | a=[2147483647] (INT32) | a__add_constant=[2147483648] (INT64) |
+| dtype | `a__add_constant` | constant=1 | a=[2147483646] (INT32) | a__add_constant=[2147483647] (INT64) |
 | dtype | `a__multiply_constant` | constant=3 | a=[1.0, 2.0] (DOUBLE) | a__multiply_constant=[3.0, 6.0] (DOUBLE) |
 | dtype | `a__divide_constant` | constant=2 | a=[7, -7] (INT64) | a__divide_constant=[3.5, -3.5] (DOUBLE) |
-| dtype | `a__subtract_constant` | constant=2 | a=[1] (UINT8) | a__subtract_constant=[-1] (INT64) |
+| dtype | `a__subtract_constant` | constant=2 | a=[3] (UINT8) | a__subtract_constant=[1] (INT64) |
 | row_order | `a__subtract_constant` | constant=1 | a=[3, 1, 2] (INT64) | a__subtract_constant=[2, 0, 1] (INT64) |
 | row_order | `a__multiply_constant` | constant=2 | a=[] (INT64) | a__multiply_constant=[] (INT64) |
 

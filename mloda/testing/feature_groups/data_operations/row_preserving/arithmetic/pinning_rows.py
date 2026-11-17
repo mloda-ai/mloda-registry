@@ -23,7 +23,8 @@ ARITHMETIC_RULES: Mapping[str, str] = MappingProxyType(
         "signed_zero": "A zero result keeps its IEEE sign, so 0.0 * -1.0 is -0.0.",
         "dtype": (
             "Integer operands of any width, signed or unsigned, give int64; float64 when either operand is a float "
-            "or the op is divide; an int64 overflow raises; bool, string, decimal and null-typed sources are rejected."
+            "or the op is divide; an integer result outside its operands' integer range raises instead of wrapping; "
+            "bool, string, decimal and null-typed sources are rejected."
         ),
         "row_order": "Output rows keep the input order, also for an empty input.",
     }
@@ -53,6 +54,24 @@ POINT_ARITHMETIC_PINNING = PinningTable(
             feature="a&b__multiply_point",
             inputs={"a": (_D, (NAN, 2.0, NAN)), "b": (_D, (1.0, NAN, None))},
             expected={"a&b__multiply_point": (_D, (NAN, NAN, None))},
+        ),
+        PinningRow(
+            case="nan",
+            feature="a&b__add_point",
+            inputs={"a": (_D, (NAN, 1.0)), "b": (_D, (1.0, NAN))},
+            expected={"a&b__add_point": (_D, (NAN, NAN))},
+        ),
+        PinningRow(
+            case="nan",
+            feature="a&b__subtract_point",
+            inputs={"a": (_D, (1.0, NAN)), "b": (_D, (NAN, 1.0))},
+            expected={"a&b__subtract_point": (_D, (NAN, NAN))},
+        ),
+        PinningRow(
+            case="nan",
+            feature="a&b__divide_point",
+            inputs={"a": (_D, (NAN, 2.0)), "b": (_D, (2.0, NAN))},
+            expected={"a&b__divide_point": (_D, (NAN, NAN))},
         ),
         PinningRow(
             case="divide_by_zero",
@@ -96,20 +115,20 @@ POINT_ARITHMETIC_PINNING = PinningTable(
         PinningRow(
             case="dtype",
             feature="a&b__add_point",
-            inputs={"a": (DataType.INT32, (2147483647,)), "b": (DataType.INT32, (1,))},
-            expected={"a&b__add_point": (_I, (2147483648,))},
+            inputs={"a": (DataType.INT32, (2147483646,)), "b": (DataType.INT32, (1,))},
+            expected={"a&b__add_point": (_I, (2147483647,))},
         ),
         PinningRow(
             case="dtype",
             feature="a&b__multiply_point",
-            inputs={"a": (DataType.INT8, (100, -100)), "b": (DataType.INT8, (100, 100))},
-            expected={"a&b__multiply_point": (_I, (10000, -10000))},
+            inputs={"a": (DataType.INT8, (12, -12)), "b": (DataType.INT8, (10, 10))},
+            expected={"a&b__multiply_point": (_I, (120, -120))},
         ),
         PinningRow(
             case="dtype",
             feature="a&b__subtract_point",
-            inputs={"a": (DataType.UINT8, (1,)), "b": (DataType.UINT8, (2,))},
-            expected={"a&b__subtract_point": (_I, (-1,))},
+            inputs={"a": (DataType.UINT8, (3,)), "b": (DataType.UINT8, (2,))},
+            expected={"a&b__subtract_point": (_I, (1,))},
         ),
         PinningRow(
             case="dtype",
@@ -169,6 +188,13 @@ SCALAR_ARITHMETIC_PINNING = PinningTable(
             context={"constant": 2.0},
         ),
         PinningRow(
+            case="nan",
+            feature="a__add_constant",
+            inputs={"a": (_D, (NAN, 1.0))},
+            expected={"a__add_constant": (_D, (NAN, 3.0))},
+            context={"constant": 2.0},
+        ),
+        PinningRow(
             case="signed_zero",
             feature="a__multiply_constant",
             inputs={"a": (_D, (1.0, -1.0, 0.0, -0.0))},
@@ -192,8 +218,8 @@ SCALAR_ARITHMETIC_PINNING = PinningTable(
         PinningRow(
             case="dtype",
             feature="a__add_constant",
-            inputs={"a": (DataType.INT32, (2147483647,))},
-            expected={"a__add_constant": (_I, (2147483648,))},
+            inputs={"a": (DataType.INT32, (2147483646,))},
+            expected={"a__add_constant": (_I, (2147483647,))},
             context={"constant": 1},
         ),
         PinningRow(
@@ -213,8 +239,8 @@ SCALAR_ARITHMETIC_PINNING = PinningTable(
         PinningRow(
             case="dtype",
             feature="a__subtract_constant",
-            inputs={"a": (DataType.UINT8, (1,))},
-            expected={"a__subtract_constant": (_I, (-1,))},
+            inputs={"a": (DataType.UINT8, (3,))},
+            expected={"a__subtract_constant": (_I, (1,))},
             context={"constant": 2},
         ),
         PinningRow(

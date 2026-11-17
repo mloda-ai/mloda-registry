@@ -39,8 +39,6 @@ def _divide(a: float, b: float) -> float:
 
 def _element(a: Any, b: Any, op: str) -> Any:
     """One result value: None in either operand wins, NaN propagates, divide follows IEEE 754."""
-    if op not in ARITHMETIC_OPS:
-        raise ValueError(f"Unsupported arithmetic operation {op!r}. Supported: {sorted(ARITHMETIC_OPS)}")
     if a is None or b is None:
         return None
     if op == "divide":
@@ -52,24 +50,62 @@ def _element(a: Any, b: Any, op: str) -> Any:
     return a * b
 
 
-def _append(table: pa.Table, feature_name: str, op: str, a: list[Any], b: list[Any], declared: pa.DataType) -> pa.Table:
+def _check_op(op: str) -> None:
+    if op not in ARITHMETIC_OPS:
+        raise ValueError(f"Unsupported arithmetic operation {op!r}. Supported: {sorted(ARITHMETIC_OPS)}")
+
+
+def _int_range(arrow_type: pa.DataType) -> tuple[int, int]:
+    bits = arrow_type.bit_width
+    if pa.types.is_signed_integer(arrow_type):
+        return -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
+    return 0, 2**bits - 1
+
+
+def _allowed_range(operand_types: list[pa.DataType]) -> tuple[int, int, str]:
+    """Union of the operand types' ranges intersected with int64, and the name of the type(s) it comes from."""
+    ranges = [_int_range(t) for t in operand_types]
+    low = max(min(r[0] for r in ranges), _INT64_MIN)
+    high = min(max(r[1] for r in ranges), _INT64_MAX)
+    return low, high, "/".join(dict.fromkeys(str(t).upper() for t in operand_types))
+
+
+def _append(
+    table: pa.Table,
+    feature_name: str,
+    op: str,
+    a: list[Any],
+    b: list[Any],
+    declared: pa.DataType,
+    operand_types: list[pa.DataType],
+) -> pa.Table:
     values = [_element(x, y, op) for x, y in zip(a, b)]
     if pa.types.is_integer(declared):
+        low, high, type_name = _allowed_range(operand_types)
         for value in values:
-            if value is not None and not _INT64_MIN <= value <= _INT64_MAX:
-                raise ValueError(f"Integer result {value} of feature {feature_name!r} is outside int64")
+            if value is not None and not low <= value <= high:
+                raise ValueError(
+                    f"Integer result {value} of feature {feature_name!r} is outside the {type_name} range "
+                    f"[{low}, {high}] of its operands"
+                )
     return table.append_column(feature_name, pa.array(values, type=declared))
 
 
 def _compute_point(table: pa.Table, feature_name: str, col_a: str, col_b: str, op: str) -> pa.Table:
-    declared = _declared_type(op, *(pa.types.is_floating(table.column(col).type) for col in (col_a, col_b)))
-    return _append(table, feature_name, op, table.column(col_a).to_pylist(), table.column(col_b).to_pylist(), declared)
+    _check_op(op)
+    types = [table.column(col).type for col in (col_a, col_b)]
+    declared = _declared_type(op, *(pa.types.is_floating(t) for t in types))
+    return _append(
+        table, feature_name, op, table.column(col_a).to_pylist(), table.column(col_b).to_pylist(), declared, types
+    )
 
 
 def _compute_scalar(table: pa.Table, feature_name: str, source_col: str, op: str, constant: int | float) -> pa.Table:
-    declared = _declared_type(op, pa.types.is_floating(table.column(source_col).type), isinstance(constant, float))
+    _check_op(op)
+    source_type = table.column(source_col).type
+    declared = _declared_type(op, pa.types.is_floating(source_type), isinstance(constant, float))
     values = table.column(source_col).to_pylist()
-    return _append(table, feature_name, op, values, [constant] * len(values), declared)
+    return _append(table, feature_name, op, values, [constant] * len(values), declared, [source_type])
 
 
 def reference_point_arithmetic(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:

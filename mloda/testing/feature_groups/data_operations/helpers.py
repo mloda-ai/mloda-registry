@@ -178,7 +178,7 @@ def _assert_strict_equal(actual: Any, expected: Any, row: int, rel: float) -> No
         if math.isnan(expected):
             assert math.isnan(actual), f"row {row}: {actual!r} != NaN"
             return
-        assert actual == pytest.approx(expected, rel=rel), f"row {row}: {actual!r} != {expected!r}"
+        assert actual == pytest.approx(expected, rel=rel, abs=0), f"row {row}: {actual!r} != {expected!r}"
         assert math.copysign(1.0, actual) == math.copysign(1.0, expected), f"row {row}: zero sign of {actual!r}"
     else:
         assert actual == expected, f"row {row}: {actual!r} != {expected!r}"
