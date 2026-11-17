@@ -140,10 +140,6 @@ class TestEmaIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationT
     def nan_is_null(cls) -> bool:
         return True
 
-    def test_match_rejects_missing_config(self) -> None:
-        """Name-based: a non-pattern name without config must fail to match."""
-        assert not EmaFeatureGroup.match_feature_group_criteria("my_custom_result", Options())
-
 
 class TestEmaMatchFeatureGroupCriteria:
     """match_feature_group_criteria cases the shared base does not carry."""

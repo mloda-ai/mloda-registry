@@ -11,8 +11,7 @@ canonical 12-row dataset has a null and duplicate ``timestamp`` values that make
 a by-hand session-id pin awkward) whose expected session ids are computed by hand
 from the documented algorithm (gap > threshold starts a new session;
 ``session_id = cumsum(is_new) - 1``). ``OperationGroupIntegrationTestMixin`` adds
-the operation-group checks. Matching is name-based, so
-``test_match_rejects_missing_config`` is overridden to use a non-pattern name.
+the operation-group checks. Matching is name-based.
 """
 
 from __future__ import annotations
@@ -140,6 +139,6 @@ class TestSessionizationIntegration(OperationGroupIntegrationTestMixin, DataOpsI
     def match_options(cls) -> Options:
         return Options(context={"order_by": "ts", "partition_by": ["user"]})
 
-    def test_match_rejects_missing_config(self) -> None:
-        """Name-based: a non-pattern name without config must fail to match."""
-        assert not SessionizationFeatureGroup.match_feature_group_criteria("my_custom_result", Options())
+    @classmethod
+    def missing_config_feature_name(cls) -> str:
+        return "my_custom_result"

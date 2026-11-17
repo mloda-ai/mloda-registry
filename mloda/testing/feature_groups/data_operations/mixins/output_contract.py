@@ -9,10 +9,11 @@ from typing import Any
 
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 
 
-class OutputContractTestMixin:
+class OutputContractTestMixin(DataOpsTestBase):
     """Mixin providing the standard result-type / row-count / new-column tests.
 
     Requires the host class to provide (from DataOpsTestBase):
@@ -33,17 +34,17 @@ class OutputContractTestMixin:
         mixins) because some bases build their feature set via instance
         helpers (e.g. ``self._ema_feature_set(2)``).
         """
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override output_contract_feature_set")
 
     def output_contract_expected_row_count(self) -> int:
         """Defaults to the input row count; override for ops that change the row count."""
-        return int(self._source.row_count)  # type: ignore[attr-defined]
+        return int(self._source.row_count)
 
     # -- Helper ------------------------------------------------------------
 
     def _output_contract_result(self) -> tuple[Any, str]:
         fs = self.output_contract_feature_set()
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
         return result, str(fs.get_name_of_one_feature())
 
     # -- Concrete test methods --------------------------------------------------
@@ -51,15 +52,15 @@ class OutputContractTestMixin:
     def test_mixin_output_contract_result_type(self) -> None:
         """The result of calculate_feature must be the expected framework type."""
         result, _ = self._output_contract_result()
-        assert isinstance(result, self.get_expected_type())  # type: ignore[attr-defined]
+        assert isinstance(result, self.get_expected_type())
 
     def test_mixin_output_contract_row_count(self) -> None:
         """Output row count matches the op's contract."""
         result, _ = self._output_contract_result()
-        assert self.get_row_count(result) == self.output_contract_expected_row_count()  # type: ignore[attr-defined]
+        assert self.get_row_count(result) == self.output_contract_expected_row_count()
 
     def test_mixin_output_contract_new_column(self) -> None:
         """The result column should be present in the output, one value per output row."""
         result, name = self._output_contract_result()
-        col = self.extract_column(result, name)  # type: ignore[attr-defined]
+        col = self.extract_column(result, name)
         assert len(col) == self.output_contract_expected_row_count()

@@ -19,26 +19,21 @@ A backend declares its ``(feature_name, options)`` probes as ``supported`` /
 
 Skipping when an optional dependency is missing is the concrete module's job via
 ``pytest.importorskip`` at module scope; this mixin never guards deps itself.
-
-Requires the host class to provide:
-- ``implementation_class()`` (from the family test base), and
-- ``compute_framework_class()`` (from the framework adapter mixin).
 """
 
 from __future__ import annotations
+
+import inspect
 
 import pytest
 from mloda.provider import Implementation
 from mloda.user import Options
 
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 
-class CapabilityHookTestMixin:
-    """Mixin providing shared match-time capability-hook tests.
 
-    Requires the host class to provide:
-    - ``implementation_class()`` (from the family test base)
-    - ``compute_framework_class()`` (from the framework adapter mixin)
-    """
+class CapabilityHookTestMixin(DataOpsTestBase):
+    """Mixin providing shared match-time capability-hook tests."""
 
     # -- Configuration methods (override per backend) --------------------------
 
@@ -70,8 +65,8 @@ class CapabilityHookTestMixin:
         backend can compute and for feature names it cannot parse (staying
         conservative), so those frameworks remain eligible at match time.
         """
-        backend = self.implementation_class()  # type: ignore[attr-defined]
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        backend = self.implementation_class()
+        framework = self.compute_framework_class()
         for name, opts in (*self.capability_supported(), *self.capability_conservative()):
             assert backend.feature_group.supports_compute_framework(name, opts, framework) is True, (
                 f"expected {name!r} accepted by {framework.__name__}"
@@ -86,7 +81,7 @@ class CapabilityHookTestMixin:
         restrict no subtypes and do not override ``accepts`` skip.
         """
         unsupported = self.capability_unsupported()
-        backend = self.implementation_class()  # type: ignore[attr-defined]
+        backend = self.implementation_class()
         if not unsupported:
             # Guard the regression: a restriction with no probes would silently vanish.
             # A non-None set means the Implementation restricts subtypes and must declare
@@ -96,12 +91,12 @@ class CapabilityHookTestMixin:
                 "but ships no capability_unsupported probes; add them"
             )
             # An accepts override is a restriction too and needs probes.
-            assert backend.accepts.__func__ is Implementation.accepts.__func__, (  # type: ignore[attr-defined]
+            assert inspect.getattr_static(backend, "accepts") is inspect.getattr_static(Implementation, "accepts"), (
                 f"{backend.__name__} overrides accepts but ships no capability_unsupported probes; add them"
             )
             pytest.skip("backend restricts no subtypes")
 
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        framework = self.compute_framework_class()
         for name, opts in unsupported:
             assert backend.feature_group.supports_compute_framework(name, opts, framework) is False, (
                 f"expected {name!r} rejected by {framework.__name__}"
@@ -109,8 +104,8 @@ class CapabilityHookTestMixin:
 
     def test_mixin_compute_framework_declared(self) -> None:
         """The mixin's framework is one the backend declares and that is installed."""
-        backend = self.implementation_class()  # type: ignore[attr-defined]
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        backend = self.implementation_class()
+        framework = self.compute_framework_class()
         assert framework is backend.compute_framework
         assert backend.compute_framework in backend.feature_group.compute_framework_definition()
         assert framework.is_available()

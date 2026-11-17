@@ -18,6 +18,7 @@ from mloda.provider import DivergenceKind, Implementation, get_all_subclasses
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, result_column_names
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
 PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.table:PyArrowTable"
 PANDAS_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.pandas.dataframe:PandasDataFrame"
@@ -44,16 +45,8 @@ def _resolve(qualified: str) -> Any:
     return getattr(importlib.import_module(module), name)
 
 
-class OperationGroupIntegrationTestMixin:
+class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
     """Mixin providing operation-group integration tests through mloda's full pipeline.
-
-    Requires the host class to provide (from DataOpsIntegrationTestBase):
-    - ``feature_group_class()``
-    - ``compute_framework_class()`` / ``pipeline_compute_frameworks()``
-    - ``primary_feature_name()`` / ``primary_feature_options()`` / ``primary_expected_values()``
-    - ``_make_feature(name, options_context)``
-    - ``_plugin_collector()``
-    - ``_assert_values_equal(actual, expected)``
 
     Optional hooks:
     - ``several_frameworks()``: the frameworks enabled together in ``test_several_frameworks_enabled_runs``.
@@ -84,7 +77,7 @@ class OperationGroupIntegrationTestMixin:
     @classmethod
     def routing_frameworks(cls) -> list[type[Any]]:
         """The frameworks enabled with the creator's in ``test_data_is_routed_by_divergence``."""
-        return cls.pipeline_compute_frameworks()  # type: ignore[attr-defined, no-any-return]
+        return cls.pipeline_compute_frameworks()
 
     @classmethod
     def variant_required_case(cls) -> RoutingCase | None:
@@ -99,8 +92,8 @@ class OperationGroupIntegrationTestMixin:
     @classmethod
     def _implementations_on_framework(cls) -> set[type[Any]]:
         """The Implementations of the group on ``compute_framework_class()``."""
-        group = cls.feature_group_class()  # type: ignore[attr-defined]
-        framework = cls.compute_framework_class()  # type: ignore[attr-defined]
+        group = cls.feature_group_class()
+        framework = cls.compute_framework_class()
         return {
             impl
             for impl in get_all_subclasses(Implementation)
@@ -113,7 +106,7 @@ class OperationGroupIntegrationTestMixin:
         pytest.importorskip("pandas")
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
-        return [*cls.pipeline_compute_frameworks(), PandasDataFrame]  # type: ignore[attr-defined]
+        return [*cls.pipeline_compute_frameworks(), PandasDataFrame]
 
     def test_framework_without_implementation_is_a_resolution_error(self) -> None:
         """Without an Implementation of the group on the framework, the framework cannot serve the feature.
@@ -121,21 +114,21 @@ class OperationGroupIntegrationTestMixin:
         A group that ships none there is run as is; otherwise every Implementation there is disabled.
         """
         # Building the collector loads the group's Implementations, so it comes first.
-        collector = self._plugin_collector()  # type: ignore[attr-defined]
-        group = self.feature_group_class()  # type: ignore[attr-defined]
+        collector = self._plugin_collector()
+        group = self.feature_group_class()
         assert any(getattr(impl, "feature_group", None) is group for impl in get_all_subclasses(Implementation))
         implementations = self._implementations_on_framework()
         if implementations:
             collector.add_disabled_implementation_classes(implementations)
-        feature = self._make_feature(  # type: ignore[attr-defined]
-            self.primary_feature_name(),  # type: ignore[attr-defined]
-            self.primary_feature_options(),  # type: ignore[attr-defined]
+        feature = self._make_feature(
+            self.primary_feature_name(),
+            self.primary_feature_options(),
         )
 
         with pytest.raises(FeatureResolutionError) as excinfo:
             mloda.run_all(
                 [feature],
-                compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
+                compute_frameworks=[self.compute_framework_class()],
                 plugin_collector=collector,
             )
         message = str(excinfo.value)
@@ -151,7 +144,7 @@ class OperationGroupIntegrationTestMixin:
         from mloda.testing.data_creator.polars import PolarsDataOpsTestDataCreator
         from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
-        group = self.feature_group_class()  # type: ignore[attr-defined]
+        group = self.feature_group_class()
         # Building the collector loads the group's Implementations, so it comes first.
         plugin_collector = enabled_with_implementations({PolarsDataOpsTestDataCreator, group})
         frameworks = group.compute_framework_definition()
@@ -159,9 +152,9 @@ class OperationGroupIntegrationTestMixin:
         if PolarsDataFrame in frameworks:
             pytest.skip("eager Polars is served by this group")
 
-        feature = self._make_feature(  # type: ignore[attr-defined]
-            self.primary_feature_name(),  # type: ignore[attr-defined]
-            self.primary_feature_options(),  # type: ignore[attr-defined]
+        feature = self._make_feature(
+            self.primary_feature_name(),
+            self.primary_feature_options(),
         )
         with pytest.raises(FeatureResolutionError) as excinfo:
             mloda.run_all([feature], compute_frameworks=[PolarsDataFrame], plugin_collector=plugin_collector)
@@ -171,12 +164,12 @@ class OperationGroupIntegrationTestMixin:
 
     def test_several_frameworks_enabled_runs(self) -> None:
         """Enabling a second framework still plans one compute step for the group and returns the same values."""
-        group = self.feature_group_class()  # type: ignore[attr-defined]
+        group = self.feature_group_class()
         frameworks = self.several_frameworks()
-        collector: PluginCollector = self._plugin_collector()  # type: ignore[attr-defined]
-        feature = self._make_feature(  # type: ignore[attr-defined]
-            self.primary_feature_name(),  # type: ignore[attr-defined]
-            self.primary_feature_options(),  # type: ignore[attr-defined]
+        collector: PluginCollector = self._plugin_collector()
+        feature = self._make_feature(
+            self.primary_feature_name(),
+            self.primary_feature_options(),
         )
 
         plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
@@ -189,14 +182,14 @@ class OperationGroupIntegrationTestMixin:
             [feature],
             compute_frameworks=frameworks,
             plugin_collector=collector,
-            output_framework=self.compute_framework_class(),  # type: ignore[attr-defined]
+            output_framework=self.compute_framework_class(),
         )
-        name = self.primary_feature_name()  # type: ignore[attr-defined]
+        name = self.primary_feature_name()
         tables = [t for t in results if name in result_column_names(t)]
         assert len(tables) == 1
-        self._assert_values_equal(  # type: ignore[attr-defined]
+        self._assert_values_equal(
             extract_column(tables[0], name),
-            self.primary_expected_values(),  # type: ignore[attr-defined]
+            self.primary_expected_values(),
         )
 
     def test_data_is_routed_by_divergence(self) -> None:
@@ -207,7 +200,7 @@ class OperationGroupIntegrationTestMixin:
         from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         creator = self.routing_data_creator()
-        group = self.feature_group_class()  # type: ignore[attr-defined]
+        group = self.feature_group_class()
         frameworks = list(dict.fromkeys([creator.compute_framework, *self.routing_frameworks()]))
         collector = enabled_with_implementations({creator, group})
         for case in cases:
@@ -227,7 +220,7 @@ class OperationGroupIntegrationTestMixin:
         from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         creator = self.routing_data_creator()
-        group = self.feature_group_class()  # type: ignore[attr-defined]
+        group = self.feature_group_class()
         collector = enabled_with_implementations({creator, group})
         # No group_options here: allowing a variant would readmit the Implementation that must be refused.
         feature = Feature(case.feature_name, options=Options(context=case.options))
@@ -251,10 +244,10 @@ class OperationGroupIntegrationTestMixin:
         if case is None:
             pytest.skip("every input is supported on the compute framework under test")
         name, options = case
-        feature = self._make_feature(name, options)  # type: ignore[attr-defined]
+        feature = self._make_feature(name, options)
         with pytest.raises(FeatureResolutionError, match="supports_compute_framework rejected"):
             mloda.run_all(
                 [feature],
-                compute_frameworks=[self.compute_framework_class()],  # type: ignore[attr-defined]
-                plugin_collector=self._plugin_collector(),  # type: ignore[attr-defined]
+                compute_frameworks=[self.compute_framework_class()],
+                plugin_collector=self._plugin_collector(),
             )

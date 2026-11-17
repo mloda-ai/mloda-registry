@@ -61,7 +61,7 @@ _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 class TestAggregationOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return AggregationFeatureGroup
 
     @classmethod

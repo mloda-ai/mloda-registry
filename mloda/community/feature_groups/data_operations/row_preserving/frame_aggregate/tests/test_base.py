@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 from mloda.provider import (
     FeatureChainParserMixin,
-    FeatureGroup,
     FeatureSet,
     collect_match_rejections,
     is_match_abort,
@@ -1003,7 +1002,7 @@ _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 class TestFrameAggregateOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return FrameAggregateFeatureGroup
 
     @classmethod
@@ -1094,11 +1093,9 @@ class TestFrameAggregateOperationGroup(OperationGroupTestBase):
     def universe(cls) -> frozenset[str]:
         return frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
 
-    def test_group_keeps_both_mixins_ahead_of_the_feature_group(self) -> None:
-        # OperationFeatureGroup precedes the mixins here, so mixins() does not apply.
-        mro = FrameAggregateFeatureGroup.__mro__
-        assert mro.index(KeyColumnInputsMixin) < mro.index(FeatureGroup)
-        assert mro.index(FeatureChainParserMixin) < mro.index(FeatureGroup)
+    @classmethod
+    def mixins(cls) -> tuple[type, ...]:
+        return (KeyColumnInputsMixin, FeatureChainParserMixin)
 
 
 class TestTimeUnits:

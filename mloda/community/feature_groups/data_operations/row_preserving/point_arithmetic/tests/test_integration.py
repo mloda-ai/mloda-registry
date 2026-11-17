@@ -50,7 +50,7 @@ def _approx_equal(actual: list[Any], expected: list[Any]) -> bool:
 
 class TestPointArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
-    def feature_group_class(cls) -> type:
+    def feature_group_class(cls) -> type[PointArithmeticFeatureGroup]:
         return PointArithmeticFeatureGroup
 
     @classmethod
@@ -136,14 +136,10 @@ class TestPointArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOps
         ]
 
     def test_match_rejects_missing_config(self) -> None:
-        """Override: point_arithmetic pattern features match even without any Options.
-
-        The string pattern carries the operation and both source columns;
-        no context is required for pattern-based matching.
-        """
+        """The pattern name matches without config."""
         options = Options()
         fg_cls = self.feature_group_class()
-        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)
 
     def test_guard_rejected_in_features_container_reported_at_discovery(self) -> None:
         """A frozenset in_features is guard-rejected; the run_all resolution error must name it."""

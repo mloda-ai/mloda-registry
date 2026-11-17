@@ -31,6 +31,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketizat
     TimeBucketizationTestBase,
 )
 from mloda.testing.framework_adapter import to_arrow_table
+from mloda.testing.tests.test_data_ops_integration_compat import _ToyIntegration
 from mloda.testing.typed_data import TypedTestData
 
 
@@ -52,6 +53,11 @@ class _StubDataOpsTestBase(DataOpsTestBase):
 
     def get_expected_type(self) -> Any:
         return float
+
+
+def test_compute_framework_class_without_an_adapter_raises_naming_the_hook() -> None:
+    with pytest.raises(NotImplementedError, match="compute_framework_class"):
+        _StubDataOpsTestBase().compute_framework_class()
 
 
 class _DeclaresNothing(_StubDataOpsTestBase):
@@ -415,6 +421,15 @@ def test_feature_group_of_returns_a_feature_group_class_itself() -> None:
     assert helpers.feature_group_of(_FeatureGroupPlugin) is _FeatureGroupPlugin
 
 
+def test_data_ops_feature_group_class_returns_a_feature_group_class_itself() -> None:
+    class _Host(_StubDataOpsTestBase):
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return _FeatureGroupPlugin
+
+    assert _Host.feature_group_class() is _FeatureGroupPlugin
+
+
 def test_calculate_with_and_feature_group_of_for_an_implementation() -> None:
     from mloda.provider import Implementation, OperationFeatureGroup, get_all_subclasses
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -433,10 +448,19 @@ def test_calculate_with_and_feature_group_of_for_an_implementation() -> None:
     try:
         fs = helpers.make_feature_set("f")
         assert helpers.feature_group_of(_ProbeImpl) is _ProbeGroup
+
+        class _Host(_StubDataOpsTestBase):
+            _impl: Any = _ProbeImpl
+
+            @classmethod
+            def implementation_class(cls) -> Any:
+                return cls._impl
+
+        assert _Host.feature_group_class() is _ProbeGroup
         assert helpers.calculate_with(_ProbeImpl, "data", fs) == ("implementation", _ProbeGroup, "data")
         assert fs.implementation is _ProbeImpl
     finally:
-        del fs, _ProbeImpl, _ProbeGroup
+        del fs, _Host, _ProbeImpl, _ProbeGroup
         gc.collect()
     assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
 
@@ -787,7 +811,7 @@ def test_framework_rejection_loads_group_implementations_before_reading_framewor
 
     monkeypatch.setattr(integration, "load_group_implementations", fake_load)
 
-    class _Host(OperationGroupIntegrationTestMixin):
+    class _Host(OperationGroupIntegrationTestMixin, _ToyIntegration):
         @classmethod
         def feature_group_class(cls) -> type:
             return _StubGroup
@@ -874,13 +898,12 @@ def _capability_host(impl: Any) -> Any:
 
     from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 
-    class _CapabilityHost(CapabilityHookTestMixin):
+    class _CapabilityHost(CapabilityHookTestMixin, _StubDataOpsTestBase):
         @classmethod
         def implementation_class(cls) -> Any:
             return impl
 
-        @classmethod
-        def compute_framework_class(cls) -> Any:
+        def compute_framework_class(self) -> Any:
             return PyArrowTable
 
     return _CapabilityHost()
@@ -988,8 +1011,13 @@ def test_divergent_subtypes_record_without_scope_covers_the_whole_universe() -> 
 # -- OperationGroupTestBase.test_operation_group_shape ---------------------------
 
 
+def test_operation_group_test_base_names_the_group_hook_feature_group_class() -> None:
+    assert "feature_group_class" in OperationGroupTestBase.__abstractmethods__
+    assert not hasattr(OperationGroupTestBase, "group_class")
+
+
 class _OperationGroupStub(OperationGroupTestBase):
-    """Concrete hooks for a throwaway group; a host adds ``group_class`` and ``implementations``."""
+    """Concrete hooks for a throwaway group; a host adds ``feature_group_class`` and ``implementations``."""
 
     @classmethod
     def backend_package(cls) -> str:
@@ -1027,7 +1055,7 @@ def _operation_group_host(group: Any, impl: Any, specs: list[ImplSpec] | None = 
 
     class _Host(_OperationGroupStub):
         @classmethod
-        def group_class(cls) -> Any:
+        def feature_group_class(cls) -> Any:
             return group
 
         @classmethod

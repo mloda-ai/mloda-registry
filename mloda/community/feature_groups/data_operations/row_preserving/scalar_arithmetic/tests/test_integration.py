@@ -47,7 +47,7 @@ def _approx_equal(actual: list[Any], expected: list[Any]) -> bool:
 
 class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
-    def feature_group_class(cls) -> type:
+    def feature_group_class(cls) -> type[ScalarArithmeticFeatureGroup]:
         return ScalarArithmeticFeatureGroup
 
     @classmethod
@@ -105,14 +105,10 @@ class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOp
         return True
 
     def test_match_rejects_missing_config(self) -> None:
-        """Override: arithmetic pattern features match even without constant in Options.
-
-        Match validation is permissive on CONSTANT (strict_validation=False);
-        the ValueError comes at compute time when the constant is missing.
-        """
+        """The pattern name matches without config."""
         options = Options()
         fg_cls = self.feature_group_class()
-        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)
 
 
 class TestIntegrationMultipleFeatures:

@@ -18,7 +18,7 @@ from mloda.user import DataType, Options
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
@@ -67,7 +67,7 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
     def test_pandas_rejects_month_time_window_at_match_time(self) -> None:
         """Pandas rejects month/year time windows because they would require a Python loop."""
         options = Options(context={"partition_by": ["region"], "order_by": "ts"})
-        group = feature_group_of(self.implementation_class())
+        group = self.feature_group_class()
         framework = self.compute_framework_class()
         assert not group.supports_compute_framework("value__sum_1_month_window", options, framework)
         assert not group.supports_compute_framework("value__sum_1_year_window", options, framework)

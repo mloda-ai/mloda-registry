@@ -20,6 +20,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType
 
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
@@ -48,7 +49,7 @@ SINGLE_VALUE_STD = math.sqrt(200 / 3)
 SINGLE_VALUE_VAR = 200 / 3
 
 
-class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
+class SingleValueStdVarTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     """Mixin providing a standardized single-value std/var test.
 
     Feature-group test bases mix this in and override the configuration methods
@@ -72,12 +73,12 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
     @classmethod
     def single_value_cases(cls) -> dict[str, Any]:
         """Case id -> the expected value for that case. Required."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override single_value_cases")
 
     @classmethod
     def single_value_feature_name(cls, case: str) -> str:
         """Feature name to run for the given case id. Required."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override single_value_feature_name")
 
     @classmethod
     def single_value_agg_type(cls, case: str) -> str:
@@ -96,7 +97,7 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
 
     def single_value_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
         """Skip the case if unsupported. Default: probe ``agg_type`` via ``_skip_if_unsupported``."""
-        self._skip_if_unsupported(agg_type)  # type: ignore[attr-defined]
+        self._skip_if_unsupported(agg_type)
 
     def single_value_extract_values(
         self, result: Any, feature_name: str, column: Callable[[Any, str], list[Any]]
@@ -118,13 +119,13 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
         fs = self.single_value_feature_set(feature_name)
 
         result = calculate_with(
-            self.implementation_class(),  # type: ignore[attr-defined]
-            self.create_test_data(table),  # type: ignore[attr-defined]
+            self.implementation_class(),
+            self.create_test_data(table),
             fs,
         )
-        result_values = self.single_value_extract_values(result, feature_name, self.extract_column)  # type: ignore[attr-defined]
+        result_values = self.single_value_extract_values(result, feature_name, self.extract_column)
         assert result_values == pytest.approx(expected, nan_ok=True), f"{case} backend: {result_values!r}"
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)  # type: ignore[attr-defined]
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         ref_values = self.single_value_extract_values(ref, feature_name, _extract_column)
         assert ref_values == pytest.approx(expected, nan_ok=True), f"{case} reference: {ref_values!r}"

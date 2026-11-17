@@ -24,7 +24,6 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
-    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -351,7 +350,7 @@ class WindowAggregationTestBase(
             reference_window_aggregation,
         )
 
-        return reference_window_aggregation(feature_group_of(cls.implementation_class()), table, features)
+        return reference_window_aggregation(cls.feature_group_class(), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -1140,14 +1139,10 @@ class WindowAggregationTestBase(
     def test_match_rejects_empty_partition_by(self) -> None:
         """Empty partition_by must be rejected at match time, not reach backend-specific compute."""
         options = Options(context={"partition_by": [], "order_by": "value_int"})
-        assert not feature_group_of(self.implementation_class()).match_feature_group_criteria(
-            "value_int__sum_window", options, None
-        )
+        assert not self.feature_group_class().match_feature_group_criteria("value_int__sum_window", options, None)
 
         valid_options = Options(context={"partition_by": ["region"]})
-        assert feature_group_of(self.implementation_class()).match_feature_group_criteria(
-            "value_int__sum_window", valid_options, None
-        )
+        assert self.feature_group_class().match_feature_group_criteria("value_int__sum_window", valid_options, None)
 
     # -- Row-order preservation ------------------------------------------------
 

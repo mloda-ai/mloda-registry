@@ -77,12 +77,27 @@ class DataOpsTestBase(ABC):
     expected-value constants.
     """
 
+    # Set in setup_method / by the framework adapter mixin; read by the shared mixins.
+    test_data: Any
+    _source: TypedTestData
+    conn: Any
+    adapter: Any
+
     # -- Abstract adapter methods (implement once per framework) ----------------
 
     @classmethod
     @abstractmethod
     def implementation_class(cls) -> Any:
         """Return the feature-group implementation class under test."""
+
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        """Return the FeatureGroup class under test (default: the group of ``implementation_class()``)."""
+        return feature_group_of(cls.implementation_class())
+
+    def compute_framework_class(self) -> Any:
+        """Return the compute framework class under test; provided by the framework adapter mixin."""
+        raise NotImplementedError("Subclass must override compute_framework_class")
 
     @abstractmethod
     def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, pa.DataType] | None = None) -> Any:
@@ -121,7 +136,7 @@ class DataOpsTestBase(ABC):
         return 1
 
     def test_group_contract_version_is_the_kit_version(self) -> None:
-        group = feature_group_of(self.implementation_class())
+        group = self.feature_group_class()
         actual = getattr(group, "CONTRACT_VERSION", None)
         if actual is None:
             raise AssertionError(

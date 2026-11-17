@@ -198,7 +198,7 @@ _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 class TestYourOpOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return YourOpFeatureGroup
 
     @classmethod
@@ -236,7 +236,7 @@ class TestYourOpOperationGroup(OperationGroupTestBase):
 
 Each `ImplSpec.module` is the module that defines the Implementation. Set `dependency` for an optional backend: a missing dependency skips that spec, while a module that fails to import fails the test.
 
-Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, and, on `DataOpsIntegrationTestBase`, `group_options()`.
+Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, and, on `DataOpsIntegrationTestBase`, `group_options()` and `missing_config_feature_name()` (the name `test_match_rejects_missing_config` expects not to match without config; default `primary_feature_name()`).
 
 ---
 

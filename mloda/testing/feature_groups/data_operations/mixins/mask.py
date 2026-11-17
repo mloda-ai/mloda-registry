@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from mloda.user import DataType
 
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     append_typed_columns,
     calculate_with,
@@ -27,19 +28,11 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 from mloda.testing.typed_data import TypedTestData
 
 
-class MaskTestMixin:
+class MaskTestMixin(DataOpsTestBase):
     """Mixin providing standardized mask (conditional aggregation) tests.
 
     Feature-group test bases mix this in and implement the configuration
     methods below to adapt the generic tests to their semantics.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``create_test_data(data, arrow_types)``
-    - ``test_data`` attribute (set in setup_method)
-    - ``_source`` attribute (set in setup_method)
-    - ``extract_column(result, column_name)``
-    - ``get_row_count(result)``
     """
 
     # -- Configuration methods (override per feature group) --------------------
@@ -47,12 +40,12 @@ class MaskTestMixin:
     @classmethod
     def mask_feature_name(cls) -> str:
         """Feature name for mask tests (e.g. 'value_int__sum_window')."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_feature_name")
 
     @classmethod
     def mask_partition_by(cls) -> list[str] | None:
         """Partition key(s) for mask tests. None for scalar aggregate."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_partition_by")
 
     @classmethod
     def mask_order_by(cls) -> str | None:
@@ -82,27 +75,27 @@ class MaskTestMixin:
     @classmethod
     def mask_equal_expected(cls) -> list[Any] | dict[Any, Any]:
         """Expected result for basic equal mask (category='X')."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_equal_expected")
 
     @classmethod
     def mask_multiple_conditions_expected(cls) -> list[Any] | dict[Any, Any]:
         """Expected result for AND mask (category='X' AND value_int>=10)."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_multiple_conditions_expected")
 
     @classmethod
     def mask_is_in_expected(cls) -> list[Any] | dict[Any, Any]:
         """Expected result for is_in mask (region is_in ['A', 'C'])."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_is_in_expected")
 
     @classmethod
     def mask_greater_than_expected(cls) -> list[Any] | dict[Any, Any]:
         """Expected result for greater_than mask (value_int > 10)."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_greater_than_expected")
 
     @classmethod
     def mask_no_mask_expected(cls) -> list[Any] | dict[Any, Any]:
         """Expected result without any mask (baseline)."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_no_mask_expected")
 
     # -- Assertion helper ------------------------------------------------------
 
@@ -115,8 +108,8 @@ class MaskTestMixin:
         feature_name = self.mask_feature_name()
 
         if self.mask_is_reducing():
-            region_col = self.extract_column(result, "region")  # type: ignore[attr-defined]
-            result_col = self.extract_column(result, feature_name)  # type: ignore[attr-defined]
+            region_col = self.extract_column(result, "region")
+            result_col = self.extract_column(result, feature_name)
             result_map = {region_col[i]: result_col[i] for i in range(len(region_col))}
             for key, exp in expected.items():  # type: ignore[union-attr]
                 actual = result_map[key]
@@ -127,7 +120,7 @@ class MaskTestMixin:
                 else:
                     assert actual == exp, f"region={key}: {actual} != {exp}"
         else:
-            result_col = self.extract_column(result, feature_name)  # type: ignore[attr-defined]
+            result_col = self.extract_column(result, feature_name)
             assert len(result_col) == len(expected), f"length {len(result_col)} != {len(expected)}"
             for i, (actual, exp) in enumerate(zip(result_col, expected)):
                 if is_null(exp):
@@ -147,8 +140,8 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("category", "equal", "X"),
         )
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == self.mask_expected_row_count()
         self._assert_mask_values(result, self.mask_equal_expected())
 
     def test_mixin_mask_multiple_conditions(self) -> None:
@@ -159,8 +152,8 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
         )
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == self.mask_expected_row_count()
         self._assert_mask_values(result, self.mask_multiple_conditions_expected())
 
     def test_mixin_mask_is_in(self) -> None:
@@ -171,8 +164,8 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("region", "is_in", ["A", "C"]),
         )
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == self.mask_expected_row_count()
         self._assert_mask_values(result, self.mask_is_in_expected())
 
     def test_mixin_mask_greater_than(self) -> None:
@@ -183,8 +176,8 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("value_int", "greater_than", 10),
         )
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == self.mask_expected_row_count()
         self._assert_mask_values(result, self.mask_greater_than_expected())
 
     def test_mixin_mask_fully_masked(self) -> None:
@@ -195,9 +188,9 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("category", "equal", "Z"),
         )
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
-        result_col = self.extract_column(result, self.mask_feature_name())  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == self.mask_expected_row_count()
+        result_col = self.extract_column(result, self.mask_feature_name())
         assert all(is_null(v) for v in result_col)
 
     def test_mixin_mask_missing_column_rejected(self) -> None:
@@ -209,7 +202,7 @@ class MaskTestMixin:
             mask=("no_such_col", "equal", "X"),
         )
         with pytest.raises(ValueError, match="mask column 'no_such_col' is not present"):
-            calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
+            calculate_with(self.implementation_class(), self.test_data, fs)
 
     def test_mixin_mask_no_mask_baseline(self) -> None:
         """Mixin: without mask, results match the standard unmasked value."""
@@ -218,8 +211,8 @@ class MaskTestMixin:
             self.mask_partition_by(),
             self.mask_order_by(),
         )
-        result = calculate_with(self.implementation_class(), self.test_data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        assert self.get_row_count(result) == self.mask_expected_row_count()
         self._assert_mask_values(result, self.mask_no_mask_expected())
 
     def test_mixin_mask_preserves_input_columns(self) -> None:
@@ -227,11 +220,11 @@ class MaskTestMixin:
         if self.mask_is_reducing():
             pytest.skip("reducing ops do not return input columns")
         helper_name = "__mloda_masked_src__"
-        source: TypedTestData = self._source  # type: ignore[attr-defined]
+        source: TypedTestData = self._source
         n = source.row_count
         helper_values = [1000 + i for i in range(n)]
         table = append_typed_columns(source, {helper_name: (DataType.INT64, helper_values)})
-        data = self.create_test_data(table, self.source_arrow_types())  # type: ignore[attr-defined]
+        data = self.create_test_data(table, self.source_arrow_types())
         source_name = self.mask_feature_name().split("__")[0]
         fs = make_feature_set(
             self.mask_feature_name(),
@@ -239,11 +232,11 @@ class MaskTestMixin:
             self.mask_order_by(),
             mask=("category", "equal", "X"),
         )
-        result = calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
-        assert self.get_row_count(result) == n  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), data, fs)
+        assert self.get_row_count(result) == n
         for name in (source_name, helper_name):
-            expected = self.extract_column(data, name)  # type: ignore[attr-defined]
-            actual = self.extract_column(result, name)  # type: ignore[attr-defined]
+            expected = self.extract_column(data, name)
+            actual = self.extract_column(result, name)
             for i, (a, e) in enumerate(zip(actual, expected)):
                 if is_null(e):
                     assert is_null(a), f"{name} row {i}: expected null, got {a}"
@@ -262,16 +255,16 @@ class MaskTestMixin:
         if self.mask_order_by() is not None:
             context["order_by"] = self.mask_order_by()
         masked_context = {**context, "mask": ("category", "equal", "X")}
-        impl = self.implementation_class()  # type: ignore[attr-defined]
+        impl = self.implementation_class()
 
-        data = self.test_data  # type: ignore[attr-defined]
+        data = self.test_data
         both = calculate_with(impl, data, make_multi_feature_set([(masked, masked_context), (companion, context)]))
         solo_masked = calculate_with(impl, data, make_multi_feature_set([(masked, masked_context)]))
         solo_plain = calculate_with(impl, data, make_multi_feature_set([(companion, context)]))
 
         def values(result: Any, name: str) -> list[Any]:
             # Row order is unspecified on some backends, so compare the sorted multiset of values.
-            return sorted((None if is_null(v) else v for v in self.extract_column(result, name)), key=repr)  # type: ignore[attr-defined]
+            return sorted((None if is_null(v) else v for v in self.extract_column(result, name)), key=repr)
 
         for name, solo in ((masked, solo_masked), (companion, solo_plain)):
             actual, expected = values(both, name), values(solo, name)
@@ -339,13 +332,13 @@ class MaskTestMixin:
         """Mixin: a null/NaN mask column follows core's missing-value rule for every feature group."""
         # Expectations come from a control run (missing values replaced by finite stand-ins) rather
         # than static per-group config, so the same test runs unchanged across every feature group.
-        source: TypedTestData = self._source  # type: ignore[attr-defined]
+        source: TypedTestData = self._source
         actual_table = append_typed_columns(source, {"mask_metric": (DataType.DOUBLE, metric_values)})
         control_table = append_typed_columns(source, {"mask_metric": (DataType.DOUBLE, control_values)})
 
-        arrow_types = self.source_arrow_types()  # type: ignore[attr-defined]
-        actual_data = self.create_test_data(actual_table, arrow_types)  # type: ignore[attr-defined]
-        control_data = self.create_test_data(control_table, arrow_types)  # type: ignore[attr-defined]
+        arrow_types = self.source_arrow_types()
+        actual_data = self.create_test_data(actual_table, arrow_types)
+        control_data = self.create_test_data(control_table, arrow_types)
 
         fs_actual = make_feature_set(
             self.mask_feature_name(), self.mask_partition_by(), self.mask_order_by(), mask=mask_spec
@@ -354,17 +347,17 @@ class MaskTestMixin:
             self.mask_feature_name(), self.mask_partition_by(), self.mask_order_by(), mask=control_mask_spec
         )
 
-        actual_result = calculate_with(self.implementation_class(), actual_data, fs_actual)  # type: ignore[attr-defined]
-        control_result = calculate_with(self.implementation_class(), control_data, fs_control)  # type: ignore[attr-defined]
+        actual_result = calculate_with(self.implementation_class(), actual_data, fs_actual)
+        control_result = calculate_with(self.implementation_class(), control_data, fs_control)
 
         feature_name = self.mask_feature_name()
         expected: list[Any] | dict[Any, Any]
         if self.mask_is_reducing():
-            region_col = self.extract_column(control_result, "region")  # type: ignore[attr-defined]
-            value_col = self.extract_column(control_result, feature_name)  # type: ignore[attr-defined]
+            region_col = self.extract_column(control_result, "region")
+            value_col = self.extract_column(control_result, feature_name)
             expected = {region_col[i]: value_col[i] for i in range(len(region_col))}
         else:
-            expected = self.extract_column(control_result, feature_name)  # type: ignore[attr-defined]
+            expected = self.extract_column(control_result, feature_name)
 
-        assert self.get_row_count(actual_result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
+        assert self.get_row_count(actual_result) == self.mask_expected_row_count()
         self._assert_mask_values(actual_result, expected)

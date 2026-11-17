@@ -16,29 +16,23 @@ from mloda.user import Feature, Options, mloda
 
 from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, is_null, result_column_names
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
 
-class MaskIntegrationTestMixin:
-    """Mixin providing mask integration tests through mloda's full pipeline.
-
-    Requires the host class to provide (from DataOpsIntegrationTestBase):
-    - ``feature_group_class()``
-    - ``data_creator_class()``
-    - ``compute_framework_class()`` / ``pipeline_compute_frameworks()``
-    - ``_plugin_collector()``
-    """
+class MaskIntegrationTestMixin(DataOpsIntegrationTestBase):
+    """Mixin providing mask integration tests through mloda's full pipeline."""
 
     # -- Configuration methods (override per feature group) --------------------
 
     @classmethod
     def mask_integration_feature_name(cls) -> str:
         """Feature name for mask integration tests."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_integration_feature_name")
 
     @classmethod
     def mask_integration_options(cls) -> dict[str, Any]:
         """Options context dict for mask integration tests (without mask key)."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_integration_options")
 
     @classmethod
     def mask_integration_spec(cls) -> tuple[str, str, Any]:
@@ -48,7 +42,7 @@ class MaskIntegrationTestMixin:
     @classmethod
     def mask_integration_expected(cls) -> list[Any]:
         """Expected column values for the basic masked feature."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_integration_expected")
 
     @classmethod
     def mask_integration_complex_spec(cls) -> list[tuple[str, str, Any]]:
@@ -58,12 +52,12 @@ class MaskIntegrationTestMixin:
     @classmethod
     def mask_integration_complex_expected(cls) -> list[Any]:
         """Expected column values for the complex masked feature."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_integration_complex_expected")
 
     @classmethod
     def mask_integration_unmasked_expected(cls) -> list[Any]:
         """Expected column values for the unmasked feature (for the together test)."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override mask_integration_unmasked_expected")
 
     @classmethod
     def mask_integration_expected_row_count(cls) -> int:
@@ -107,14 +101,12 @@ class MaskIntegrationTestMixin:
         """Run a single masked feature through the pipeline and return the framework result holding it."""
         ctx = dict(options_ctx)
         ctx["mask"] = mask_spec
-        feature = Feature(name, options=Options(group=self.group_options(), context=ctx))  # type: ignore[attr-defined]
+        feature = Feature(name, options=Options(group=self.group_options(), context=ctx))
         results = mloda.run_all(
             [feature],
-            compute_frameworks=self.pipeline_compute_frameworks(),  # type: ignore[attr-defined]
-            plugin_collector=(
-                self._plugin_collector(creator) if creator is not None else self._plugin_collector()  # type: ignore[attr-defined]
-            ),
-            output_framework=self.compute_framework_class(),  # type: ignore[attr-defined]
+            compute_frameworks=self.pipeline_compute_frameworks(),
+            plugin_collector=(self._plugin_collector(creator) if creator is not None else self._plugin_collector()),
+            output_framework=self.compute_framework_class(),
         )
         assert len(results) >= 1
 
@@ -150,7 +142,7 @@ class MaskIntegrationTestMixin:
             self.mask_integration_feature_name(),
             self.mask_integration_options(),
             self.mask_integration_complex_spec(),
-            creator=column_selective(self.data_creator_class()),  # type: ignore[attr-defined]
+            creator=column_selective(self.data_creator_class()),
         )
         assert (
             len(extract_column(result_table, self.mask_integration_feature_name()))
@@ -188,7 +180,7 @@ class MaskIntegrationTestMixin:
         base_options = self.mask_integration_options()
 
         # Unmasked feature through pipeline
-        result_unmasked = self._run_single_feature(name, base_options)  # type: ignore[attr-defined]
+        result_unmasked = self._run_single_feature(name, base_options)
         assert len(extract_column(result_unmasked, name)) == self.mask_integration_expected_row_count()
         unmasked_col = extract_column(result_unmasked, name)
         self._assert_mask_integration_values(unmasked_col, self.mask_integration_unmasked_expected())

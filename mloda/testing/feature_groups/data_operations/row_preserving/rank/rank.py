@@ -28,7 +28,6 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, d
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
-    feature_group_of,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
@@ -162,7 +161,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         """Run the PyArrow-backed reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 
-        return reference_rank(feature_group_of(cls.implementation_class()), table, features)
+        return reference_rank(cls.feature_group_class(), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 

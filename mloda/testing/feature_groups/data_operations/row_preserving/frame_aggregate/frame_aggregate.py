@@ -27,7 +27,6 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
-    feature_group_of,
     is_null,
     make_feature_set,
     typed_data_without,
@@ -467,7 +466,7 @@ class FrameAggregateTestBase(
             reference_frame_aggregate,
         )
 
-        return reference_frame_aggregate(feature_group_of(cls.implementation_class()), table, features)
+        return reference_frame_aggregate(cls.feature_group_class(), table, features)
 
     ALL_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
     ALL_TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
@@ -585,8 +584,8 @@ class FrameAggregateTestBase(
             pytest.skip("This framework supports time frames")
 
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
-        assert not feature_group_of(self.implementation_class()).supports_compute_framework(
+        framework = self.compute_framework_class()
+        assert not self.feature_group_class().supports_compute_framework(
             "value_int__avg_7_day_window", options, framework
         )
 
@@ -605,10 +604,8 @@ class FrameAggregateTestBase(
                 "order_by": "timestamp",
             }
         )
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
-        assert not feature_group_of(self.implementation_class()).supports_compute_framework(
-            "my_time_sum", options, framework
-        )
+        framework = self.compute_framework_class()
+        assert not self.feature_group_class().supports_compute_framework("my_time_sum", options, framework)
 
     # -- Calendar-accurate time window tests ----------------------------------
 
@@ -796,7 +793,7 @@ class FrameAggregateTestBase(
 
     def test_match_accepts_empty_partition_by(self) -> None:
         options = Options(context={"partition_by": [], "order_by": "value_int"})
-        assert feature_group_of(self.implementation_class()).match_feature_group_criteria("value_int__cumsum", options)
+        assert self.feature_group_class().match_feature_group_criteria("value_int__cumsum", options)
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     def test_cross_framework_time_window_day(self, partition_by: list[str]) -> None:
@@ -1239,7 +1236,7 @@ class FrameAggregateTestBase(
                 "order_by": "value_int",
             }
         )
-        assert not feature_group_of(self.implementation_class()).match_feature_group_criteria("bad_frame", options)
+        assert not self.feature_group_class().match_feature_group_criteria("bad_frame", options)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------
 
@@ -1350,10 +1347,10 @@ class FrameAggregateTestBase(
     # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.
     def _skip_if_frame_feature_unsupported(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
         options = Options(context={"partition_by": partition_by, "order_by": order_by})
-        backend = feature_group_of(self.implementation_class())
+        backend = self.feature_group_class()
         if not backend.match_feature_group_criteria(feature_name, options):
             pytest.skip(f"{feature_name} not supported by this framework")
-        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        framework = self.compute_framework_class()
         if not backend.supports_compute_framework(feature_name, options, framework):
             pytest.skip(f"{feature_name} not supported by this framework")
 

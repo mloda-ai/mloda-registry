@@ -8,7 +8,7 @@ Usage::
 
     class TestAggregationOperationGroup(OperationGroupTestBase):
         @classmethod
-        def group_class(cls): ...
+        def feature_group_class(cls): ...
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         """The OperationFeatureGroup under test."""
 
     @classmethod
@@ -162,20 +162,20 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     # -- Group shape ------------------------------------------------------------
 
     def test_group_is_a_concrete_operation_group(self) -> None:
-        group = self.group_class()
+        group = self.feature_group_class()
         assert issubclass(group, OperationFeatureGroup)
         assert not inspect.isabstract(group)
 
     def test_group_matches_before_the_operation_group(self) -> None:
         """The subtype matcher mixin must precede OperationFeatureGroup in the MRO, whoever defines the matcher."""
-        mro = self.group_class().__mro__
+        mro = self.feature_group_class().__mro__
         assert mro.index(FeatureChainParserMixin) < mro.index(OperationFeatureGroup)
 
     def test_group_declares_the_subtype_key(self) -> None:
         if self.universe() == frozenset():
-            assert self.group_class().SUBTYPES is None
+            assert self.feature_group_class().SUBTYPES is None
             return
-        declaration = self.group_class().SUBTYPES
+        declaration = self.feature_group_class().SUBTYPES
         assert declaration is not None
         assert declaration.key == self.subtype_key()
         if self.subtype_key() is None:
@@ -185,25 +185,27 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         mixins = self.mixins()
         if mixins is None:
             pytest.skip("no mixins declared")
-        mro = self.group_class().__mro__
+        mro = self.feature_group_class().__mro__
         assert mro[1 : len(mixins) + 3] == (*mixins, OperationFeatureGroup, FeatureGroup)
 
     def test_group_declares_name_only_match(self) -> None:
         expected = self.name_only_match()
         if expected is None:
             pytest.skip("name_only_match not pinned")
-        assert self.group_class().NAME_ONLY_MATCH is expected
+        assert self.feature_group_class().NAME_ONLY_MATCH is expected
 
     def test_group_owns_the_loop_and_no_per_framework_compute(self) -> None:
-        assert callable(getattr(self.group_class(), self.loop_method()))
-        assert not hasattr(self.group_class(), self.compute_method())
+        assert callable(getattr(self.feature_group_class(), self.loop_method()))
+        assert not hasattr(self.feature_group_class(), self.compute_method())
 
     def test_group_needs_an_implementation_on_the_feature_set(self) -> None:
         """calculate_feature dispatches to the step's implementation; none on the feature set is an error."""
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
         with pytest.raises(ValueError, match="no implementation"):
-            self.group_class().calculate_feature(PyArrowDataOpsTestDataCreator.create(), self.probe_feature_set())
+            self.feature_group_class().calculate_feature(
+                PyArrowDataOpsTestDataCreator.create(), self.probe_feature_set()
+            )
 
     def test_implementation_names_its_pair(self, impl_id: str) -> None:
         spec = self._spec(impl_id)
@@ -211,7 +213,7 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         framework = getattr(pytest.importorskip(spec.framework_module), spec.framework_name)
         assert issubclass(impl, Implementation)
         assert not issubclass(impl, FeatureGroup)
-        assert impl.feature_group is self.group_class()
+        assert impl.feature_group is self.feature_group_class()
         assert impl.compute_framework is framework
         assert impl.__module__ == f"{self.backend_package()}.{spec.module}"
 
@@ -226,8 +228,8 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         if not specs:
             pytest.skip("no listed implementation is installed")
         implementations = [self._implementation(spec) for spec in specs]
-        assert_operation_group_shape(self.group_class(), self.alias_pairs(), self.shape_probe())
-        universe = self.group_class().subtype_universe()
+        assert_operation_group_shape(self.feature_group_class(), self.alias_pairs(), self.shape_probe())
+        universe = self.feature_group_class().subtype_universe()
         # Core's check sees only Implementations that serve a framework and accepts an empty reason on a
         # NOT_IMPLEMENTED record, so the kit keeps these per listed Implementation.
         for implementation in implementations:
@@ -240,27 +242,27 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     def test_universe_is_the_declared_set(self) -> None:
         if self.universe() is None:
             pytest.skip("no universe declared")
-        assert self.group_class().subtype_universe() == self.universe()
+        assert self.feature_group_class().subtype_universe() == self.universe()
 
     # -- Subtype resolution -----------------------------------------------------
 
     def test_resolves_from_the_feature_name(self) -> None:
         for name, subtype in self.name_probes():
-            assert self.group_class().resolve_subtype(name, Options()) == subtype
+            assert self.feature_group_class().resolve_subtype(name, Options()) == subtype
 
     def test_resolves_from_the_config_option(self) -> None:
         for name, options, subtype in self.option_probes():
-            assert self.group_class().resolve_subtype(name, options) == subtype
+            assert self.feature_group_class().resolve_subtype(name, options) == subtype
 
     def test_unresolvable_probes_resolve_to_no_subtype(self) -> None:
         for name, options in self.unresolved_probes():
-            assert self.group_class().resolve_subtype(name, options) is None
+            assert self.feature_group_class().resolve_subtype(name, options) is None
 
     # -- Manifest ---------------------------------------------------------------
 
     def test_manifest_lists_the_group_and_every_installed_implementation(self) -> None:
         feature_groups = importlib.import_module(f"{self.backend_package()}.manifest").FEATURE_GROUPS
-        group = self.group_class()
+        group = self.feature_group_class()
         assert group in feature_groups
         listed = {cls.__name__ for cls in feature_groups if issubclass(cls, Implementation)}
         expected = {spec.name for spec in self._installed_specs()}

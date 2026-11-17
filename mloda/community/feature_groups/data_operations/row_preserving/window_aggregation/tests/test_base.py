@@ -419,7 +419,7 @@ _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 class TestWindowAggregationOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return WindowAggregationFeatureGroup
 
     @classmethod

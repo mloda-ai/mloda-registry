@@ -22,7 +22,6 @@ from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
-    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -261,7 +260,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
     def test_n_bins_zero_rejected(self) -> None:
         """A zero-bin name (bin_0) no longer matches the pattern, so params cannot be extracted."""
         with pytest.raises(ValueError, match="Could not extract binning parameters"):
-            feature_group_of(self.implementation_class()).get_binning_params("value_int__bin_0")
+            self.feature_group_class().get_binning_params("value_int__bin_0")
 
     def test_qbin_single_value(self) -> None:
         """Quantile binning with a single value."""

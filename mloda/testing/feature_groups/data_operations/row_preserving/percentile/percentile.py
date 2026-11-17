@@ -20,7 +20,6 @@ from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
-    feature_group_of,
     is_null,
     make_feature_set,
     typed_data_without,
@@ -177,7 +176,7 @@ class PercentileTestBase(
             reference_percentile,
         )
 
-        return reference_percentile(feature_group_of(cls.implementation_class()), table, features)
+        return reference_percentile(cls.feature_group_class(), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 

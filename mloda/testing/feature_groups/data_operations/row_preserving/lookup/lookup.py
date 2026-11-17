@@ -30,7 +30,6 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
     empty_like,
-    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -214,7 +213,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     @classmethod
     def unmatched_error(cls) -> Any:
         """Exception class the group under test raises for unmatched keys."""
-        return feature_group_of(cls.implementation_class()).UNMATCHED_ERROR
+        return cls.feature_group_class().UNMATCHED_ERROR
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
