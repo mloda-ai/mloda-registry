@@ -240,6 +240,26 @@ _UPPER_OVERRIDES: dict[str, str] = {
     "\U00010d83": "\U00010d63",  # U+10D83 -> U+10D63
     "\U00010d84": "\U00010d64",  # U+10D84 -> U+10D64
     "\U00010d85": "\U00010d65",  # U+10D85 -> U+10D65
+    "ɷ": "\ua7dd",  # U+0277 -> U+A7DD
+    "ɼ": "\ua7e2",  # U+027C -> U+A7E2
+    "ꭋ": "\uab6c",  # U+AB4B -> U+AB6C
+    "ꭌ": "\uab6d",  # U+AB4C -> U+AB6D
+    "\U0001df41": "\U0001df40",  # U+1DF41 -> U+1DF40
+    "\U0001df49": "\U0001df48",  # U+1DF49 -> U+1DF48
+    "\U0001df4b": "\U0001df4a",  # U+1DF4B -> U+1DF4A
+    "\U0001df4e": "\U0001df4d",  # U+1DF4E -> U+1DF4D
+    "\U0001df52": "\U0001df51",  # U+1DF52 -> U+1DF51
+    "\U0001df69": "\U0001df68",  # U+1DF69 -> U+1DF68
+    "\U0001df6b": "\U0001df6a",  # U+1DF6B -> U+1DF6A
+    "\U0001df6d": "\U0001df6c",  # U+1DF6D -> U+1DF6C
+    "\U0001df6f": "\U0001df6e",  # U+1DF6F -> U+1DF6E
+    "\U0001df73": "\U0001df72",  # U+1DF73 -> U+1DF72
+    "\U0001df75": "\U0001df74",  # U+1DF75 -> U+1DF74
+    "\U0001df77": "\U0001df76",  # U+1DF77 -> U+1DF76
+    "\U0001df79": "\U0001df78",  # U+1DF79 -> U+1DF78
+    "\U0001df7b": "\U0001df7a",  # U+1DF7B -> U+1DF7A
+    "\U0001df7d": "\U0001df7c",  # U+1DF7D -> U+1DF7C
+    "\U0001df7f": "\U0001df7e",  # U+1DF7F -> U+1DF7E
 }
 
 _LOWER_OVERRIDES: dict[str, str] = {
@@ -340,6 +360,26 @@ _LOWER_OVERRIDES: dict[str, str] = {
     "\U00010d63": "\U00010d83",  # U+10D63 -> U+10D83
     "\U00010d64": "\U00010d84",  # U+10D64 -> U+10D84
     "\U00010d65": "\U00010d85",  # U+10D65 -> U+10D85
+    "\ua7dd": "ɷ",  # U+A7DD -> U+0277
+    "\ua7e2": "ɼ",  # U+A7E2 -> U+027C
+    "\uab6c": "ꭋ",  # U+AB6C -> U+AB4B
+    "\uab6d": "ꭌ",  # U+AB6D -> U+AB4C
+    "\U0001df40": "\U0001df41",  # U+1DF40 -> U+1DF41
+    "\U0001df48": "\U0001df49",  # U+1DF48 -> U+1DF49
+    "\U0001df4a": "\U0001df4b",  # U+1DF4A -> U+1DF4B
+    "\U0001df4d": "\U0001df4e",  # U+1DF4D -> U+1DF4E
+    "\U0001df51": "\U0001df52",  # U+1DF51 -> U+1DF52
+    "\U0001df68": "\U0001df69",  # U+1DF68 -> U+1DF69
+    "\U0001df6a": "\U0001df6b",  # U+1DF6A -> U+1DF6B
+    "\U0001df6c": "\U0001df6d",  # U+1DF6C -> U+1DF6D
+    "\U0001df6e": "\U0001df6f",  # U+1DF6E -> U+1DF6F
+    "\U0001df72": "\U0001df73",  # U+1DF72 -> U+1DF73
+    "\U0001df74": "\U0001df75",  # U+1DF74 -> U+1DF75
+    "\U0001df76": "\U0001df77",  # U+1DF76 -> U+1DF77
+    "\U0001df78": "\U0001df79",  # U+1DF78 -> U+1DF79
+    "\U0001df7a": "\U0001df7b",  # U+1DF7A -> U+1DF7B
+    "\U0001df7c": "\U0001df7d",  # U+1DF7C -> U+1DF7D
+    "\U0001df7e": "\U0001df7f",  # U+1DF7E -> U+1DF7F
 }
 
 
