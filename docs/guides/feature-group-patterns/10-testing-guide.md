@@ -215,6 +215,111 @@ def test_derived_feature_isolated():
 
 Use when upstream features are slow (API calls, ML inference) or you need controlled test data.
 
+## Groups That Wrap a Model the Gate Cannot Install
+
+Some groups get their result from a model too large or slow for CI (for example an NER model). Test them in four parts:
+
+- One corpus of texts with the result each must give, read by every level.
+- Fake models built from that corpus, so the gate proves the group's own mechanism on every OS. For a spaCy model use a blank pipeline with an entity ruler; the example uses a plain callable so it needs no model.
+- The same tests with a second parameter for the real model, skipped where it is not installed and run before a release (the same pattern as [Against the real wheel](29-binary-backed-features.md#against-the-real-wheel)).
+- A test that fails when the corpus and the fake drift apart.
+
+```python
+from importlib.util import find_spec
+from typing import Any, NamedTuple
+
+import pytest
+
+from mloda.provider import ApiDataFG, FeatureGroup, FeatureSet
+from mloda.user import Feature, Options, PluginCollector, mloda
+
+KEEP_CLEAR = {"Claude"}  # a word the model misreads as a name; the group drops it
+
+
+class Case(NamedTuple):
+    text: str
+    tagged: tuple[str, ...]  # what the model tags, misreads included
+    names: tuple[str, ...]  # what the group must return
+
+
+CORPUS = [
+    Case("Anna Schmidt signed the contract.", ("Anna Schmidt",), ("Anna Schmidt",)),
+    Case("Ask Claude to run the tests.", ("Claude",), ()),
+    Case("The build finished.", (), ()),
+]
+
+
+class PersonNames(FeatureGroup):
+    @classmethod
+    def match_feature_group_criteria(
+        cls, feature_name: Any, options: Options, data_access_collection: Any = None
+    ) -> bool:
+        return str(feature_name) == "person_names"
+
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
+        return {Feature.not_typed("text")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @staticmethod
+    def load_model() -> Any:
+        import spacy  # imported here so the gate never needs the model
+
+        nlp = spacy.load("en_core_web_md")
+        return lambda text: [e.text for e in nlp(text).ents if e.label_ == "PERSON"]
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        model = cls.load_model()
+        return {"person_names": [[n for n in model(t) if n not in KEEP_CLEAR] for t in data["text"]]}
+
+
+def fake_model() -> Any:
+    tagged = {case.text: list(case.tagged) for case in CORPUS}
+    return lambda text: tagged[text]
+
+
+class FakePersonNames(PersonNames):
+    load_model = staticmethod(fake_model)
+
+
+GROUPS = {"fake": FakePersonNames, "real": PersonNames}
+MISSING = find_spec("en_core_web_md") is None
+REAL = pytest.mark.skipif(MISSING, reason="real model not installed")
+
+
+def check_corpus(kind: str) -> None:
+    model = GROUPS[kind].load_model()
+    for case in CORPUS:
+        assert tuple(model(case.text)) == case.tagged, case.text  # keeps the fake honest
+    result = mloda.run_all(
+        [Feature.not_typed("person_names")],
+        compute_frameworks=[PythonDictFramework],
+        api_data={"CorpusData": {"text": [case.text for case in CORPUS]}},
+        plugin_collector=PluginCollector.enabled_feature_groups({GROUPS[kind], ApiDataFG}),
+    )
+    assert result[0]["person_names"] == [list(case.names) for case in CORPUS]
+
+
+def test_corpus_fake() -> None:
+    check_corpus("fake")
+
+
+@REAL
+def test_corpus_real() -> None:
+    if not MISSING:  # the mark reports the skip under pytest
+        check_corpus("real")
+
+
+def test_every_keep_clear_word_has_a_case():
+    tagged = {word for case in CORPUS for word in case.tagged}
+    assert KEEP_CLEAR <= tagged, "the fake never produces these, so the gate proves nothing"
+```
+
+CI runs the fake; a release job that installs the real model runs the same suite, so `real` runs there.
+
 ## Operation Groups: Conformance to the Reference Contract
 
 Test that each result differs from the reference exactly where `divergences` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#reference-contract-and-divergence) (in the same namespace, not imported again).
@@ -450,6 +555,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 | Index | `index_columns()` correct | Ordering respected |
 | Framework | `compute_framework_rule()` | Framework-specific ops |
 | Operation group | Implementations load; `supported` / `accepts` | Conformance to the reference contract |
+| Model-backed | Drift check: every `KEEP_CLEAR` word has a corpus case | Corpus on the fake in the gate; the real model in a release job |
 
 ## Real Test Examples
 
