@@ -55,6 +55,7 @@ from mloda.community.extenders.shared.failed_rows import failed_rows_summary
 from mloda.community.extenders.shared.provider_sink import configured_provider, drop_unpicklable_provider
 from mloda.community.extenders.shared.step_run_id import owner_name, step_run_id
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, flush_on_close
+from mloda.community.extenders.shared.tenant import tenant_identity
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +286,12 @@ def _plan_attributes(plan: PlanContext) -> dict[str, str]:
     return attributes
 
 
+def _tenant_attributes(context: Any) -> dict[str, str]:
+    """The mloda.tenant.id / mloda.project.id attributes of the context's non-blank identity."""
+    names = {"tenant_id": "mloda.tenant.id", "project_id": "mloda.project.id"}
+    return {names[key]: value for key, value in tenant_identity(context).items() if key in names}
+
+
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
     Sink resolution: injected tracer_provider wins, else use_sdk_defaults (warns once if no SDK provider is set),
@@ -301,7 +308,8 @@ class OtelExtender(Extender):
     plan, never for a failed explain or diagnose (their plan-scope spans do not end in ERROR). Calculate spans
     are named `calculate <FeatureGroup>`, join spans `join <join_type>`; select spans
     by `mloda.operation.name`, not by name. Without a known root, spans fall back to the carrier or run_id trace.
-    classification_undeclared (default None, off) adds the effective `mloda.data.classification` to calculate spans."""
+    classification_undeclared (default None, off) adds the effective `mloda.data.classification` to calculate spans.
+    record_tenant (default False) adds non-blank `mloda.tenant.id` / `mloda.project.id` to run, plan and step spans."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -314,7 +322,9 @@ class OtelExtender(Extender):
         use_sdk_defaults: bool = False,
         trace_scope: Literal["run", "plan"] = "run",
         classification_undeclared: str | None = None,
+        record_tenant: bool = False,
     ) -> None:
+        self.record_tenant = record_tenant
         if trace_scope not in ("run", "plan"):
             raise ValueError(f"OtelExtender trace_scope must be 'run' or 'plan', got {trace_scope!r}")
         self.trace_scope = trace_scope
@@ -341,10 +351,13 @@ class OtelExtender(Extender):
     def _tracer(self) -> trace.Tracer:
         return trace.get_tracer(TRACER_NAME, tracer_provider=self._resolve_tracer_provider())
 
+    def _plan_span_attributes(self, plan: PlanContext) -> dict[str, str]:
+        return {**_plan_attributes(plan), **(_tenant_attributes(plan) if self.record_tenant else {})}
+
     def on_plan_start(self, plan: PlanContext) -> None:
         if self.trace_scope != "plan":
             return
-        span = self._tracer().start_span("mloda.plan", attributes=_plan_attributes(plan))
+        span = self._tracer().start_span("mloda.plan", attributes=self._plan_span_attributes(plan))
         span_context = span.get_span_context()
         if not span_context.is_valid:
             return
@@ -366,7 +379,9 @@ class OtelExtender(Extender):
                 self._plan_ints.pop(plan.plan_id, None)
         if span is None and failed and self.trace_scope == "run" and not preflight:
             start_ns = (plan.created_at - _EPOCH) // timedelta(microseconds=1) * 1000
-            span = self._tracer().start_span("mloda.plan", attributes=_plan_attributes(plan), start_time=start_ns)
+            span = self._tracer().start_span(
+                "mloda.plan", attributes=self._plan_span_attributes(plan), start_time=start_ns
+            )
         if span is not None:
             if plan.structure_hash is not None:
                 span.set_attribute("mloda.plan.structure_hash", plan.structure_hash)
@@ -380,6 +395,8 @@ class OtelExtender(Extender):
         attributes: dict[str, str] = {"mloda.run.id": run_id, **_plan_attributes(plan)}
         if plan.structure_hash is not None:
             attributes["mloda.plan.structure_hash"] = plan.structure_hash
+        if self.record_tenant:
+            attributes.update(_tenant_attributes(run))
         caller = _carrier_or_active_span_context(run.carrier)
         with self._lock:
             plan_ints = self._plan_ints.get(plan.plan_id) if self.trace_scope == "plan" else None
@@ -478,6 +495,8 @@ class OtelExtender(Extender):
             if context is not None:
                 try:
                     _set_context_attributes(span, context)
+                    if self.record_tenant:
+                        span.set_attributes(_tenant_attributes(context))
                     _set_step_attributes(span, context, func)
                     if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
                         level = self._classifications.step_level(context.run_id, context.feature_names)

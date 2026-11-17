@@ -322,6 +322,14 @@ class TestOtelExtenderTestMixinShape:
     def test_expected_span_names_defaults_to_none(self) -> None:
         assert OtelExtenderTestMixin.expected_span_names() is None
 
+    def test_supports_record_tenant_follows_the_extender_signature(self) -> None:
+        assert _RealOtelExtenderHost.supports_record_tenant() is True
+        assert _ProbeHost.supports_record_tenant() is False
+
+    def test_tenant_extender_skips_when_the_extender_lacks_record_tenant(self) -> None:
+        with pytest.raises(pytest.skip.Exception):
+            _ProbeHost().make_tenant_extender(TracerProvider())
+
     def test_ambient_sink_captured_reads_finished_spans_from_the_spy_exporters(self) -> None:
         provider, exporter = make_span_capture()
         with provider.get_tracer("test-extenders-otel").start_as_current_span("probe-span"):

@@ -3,10 +3,17 @@ register a source group for every unrestricted PluginCollector run."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pyarrow as pa
-from mloda.provider import FeatureSet, Implementation, ReadFileFG, SourceMatch
+from mloda.provider import (
+    FeatureSet,
+    Implementation,
+    ReadFileFG,
+    SourceMatch,
+    credential_handle_spec,
+    read_credential,
+)
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 
@@ -45,3 +52,31 @@ class MlodaTestingUriFilePyArrowTable(Implementation[MlodaTestingUriFileFG]):
 URI_SECRET = "hunter2"  # nosec
 CREDENTIALED_URI = f"memory://user:{URI_SECRET}@host/data.mlodatesting"
 CREDENTIALED_URI_IDENTITY = "memory://host/data.mlodatesting"
+
+
+CREDENTIAL_HANDLE = "mlodatesting-token"
+CREDENTIAL_TOKEN = "s3cr3t-token-value"  # nosec
+CREDENTIALED_VALUES = [2, 4]  # distinct from the parent source's [1, 3]: only a successful credential read yields these
+
+
+class MlodaTestingCredentialedUriFileFG(MlodaTestingUriFileFG):
+    """URI file group whose load reads the credential its handle option names."""
+
+    HANDLE_OPTION = "mlodatesting_token_handle"
+    PROPERTY_MAPPING: ClassVar = {
+        HANDLE_OPTION: credential_handle_spec(
+            "Credential handle whose 'token' field the load reads", required_fields=("token",)
+        )
+    }
+
+
+class MlodaTestingCredentialedUriFilePyArrowTable(Implementation[MlodaTestingCredentialedUriFileFG]):
+    feature_group = MlodaTestingCredentialedUriFileFG
+    compute_framework = PyArrowTable
+
+    @classmethod
+    def calculate(
+        cls, group: type[MlodaTestingCredentialedUriFileFG], data: SourceMatch, features: FeatureSet, framework: Any
+    ) -> Any:
+        token = read_credential(features.get_options_key(group.HANDLE_OPTION))["token"]
+        return pa.table({"alpha": CREDENTIALED_VALUES if token == CREDENTIAL_TOKEN else [-1]})

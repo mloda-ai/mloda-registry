@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import math
+import pickle  # nosec
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
@@ -13,7 +15,7 @@ from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
-from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.steward import Extender, ExtenderHook, HookContext, verified_context
 from opentelemetry import propagate
 from opentelemetry.metrics import Meter
 from opentelemetry.metrics import MeterProvider as ApiMeterProvider
@@ -707,3 +709,92 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin, suite_base=True):
                     hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, feature_group_class=group
                 )
                 assert span.name == self.expected_span_name(context)
+
+    _TENANT_KEY = "mloda.tenant.id"
+    _PROJECT_KEY = "mloda.project.id"
+    _PRINCIPAL = "principal-never-exported-xyz"
+
+    @classmethod
+    def supports_record_tenant(cls) -> bool:
+        """True when the host's extender takes a record_tenant parameter; override to opt out."""
+        return "record_tenant" in inspect.signature(cls.extender_class()).parameters
+
+    def make_tenant_extender(self, tracer_provider: Any, **options: Any) -> Extender:
+        """The extender built with the record_tenant flag; skips when the host's extender has no such parameter."""
+        if not self.supports_record_tenant():
+            pytest.skip("host does not support record_tenant")
+        return self.extender_class()(tracer_provider=tracer_provider, **options)  # type: ignore[call-arg]
+
+    def _identity_attributes(self, **identity: str | None) -> Mapping[str, Any]:
+        provider, exporter = make_span_capture()
+        extender = self.make_tenant_extender(provider, record_tenant=True)
+        with make_hook_context(hook=self.context_hook(), **identity).activate():
+            extender(lambda: None)
+        return single_span_attributes(exporter)
+
+    def test_otel_record_tenant_sets_tenant_and_project_on_step_span(self) -> None:
+        attributes = self._identity_attributes(tenant_id="tenant-a", project_id="project-b", principal=self._PRINCIPAL)
+        assert attributes[self._TENANT_KEY] == "tenant-a"
+        assert attributes[self._PROJECT_KEY] == "project-b"
+        assert self._PRINCIPAL not in repr(dict(attributes))
+
+    @pytest.mark.parametrize("blank", [None, "", "   "])
+    def test_otel_record_tenant_omits_blank_tenant_and_project_independently(self, blank: str | None) -> None:
+        attributes = self._identity_attributes(tenant_id=blank, project_id="project-b")
+        assert self._TENANT_KEY not in attributes
+        assert attributes[self._PROJECT_KEY] == "project-b"
+        attributes = self._identity_attributes(tenant_id="tenant-a", project_id=blank)
+        assert attributes[self._TENANT_KEY] == "tenant-a"
+        assert self._PROJECT_KEY not in attributes
+
+    def test_otel_record_tenant_is_off_by_default(self) -> None:
+        provider, exporter = make_span_capture()
+        extender = self.make_tenant_extender(provider)
+        identity = {"tenant_id": "tenant-a", "project_id": "project-b", "principal": self._PRINCIPAL}
+        with make_hook_context(hook=self.context_hook(), **identity).activate():
+            extender(lambda: None)
+        attributes = single_span_attributes(exporter)
+        assert self._TENANT_KEY not in attributes
+        assert self._PROJECT_KEY not in attributes
+        assert self._PRINCIPAL not in repr(dict(attributes))
+
+    def test_otel_record_tenant_run_all_tags_run_plan_and_step_spans(self) -> None:
+        provider, exporter = make_span_capture()
+        extender = self.make_tenant_extender(provider, record_tenant=True, trace_scope="plan")
+        with verified_context(tenant_id="tenant-a", project_id="project-b", principal=self._PRINCIPAL):
+            run_two_features(extender)
+        spans = exporter.get_finished_spans()
+        by_name: dict[str, list[ReadableSpan]] = {}
+        for span in spans:
+            by_name.setdefault(span.name, []).append(span)
+        assert by_name.get("mloda.run") and by_name.get("mloda.plan"), [span.name for span in spans]
+        steps = [span for span in spans if span.name not in ("mloda.run", "mloda.plan")]
+        assert steps
+        for span in spans:
+            attributes = span.attributes or {}
+            assert attributes.get(self._TENANT_KEY) == "tenant-a", (span.name, dict(attributes))
+            assert attributes.get(self._PROJECT_KEY) == "project-b", (span.name, dict(attributes))
+            assert self._PRINCIPAL not in repr(dict(attributes))
+
+    def test_otel_record_tenant_run_all_is_off_by_default(self) -> None:
+        provider, exporter = make_span_capture()
+        extender = self.make_tenant_extender(provider, trace_scope="plan")
+        with verified_context(tenant_id="tenant-a", project_id="project-b", principal=self._PRINCIPAL):
+            run_two_features(extender)
+        spans = exporter.get_finished_spans()
+        assert spans
+        for span in spans:
+            attributes = dict(span.attributes or {})
+            assert self._TENANT_KEY not in attributes and self._PROJECT_KEY not in attributes, (span.name, attributes)
+            assert self._PRINCIPAL not in repr(attributes)
+
+    def test_otel_record_tenant_survives_pickling(self, tmp_path: Path) -> None:
+        marker = tmp_path / "spans.jsonl"
+        extender = self.make_tenant_extender(RebuildingSpanCaptureProvider(marker, records=True), record_tenant=True)
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+        identity = {"tenant_id": "tenant-a", "project_id": "project-b"}
+        with make_hook_context(hook=self.context_hook(), **identity).activate():
+            copy(lambda: None)
+        attributes = read_span_records(marker)[0]["attributes"]
+        assert attributes[self._TENANT_KEY] == "tenant-a"
+        assert attributes[self._PROJECT_KEY] == "project-b"

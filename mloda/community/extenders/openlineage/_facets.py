@@ -91,6 +91,16 @@ class MlodaStepRunFacet(RunFacet):
 
 
 @attr.define
+class MlodaTenantRunFacet(RunFacet):
+    tenantId: str | None = attr.field(default=None)
+    projectId: str | None = attr.field(default=None)
+
+    @staticmethod
+    def _get_schema() -> str:
+        return _SCHEMA_URL
+
+
+@attr.define
 class MlodaTraceRunFacet(RunFacet):
     traceId: str = attr.field()
     spanId: str = attr.field()

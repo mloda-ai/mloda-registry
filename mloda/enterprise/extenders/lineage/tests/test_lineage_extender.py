@@ -23,7 +23,7 @@ from mloda.provider import (
     SourceFeatureGroup,
     SourceMatch,
 )
-from mloda.steward import Extender, ExtenderHook
+from mloda.steward import Extender, ExtenderHook, verified_context
 from mloda.user import DataType, Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
@@ -1873,6 +1873,43 @@ class TestLineageFacetsValidationRuns:
         assert complete.eventType == RunState.COMPLETE
         assert sorted(dataset.name for dataset in complete.inputs or []) == ["x", "y"]
         assert all(_assertions(dataset) == [(_VALIDATE_INPUT, True)] for dataset in complete.inputs or [])
+
+    @pytest.mark.parametrize(
+        ("hook", "feature_group", "method"),
+        [
+            (ExtenderHook.VALIDATE_INPUT_FEATURE, _PassingValidators.validate_input_features, _VALIDATE_INPUT),
+            (ExtenderHook.VALIDATE_OUTPUT_FEATURE, _PassingValidators.validate_output_features, _VALIDATE_OUTPUT),
+        ],
+        ids=["input", "output"],
+    )
+    def test_record_tenant_puts_the_tenant_facet_on_validator_runs_never_the_principal(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        hook: ExtenderHook,
+        feature_group: Any,
+        method: str,
+    ) -> None:
+        client, transport = ol_capture
+        principal = "principal-never-exported-xyz"
+        context = make_hook_context(
+            hook=hook,
+            feature_group_class=_job(_PassingValidators),
+            feature_names=("x",),
+            input_features=None,
+            tenant_id="tenant-a",
+            project_id="project-b",
+            principal=principal,
+        )
+
+        with verified_context(tenant_id="tenant-a", project_id="project-b", principal=principal):
+            with context.activate():
+                LineageFacetsExtender(client=client, record_tenant=True)(feature_group, None, FeatureSet())
+
+        assert transport.events
+        for event in transport.events:
+            facet = json.loads(Serde.to_json(event))["run"]["facets"]["mlodaTenant"]
+            assert (facet["tenantId"], facet["projectId"]) == ("tenant-a", "project-b")
+            assert principal not in Serde.to_json(event)
 
     @pytest.mark.parametrize(
         ("feature_group", "method"),
