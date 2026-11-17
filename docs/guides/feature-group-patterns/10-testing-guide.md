@@ -221,7 +221,7 @@ Some groups get their result from a model too large or slow for CI (for example 
 
 - One corpus of texts with the result each must give, read by every level.
 - Fake models built from that corpus, so the gate proves the group's own mechanism on every OS. For a spaCy model use a blank pipeline with an entity ruler; the example uses a plain callable so it needs no model.
-- The same tests with a second parameter for the real model, skipped where it is not installed and run before a release (the same pattern as [Against the real wheel](29-binary-backed-features.md#against-the-real-wheel)).
+- The same checks run a second time on the real model, skipped where it is not installed and run before a release (the same pattern as [Against the real wheel](29-binary-backed-features.md#against-the-real-wheel)).
 - A test that fails when the corpus and the fake drift apart.
 
 ```python
@@ -309,7 +309,7 @@ def test_corpus_fake() -> None:
 
 @REAL
 def test_corpus_real() -> None:
-    if not MISSING:  # the mark reports the skip under pytest
+    if not MISSING:  # the doc runner ignores skipif marks
         check_corpus("real")
 
 
