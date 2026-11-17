@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 
 import pyarrow as pa
@@ -59,15 +59,11 @@ ROW_PARAMS = [
 TABLE_PARAMS = [pytest.param(group, table, id=table.operation) for group, _, table in PINNED]
 
 
-def typed_data_of(columns: Mapping[str, tuple[DataType, tuple[Any, ...]]]) -> TypedTestData:
-    return TypedTestData({name: (data_type, list(values)) for name, (data_type, values) in columns.items()})
-
-
 @pytest.mark.parametrize(("group", "reference", "table", "row"), ROW_PARAMS)
 def test_reference_matches_pinned_row(
     group: type, reference: Callable[..., Any], table: PinningTable, row: PinningRow
 ) -> None:
-    result = reference(group, arrow_table_of(typed_data_of(row.inputs)), make_feature_set(row.feature, **row.context))
+    result = reference(group, arrow_table_of(TypedTestData(row.inputs)), make_feature_set(row.feature, **row.context))
     for name, (data_type, values) in row.expected.items():
         assert_values_with_nulls(result.column(name).to_pylist(), list(values), strict=True)
         assert result.schema.field(name).type == DataType.to_arrow_type(data_type), f"column {name} type"
@@ -98,7 +94,7 @@ class TestTableGuards:
 
     def test_expected_columns_are_valid_typed_data(self, group: type, table: PinningTable) -> None:
         for row in table.rows:
-            typed_data_of(row.expected)
+            TypedTestData(row.expected)
 
     def test_operation_is_known_and_matches_the_group(self, group: Any, table: PinningTable) -> None:
         assert table.operation in OPERATIONS
@@ -126,45 +122,80 @@ def _typed_table(**columns: tuple[pa.DataType, list[Any]]) -> pa.Table:
     return pa.table({name: pa.array(values, type=arrow_type) for name, (arrow_type, values) in columns.items()})
 
 
+_POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
+_SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
+
+_REJECTION_PARAMS = [
+    pytest.param(
+        *_POINT,
+        "x&y__bogus_point",
+        {},
+        {"x": (pa.int64(), [1]), "y": (pa.int64(), [2])},
+        "bogus",
+        id="point-unknown-op",
+    ),
+    pytest.param(
+        *_SCALAR, "x__bogus_constant", {"constant": 1}, {"x": (pa.int64(), [1])}, "bogus", id="scalar-unknown-op"
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__add_point",
+        {},
+        {"x": (pa.bool_(), [True]), "y": (pa.int64(), [1])},
+        "must be numeric",
+        id="point-bool-source",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__add_point",
+        {},
+        {"x": (pa.string(), ["1"]), "y": (pa.int64(), [1])},
+        "must be numeric",
+        id="point-string-source",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__add_constant",
+        {"constant": 1},
+        {"x": (pa.bool_(), [True])},
+        "must be numeric",
+        id="scalar-bool-source",
+    ),
+    pytest.param(
+        *_SCALAR,
+        "x__add_constant",
+        {"constant": 1},
+        {"x": (pa.string(), ["1"])},
+        "must be numeric",
+        id="scalar-string-source",
+    ),
+    pytest.param(
+        *_POINT,
+        "x&y__add_point",
+        {},
+        {"x": (pa.int64(), [2**63 - 1]), "y": (pa.int64(), [1])},
+        None,
+        id="point-int64-overflow",
+    ),
+    pytest.param(
+        *_SCALAR, "x__add_constant", {"constant": 1}, {"x": (pa.int64(), [2**63 - 1])}, None, id="scalar-int64-overflow"
+    ),
+]
+
+
 class TestArithmeticReferenceRejections:
     """The reference rejects what it cannot compute instead of guessing."""
 
-    def test_unknown_point_op_is_rejected(self) -> None:
-        table = _typed_table(x=(pa.int64(), [1]), y=(pa.int64(), [2]))
-        with pytest.raises(ValueError, match="bogus"):
-            reference_point_arithmetic(PointArithmeticFeatureGroup, table, make_feature_set("x&y__bogus_point"))
-
-    def test_unknown_scalar_op_is_rejected(self) -> None:
-        table = _typed_table(x=(pa.int64(), [1]))
-        with pytest.raises(ValueError, match="bogus"):
-            reference_scalar_arithmetic(
-                ScalarArithmeticFeatureGroup, table, make_feature_set("x__bogus_constant", constant=1)
-            )
-
-    @pytest.mark.parametrize("arrow_type", [pa.bool_(), pa.string()], ids=["bool", "string"])
-    def test_non_numeric_point_source_is_rejected(self, arrow_type: pa.DataType) -> None:
-        values: list[Any] = [True] if arrow_type == pa.bool_() else ["1"]
-        table = _typed_table(x=(arrow_type, values), y=(pa.int64(), [1]))
-        with pytest.raises(ValueError, match="must be numeric"):
-            reference_point_arithmetic(PointArithmeticFeatureGroup, table, make_feature_set("x&y__add_point"))
-
-    @pytest.mark.parametrize("arrow_type", [pa.bool_(), pa.string()], ids=["bool", "string"])
-    def test_non_numeric_scalar_source_is_rejected(self, arrow_type: pa.DataType) -> None:
-        values: list[Any] = [True] if arrow_type == pa.bool_() else ["1"]
-        table = _typed_table(x=(arrow_type, values))
-        with pytest.raises(ValueError, match="must be numeric"):
-            reference_scalar_arithmetic(
-                ScalarArithmeticFeatureGroup, table, make_feature_set("x__add_constant", constant=1)
-            )
-
-    def test_point_int64_overflow_is_rejected(self) -> None:
-        table = _typed_table(x=(pa.int64(), [2**63 - 1]), y=(pa.int64(), [1]))
-        with pytest.raises(ValueError):
-            reference_point_arithmetic(PointArithmeticFeatureGroup, table, make_feature_set("x&y__add_point"))
-
-    def test_scalar_int64_overflow_is_rejected(self) -> None:
-        table = _typed_table(x=(pa.int64(), [2**63 - 1]))
-        with pytest.raises(ValueError):
-            reference_scalar_arithmetic(
-                ScalarArithmeticFeatureGroup, table, make_feature_set("x__add_constant", constant=1)
-            )
+    @pytest.mark.parametrize(("reference", "group", "feature", "context", "columns", "message"), _REJECTION_PARAMS)
+    def test_unsupported_input_is_rejected(
+        self,
+        reference: Callable[..., Any],
+        group: type,
+        feature: str,
+        context: dict[str, Any],
+        columns: dict[str, tuple[pa.DataType, list[Any]]],
+        message: str | None,
+    ) -> None:
+        table = _typed_table(**columns)
+        with pytest.raises(ValueError, match=message):
+            reference(group, table, make_feature_set(feature, **context))
