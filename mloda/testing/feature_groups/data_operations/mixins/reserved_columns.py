@@ -47,12 +47,6 @@ class ReservedColumnsTestMixin(DataOpsTestBase):
 
     Every backend now accepts ``__mloda_``-prefixed user columns because helper
     columns are made collision-free at runtime; no reserved namespace exists.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``_source`` attribute (set in setup_method)
-    - ``create_test_data(data, arrow_types)``
-    - ``_compare_with_reference(...)`` (only for ``reserved_columns_extra_feature_names``)
     """
 
     # -- Configuration methods (override per feature group) --------------------

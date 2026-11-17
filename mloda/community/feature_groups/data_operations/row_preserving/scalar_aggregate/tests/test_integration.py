@@ -92,7 +92,7 @@ class TestScalarAggregateIntegration(
         return True
 
     def test_match_rejects_missing_config(self) -> None:
-        """The pattern name matches without config."""
+        """Override: aggregation needs no config for pattern features."""
         options = Options()
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)

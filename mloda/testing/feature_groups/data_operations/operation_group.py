@@ -52,6 +52,11 @@ class ImplSpec(NamedTuple):
 class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
     """Abstract base: fill the hooks, inherit the behavioural shape tests."""
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if "group_class" in vars(cls):
+            raise TypeError(f"{cls.__name__}: group_class was renamed feature_group_class")
+
     # -- Hooks ------------------------------------------------------------------
 
     @classmethod

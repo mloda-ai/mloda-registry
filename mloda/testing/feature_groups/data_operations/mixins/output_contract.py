@@ -14,16 +14,7 @@ from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 
 
 class OutputContractTestMixin(DataOpsTestBase):
-    """Mixin providing the standard result-type / row-count / new-column tests.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``test_data`` attribute (set in setup_method)
-    - ``_source`` attribute (set in setup_method)
-    - ``extract_column(result, column_name)``
-    - ``get_row_count(result)``
-    - ``get_expected_type()``
-    """
+    """Mixin providing the standard result-type / row-count / new-column tests."""
 
     # -- Configuration methods (override per feature group) --------------------
 

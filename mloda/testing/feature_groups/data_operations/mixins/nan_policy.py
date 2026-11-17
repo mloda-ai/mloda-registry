@@ -29,15 +29,6 @@ class NanPolicyTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     Feature-group test bases mix this in and override the configuration methods
     below to adapt the generic test to their semantics.
 
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``nan_policy_table()``
-    - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
-    - ``implementation_class()``
-    - ``create_test_data(data, arrow_types)``
-    - ``extract_column(result, column_name)``
-    - ``nan_divergent_agg_types()``
-    - ``_skip_if_unsupported(op)`` (only used by the default skip hook)
-
     A concrete class that mixes this in without overriding ``nan_policy_cases()``
     fails at collection time (``CaseParametrizationTestMixin.pytest_generate_tests``
     calls it eagerly to build the parametrization), not at test-run time.

@@ -57,13 +57,6 @@ class SingleValueStdVarTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     ``single_value_cases()`` fails at collection time:
     ``CaseParametrizationTestMixin.pytest_generate_tests`` calls it eagerly to
     build the parametrize list.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``create_test_data(data, arrow_types)``
-    - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
-    - ``extract_column(result, column_name)``
-    - ``_skip_if_unsupported(op)`` (used by the default skip hook)
     """
 
     _case_fixtures: ClassVar[dict[str, str]] = {"single_value_case": "single_value_cases"}

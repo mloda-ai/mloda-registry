@@ -88,7 +88,7 @@ class TestBinningIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrat
         return Options()
 
     def test_match_rejects_missing_config(self) -> None:
-        """The pattern name matches without config."""
+        """Override: binning extracts all parameters from the name, so no config is needed."""
         options = Options()
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)

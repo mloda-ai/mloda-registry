@@ -55,11 +55,6 @@ class InputValidationTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     Feature-group test bases mix this in and override ``input_validation_cases()``
     to declare the kinds. A missing or unknown kind fails at collection time.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``create_test_data(data, arrow_types)``
-    - ``test_data``
     """
 
     _case_fixtures: ClassVar[dict[str, str]] = {"input_validation_case": "input_validation_case_ids"}

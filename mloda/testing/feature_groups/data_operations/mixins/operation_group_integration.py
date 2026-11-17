@@ -18,7 +18,10 @@ from mloda.provider import DivergenceKind, Implementation, get_all_subclasses
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, result_column_names
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.integration import (
+    DataOpsIntegrationTestBase,
+    enabled_with_implementations,
+)
 
 PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.table:PyArrowTable"
 PANDAS_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.pandas.dataframe:PandasDataFrame"
@@ -142,7 +145,6 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
         from mloda_plugins.compute_framework.base_implementations.polars.dataframe import PolarsDataFrame
 
         from mloda.testing.data_creator.polars import PolarsDataOpsTestDataCreator
-        from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         group = self.feature_group_class()
         # Building the collector loads the group's Implementations, so it comes first.
@@ -197,7 +199,6 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
         cases = self.divergent_routing_cases()
         if not cases:
             pytest.skip("the group declares no divergent routing cases")
-        from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         creator = self.routing_data_creator()
         group = self.feature_group_class()
@@ -217,7 +218,6 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
         case = self.variant_required_case()
         if case is None:
             pytest.skip("the group declares no variant-required case")
-        from mloda.testing.feature_groups.data_operations.integration import enabled_with_implementations
 
         creator = self.routing_data_creator()
         group = self.feature_group_class()

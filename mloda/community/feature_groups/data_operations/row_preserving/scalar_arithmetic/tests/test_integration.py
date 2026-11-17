@@ -105,7 +105,7 @@ class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOp
         return True
 
     def test_match_rejects_missing_config(self) -> None:
-        """The pattern name matches without config."""
+        """Override: CONSTANT is permissive at match time (strict_validation=False) and fails at compute time."""
         options = Options()
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)

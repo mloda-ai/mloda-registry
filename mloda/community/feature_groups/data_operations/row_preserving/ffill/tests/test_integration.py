@@ -6,7 +6,7 @@ with a ``PluginCollector``, including plugin discovery, feature-name resolution
 
 ffill is row-preserving and supports PyArrow natively, so the standard
 ``DataOpsIntegrationTestBase`` (12-row, exact column compare on PyArrow tables)
-fits directly. Matching is name-based (the ``.*__ffill$`` pattern).
+fits directly. Its primary needs ``order_by``, so the default missing-config probe applies.
 
 Expected fill columns are computed OFFLINE on the canonical dataset (per
 partition, in timestamp order) and pinned as literals; the production feature

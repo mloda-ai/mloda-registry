@@ -344,8 +344,8 @@ class TestMixinIsolation:
             sorted(offenders)
         )
 
-    def test_mixins_subclass_exactly_their_declared_host_base(self) -> None:
-        """Each hook-using mixin subclasses its host base; case and adapter mixins subclass neither."""
+    def test_mixins_subclass_their_host_base(self) -> None:
+        """Every discovered mixin subclasses its host base or is a listed neither-base mixin."""
         host_bases: dict[type, type] = {
             CapabilityHookTestMixin: DataOpsTestBase,
             InputValidationTestMixin: DataOpsTestBase,
@@ -359,8 +359,23 @@ class TestMixinIsolation:
         }
         for mixin, host_base in host_bases.items():
             assert issubclass(mixin, host_base), f"{mixin.__name__} must subclass {host_base.__name__}"
-        for mixin in (CaseParametrizationTestMixin, AdapterTestMixin):
+        neither_base = [
+            mixin
+            for mixin in _discover_mixin_classes()
+            if mixin is CaseParametrizationTestMixin or issubclass(mixin, AdapterTestMixin)
+        ]
+        assert AdapterTestMixin in neither_base, "AdapterTestMixin must be discovered; discovery is broken"
+        for mixin in neither_base:
             assert not issubclass(mixin, DataOpsTestBase), f"{mixin.__name__} must not subclass DataOpsTestBase"
+            assert not issubclass(mixin, DataOpsIntegrationTestBase), (
+                f"{mixin.__name__} must not subclass DataOpsIntegrationTestBase"
+            )
+        unclassified = [
+            f"{mixin.__module__}.{mixin.__name__}"
+            for mixin in _discover_mixin_classes()
+            if mixin not in host_bases and mixin not in neither_base
+        ]
+        assert not unclassified, "mixins missing from the host map or neither-base list:\n" + "\n".join(unclassified)
 
     def test_input_validation_missing_or_unknown_kind_raises(self) -> None:
         """A subclass whose input_validation_cases() misses or adds a kind fails at collection time."""

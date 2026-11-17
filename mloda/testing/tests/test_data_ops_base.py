@@ -1016,6 +1016,14 @@ def test_operation_group_test_base_names_the_group_hook_feature_group_class() ->
     assert not hasattr(OperationGroupTestBase, "group_class")
 
 
+def test_operation_group_test_base_rejects_renamed_group_class_hook() -> None:
+    """Defining the old ``group_class`` hook raises instead of silently making the host abstract."""
+    with pytest.raises(TypeError, match="feature_group_class"):
+
+        class _OldHookHost(OperationGroupTestBase):
+            group_class = None
+
+
 class _OperationGroupStub(OperationGroupTestBase):
     """Concrete hooks for a throwaway group; a host adds ``feature_group_class`` and ``implementations``."""
 

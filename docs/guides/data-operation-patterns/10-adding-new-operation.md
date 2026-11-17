@@ -292,7 +292,7 @@ class TestPandasYourOp(PandasTestMixin, YourOpTestBase):
         return PandasYourOp
 ```
 
-No test method bodies; everything is inherited. `implementation_class` returns the Implementation, and the test base reads its `supported`, so no skip override is needed. To also pin the match-time capability per framework, mix in `CapabilityHookTestMixin` (see `aggregation/tests/test_sqlite.py`).
+Base order: kit test mixins first, then the framework adapter mixin, then the family test base (or `DataOpsTestBase`) last; another order fails with an MRO error or leaves the class abstract so pytest skips it. No test method bodies; everything is inherited. `implementation_class` returns the Implementation, and the test base reads its `supported`, so no skip override is needed. To also pin the match-time capability per framework, mix in `CapabilityHookTestMixin` (see `aggregation/tests/test_sqlite.py`).
 
 From typed data, `PandasTestMixin` stores an `INT64` column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints. New SQLite ops also add a `SqliteViewTestMixin` class so the suite also runs on a view input (every feature after the first sees one).
 

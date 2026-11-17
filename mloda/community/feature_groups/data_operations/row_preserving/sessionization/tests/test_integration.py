@@ -11,7 +11,7 @@ canonical 12-row dataset has a null and duplicate ``timestamp`` values that make
 a by-hand session-id pin awkward) whose expected session ids are computed by hand
 from the documented algorithm (gap > threshold starts a new session;
 ``session_id = cumsum(is_new) - 1``). ``OperationGroupIntegrationTestMixin`` adds
-the operation-group checks. Matching is name-based.
+the operation-group checks. ``missing_config_feature_name`` returns a non-pattern name, as in the datetime tests.
 """
 
 from __future__ import annotations
