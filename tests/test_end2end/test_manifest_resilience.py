@@ -31,6 +31,34 @@ _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 # mloda and mloda_plugins are required core dependencies, not optional backends.
 _FIRST_PARTY_IMPORT_ROOTS = frozenset({"mloda", "mloda_plugins"})
 
+# Bridge stdlib drift across the 3.11-3.14 support window (e.g. PEP 594 removals, tomllib addition).
+_STDLIB_ROOTS = frozenset(
+    sys.stdlib_module_names
+    | {
+        "aifc",
+        "audioop",
+        "cgi",
+        "cgitb",
+        "chunk",
+        "crypt",
+        "imghdr",
+        "mailcap",
+        "msilib",
+        "nis",
+        "nntplib",
+        "ossaudiodev",
+        "pipes",
+        "smtpd",
+        "sndhdr",
+        "spwd",
+        "sunau",
+        "telnetlib",
+        "tomllib",
+        "uu",
+        "xdrlib",
+    }
+)
+
 # numpy is only ever missing because pandas needs it, never its own optional extra.
 _TRANSITIVE_ONLY_OPTIONAL_ROOTS = frozenset({"numpy"})
 
@@ -290,6 +318,16 @@ def _trusted_type_checking_alias(tree: ast.Module) -> str | None:
     return alias_name
 
 
+def _is_type_checking_if(node: ast.If, trusted_alias: str | None) -> bool:
+    """True for ``if TYPE_CHECKING:`` via the trusted alias or ``typing.TYPE_CHECKING``."""
+    return (isinstance(node.test, ast.Name) and trusted_alias is not None and node.test.id == trusted_alias) or (
+        isinstance(node.test, ast.Attribute)
+        and node.test.attr == "TYPE_CHECKING"
+        and isinstance(node.test.value, ast.Name)
+        and node.test.value.id == "typing"
+    )
+
+
 def _module_level_import_roots(tree: ast.Module) -> set[str]:
     """Import roots from module-scope import statements only, skipping def/class bodies."""
     trusted_alias = _trusted_type_checking_alias(tree)
@@ -305,15 +343,7 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
         elif isinstance(node, ast.If):
-            is_type_checking = (
-                isinstance(node.test, ast.Name) and trusted_alias is not None and node.test.id == trusted_alias
-            ) or (
-                isinstance(node.test, ast.Attribute)
-                and node.test.attr == "TYPE_CHECKING"
-                and isinstance(node.test.value, ast.Name)
-                and node.test.value.id == "typing"
-            )
-            if is_type_checking:
+            if _is_type_checking_if(node, trusted_alias):
                 stack.extend(node.orelse)
                 continue
             stack.extend(ast.iter_child_nodes(node))
@@ -324,33 +354,6 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
 
 def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
     """Map each non-stdlib, non-mloda top-level import root under root_dir to the files that use it."""
-    stdlib_roots = set(sys.stdlib_module_names)
-    # Bridge stdlib drift across the 3.11-3.14 support window (e.g. PEP 594 removals, tomllib addition).
-    stdlib_roots.update(
-        {
-            "aifc",
-            "audioop",
-            "cgi",
-            "cgitb",
-            "chunk",
-            "crypt",
-            "imghdr",
-            "mailcap",
-            "msilib",
-            "nis",
-            "nntplib",
-            "ossaudiodev",
-            "pipes",
-            "smtpd",
-            "sndhdr",
-            "spwd",
-            "sunau",
-            "telnetlib",
-            "tomllib",
-            "uu",
-            "xdrlib",
-        }
-    )
     files_by_root: dict[str, list[Path]] = {}
     for py_file in sorted(root_dir.rglob("*.py")):
         rel_path = py_file.relative_to(root_dir)
@@ -358,7 +361,7 @@ def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
             continue
         tree = ast.parse(py_file.read_text(encoding="utf-8"))
         for root in _module_level_import_roots(tree):
-            if root in stdlib_roots or root in _FIRST_PARTY_IMPORT_ROOTS:
+            if root in _STDLIB_ROOTS or root in _FIRST_PARTY_IMPORT_ROOTS:
                 continue
             files_by_root.setdefault(root, []).append(rel_path)
     return files_by_root

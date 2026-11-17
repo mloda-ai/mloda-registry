@@ -24,6 +24,12 @@ from packaging.version import Version
 
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from tests.script_loader import load_script
+from tests.test_end2end.test_manifest_resilience import (
+    _FIRST_PARTY_IMPORT_ROOTS,
+    _STDLIB_ROOTS,
+    _is_type_checking_if,
+    _trusted_type_checking_alias,
+)
 from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -620,12 +626,29 @@ def _plugin_modules_imported_by(node: ast.AST) -> list[str]:
     return []
 
 
-def _walk_with_scope(node: ast.AST, in_function: bool = False) -> Iterator[tuple[ast.AST, bool]]:
-    """Every node under `node` with whether it sits inside a function body."""
-    yield node, in_function
-    inside = in_function or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
+_FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+
+
+def _walk_with_scope(
+    node: ast.AST,
+    enclosing: _FunctionNode | None = None,
+    skip_type_checking: bool = False,
+    type_checking_alias: str | None = None,
+) -> Iterator[tuple[ast.AST, _FunctionNode | None]]:
+    """Every node under `node` with its enclosing function (None at module level or in a class body);
+    skip_type_checking drops the body, not the orelse, of a trusted ``if TYPE_CHECKING:``."""
+    if skip_type_checking and isinstance(node, ast.Module):
+        type_checking_alias = _trusted_type_checking_alias(node)
+    yield node, enclosing
+    inside = node if isinstance(node, _FunctionNode) else enclosing
+    skipped = (
+        node.body
+        if skip_type_checking and isinstance(node, ast.If) and _is_type_checking_if(node, type_checking_alias)
+        else []
+    )
     for child in ast.iter_child_nodes(node):
-        yield from _walk_with_scope(child, inside)
+        if child not in skipped:
+            yield from _walk_with_scope(child, inside, skip_type_checking, type_checking_alias)
 
 
 def _kit_plugin_import_sites(root_dir: Path) -> set[tuple[str, str, bool]]:
@@ -635,8 +658,8 @@ def _kit_plugin_import_sites(root_dir: Path) -> set[tuple[str, str, bool]]:
     for rel_path, tree in _runtime_modules(root_dir):
         if rel_path.parts[0] == "binary_model":
             continue
-        for node, in_function in _walk_with_scope(tree):
-            found.update((rel_path.as_posix(), module, in_function) for module in _plugin_modules_imported_by(node))
+        for node, fn in _walk_with_scope(tree):
+            found.update((rel_path.as_posix(), module, fn is not None) for module in _plugin_modules_imported_by(node))
     return found
 
 
@@ -1011,3 +1034,302 @@ def test_kit_allowlisted_import_must_sit_inside_a_function(tmp_path: Path, body:
     _write(tmp_path / "a.py", body)
     assert _unallowed_kit_plugin_imports(tmp_path, {pair}) == ([pair] if offends else [])
     assert _stale_kit_allowlist_entries(tmp_path, {pair}) == []
+
+
+kit_map = load_script("kit_modules", _REPO_ROOT / "scripts" / "kit_modules.py")
+
+
+def _kit_modules_flat() -> dict[str, str | None]:
+    """Dotted name of every shipped kit module, mapped to its gating extra."""
+    return {module: gate for gate, modules in kit_map.kit_modules().items() for module in modules}
+
+
+def test_kit_gates_extras_equal_the_non_dev_extras_of_mloda_testing() -> None:
+    extras = set(_mloda_testing_config().get("optional_dependencies", {})) - {"dev"}
+    assert set(kit_map.KIT_GATES.values()) == extras, (
+        f"KIT_GATES extras {sorted(set(kit_map.KIT_GATES.values()))} must equal mloda-testing's non-dev extras "
+        f"{sorted(extras)}"
+    )
+
+
+def test_every_kit_gate_prefix_matches_a_shipped_module() -> None:
+    rel_paths = [rel.as_posix() for rel, _tree in _runtime_modules(_REPO_ROOT / kit_map.KIT_PATH)]
+    unmatched = [prefix for prefix in kit_map.KIT_GATES if not any(p.startswith(prefix) for p in rel_paths)]
+    assert unmatched == [], f"KIT_GATES prefixes that match no shipped kit module: {unmatched}"
+
+
+def test_child_kit_gate_extra_lists_every_distribution_of_its_parent_gate_extra() -> None:
+    extras = _mloda_testing_config().get("optional_dependencies", {})
+    nested = [(p, c) for p in kit_map.KIT_GATES for c in kit_map.KIT_GATES if c != p and c.startswith(p)]
+    assert nested, "no KIT_GATES prefix extends another; check is vacuous"
+    for parent, child in nested:
+        missing = {_dep_name(d) for d in extras[kit_map.KIT_GATES[parent]]} - {
+            _dep_name(d) for d in extras[kit_map.KIT_GATES[child]]
+        }
+        assert missing == set(), f"the {child} extra lacks {sorted(missing)} of its parent {parent} extra"
+
+
+def test_real_kit_has_a_binary_model_module_and_no_tests_module() -> None:
+    flat = _kit_modules_flat()
+    assert "binary-model" in set(flat.values()), "no shipped kit module is gated by binary-model"
+    assert all(g == "binary-model" for m, g in flat.items() if m.startswith("mloda.testing.binary_model.")), flat
+    assert [m for m in flat if "tests" in m.split(".")] == [], "a tests module is listed as a shipped kit module"
+
+
+@pytest.mark.parametrize(
+    ("rel", "gate"),
+    [
+        pytest.param("extenders/otel.py", "otel", id="longest-prefix-file"),
+        pytest.param("extenders/openlineage.py", "openlineage", id="longest-prefix-other-file"),
+        pytest.param("extenders/runners.py", "pyarrow", id="shorter-prefix"),
+        pytest.param("binary_model/a/b.py", "binary-model", id="directory-prefix"),
+        pytest.param("feature_groups/data_operations/x.py", "pyarrow", id="data-operations"),
+        pytest.param("feature_groups/other.py", None, id="sibling-directory-ungated"),
+        pytest.param("base.py", None, id="top-level-ungated"),
+    ],
+)
+def test_kit_gate_picks_the_longest_matching_prefix(rel: str, gate: str | None) -> None:
+    assert kit_map.kit_gate(rel) == gate
+
+
+def test_kit_modules_groups_sorts_and_names_packages(tmp_path: Path) -> None:
+    _write(tmp_path / "__init__.py", "")
+    _write(tmp_path / "b.py", "")
+    _write(tmp_path / "a.py", "")
+    _write(tmp_path / "pkg" / "__init__.py", "")
+    _write(tmp_path / "pkg" / "m.py", "")
+    _write(tmp_path / "extenders" / "otel.py", "")
+    _write(tmp_path / "extenders" / "runners.py", "")
+    assert kit_map.kit_modules(tmp_path) == {
+        None: ["mloda.testing", "mloda.testing.a", "mloda.testing.b", "mloda.testing.pkg", "mloda.testing.pkg.m"],
+        "otel": ["mloda.testing.extenders.otel"],
+        "pyarrow": ["mloda.testing.extenders.runners"],
+    }
+
+
+@pytest.mark.parametrize(
+    "skipped",
+    [
+        pytest.param("tests/test_m.py", id="tests"),
+        pytest.param("pkg/tests/test_m.py", id="nested-tests"),
+        pytest.param("__pycache__/m.py", id="pycache"),
+        pytest.param("build/m.py", id="build"),
+        pytest.param("dist/m.py", id="dist"),
+        pytest.param("x.egg-info/m.py", id="egg-info"),
+    ],
+)
+def test_kit_modules_skips_build_and_test_directories(tmp_path: Path, skipped: str) -> None:
+    _write(tmp_path / "keep.py", "")
+    _write(tmp_path / skipped, "")
+    assert kit_map.kit_modules(tmp_path) == {None: ["mloda.testing.keep"]}
+
+
+# Import root -> the mloda-testing distribution that provides it.
+_KIT_IMPORT_DISTRIBUTIONS = {
+    "pytest": "pytest",
+    "pyarrow": "pyarrow",
+    "opentelemetry": "opentelemetry-sdk",
+    "openlineage": "openlineage-python",
+}
+
+# Allowed inside a function in any kit module (pyarrow because data_creator/pyarrow.py imports it lazily
+# for an author's pyarrow backend).
+_AUTHOR_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow"})
+
+
+def _mloda_testing_config() -> dict[str, Any]:
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    return packages["mloda-testing"]
+
+
+def _kit_declared_distributions(cfg: dict[str, Any], gate: str | None) -> set[str]:
+    """Normalized distributions mloda-testing declares for a module: its dependencies plus its gate extra."""
+    specs = list(cfg.get("dependencies", []))
+    if gate is not None:
+        specs.extend(cfg.get("optional_dependencies", {}).get(gate, []))
+    return {_dep_name(spec) for spec in specs}
+
+
+def _imports_root_via_importorskip(fn: _FunctionNode, root: str, before_line: int) -> bool:
+    """True if a top-level statement of `fn` is importorskip("<root>[.sub]") with a literal, before `before_line`."""
+    if isinstance(fn, ast.Lambda):
+        return False
+    for stmt in fn.body:
+        call = stmt.value if isinstance(stmt, ast.Expr) else None
+        if not (isinstance(call, ast.Call) and call.args and call.lineno < before_line):
+            continue
+        func = call.func
+        name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+        first = call.args[0]
+        if (
+            name == "importorskip"
+            and isinstance(first, ast.Constant)
+            and isinstance(first.value, str)
+            and first.value.split(".")[0] == root
+        ):
+            return True
+    return False
+
+
+def _import_roots_of(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Import):
+        return [alias.name.split(".")[0] for alias in node.names]
+    if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+        return [node.module.split(".")[0]]
+    return []
+
+
+def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | None = None) -> list[str]:
+    """Third-party imports in shipped kit modules that mloda-testing does not declare for that module."""
+    cfg = _mloda_testing_config() if cfg is None else cfg
+    violations: list[str] = []
+    for rel_path, tree in _runtime_modules(root_dir):
+        gate = kit_map.kit_gate(rel_path.as_posix())
+        declared = _kit_declared_distributions(cfg, gate)
+        for node, fn in _walk_with_scope(tree, skip_type_checking=True):
+            for root in _import_roots_of(node):
+                if root in _STDLIB_ROOTS or root in _FIRST_PARTY_IMPORT_ROOTS:
+                    continue
+                where = f"{rel_path.as_posix()}:{getattr(node, 'lineno', 0)}"
+                if root in _AUTHOR_BACKENDS and fn is not None:
+                    continue
+                distribution = _KIT_IMPORT_DISTRIBUTIONS.get(root)
+                if distribution is None and root in _AUTHOR_BACKENDS:
+                    violations.append(f"{where}: author backend {root!r} must be imported inside a function")
+                elif distribution is None:
+                    violations.append(f"{where}: unknown import name {root!r}")
+                elif _dep_name(distribution) in declared:
+                    continue
+                elif fn is not None and _imports_root_via_importorskip(fn, root, getattr(node, "lineno", 0)):
+                    continue
+                else:
+                    violations.append(
+                        f"{where}: import {root!r} needs {distribution!r}, not declared for gate {gate!r}"
+                    )
+    return violations
+
+
+def test_kit_imports_only_third_party_distributions_mloda_testing_declares() -> None:
+    assert _KIT_ROOT.is_dir(), f"expected {_KIT_ROOT} to exist"
+    violations = _kit_third_party_import_violations(_KIT_ROOT)
+    assert violations == [], f"mloda/testing imports a distribution it does not declare for that module: {violations}"
+
+
+_SKIP_THEN_IMPORT = (
+    'import pytest\n\n\ndef f() -> None:\n    pytest.importorskip("opentelemetry")\n    import opentelemetry\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("rel", "body", "fragment"),
+    [
+        pytest.param(
+            "m.py",
+            "import pandas\n",
+            "author backend 'pandas' must be imported inside a function",
+            id="module-level-pandas-ungated",
+        ),
+        pytest.param("m.py", "def f() -> None:\n    import pandas\n", None, id="function-level-pandas"),
+        pytest.param("m.py", "def f() -> None:\n    import pyarrow\n", None, id="function-level-pyarrow-ungated"),
+        pytest.param("m.py", "import pyarrow\n", "import 'pyarrow'", id="module-level-pyarrow-ungated"),
+        pytest.param("feature_groups/data_operations/m.py", "import pyarrow\n", None, id="module-level-pyarrow-gated"),
+        pytest.param(
+            "m.py", "def f() -> None:\n    import requests\n", "unknown import name", id="unknown-in-function"
+        ),
+        pytest.param("m.py", "import opentelemetry\n", "import 'opentelemetry'", id="module-level-otel-ungated"),
+        pytest.param("extenders/otel.py", "import opentelemetry\n", None, id="module-level-otel-at-otel-gate"),
+        pytest.param(
+            "extenders/runners.py",
+            "import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="module-level-otel-at-pyarrow-gate",
+        ),
+        pytest.param(
+            "m.py",
+            "class C:\n    import pandas\n",
+            "author backend 'pandas' must be imported inside a function",
+            id="class-body-counts-as-module-level",
+        ),
+        pytest.param("m.py", "import pytest\n", None, id="declared-dependency"),
+        pytest.param("m.py", _SKIP_THEN_IMPORT, None, id="importorskip-then-import"),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef f() -> None:\n    pytest.importorskip("opentelemetry.sdk")\n'
+            "    from opentelemetry.sdk import trace\n",
+            None,
+            id="importorskip-dotted-matches-root",
+        ),
+        pytest.param(
+            "m.py",
+            "def f() -> None:\n    import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="import-without-importorskip",
+        ),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef g() -> None:\n    pytest.importorskip("opentelemetry")\n\n\n'
+            "def f() -> None:\n    import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="importorskip-in-another-function",
+        ),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef f() -> None:\n    import opentelemetry\n    pytest.importorskip("opentelemetry")\n',
+            "import 'opentelemetry'",
+            id="importorskip-after-import",
+        ),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef f() -> None:\n    pytest.importorskip("openlineage")\n    import opentelemetry\n',
+            "import 'opentelemetry'",
+            id="importorskip-of-another-root",
+        ),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef f() -> None:\n    def g() -> None:\n        pytest.importorskip("opentelemetry")\n'
+            "    import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="importorskip-in-nested-def",
+        ),
+        pytest.param(
+            "m.py",
+            'import pytest\n\n\ndef f(c: bool) -> None:\n    if c:\n        pytest.importorskip("opentelemetry")\n'
+            "    import opentelemetry\n",
+            "import 'opentelemetry'",
+            id="importorskip-in-branch",
+        ),
+        pytest.param(
+            "m.py",
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import pandas\n",
+            None,
+            id="type-checking-import-exempt",
+        ),
+        pytest.param(
+            "m.py",
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n    import pandas\n",
+            "author backend 'pandas' must be imported inside a function",
+            id="type-checking-else-branch-checked",
+        ),
+        pytest.param(
+            "m.py",
+            "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    import pandas\n",
+            "author backend 'pandas' must be imported inside a function",
+            id="spoofed-type-checking",
+        ),
+        pytest.param("m.py", "import mloda_plugins.x\nfrom mloda.core import y\n", None, id="first-party-ignored"),
+        pytest.param("m.py", "import json\nfrom os import path\n", None, id="stdlib-ignored"),
+        pytest.param("m.py", "from . import x\n", None, id="relative-import-ignored"),
+    ],
+)
+def test_kit_third_party_import_collector(tmp_path: Path, rel: str, body: str, fragment: str | None) -> None:
+    _write(tmp_path / rel, body)
+    violations = _kit_third_party_import_violations(tmp_path)
+    if fragment is None:
+        assert violations == []
+    else:
+        assert len(violations) == 1 and fragment in violations[0], violations
+
+
+def test_kit_third_party_import_collector_skips_tests_directories(tmp_path: Path) -> None:
+    _write(tmp_path / "tests" / "test_m.py", "import pandas\n")
+    assert _kit_third_party_import_violations(tmp_path) == []

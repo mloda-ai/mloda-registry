@@ -79,6 +79,23 @@ def verify_distribution(name: str, version: str, modules: list[str]) -> str | No
     return None if error is None else f"{name}: {error}"
 
 
+def kit_jobs(version: str) -> list[tuple[str, str]]:
+    """(requirement, probe source) per kit job: ungated modules from a bare install, gated ones under their extra."""
+    by_gate: dict[str | None, list[str]] = _load_sibling("kit_modules").kit_modules()
+    absent = "".join(
+        f'assert find_spec("{package}") is None, "{package} must be absent"\n'
+        for package in ("mloda.community", "mloda.enterprise")
+    )
+    header = "from importlib.util import find_spec\n" + absent
+    bare = header + "\n".join(f"import {m}" for m in by_gate.get(None, []))
+    jobs = [(f"mloda-testing=={version}", bare)]
+    for gate in sorted(g for g in by_gate if g is not None):
+        imports = "\n".join(f"import {m}" for m in by_gate[gate])
+        # The binary-model extra legitimately ships mloda.community, so it skips the absence check.
+        jobs.append((f"mloda-testing[{gate}]=={version}", imports if gate == "binary-model" else header + imports))
+    return jobs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install each published distribution into its own venv")
     parser.add_argument("version", nargs="?", default="", help="Released version to install every distribution at")
@@ -101,14 +118,20 @@ def main() -> int:
         return 1
 
     modules_by_name = {name: probe_modules(name, packages) for name in names}
-    workers = min(len(names), MAX_WORKERS)
-    print(f"\nInstalling {len(names)} distributions at {args.version}, {workers} at a time...")
+    kit = kit_jobs(args.version)
+    workers = min(len(names) + len(kit), MAX_WORKERS)
+    print(f"\nInstalling {len(names)} distributions + {len(kit)} kit jobs at {args.version}, {workers} at a time...")
 
     def _verify(name: str) -> str | None:
         return verify_distribution(name, args.version, modules_by_name[name])
 
+    def _verify_kit(job: tuple[str, str]) -> str | None:
+        error = install_and_probe([job[0]], job[1])
+        return None if error is None else f"{job[0]}: {error}"
+
     errors: list[str] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        kit_results = executor.map(_verify_kit, kit)
         # map() preserves config order, so per-distribution output stays deterministic.
         for name, error in zip(names, executor.map(_verify, names)):
             if error is None:
@@ -116,6 +139,12 @@ def main() -> int:
             else:
                 print(f"  ✗ {name}: failed")
                 errors.append(error)
+        for (spec, _), kit_error in zip(kit, kit_results):
+            if kit_error is None:
+                print(f"  ✓ {spec}: kit modules load")
+            else:
+                print(f"  ✗ {spec}: failed")
+                errors.append(kit_error)
 
     if errors:
         print("\n❌ Errors:")
