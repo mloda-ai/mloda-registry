@@ -74,6 +74,12 @@ class TestArithmeticOpNamesSingleSourceOfTruth:
         """The scalar family's ``ARITHMETIC_OPERATIONS`` keys equal the shared op names."""
         assert set(SCALAR_ARITHMETIC_OPERATIONS) == ARITHMETIC_OP_NAMES
 
+    def test_kit_reference_op_set_matches_shared_op_names(self) -> None:
+        """The kit reference's ``ARITHMETIC_OPS`` equals the shared op names."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.reference import ARITHMETIC_OPS
+
+        assert ARITHMETIC_OPS == ARITHMETIC_OP_NAMES
+
     def test_point_arithmetic_operation_label(self) -> None:
         """``PointArithmeticFeatureGroup`` sets a non-empty, family-specific ``OPERATION_LABEL``."""
         assert PointArithmeticFeatureGroup.OPERATION_LABEL == "point arithmetic"

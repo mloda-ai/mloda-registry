@@ -23,6 +23,7 @@ Provides:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Callable
@@ -160,6 +161,29 @@ def result_column_values(results: list[Any], name: str) -> list[list[Any]]:
     return found
 
 
+def _assert_strict_equal(actual: Any, expected: Any, row: int, rel: float) -> None:
+    """One value of ``assert_values_with_nulls(strict=True)``, recursing into lists, tuples and dicts."""
+    assert type(actual) is type(expected), f"row {row}: {actual!r} is not the type of {expected!r}"
+    if isinstance(expected, (list, tuple)):
+        assert len(actual) == len(expected), f"row {row}: length {len(actual)} != {len(expected)}"
+        for a, e in zip(actual, expected):
+            _assert_strict_equal(a, e, row, rel)
+    elif isinstance(expected, dict):
+        assert set(actual) == set(expected), (
+            f"row {row}: keys {sorted(actual, key=repr)} != {sorted(expected, key=repr)}"
+        )
+        for key, e in expected.items():
+            _assert_strict_equal(actual[key], e, row, rel)
+    elif isinstance(expected, float):
+        if math.isnan(expected):
+            assert math.isnan(actual), f"row {row}: {actual!r} != NaN"
+            return
+        assert actual == pytest.approx(expected, rel=rel), f"row {row}: {actual!r} != {expected!r}"
+        assert math.copysign(1.0, actual) == math.copysign(1.0, expected), f"row {row}: zero sign of {actual!r}"
+    else:
+        assert actual == expected, f"row {row}: {actual!r} != {expected!r}"
+
+
 def assert_values_with_nulls(
     actual: list[Any],
     expected: list[Any],
@@ -169,13 +193,19 @@ def assert_values_with_nulls(
     nan_is_null: bool = False,
     parse_iso: bool = False,
     cast: Callable[[Any], Any] | None = None,
+    strict: bool = False,
 ) -> None:
     """Assert two lists are equal row by row, treating null consistently.
 
     ``nan_is_null`` treats NaN and None as interchangeable nulls, ``parse_iso`` parses a str
     actual value via ``datetime.fromisoformat``, ``cast`` converts the actual value before
-    comparing, and ``approx`` compares with ``pytest.approx`` instead of exact equality.
+    comparing, and ``approx`` compares with ``pytest.approx`` instead of exact equality. ``strict``
+    compares floats with ``pytest.approx(rel)`` and the same sign, everything else exact and type-equal
+    (``5`` is not ``5.0``); NaN matches only NaN. It recurses into lists, tuples and dicts, and
+    cannot be combined with ``nan_is_null``.
     """
+    if strict and nan_is_null:
+        raise ValueError("strict=True and nan_is_null=True contradict each other")
     assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
     for i, (a, e) in enumerate(zip(actual, expected)):
         expected_null = e is None or (nan_is_null and is_null(e))
@@ -188,7 +218,9 @@ def assert_values_with_nulls(
                 a = datetime.fromisoformat(a)
             if cast is not None:
                 a = cast(a)
-            if approx:
+            if strict:
+                _assert_strict_equal(a, e, i, rel)
+            elif approx:
                 assert a == pytest.approx(e, rel=rel), f"row {i}: {a!r} != {e!r}"
             else:
                 assert a == e, f"row {i}: {a!r} != {e!r}"

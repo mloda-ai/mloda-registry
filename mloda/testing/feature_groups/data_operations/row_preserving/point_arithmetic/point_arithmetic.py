@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
@@ -26,6 +27,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, d
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
+    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -132,12 +134,13 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         return cls.declared_supported(cls.ALL_OPS)
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
-            PyArrowPointArithmetic,
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.reference import (
+            reference_point_arithmetic,
         )
 
-        return PyArrowPointArithmetic
+        return reference_point_arithmetic(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Source-column dtype contract (shared across backends) ---------------
 

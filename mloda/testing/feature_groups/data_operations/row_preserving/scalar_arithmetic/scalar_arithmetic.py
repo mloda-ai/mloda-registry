@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
@@ -23,6 +24,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
+    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -92,12 +94,13 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         return cls.declared_supported(cls.ALL_OPS)
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
-            PyArrowScalarArithmetic,
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.reference import (
+            reference_scalar_arithmetic,
         )
 
-        return PyArrowScalarArithmetic
+        return reference_scalar_arithmetic(feature_group_of(cls.implementation_class()), table, features)
 
     # -- Concrete tests -----------------------------------------------------
 
