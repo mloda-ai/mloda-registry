@@ -18,7 +18,7 @@ from mloda.testing.feature_groups.data_operations.aggregation.aggregation import
     AggregationTestBase,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )

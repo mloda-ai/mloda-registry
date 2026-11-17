@@ -2,16 +2,19 @@
 
 import gc
 import importlib
+import importlib.util
 import sqlite3
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.user import DataType
 
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
@@ -27,6 +30,8 @@ from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
+from mloda.testing.framework_adapter import to_arrow_table
+from mloda.testing.typed_data import TypedTestData
 
 
 class _StubDataOpsTestBase(DataOpsTestBase):
@@ -36,8 +41,8 @@ class _StubDataOpsTestBase(DataOpsTestBase):
     def implementation_class(cls) -> Any:
         return object
 
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        return arrow_table
+    def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, pa.DataType] | None = None) -> Any:
+        return data
 
     def extract_column(self, result: Any, column_name: str) -> list[Any]:
         return []
@@ -158,17 +163,78 @@ def test_assert_values_with_nulls_cast_float_with_approx() -> None:
     helpers.assert_values_with_nulls([1], [1.0000001], cast=float, approx=True)
 
 
-# -- DataOpsTestBase.source_arrow_table --------------------------------------
+# -- helpers.typed_data_without ---------------------------------------------
 
 
-def test_source_arrow_table_default_returns_canonical_table() -> None:
-    table = _StubDataOpsTestBase.source_arrow_table()
-    assert table.equals(PyArrowDataOpsTestDataCreator.create())
+def test_typed_data_without_drops_the_column_and_keeps_values_and_types() -> None:
+    canonical = DataOperationsTestDataCreator.typed_data()
+    result = helpers.typed_data_without(canonical, "value_int", "name")
+    assert list(result.types) == [c for c in canonical.types if c not in ("value_int", "name")]
+    assert result.types == {c: t for c, t in canonical.types.items() if c in result.types}
+    assert result.to_python_dict() == {c: v for c, v in canonical.to_python_dict().items() if c in result.types}
 
 
-def test_setup_method_uses_source_arrow_table_default() -> None:
+def test_typed_data_without_unknown_column_raises_key_error() -> None:
+    with pytest.raises(KeyError):
+        helpers.typed_data_without(DataOperationsTestDataCreator.typed_data(), "no_such_column")
+
+
+# -- helpers.append_typed_columns and helpers.empty_like ---------------------
+
+
+def test_append_typed_columns_rejects_an_existing_column_name() -> None:
+    with pytest.raises(ValueError, match="value_int"):
+        helpers.append_typed_columns(
+            DataOperationsTestDataCreator.typed_data(), {"value_int": (DataType.INT64, [0] * 12)}
+        )
+
+
+def test_append_typed_columns_keeps_values_and_types_of_the_others() -> None:
+    canonical = DataOperationsTestDataCreator.typed_data()
+    result = helpers.append_typed_columns(canonical, {"extra": (DataType.INT64, list(range(12)))})
+    assert list(result.types) == [*canonical.types, "extra"]
+    assert result.types == {**canonical.types, "extra": DataType.INT64}
+    assert result.to_python_dict() == {**canonical.to_python_dict(), "extra": list(range(12))}
+
+
+def test_empty_like_keeps_columns_and_types_with_zero_rows() -> None:
+    canonical = DataOperationsTestDataCreator.typed_data()
+    result = helpers.empty_like(canonical)
+    assert list(result.types) == list(canonical.types)
+    assert result.types == canonical.types
+    assert result.to_python_dict() == {name: [] for name in canonical.types}
+
+
+def test_canonical_data_empty_equals_empty_like_of_the_canonical_data() -> None:
+    expected = helpers.empty_like(DataOperationsTestDataCreator.typed_data())
+    actual = helpers.canonical_data_empty()
+    assert actual.types == expected.types
+    assert actual.to_python_dict() == expected.to_python_dict()
+
+
+# -- DataOpsTestBase.source_data ----------------------------------------------
+
+
+def test_source_data_default_returns_canonical_typed_data() -> None:
+    data = _StubDataOpsTestBase.source_data()
+    assert isinstance(data, TypedTestData)
+    assert data.to_python_dict() == DataOperationsTestDataCreator.typed_data().to_python_dict()
+    assert to_arrow_table(data).equals(PyArrowDataOpsTestDataCreator.create())
+
+
+def test_source_arrow_types_defaults_to_empty() -> None:
+    assert not _StubDataOpsTestBase.source_arrow_types()
+
+
+def test_source_arrow_table_is_gone_from_the_base() -> None:
+    assert not hasattr(DataOpsTestBase, "source_arrow_table")
+
+
+def test_setup_method_uses_source_data_default() -> None:
     stub = _StubDataOpsTestBase()
     stub.setup_method()
+    assert stub._source.to_python_dict() == DataOperationsTestDataCreator.typed_data().to_python_dict()
+    assert stub.test_data is stub._source
     assert stub._arrow_table.equals(PyArrowDataOpsTestDataCreator.create())
 
 
@@ -181,31 +247,116 @@ def test_sqlite_creator_round_trips_to_the_canonical_table() -> None:
         connection.close()
 
 
-class _StubWithCustomSourceTable(_StubDataOpsTestBase):
-    """A stub overriding ``source_arrow_table`` with a non-canonical table."""
+class _StubWithCustomSourceData(_StubDataOpsTestBase):
+    """A stub overriding ``source_data`` with a non-canonical table."""
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        return pa.table({"custom": [1, 2, 3]})
+    def source_data(cls) -> TypedTestData:
+        return TypedTestData({"custom": (DataType.INT64, [1, 2, 3])})
 
 
-def test_setup_method_uses_overridden_source_arrow_table() -> None:
-    stub = _StubWithCustomSourceTable()
+def test_setup_method_uses_overridden_source_data() -> None:
+    stub = _StubWithCustomSourceData()
     stub.setup_method()
     assert stub._arrow_table.column_names == ["custom"]
-    assert stub.test_data.column_names == ["custom"]
+    assert stub.test_data.to_python_dict() == {"custom": [1, 2, 3]}
 
 
-# -- Structural guards: setup_method deleted, source_arrow_table declared ---
+# -- Typed canonical data -------------------------------------------------------
+
+
+def test_canonical_typed_data_declares_the_expected_types() -> None:
+    expected = {
+        "region": DataType.STRING,
+        "category": DataType.STRING,
+        "name": DataType.STRING,
+        "timestamp": DataType.TIMESTAMP_MICROS_TZ,
+        "event_date": DataType.DATE,
+        "value_int": DataType.INT64,
+        "value_float": DataType.DOUBLE,
+        "amount": DataType.DOUBLE,
+        "score": DataType.DOUBLE,
+        "is_active": DataType.BOOLEAN,
+    }
+    assert DataOperationsTestDataCreator.typed_data().types == expected
+
+
+def test_canonical_typed_data_matches_the_arrow_table() -> None:
+    typed = DataOperationsTestDataCreator.typed_data()
+    schema = pa.schema(
+        [
+            ("region", pa.string()),
+            ("category", pa.string()),
+            ("timestamp", pa.timestamp("us", tz="UTC")),
+            ("event_date", pa.date32()),
+            ("value_int", pa.int64()),
+            ("value_float", pa.float64()),
+            ("amount", pa.float64()),
+            ("name", pa.string()),
+            ("is_active", pa.bool_()),
+            ("score", pa.float64()),
+        ]
+    )
+    assert typed.to_python_dict() == to_arrow_table(typed).to_pydict()
+    assert to_arrow_table(typed).schema == schema
+    assert to_arrow_table(typed).equals(PyArrowDataOpsTestDataCreator.create())
+
+
+def test_pyarrow_creator_has_no_explicit_types() -> None:
+    assert not hasattr(PyArrowDataOpsTestDataCreator, "EXPLICIT_TYPES")
+
+
+# -- Lazy per-instance _arrow_table -------------------------------------------------
+
+
+def test_arrow_table_is_built_lazily_and_cached_per_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    built: list[Any] = []
+    real = helpers.arrow_table_of
+
+    def spy(data: Any, arrow_types: Any = None) -> Any:
+        built.append(data)
+        return real(data, arrow_types)
+
+    monkeypatch.setattr(helpers, "arrow_table_of", spy)
+    first = _StubDataOpsTestBase()
+    first.setup_method()
+    assert built == []
+    table = first._arrow_table
+    assert first._arrow_table is table
+    assert len(built) == 1
+    second = _StubDataOpsTestBase()
+    second.setup_method()
+    assert second._arrow_table is not table
+    assert second._arrow_table.equals(table)
+
+
+# -- helpers.arrow_table_of ----------------------------------------------------------
+
+
+def test_arrow_table_of_returns_the_arrow_table() -> None:
+    typed = DataOperationsTestDataCreator.typed_data()
+    assert helpers.arrow_table_of(typed).equals(to_arrow_table(typed))
+    data = TypedTestData({"v": (DataType.DOUBLE, [0.1])})
+    assert helpers.arrow_table_of(data, {"v": pa.float32()}).schema.field("v").type == pa.float32()
+
+
+def test_arrow_table_of_requires_pyarrow_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(helpers, "require_pyarrow", lambda: calls.append("require"))
+    helpers.arrow_table_of(DataOperationsTestDataCreator.typed_data())
+    assert calls == ["require"]
+
+
+# -- Structural guards: setup_method deleted, source_data declared ---
 
 
 @pytest.mark.parametrize(
     "cls",
     [EmaTestBase, FfillTestBase, LookupTestBase, ResampleTestBase, SessionizationTestBase, TimeBucketizationTestBase],
 )
-def test_operation_base_has_no_setup_method_override_and_declares_source_arrow_table(cls: type) -> None:
+def test_operation_base_has_no_setup_method_override_and_declares_source_data(cls: type) -> None:
     assert "setup_method" not in cls.__dict__
-    assert "source_arrow_table" in cls.__dict__
+    assert "source_data" in cls.__dict__
 
 
 # -- DataOpsTestBase._compare_with_reference extra context ------------------
@@ -427,6 +578,21 @@ def test_masked_column_keeps_the_source_column_type() -> None:
 def test_masked_column_rejects_an_unknown_operator() -> None:
     with pytest.raises(ValueError, match="bogus"):
         helpers.masked_column(_MASK_TABLE, "v", [("c", "bogus", "X")])
+
+
+def test_masked_column_does_not_use_the_pyarrow_mask_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import PyArrowMaskEngine
+
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("PyArrowMaskEngine used")
+
+    monkeypatch.setattr(PyArrowMaskEngine, "all_true", boom)
+    assert helpers.masked_column(_MASK_TABLE, "v", [("c", "equal", "X")]).to_pylist() == [1, None, 3, None]
+
+
+def test_masked_column_raises_key_error_for_a_missing_mask_column() -> None:
+    with pytest.raises(KeyError):
+        helpers.masked_column(_MASK_TABLE, "v", [("missing", "equal", "X")])
 
 
 def _make_impl(

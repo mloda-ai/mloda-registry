@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from mloda.user import Options
+from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.aggregation.python_dict_aggregation import (
@@ -14,8 +14,10 @@ from mloda.community.feature_groups.data_operations.aggregation.python_dict_aggr
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictAggregation(CapabilityHookTestMixin, PythonDictTestMixin, AggregationTestBase):
@@ -52,8 +54,6 @@ class TestPythonDictNanPartitionKeyGrouping:
     """
 
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
-        import pyarrow as pa
-
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
@@ -61,13 +61,14 @@ class TestPythonDictNanPartitionKeyGrouping:
             make_feature_set,
         )
 
-        arrow_table = pa.table(
+        typed = TypedTestData(
             {
-                "grp": pa.array([float("nan"), float("nan"), 1.0, 2.0], type=pa.float64()),
-                "val": pa.array([10.0, 20.0, 100.0, 200.0], type=pa.float64()),
+                "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
             }
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        arrow_table = arrow_table_of(typed)
+        data = typed.to_python_dict()
         fs = make_feature_set("val__sum_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)
@@ -104,8 +105,6 @@ class TestPythonDictMinMaxSkipsNan:
 
     @staticmethod
     def _agg_via(agg_type: str) -> tuple[Any, Any]:
-        import pyarrow as pa
-
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
@@ -113,13 +112,11 @@ class TestPythonDictMinMaxSkipsNan:
             make_feature_set,
         )
 
-        arrow_table = pa.table(
-            {
-                "grp": pa.array(["A", "A", "A"], type=pa.string()),
-                "val": pa.array([float("nan"), 1.0, 3.0], type=pa.float64()),
-            }
+        typed = TypedTestData(
+            {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        arrow_table = arrow_table_of(typed)
+        data = typed.to_python_dict()
         fs = make_feature_set(f"val__{agg_type}_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)

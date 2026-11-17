@@ -7,7 +7,10 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.sqlite_scalar_arithmetic import (
     SqliteScalarArithmetic,
 )
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteComputedColumnTestMixin, SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
+    SqliteComputedColumnTestMixin,
+    SqliteTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     ScalarArithmeticTestBase,
 )

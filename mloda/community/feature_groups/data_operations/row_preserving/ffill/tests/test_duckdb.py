@@ -11,7 +11,7 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.duckdb_ffill import (
     DuckdbFfill,
 )
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import (
     FfillTestBase,
 )

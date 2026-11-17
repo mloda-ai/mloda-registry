@@ -22,15 +22,22 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
+from mloda.user import DataType
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
+    calculate_with,
+    feature_group_of,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -358,11 +365,8 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_all_null_column_row_number(self) -> None:
         """Row number on an all-null order_by column should still produce valid ranks."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "score": pa.array([None, None, None], type=pa.int64()),
-            }
+        table = TypedTestData(
+            {"region": (DataType.STRING, ["A", "A", "A"]), "score": (DataType.INT64, [None, None, None])}
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__row_number_ranked", ["region"], "score")
@@ -375,11 +379,8 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_all_null_column_rank(self) -> None:
         """Rank on an all-null order_by column should assign rank 1 to all (all tied)."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "score": pa.array([None, None, None], type=pa.int64()),
-            }
+        table = TypedTestData(
+            {"region": (DataType.STRING, ["A", "A", "A"]), "score": (DataType.INT64, [None, None, None])}
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__rank_ranked", ["region"], "score")
@@ -517,11 +518,11 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_null_order_by_produces_valid_rank(self) -> None:
         """Null in order_by column should rank last (nulls last)."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [None, 1, 2],
-                "value": [100, 10, 20],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (DataType.INT64, [None, 1, 2]),
+                "value": (DataType.INT64, [100, 10, 20]),
             }
         )
         data = self.create_test_data(table)
@@ -537,10 +538,10 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_top_n_string_order_by(self) -> None:
         """Top 2 with a string order_by column: DESC sort must not use negation."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "label": ["cherry", "apple", "banana", None],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "label": (DataType.STRING, ["cherry", "apple", "banana", None]),
             }
         )
         data = self.create_test_data(table)
@@ -554,10 +555,10 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_bottom_n_string_order_by(self) -> None:
         """Bottom 2 with a string order_by column: ASC sort on non-numeric types."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A", "A"],
-                "label": ["cherry", "apple", "banana", None],
+                "region": (DataType.STRING, ["A", "A", "A", "A"]),
+                "label": (DataType.STRING, ["cherry", "apple", "banana", None]),
             }
         )
         data = self.create_test_data(table)
@@ -605,15 +606,12 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         Returns ``(reference_col, backend_col)`` for the same feature set.
         """
         self._skip_if_unsupported(rank_type)
-        table = pa.table(
-            {
-                "grp": [1, 1, 1, 1],
-                "val": pa.array([None, float("nan"), None, 1.0], type=pa.float64()),
-            }
+        table = TypedTestData(
+            {"grp": (DataType.INT64, [1, 1, 1, 1]), "val": (DataType.DOUBLE, [None, float("nan"), None, 1.0])}
         )
         feature_name = f"val__{rank_type}_ranked"
         fs = make_feature_set(feature_name, ["grp"], "val")
 
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         return _extract_column(ref, feature_name), self.extract_column(result, feature_name)

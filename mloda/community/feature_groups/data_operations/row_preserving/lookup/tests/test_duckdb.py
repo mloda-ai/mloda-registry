@@ -15,7 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.
     _EmptyMappingHookLookup,
     _HookLookup,
 )
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     LookupTestBase,
 )

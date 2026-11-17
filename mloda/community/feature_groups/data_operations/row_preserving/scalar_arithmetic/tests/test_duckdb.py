@@ -11,7 +11,7 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.duckdb_scalar_arithmetic import (
     DuckdbScalarArithmetic,
 )
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     ScalarArithmeticTestBase,
 )

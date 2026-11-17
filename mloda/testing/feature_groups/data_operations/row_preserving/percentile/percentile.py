@@ -14,15 +14,16 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
     feature_group_of,
     is_null,
     make_feature_set,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -31,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -95,7 +97,7 @@ class PercentileTestBase(
                 "value_int__p50_percentile",
                 {"partition_by": ["region"]},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             "empty_partition_by": InputValidationCase(
                 "my_result",
@@ -347,12 +349,7 @@ class PercentileTestBase(
 
     def test_empty_data_returns_zero_rows(self) -> None:
         """Percentile on an empty table (0 rows) should return 0 rows with the new column."""
-        empty_arrow = pa.table(
-            {
-                "region": pa.array([], type=pa.string()),
-                "value_int": pa.array([], type=pa.int64()),
-            }
-        )
+        empty_arrow = TypedTestData({"region": (DataType.STRING, []), "value_int": (DataType.INT64, [])})
         empty_data = self.create_test_data(empty_arrow)
         fs = make_feature_set("value_int__p50_percentile", ["region"])
         result = calculate_with(self.implementation_class(), empty_data, fs)
@@ -360,14 +357,10 @@ class PercentileTestBase(
 
     def test_single_row_partitions_return_own_value(self) -> None:
         """Each partition has 1 row: percentile at any level equals the single value."""
-        import pyarrow as pa
 
         # 3 rows, each in its own partition
-        arrow = pa.table(
-            {
-                "region": pa.array(["A", "B", "C"], type=pa.string()),
-                "value_int": pa.array([10, 20, 30], type=pa.int64()),
-            }
+        arrow = TypedTestData(
+            {"region": (DataType.STRING, ["A", "B", "C"]), "value_int": (DataType.INT64, [10, 20, 30])}
         )
         custom_data = self.create_test_data(arrow)
 
@@ -426,13 +419,9 @@ class PercentileTestBase(
 
     def test_unicode_column_names(self) -> None:
         """Unicode characters in source and partition_by column names must work."""
-        import pyarrow as pa
 
-        arrow = pa.table(
-            {
-                "r\u00e9gion": pa.array(["A", "A", "B", "B"], type=pa.string()),
-                "w\u00e9rt": pa.array([10, 20, 30, 40], type=pa.int64()),
-            }
+        arrow = TypedTestData(
+            {"r\u00e9gion": (DataType.STRING, ["A", "A", "B", "B"]), "w\u00e9rt": (DataType.INT64, [10, 20, 30, 40])}
         )
         custom_data = self.create_test_data(arrow)
 

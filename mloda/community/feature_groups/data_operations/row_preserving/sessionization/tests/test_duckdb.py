@@ -11,7 +11,7 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.duckdb_sessionization import (
     DuckdbSessionization,
 )
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
 )

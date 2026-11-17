@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
+from mloda.user import DataType
 
 from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
     PyArrowStringOps,
@@ -12,11 +13,17 @@ from mloda.community.feature_groups.data_operations.string.pyarrow_string import
 from mloda.community.feature_groups.data_operations.string.python_dict_string import (
     PythonDictStringOps,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
+    calculate_with,
+    extract_column,
+    make_feature_set,
+)
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
@@ -52,14 +59,14 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
         under PyArrow's simple case mapping. PythonDictStringOps must match
         the PyArrow reference (and current pandas default behavior), not
         Python's own ``str.upper()``."""
-        table = pa.table({"name": ["straße"]})
-        data = self.create_test_data(table)
+        typed = TypedTestData({"name": (DataType.STRING, ["straße"])})
+        data = self.create_test_data(typed)
         fs = make_feature_set("name__upper")
 
         result = calculate_with(self.implementation_class(), data, fs)
         result_col = self.extract_column(result, "name__upper")
 
-        reference = calculate_with(PyArrowStringOps, table, fs)
+        reference = calculate_with(PyArrowStringOps, arrow_table_of(typed), fs)
         reference_col = extract_column(reference, "name__upper")
 
         assert result_col == reference_col == ["STRAẞE"], (
@@ -72,14 +79,14 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
         mapping, but to plain ``i`` under PyArrow's simple case mapping.
         PythonDictStringOps must match the PyArrow reference (and current
         pandas default behavior), not Python's own ``str.lower()``."""
-        table = pa.table({"name": ["İstanbul"]})
-        data = self.create_test_data(table)
+        typed = TypedTestData({"name": (DataType.STRING, ["İstanbul"])})
+        data = self.create_test_data(typed)
         fs = make_feature_set("name__lower")
 
         result = calculate_with(self.implementation_class(), data, fs)
         result_col = self.extract_column(result, "name__lower")
 
-        reference = calculate_with(PyArrowStringOps, table, fs)
+        reference = calculate_with(PyArrowStringOps, arrow_table_of(typed), fs)
         reference_col = extract_column(reference, "name__lower")
 
         assert result_col == reference_col == ["istanbul"], (

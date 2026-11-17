@@ -9,7 +9,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarr
     PyArrowBinning,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     EXPECTED_QBIN_3,
     BinningTestBase,

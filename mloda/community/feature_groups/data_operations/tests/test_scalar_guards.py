@@ -69,7 +69,7 @@ def _duckdb_data(columns: dict[str, list[int]] | None = None) -> Any:
     pytest.importorskip("duckdb")
     from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
-    from mloda.testing.feature_groups.data_operations.mixins.duckdb import duckdb_test_connection
+    from mloda.testing.feature_groups.data_operations.mixins.frameworks import duckdb_test_connection
 
     return DuckdbRelation.from_arrow(duckdb_test_connection(), pa.table(columns or _DEFAULT_COLUMNS))
 

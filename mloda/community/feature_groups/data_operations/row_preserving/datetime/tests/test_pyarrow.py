@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
     PyArrowDateTimeExtraction,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )

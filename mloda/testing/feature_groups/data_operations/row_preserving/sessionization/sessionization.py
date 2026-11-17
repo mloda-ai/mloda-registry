@@ -74,10 +74,11 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
     extract_column,
@@ -89,6 +90,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 _U = timezone.utc
 
@@ -117,13 +119,13 @@ _SESSION_HM: list[tuple[int, int]] = [
 _SESSION_TIMESTAMPS: list[datetime] = [datetime(2023, 1, 1, h, m, 0, tzinfo=_U) for (h, m) in _SESSION_HM]
 
 
-def _create_sessionization_arrow_table() -> pa.Table:
-    """Create the 9-row PyArrow table used by every sessionization test."""
-    return pa.table(
+def _create_sessionization_data() -> TypedTestData:
+    """Create the typed data used by every sessionization test."""
+    return TypedTestData(
         {
-            "id": pa.array(_SESSION_IDS, type=pa.int64()),
-            "user": pa.array(_SESSION_USERS, type=pa.string()),
-            "ts": pa.array(_SESSION_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
+            "id": (DataType.INT64, _SESSION_IDS),
+            "user": (DataType.STRING, _SESSION_USERS),
+            "ts": (DataType.TIMESTAMP_MICROS_TZ, _SESSION_TIMESTAMPS),
         }
     )
 
@@ -212,8 +214,8 @@ class SessionizationTestBase(
     # -- Setup: use the dedicated 9-row sessionization fixture ---------------
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        return _create_sessionization_arrow_table()
+    def source_data(cls) -> TypedTestData:
+        return _create_sessionization_data()
 
     # -- Helpers ------------------------------------------------------------
 
@@ -283,20 +285,21 @@ class SessionizationTestBase(
         (30s <= 60 same session, 90s > 60 new session). Backends that hardcode a
         microsecond gap unit collapse a second-resolution column to all-zero.
         """
-        table = pa.table(
+        typed = TypedTestData(
             {
-                "user": pa.array(["A", "A", "A"], type=pa.string()),
-                "ts": pa.array(
+                "user": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
                     [
                         datetime(2023, 1, 1, 10, 0, 0, tzinfo=_U),
                         datetime(2023, 1, 1, 10, 0, 30, tzinfo=_U),
                         datetime(2023, 1, 1, 10, 2, 0, tzinfo=_U),
                     ],
-                    type=pa.timestamp("s", tz="UTC"),
                 ),
             }
         )
-        data = self.create_test_data(table)
+        # second-resolution unit is the point of the test; DataType only declares microseconds
+        data = self.create_test_data(typed, {"ts": pa.timestamp("s", tz="UTC")})
         fs = make_feature_set("ts__sessionize_1_minute", partition_by=[], order_by="ts")
         result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, "ts__sessionize_1_minute")
@@ -310,16 +313,16 @@ class SessionizationTestBase(
         carries those names. The session ids must still be correct and the
         passthrough columns must survive unchanged.
         """
-        table = pa.table(
+        typed = TypedTestData(
             {
-                "id": pa.array(_SESSION_IDS, type=pa.int64()),
-                "user": pa.array(_SESSION_USERS, type=pa.string()),
-                "ts": pa.array(_SESSION_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
-                "is_new": pa.array(list(range(100, 109)), type=pa.int64()),
-                "sid": pa.array(list(range(200, 209)), type=pa.int64()),
+                "id": (DataType.INT64, _SESSION_IDS),
+                "user": (DataType.STRING, _SESSION_USERS),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, _SESSION_TIMESTAMPS),
+                "is_new": (DataType.INT64, list(range(100, 109))),
+                "sid": (DataType.INT64, list(range(200, 209))),
             }
         )
-        data = self.create_test_data(table)
+        data = self.create_test_data(typed)
         fs = self._session_feature_set(30, "minute")
         result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
@@ -375,17 +378,17 @@ class SessionizationTestBase(
         """Rows tied on (user, ts) share a session id, including a tie at a session boundary."""
         noon = datetime(2023, 1, 1, 12, 0, 0, tzinfo=_U)
         ten = datetime(2023, 1, 1, 10, 0, 0, tzinfo=_U)
-        table = pa.table(
+        typed = TypedTestData(
             {
-                "id": pa.array([0, 1, 2, 3, 4, 5], type=pa.int64()),
-                "user": pa.array(["A", "A", "A", "A", "B", "B"], type=pa.string()),
-                "ts": pa.array([noon, ten, noon, noon, ten, ten], type=pa.timestamp("us", tz="UTC")),
+                "id": (DataType.INT64, [0, 1, 2, 3, 4, 5]),
+                "user": (DataType.STRING, ["A", "A", "A", "A", "B", "B"]),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, [noon, ten, noon, noon, ten, ten]),
             }
         )
-        data = self.create_test_data(table)
+        data = self.create_test_data(typed)
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(typed), fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, [1, 0, 1, 1, 2, 2], cast=int)
         assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
@@ -400,17 +403,17 @@ class SessionizationTestBase(
         partition_by: list[str],
     ) -> None:
         """Run a 30-minute sessionize on a small table; pin ids, non-null, and match the reference."""
-        table = pa.table(
+        typed = TypedTestData(
             {
-                "id": pa.array(list(range(len(users))), type=pa.int64()),
-                "user": pa.array(users, type=pa.string()),
-                "ts": pa.array(stamps, type=pa.timestamp("us", tz="UTC")),
+                "id": (DataType.INT64, list(range(len(users)))),
+                "user": (DataType.STRING, users),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, stamps),
             }
         )
-        data = self.create_test_data(table)
+        data = self.create_test_data(typed)
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=partition_by, order_by="ts")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(typed), fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert all(v is not None for v in col), f"session ids must be non-null: {list(col)!r}"
         assert_values_with_nulls(col, expected, cast=int)
@@ -452,10 +455,10 @@ class SessionizationTestBase(
 
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
-        missing_ts_table = pa.table(
+        missing_ts_data = TypedTestData(
             {
-                "id": pa.array(_SESSION_IDS, type=pa.int64()),
-                "user": pa.array(_SESSION_USERS, type=pa.string()),
+                "id": (DataType.INT64, _SESSION_IDS),
+                "user": (DataType.STRING, _SESSION_USERS),
             }
         )
         return {
@@ -465,7 +468,7 @@ class SessionizationTestBase(
                 "ts__sessionize_30_minute",
                 {"partition_by": ["user"], "order_by": "ts"},
                 "Source column 'ts' is not present",
-                table=missing_ts_table,
+                data=missing_ts_data,
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": InputValidationCase(

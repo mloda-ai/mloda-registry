@@ -9,7 +9,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.python
     PythonDictResample,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     ResampleTestBase,
 )

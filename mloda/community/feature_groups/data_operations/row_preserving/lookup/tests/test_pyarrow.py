@@ -9,7 +9,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.
     _EmptyMappingHookLookup,
     _HookLookup,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     LookupTestBase,
 )

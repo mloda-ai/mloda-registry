@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.user import DataType
+
 from mloda.community.feature_groups.data_operations.row_preserving.offset.python_dict_offset import (
     PythonDictOffset,
 )
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import OffsetTestBase
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictOffset(PythonDictTestMixin, OffsetTestBase):
@@ -43,13 +47,14 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
             make_feature_set,
         )
 
-        arrow_table = pa.table(
+        typed = TypedTestData(
             {
-                "grp": pa.array([float("nan"), float("nan"), 1.0, 2.0], type=pa.float64()),
-                "ord": pa.array([1, 2, 3, 4], type=pa.int64()),
-                "val": pa.array([10.0, 20.0, 100.0, 200.0], type=pa.float64()),
+                "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                "ord": (DataType.INT64, [1, 2, 3, 4]),
+                "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
             }
         )
+        arrow_table = arrow_table_of(typed)
 
         t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
         grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
@@ -61,7 +66,7 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
             f"group, got {nan_group_rows!r}"
         )
 
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        data = typed.to_python_dict()
         fs = make_feature_set("val__lag_1_offset", ["grp"], "ord")
         result = calculate_with(PythonDictOffset, data, fs)
         result_col = extract_column(result, "val__lag_1_offset")

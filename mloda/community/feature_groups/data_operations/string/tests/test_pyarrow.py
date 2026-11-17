@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
     PyArrowStringOps,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )

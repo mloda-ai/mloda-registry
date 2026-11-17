@@ -6,7 +6,7 @@ Every data operation has one framework designated as the reference. Other framew
 **When**: Every time you add a new operation or add a new framework implementation for an existing operation.
 **Why**: Without a fixed reference, frameworks drift into mutually incompatible results (e.g. different NULL handling, different tie-breaking in ranks). For the operations that keep a PyArrow-based reference, making PyArrow authoritative keeps semantics aligned without requiring everyone to agree on an abstract spec; the aggregating operations pin the same idea in a written contract instead.
 **Where**: `mloda/testing/feature_groups/data_operations/base.py::DataOpsTestBase._compare_with_reference`.
-**How**: Each framework mixin provides `create_test_data` (converts the canonical PyArrow table to the framework's native format) and `extract_column` (materializes the result back to a Python list for comparison).
+**How**: Each framework mixin provides `create_test_data` (converts typed test data to the framework's native format) and `extract_column` (materializes the result back to a Python list for comparison).
 
 ---
 
@@ -40,7 +40,7 @@ assert result_col == ref_col  # or pytest.approx for floats
 
 Aggregation, window aggregation, frame aggregate, scalar aggregate, rank, offset and percentile are the exceptions: each is one `OperationFeatureGroup` served by one `Implementation` per framework, so their test bases have no `reference_implementation_class`. Their references are the functions `reference_aggregation`, `reference_window_aggregation`, `reference_frame_aggregate`, `reference_scalar_aggregate`, `reference_rank`, `reference_offset` and `reference_percentile` (each `(group, table, features)`, in the operation's `reference.py` under `mloda/testing/feature_groups/data_operations/`), which run the parsing loop of the group under test with the kit's compute kernel and import nothing from the code they judge; `reference_calculate` passes `feature_group_of(implementation_class())` and reaches them, and the test kit runs the implementation with `calculate_with` (`mloda/testing/feature_groups/data_operations/helpers.py`). Their NaN divergences come from the implementation's shipped `divergences` records. Point and scalar arithmetic, lookup, time bucketization, ffill, resample, sessionization, string, datetime and binning are operation groups too, but keep `reference_implementation_class` pointing at their PyArrow Implementation; the default `reference_calculate` runs it through `calculate_with`, and the tests run the implementation under test with `calculate_with` as well. EMA has no PyArrow Implementation and pins literals instead of a live reference.
 
-`self.test_data` is produced by the framework mixin's `create_test_data(pa.Table)`. The canonical input is always PyArrow; the mixin converts it once per test. This keeps the fixtures aligned: both sides compute from the *same* starting values, just in different native representations.
+`self.test_data` is produced by the framework mixin's `create_test_data(TypedTestData)`. The input is typed data with a declared `DataType` per column; core's adapter converts it per framework, once per test. The reference side takes the same data as an Arrow table via `arrow_table_of`. This keeps the fixtures aligned: both sides compute from the *same* starting values, just in different native representations. Building PythonDict data needs no pyarrow; the other adapters, the reference comparison and the kit package itself still do.
 
 ---
 
@@ -54,7 +54,7 @@ If your framework produces NaN where the reference produces NULL, the comparison
 
 ## Canonical test data
 
-Row-preserving and aggregation tests share a canonical input: 12 rows defined in `mloda/testing/data_creator/base.py` (`region`, `category`, `timestamp`, `value_int`, `value_float`, `name` and more). Each operation's test base asserts specific expected values against this fixture. When you subclass the test base for a new framework, you do not redefine the data or the expected values. You only implement the adapter methods that convert between PyArrow and your framework's native type.
+Row-preserving and aggregation tests share a canonical input: 12 rows defined in `mloda/testing/data_creator/base.py` (`region`, `category`, `timestamp`, `value_int`, `value_float`, `name` and more). Each operation's test base asserts specific expected values against this fixture. When you subclass the test base for a new framework, you do not redefine the data or the expected values. The data is typed (`TypedTestData` with a declared `DataType` per column), and core's adapter converts it to your framework's native type. A fixture overrides `source_data()`.
 
 ---
 

@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 import pytest
+from mloda.user import DataType
 
 duckdb = pytest.importorskip("duckdb")
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.duckdb_binning import (
     DuckdbBinning,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import append_typed_columns, calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,
@@ -53,13 +53,9 @@ class TestDuckdbBinning(ReservedColumnsTestMixin, DuckdbTestMixin, BinningTestBa
         weaker "result is not None" assertion.
         """
         colliding_name = "__MLODA_USER_COL__"
-        base_table: pa.Table = self._arrow_table
-        num_rows = base_table.num_rows
-        colliding_table = base_table.append_column(
-            colliding_name,
-            pa.array(list(range(num_rows)), type=pa.int64()),
-        )
-        colliding_data = self.create_test_data(colliding_table)
+        num_rows = self._source.row_count
+        colliding_typed = append_typed_columns(self._source, {colliding_name: (DataType.INT64, list(range(num_rows)))})
+        colliding_data = self.create_test_data(colliding_typed)
 
         feature_name = self.reserved_columns_feature_name()
         fs = make_feature_set(

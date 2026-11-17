@@ -22,11 +22,16 @@ from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_em
 from mloda.community.feature_groups.data_operations.row_preserving.ema.polars_lazy_ema import (
     PolarsLazyEma,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
+    calculate_with,
+    extract_column,
+    make_feature_set,
+)
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import (
     EmaTestBase,
-    _create_ema_arrow_table,
+    _create_ema_data,
 )
 
 
@@ -65,7 +70,7 @@ class TestPandasPolarsAgreement:
     def test_pandas_and_polars_agree(self, span: int) -> None:
         import polars as pl
 
-        arrow_table = _create_ema_arrow_table()
+        arrow_table = arrow_table_of(_create_ema_data())
         feature_name = f"value__ema_{span}"
         fs = make_feature_set(feature_name, partition_by=["region"], order_by="ts")
 

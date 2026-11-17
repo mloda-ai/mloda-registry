@@ -21,20 +21,22 @@ from typing import Any, Callable
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Options
+from mloda.user import DataType, Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
-    canonical_table_empty,
+    canonical_data_empty,
     extract_column,
     feature_group_of,
     is_null,
     make_feature_set,
     make_multi_feature_set,
     result_column_names,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -48,6 +50,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -303,7 +306,7 @@ class AggregationTestBase(
                 "value_int__sum_agg",
                 {"partition_by": ["region"]},
                 r"Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             # partition_by=[] means one whole-table group; every backend must support it.
             "empty_partition_by": None,
@@ -464,7 +467,7 @@ class AggregationTestBase(
         feature_name: str,
         partition_by: list[str],
         use_approx: bool = False,
-        table: pa.Table | None = None,
+        table: TypedTestData | None = None,
     ) -> None:
         """Run the feature through this framework and the reference, assert results match.
 
@@ -478,7 +481,7 @@ class AggregationTestBase(
         (catches a leaked helper column). ``table`` defaults to the canonical 12-row
         table; pass an alternate (e.g. an empty variant) to exercise edge cases.
         """
-        arrow_table = self._arrow_table if table is None else table
+        arrow_table = self._arrow_table if table is None else arrow_table_of(table)
         test_data = self.test_data if table is None else self.create_test_data(table)
         fs = make_feature_set(feature_name, partition_by)
         result = calculate_with(self.implementation_class(), test_data, fs)
@@ -726,7 +729,7 @@ class AggregationTestBase(
         if needs_skip:
             self._skip_if_unsupported(agg_type)
         self._compare_agg_with_reference(
-            f"value_int__{agg_type}_agg", [], use_approx=use_approx, table=canonical_table_empty()
+            f"value_int__{agg_type}_agg", [], use_approx=use_approx, table=canonical_data_empty()
         )
 
     def test_sum_agg_global(self) -> None:
@@ -1086,11 +1089,11 @@ class AggregationTestBase(
         """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
         self._skip_if_unsupported("first")
         nan = float("nan")
-        table = pa.table({"grp": ["a", "a"], "val": pa.array([nan, 1.0], type=pa.float64())})
+        table = TypedTestData({"grp": (DataType.STRING, ["a", "a"]), "val": (DataType.DOUBLE, [nan, 1.0])})
         feature_name = "val__first_agg"
         fs = make_feature_set(feature_name, ["grp"])
 
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         reference = _build_result_map(ref.column("grp").to_pylist(), ref.column(feature_name).to_pylist())
         assert reference == pytest.approx({"a": nan}, nan_ok=True)
 
@@ -1215,16 +1218,11 @@ class AggregationTestBase(
 
     def test_signed_zero_partition_keys(self) -> None:
         """Partition keys 0.0 and -0.0: the reference and most backends merge them into one group."""
-        table = pa.table(
-            {
-                "k": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
-                "v": pa.array([1, 2, 3], type=pa.int64()),
-            }
-        )
+        table = TypedTestData({"k": (DataType.DOUBLE, [0.0, -0.0, -0.0]), "v": (DataType.INT64, [1, 2, 3])})
         feature_name = "v__count_agg"
         fs = make_feature_set(feature_name, ["k"])
 
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         assert ref.num_rows == 1, f"reference must merge 0.0/-0.0 into one group, got {ref.num_rows} rows"
         assert extract_column(ref, feature_name) == [3]
 
@@ -1243,16 +1241,11 @@ class AggregationTestBase(
     def test_signed_zero_nunique_values(self) -> None:
         """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
         self._skip_if_unsupported("nunique")
-        table = pa.table(
-            {
-                "k": pa.array(["a", "a", "a"], type=pa.string()),
-                "v": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
-            }
-        )
+        table = TypedTestData({"k": (DataType.STRING, ["a", "a", "a"]), "v": (DataType.DOUBLE, [0.0, -0.0, -0.0])})
         feature_name = "v__nunique_agg"
         fs = make_feature_set(feature_name, ["k"])
 
-        assert extract_column(self.reference_calculate(table, fs), feature_name) == [1]
+        assert extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name) == [1]
 
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = 1 if self.merges_signed_zero_keys() else 2

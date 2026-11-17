@@ -17,15 +17,17 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Options
+from mloda.user import DataType, Options
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     calculate_with,
     extract_column,
     feature_group_of,
     make_feature_set,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -34,6 +36,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
+from mloda.testing.typed_data import TypedTestData
 
 __all__ = [
     "EXPECTED_FIRST_VALUE",
@@ -106,7 +109,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 # order_by is "amount" so it stays present once the source column is dropped.
                 {"partition_by": ["region"], "order_by": "amount"},
                 "Source column 'value_int' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "value_int"),
             ),
             "empty_partition_by": InputValidationCase(
                 "value_int__lag_1_offset",
@@ -322,11 +325,11 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         """Tied order values keep input order for every offset type."""
         if op.startswith(("diff", "pct_change")):
             self._skip_if_unsupported(op.rsplit("_", 1)[0])
-        table = pa.table({"g": g, "t": pa.array(t, type=pa.int64()), "v": pa.array(v, type=pa.float64())})
+        table = TypedTestData({"g": (DataType.STRING, g), "t": (DataType.INT64, t), "v": (DataType.DOUBLE, v)})
         data = self.create_test_data(table)
         fs = make_feature_set(f"v__{op}_offset", ["g"], "t")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, f"v__{op}_offset")
         ref_col = extract_column(ref, f"v__{op}_offset")
@@ -341,11 +344,8 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_all_null_column_lag(self) -> None:
         """Lag on an all-null column should produce all None."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "score": pa.array([None, None, None], type=pa.int64()),
-            }
+        table = TypedTestData(
+            {"region": (DataType.STRING, ["A", "A", "A"]), "score": (DataType.INT64, [None, None, None])}
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__lag_1_offset", ["region"], "score")
@@ -356,11 +356,8 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_all_null_column_first_value(self) -> None:
         """First value on an all-null column should produce all None."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A"],
-                "score": pa.array([None, None, None], type=pa.int64()),
-            }
+        table = TypedTestData(
+            {"region": (DataType.STRING, ["A", "A", "A"]), "score": (DataType.INT64, [None, None, None])}
         )
         data = self.create_test_data(table)
         fs = make_feature_set("score__first_value_offset", ["region"], "score")
@@ -453,11 +450,11 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_null_order_by_key(self) -> None:
         """Null in order_by column should rank last (nulls last)."""
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A", "A"],
-                "ts": [None, 1, 2],
-                "value": [100, 10, 20],
+                "region": (DataType.STRING, ["A", "A", "A"]),
+                "ts": (DataType.INT64, [None, 1, 2]),
+                "value": (DataType.INT64, [100, 10, 20]),
             }
         )
         data = self.create_test_data(table)

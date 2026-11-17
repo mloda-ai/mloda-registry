@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.user import DataType
+
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import PercentileFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.python_dict_percentile import (
     PythonDictPercentile,
 )
-from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.percentile.percentile import (
     PercentileTestBase,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestPythonDictPercentile(PythonDictTestMixin, PercentileTestBase):
@@ -39,7 +43,6 @@ class TestPythonDictNanPartitionKeyGrouping:
     """
 
     def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
-        import pyarrow as pa
 
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
@@ -50,11 +53,13 @@ class TestPythonDictNanPartitionKeyGrouping:
             reference_percentile,
         )
 
-        arrow_table = pa.table(
-            {
-                "grp": pa.array([float("nan"), float("nan"), 1.0, 2.0], type=pa.float64()),
-                "val": pa.array([10.0, 20.0, 100.0, 200.0], type=pa.float64()),
-            }
+        arrow_table = arrow_table_of(
+            TypedTestData(
+                {
+                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+                }
+            )
         )
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__p50_percentile", ["grp"])
@@ -91,7 +96,6 @@ class TestPythonDictPercentileNanValueSkipped:
         assert result == 2.0, f"expected the NaN value to be excluded (median of 1.0/3.0 = 2.0), got {result!r}"
 
     def test_nan_value_skipped_matches_pyarrow_oracle(self) -> None:
-        import pyarrow as pa
 
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
@@ -102,11 +106,10 @@ class TestPythonDictPercentileNanValueSkipped:
             reference_percentile,
         )
 
-        arrow_table = pa.table(
-            {
-                "grp": pa.array(["A", "A", "A"], type=pa.string()),
-                "val": pa.array([1.0, float("nan"), 3.0], type=pa.float64()),
-            }
+        arrow_table = arrow_table_of(
+            TypedTestData(
+                {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [1.0, float("nan"), 3.0])}
+            )
         )
         data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("val__p50_percentile", ["grp"])

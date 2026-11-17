@@ -11,7 +11,7 @@ Timestamps (UTC):
   Row 4:  2023-01-06 00:00:00 (Fri)   Row 10: None (null)
   Row 5:  2023-01-06 00:00:00 (Fri)   Row 11: 2023-01-12 00:00:00 (Thu)
 
-A supplementary 4-row dataset (``_varied_times_arrow_table``) adds
+A supplementary 4-row dataset (``_create_varied_times_data``) adds
 non-midnight timestamps to exercise non-zero hour, minute, and second
 extraction:
 
@@ -33,18 +33,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
+from mloda.user import DataType
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
+    calculate_with,
+    extract_column,
+    make_feature_set,
+    typed_data_without,
+)
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, canonical 12-row dataset)
@@ -96,16 +103,9 @@ VARIED_EXPECTED_IS_WEEKEND: list[Any] = [0, 0, 1, None]
 VARIED_EXPECTED_QUARTER: list[Any] = [2, 3, 4, None]
 
 
-def _create_varied_times_arrow_table() -> pa.Table:
-    """Create a 4-row PyArrow table with non-midnight UTC timestamps."""
-    return pa.table(
-        {
-            "timestamp": pa.array(
-                _VARIED_TIMES_TIMESTAMPS,
-                type=pa.timestamp("us", tz="UTC"),
-            ),
-        }
-    )
+def _create_varied_times_data() -> TypedTestData:
+    """Create typed data with non-midnight UTC timestamps."""
+    return TypedTestData({"timestamp": (DataType.TIMESTAMP_MICROS_TZ, _VARIED_TIMES_TIMESTAMPS)})
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
                 "timestamp__year",
                 {},
                 "Source column 'timestamp' is not present",
-                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["timestamp"]),
+                data=typed_data_without(DataOperationsTestDataCreator.typed_data(), "timestamp"),
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,
@@ -154,8 +154,8 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
 
     def setup_method(self) -> None:
         super().setup_method()
-        self._varied_arrow_table = _create_varied_times_arrow_table()
-        self._varied_test_data = self.create_test_data(self._varied_arrow_table)
+        self._varied_data = _create_varied_times_data()
+        self._varied_test_data = self.create_test_data(self._varied_data)
 
     # -- Concrete test methods: datetime operations --------------------------
 
@@ -295,7 +295,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         """Run the feature on the supplementary dataset, compare with the reference."""
         fs = make_feature_set(feature_name)
         result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
-        ref = self.reference_calculate(self._varied_arrow_table, fs)
+        ref = self.reference_calculate(arrow_table_of(self._varied_data), fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = extract_column(ref, feature_name)
@@ -338,12 +338,8 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
 
     def test_all_null_timestamp_column(self) -> None:
         """An all-null timestamp column should produce all None for year extraction."""
-        all_null_table = pa.table(
-            {
-                "timestamp": pa.array([None, None, None], type=pa.timestamp("us", tz="UTC")),
-            }
-        )
-        data = self.create_test_data(all_null_table)
+        all_null_data = TypedTestData({"timestamp": (DataType.TIMESTAMP_MICROS_TZ, [None, None, None])})
+        data = self.create_test_data(all_null_data)
         fs = make_feature_set("timestamp__year")
         result = calculate_with(self.implementation_class(), data, fs)
 

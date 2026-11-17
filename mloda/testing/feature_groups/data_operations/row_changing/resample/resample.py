@@ -59,10 +59,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
@@ -78,6 +77,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 _U = timezone.utc
 
@@ -121,16 +121,19 @@ _RESAMPLE_VALUES: list[float | None] = [
 ]
 
 
-def _create_resample_arrow_table() -> pa.Table:
-    """Create the 12-row PyArrow table used by every resample test."""
-    return pa.table(
-        {
-            "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
-            "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
-            "ts": pa.array(_RESAMPLE_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
-            "value": pa.array(_RESAMPLE_VALUES, type=pa.float64()),
-        }
-    )
+def _resample_columns() -> dict[str, tuple[DataType, list[Any]]]:
+    """The four typed resample columns (id, region, ts, value)."""
+    return {
+        "id": (DataType.INT64, _RESAMPLE_IDS),
+        "region": (DataType.STRING, _RESAMPLE_REGIONS),
+        "ts": (DataType.TIMESTAMP_MICROS_TZ, _RESAMPLE_TIMESTAMPS),
+        "value": (DataType.DOUBLE, _RESAMPLE_VALUES),
+    }
+
+
+def _create_resample_data(*, drop: str | None = None) -> TypedTestData:
+    """Create the typed data used by every resample test, optionally without one column."""
+    return TypedTestData({n: c for n, c in _resample_columns().items() if n != drop})
 
 
 # Convenience bucket-start constructors.
@@ -309,8 +312,8 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     # -- Setup: use the dedicated 12-row resample fixture -------------------
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        return _create_resample_arrow_table()
+    def source_data(cls) -> TypedTestData:
+        return _create_resample_data()
 
     # -- Result-map helpers -------------------------------------------------
 
@@ -724,20 +727,6 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
-        missing_value_table = pa.table(
-            {
-                "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
-                "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
-                "ts": pa.array(_RESAMPLE_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
-            }
-        )
-        missing_time_table = pa.table(
-            {
-                "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
-                "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
-                "value": pa.array(_RESAMPLE_VALUES, type=pa.float64()),
-            }
-        )
         return {
             "multi_column_in_features": InputValidationCase(
                 "bad_multi_col",
@@ -748,7 +737,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
                 "value__resample_1_hour_mean",
                 {"partition_by": ["region"], "time_column": "ts"},
                 r"Source column 'value' is not present",
-                table=missing_value_table,
+                data=_create_resample_data(drop="value"),
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": InputValidationCase(
@@ -761,6 +750,6 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
                 "value__resample_1_hour_mean",
                 {"partition_by": ["region"], "time_column": "ts"},
                 "time_column 'ts' is not present",
-                table=missing_time_table,
+                data=_create_resample_data(drop="ts"),
             ),
         }

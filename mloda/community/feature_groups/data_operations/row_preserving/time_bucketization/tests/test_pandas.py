@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     PandasTimeBucketization,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
-from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )

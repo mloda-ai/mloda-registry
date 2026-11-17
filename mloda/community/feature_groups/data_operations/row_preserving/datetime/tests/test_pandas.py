@@ -13,7 +13,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.pandas_datetime import (
     PandasDateTimeExtraction,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )

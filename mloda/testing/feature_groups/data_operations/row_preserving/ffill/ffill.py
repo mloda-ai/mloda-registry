@@ -52,13 +52,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
     make_feature_set,
@@ -69,6 +69,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 _U = timezone.utc
 
@@ -108,14 +109,14 @@ _FFILL_VALUES: list[float | None] = [
 ]
 
 
-def _create_ffill_arrow_table() -> pa.Table:
-    """Create the 10-row PyArrow table used by every ffill test."""
-    return pa.table(
+def _create_ffill_data() -> TypedTestData:
+    """Create the typed data used by every ffill test."""
+    return TypedTestData(
         {
-            "id": pa.array(_FFILL_IDS, type=pa.int64()),
-            "region": pa.array(_FFILL_REGIONS, type=pa.string()),
-            "ts": pa.array(_FFILL_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
-            "value": pa.array(_FFILL_VALUES, type=pa.float64()),
+            "id": (DataType.INT64, _FFILL_IDS),
+            "region": (DataType.STRING, _FFILL_REGIONS),
+            "ts": (DataType.TIMESTAMP_MICROS_TZ, _FFILL_TIMESTAMPS),
+            "value": (DataType.DOUBLE, _FFILL_VALUES),
         }
     )
 
@@ -213,8 +214,8 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
     # -- Setup: use the dedicated 10-row ffill fixture ----------------------
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        return _create_ffill_arrow_table()
+    def source_data(cls) -> TypedTestData:
+        return _create_ffill_data()
 
     # -- Helpers ------------------------------------------------------------
 
@@ -296,16 +297,16 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         self, t_days: list[int], v: list[float | None], expected: list[float]
     ) -> None:
         """Rows tied on order_by keep input order (the tie is deliberate, unlike the unique-ts fixture)."""
-        table = pa.table(
+        data = TypedTestData(
             {
-                "g": ["a"] * len(v),
-                "t": pa.array([datetime(2023, 1, d, tzinfo=_U) for d in t_days], type=pa.timestamp("us", tz="UTC")),
-                "v": pa.array(v, type=pa.float64()),
+                "g": (DataType.STRING, ["a"] * len(v)),
+                "t": (DataType.TIMESTAMP_MICROS_TZ, [datetime(2023, 1, d, tzinfo=_U) for d in t_days]),
+                "v": (DataType.DOUBLE, v),
             }
         )
         fs = make_feature_set("v__ffill", partition_by=["g"], order_by="t")
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        ref = self.reference_calculate(table, fs)
+        result = calculate_with(self.implementation_class(), self.create_test_data(data), fs)
+        ref = self.reference_calculate(arrow_table_of(data), fs)
 
         col = self.extract_column(result, "v__ffill")
         assert [float(x) for x in col] == expected
@@ -373,11 +374,11 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
 
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
-        missing_value_table = pa.table(
+        missing_value_data = TypedTestData(
             {
-                "id": pa.array(_FFILL_IDS, type=pa.int64()),
-                "region": pa.array(_FFILL_REGIONS, type=pa.string()),
-                "ts": pa.array(_FFILL_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
+                "id": (DataType.INT64, _FFILL_IDS),
+                "region": (DataType.STRING, _FFILL_REGIONS),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, _FFILL_TIMESTAMPS),
             }
         )
         return {
@@ -390,7 +391,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
                 "value__ffill",
                 {"partition_by": ["region"], "order_by": "ts"},
                 "Source column 'value' is not present",
-                table=missing_value_table,
+                data=missing_value_data,
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": InputValidationCase(

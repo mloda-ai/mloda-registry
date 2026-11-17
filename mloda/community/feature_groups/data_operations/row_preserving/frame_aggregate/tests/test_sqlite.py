@@ -8,21 +8,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import pyarrow as pa
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
     SqliteFrameAggregate,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, feature_group_of
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin, SqliteViewTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
     config_frame_options,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAggregateTestBase):
@@ -74,14 +74,17 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
 
         Row 0 at 12:00:00.000 is 3.5s before row 1 at 12:00:03.500 and must be excluded.
         """
-        table = pa.table(
+        table = TypedTestData(
             {
-                "region": ["A", "A"],
-                "ts": [
-                    datetime(2023, 1, 1, 12, 0, 0, 0, tzinfo=timezone.utc),
-                    datetime(2023, 1, 1, 12, 0, 3, 500_000, tzinfo=timezone.utc),
-                ],
-                "value": [1, 2],
+                "region": (DataType.STRING, ["A", "A"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [
+                        datetime(2023, 1, 1, 12, 0, 0, 0, tzinfo=timezone.utc),
+                        datetime(2023, 1, 1, 12, 0, 3, 500_000, tzinfo=timezone.utc),
+                    ],
+                ),
+                "value": (DataType.INT64, [1, 2]),
             }
         )
         data = self.create_test_data(table)
@@ -93,7 +96,7 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         fs = FeatureSet()
         fs.add(feature)
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(table, fs)
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col, f"got {result_col}, expected {ref_col}"

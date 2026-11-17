@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.polars_l
     PolarsLazyRank,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,

@@ -11,7 +11,7 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pandas_scalar_arithmetic import (
     PandasScalarArithmetic,
 )
-from mloda.testing.feature_groups.data_operations.mixins.pandas import (
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )

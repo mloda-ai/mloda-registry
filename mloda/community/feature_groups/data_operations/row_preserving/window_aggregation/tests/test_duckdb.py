@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     DuckdbWindowAggregation,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )

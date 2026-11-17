@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     EXPECTED_FIRST_BY_REGION,
     EXPECTED_LAST_BY_REGION,

@@ -23,14 +23,16 @@ from typing import Any, NamedTuple
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
-from mloda.user import Feature, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
+    empty_like,
     feature_group_of,
     make_feature_set,
+    typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -38,21 +40,27 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 _IDS: list[int] = [0, 1, 2, 3, 4, 5, 6]
 _PRODUCT_CODES: list[str | None] = ["A100", "B200", "A100", "C300", None, "D400", "C300"]
 _STORE_IDS: list[int | None] = [1, 2, 1, 3, None, 4, 3]
 
 
-def create_lookup_arrow_table() -> pa.Table:
-    """The table used by every lookup test (str key column plus int key column)."""
-    return pa.table(
+def create_lookup_data() -> TypedTestData:
+    """The data used by every lookup test (str key column plus int key column)."""
+    return TypedTestData(
         {
-            "id": pa.array(_IDS, type=pa.int64()),
-            "product_code": pa.array(_PRODUCT_CODES, type=pa.string()),
-            "store_id": pa.array(_STORE_IDS, type=pa.int64()),
+            "id": (DataType.INT64, _IDS),
+            "product_code": (DataType.STRING, _PRODUCT_CODES),
+            "store_id": (DataType.INT64, _STORE_IDS),
         }
     )
+
+
+def _single(data_type: DataType, values: list[Any]) -> TypedTestData:
+    """One column named ``v``."""
+    return TypedTestData({"v": (data_type, values)})
 
 
 # ---------------------------------------------------------------------------
@@ -217,14 +225,15 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return PyArrowLookup
 
     @classmethod
-    def source_arrow_table(cls) -> pa.Table:
-        return create_lookup_arrow_table()
+    def source_data(cls) -> TypedTestData:
+        return create_lookup_data()
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
-        without_source = create_lookup_arrow_table().drop_columns(["product_code"])
+        full = create_lookup_data()
+        without_source = typed_data_without(full, "product_code")
         return {
             "multi_column_in_features": InputValidationCase(
                 "bad_multi_col",
@@ -235,7 +244,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 "product_code__lookup",
                 {"lookup_mapping": FULL_STR_MAP},
                 "Source column 'product_code' is not present",
-                table=without_source,
+                data=without_source,
             ),
             "empty_partition_by": None,
             "missing_partition_by_column": None,
@@ -299,7 +308,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         assert self.extract_column(result, "product_code") == _PRODUCT_CODES
 
     def test_empty_table(self) -> None:
-        empty = self.create_test_data(self._arrow_table.slice(0, 0))
+        empty = self.create_test_data(empty_like(self._source))
         for policy in ("raise", "null", "keep"):
             result = self._run("product_code__lookup", PARTIAL_STR_MAP, policy, data=empty)
             assert self.get_row_count(result) == 0
@@ -314,14 +323,14 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_quote_and_semicolon_round_trip_exactly(self) -> None:
         key, value = "O'Brien; DROP", 'it\'s; "x" -- done'
-        table = self.create_test_data(pa.table({"k": pa.array([key, "plain", None, key], type=pa.string())}))
+        table = self.create_test_data(TypedTestData({"k": (DataType.STRING, [key, "plain", None, key])}))
         result = self._run("k__lookup", {key: value, "plain": "p"}, "raise", data=table)
         assert self.extract_column(result, "k__lookup") == [value, "p", None, value]
 
     def test_mapping_larger_than_sql_bound_variable_limit(self) -> None:
         size = 40000
         mapping = {i: i + 1 for i in range(size)}
-        table = self.create_test_data(pa.table({"k": pa.array([0, 7, None, size - 1], type=pa.int64())}))
+        table = self.create_test_data(TypedTestData({"k": (DataType.INT64, [0, 7, None, size - 1])}))
         result = self._run("k__lookup", mapping, "raise", data=table)
         assert self.extract_column(result, "k__lookup") == [1, 8, None, size]
 
@@ -384,7 +393,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def test_raise_sample_is_sorted_and_capped_at_ten(self) -> None:
         keys = [f"K{i:02d}" for i in range(12)]
-        table = self.create_test_data(pa.table({"k": pa.array(["K11", *keys, None], type=pa.string())}))
+        table = self.create_test_data(TypedTestData({"k": (DataType.STRING, ["K11", *keys, None])}))
         fs = make_feature_set("k__lookup", lookup_mapping={"zzz": "x"}, on_unmatched="raise")
         with pytest.raises(self.unmatched_error()) as excinfo:
             calculate_with(self.implementation_class(), table, fs)
@@ -426,20 +435,16 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         ("column", "mapping"),
         [
             pytest.param(
-                pa.array([datetime.date(2020, 1, 1), None, datetime.date(2020, 1, 2)], type=pa.date32()),
+                (DataType.DATE, [datetime.date(2020, 1, 1), None, datetime.date(2020, 1, 2)]),
                 PARTIAL_STR_MAP,
                 id="date_source_str_keys",
             ),
-            pytest.param(
-                pa.array([True, None, False], type=pa.bool_()), PARTIAL_STR_MAP, id="bool_with_nulls_str_keys"
-            ),
-            pytest.param(
-                pa.array([True, None, False], type=pa.bool_()), PARTIAL_INT_MAP, id="bool_with_nulls_int_keys"
-            ),
+            pytest.param((DataType.BOOLEAN, [True, None, False]), PARTIAL_STR_MAP, id="bool_with_nulls_str_keys"),
+            pytest.param((DataType.BOOLEAN, [True, None, False]), PARTIAL_INT_MAP, id="bool_with_nulls_int_keys"),
         ],
     )
     def test_non_key_source_dtype_raises(self, column: Any, mapping: dict[Any, Any], policy: str) -> None:
-        table = self.create_test_data(pa.table({"v": column}))
+        table = self.create_test_data(_single(*column))
         with pytest.raises(ValueError, match="'v'") as excinfo:
             self._run("v__lookup", mapping, policy, data=table)
         assert not isinstance(excinfo.value, self.unmatched_error())
@@ -448,10 +453,10 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @pytest.mark.parametrize("policy", ["null", "keep"])
     @pytest.mark.parametrize(
-        ("pa_type", "mapping", "values", "null_expected", "keep_expected"),
+        ("data_type", "mapping", "values", "null_expected", "keep_expected"),
         [
             pytest.param(
-                pa.int32(),
+                DataType.INT32,
                 {1: 10, 2**40: 20},
                 [1, 5, None],
                 [10, None, None],
@@ -459,7 +464,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 id="int32_key_above_width",
             ),
             pytest.param(
-                pa.int8(),
+                DataType.INT8,
                 {1: 10, -(2**40): 20},
                 [1, -5, None],
                 [10, None, None],
@@ -467,20 +472,20 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 id="int8_key_below_width",
             ),
             pytest.param(
-                pa.uint8(), {1: 10, -1: 20}, [1, 5, None], [10, None, None], [10, 5, None], id="uint8_negative_key"
+                DataType.UINT8, {1: 10, -1: 20}, [1, 5, None], [10, None, None], [10, 5, None], id="uint8_negative_key"
             ),
         ],
     )
     def test_int_key_outside_source_width(
         self,
-        pa_type: pa.DataType,
+        data_type: DataType,
         mapping: dict[Any, Any],
         values: list[Any],
         null_expected: list[Any],
         keep_expected: list[Any],
         policy: str,
     ) -> None:
-        table = self.create_test_data(pa.table({"v": pa.array(values, type=pa_type)}))
+        table = self.create_test_data(_single(data_type, values))
         col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
         assert_values_with_nulls(col, null_expected if policy == "null" else keep_expected, nan_is_null=True)
 
@@ -495,12 +500,12 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_large_int_keys_map_exactly(self, policy: str, mapping: dict[Any, Any], expected: list[Any]) -> None:
         if self.int_with_nulls_becomes_float():
             pytest.skip("fixture stores int64 with nulls as float64, which cannot hold 2**60 + 1")
-        table = self.create_test_data(pa.table({"v": pa.array([2**60, 2**60 + 1, None], type=pa.int64())}))
+        table = self.create_test_data(_single(DataType.INT64, [2**60, 2**60 + 1, None]))
         col = self.extract_column(self._run("v__lookup", mapping, policy, data=table), "v__lookup")
         assert col == expected
 
     def test_int_key_outside_source_width_still_matches_in_range_key_under_raise(self) -> None:
-        table = self.create_test_data(pa.table({"v": pa.array([1, 2, None], type=pa.int32())}))
+        table = self.create_test_data(_single(DataType.INT32, [1, 2, None]))
         with pytest.raises(self.unmatched_error()) as excinfo:
             self._run("v__lookup", {1: 10, 2**40: 20}, "raise", data=table)
         err = excinfo.value
@@ -510,7 +515,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_uint64_above_int64_is_rejected(self, policy: str) -> None:
         big = 2**63 + 5
         try:
-            table = self.create_test_data(pa.table({"v": pa.array([1, big, None], type=pa.uint64())}))
+            table = self.create_test_data(_single(DataType.UINT64, [1, big, None]))
         except OverflowError:
             pytest.skip("framework cannot hold uint64 values above int64")
         with pytest.raises(ValueError) as excinfo:
@@ -525,7 +530,8 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         [pytest.param(PARTIAL_STR_MAP, id="str_keys"), pytest.param(PARTIAL_INT_MAP, id="int_keys")],
     )
     def test_untyped_all_null_source(self, mapping: dict[Any, Any], policy: str) -> None:
-        table = self.create_test_data(pa.table({"v": pa.array([None, None, None])}))
+        # DataType has no null type; the arrow override keeps the column null-typed
+        table = self.create_test_data(_single(DataType.INT64, [None, None, None]), {"v": pa.null()})
         if self.untyped_null_source_becomes_int() and isinstance(next(iter(mapping)), str):
             with pytest.raises(ValueError) as excinfo:
                 self._run("v__lookup", mapping, policy, data=table)
@@ -537,7 +543,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
     def test_typed_all_null_source_checks_key_family(self, policy: str) -> None:
-        table = self.create_test_data(pa.table({"v": pa.array([None, None, None], type=pa.int64())}))
+        table = self.create_test_data(_single(DataType.INT64, [None, None, None]))
         if self.typed_null_source_becomes_untyped():
             result = self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
             assert self.get_row_count(result) == 3
