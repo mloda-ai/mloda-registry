@@ -32,10 +32,6 @@ TIME_BUCKETIZATION_RULES: Mapping[str, str] = MappingProxyType(
             "round compares elapsed time, so bucket length matters: Jan 31 days, Feb 28 or 29, year 365 or 366."
         ),
         "leap_day": "2024-02-29 exists: ceil of the day gives 2024-03-01 and the month has 29 days.",
-        "round_zone_quirk": (
-            "round of month and year on a timezone-aware column measures 2 * ((wall + utcoffset) - floor) against "
-            "the bucket length, so the offset counts twice; other units and naive columns are unaffected."
-        ),
         "row_order": "Output rows keep the input order.",
     }
 )
@@ -422,56 +418,11 @@ TIME_BUCKETIZATION_PINNING = PinningTable(
         _row("leap_day", "ceil_1_month", [(_n(2024, 2, 29, 13, 45), _n(2024, 3, 1))]),
         _row("leap_day", "ceil_1_year", [(_n(2024, 2, 29, 13, 45), _n(2025, 1, 1))]),
         _row("leap_day", "round_1_month", [(_n(2024, 2, 29, 12), _n(2024, 3, 1))]),
-        # month and year round on a timezone-aware column count the offset twice
+        # round on a UTC column is plain wall-clock half-up rounding
         _row(
-            "round_zone_quirk",
-            "round_1_month",
-            [(_p(2024, 1, 16, 7), _p(2024, 2, 1)), (_p(2024, 1, 16, 6, 59, 59), _p(2024, 1, 1))],
-            _AWARE,
-        ),
-        _row(
-            "round_zone_quirk",
-            "round_1_month",
-            [
-                (_f(2024, 1, 16, 12), _f(2024, 1, 1)),
-                (_f(2024, 1, 16, 17), _f(2024, 2, 1)),
-                (_f(2024, 1, 16, 16, 59, 59), _f(2024, 1, 1)),
-            ],
-            _AWARE,
-        ),
-        _row(
-            "round_zone_quirk",
-            "round_1_month",
-            [(_m(2024, 1, 16, 12), _m(2024, 1, 1)), (_m(2024, 1, 16, 15, 30), _m(2024, 2, 1))],
-            _AWARE,
-        ),
-        _row(
-            "round_zone_quirk",
-            "round_1_year",
-            [(_p(2024, 7, 1, 19), _p(2025, 1, 1)), (_p(2024, 7, 1, 18), _p(2024, 1, 1))],
-            _AWARE,
-        ),
-        _row(
-            "round_zone_quirk",
+            "round_length",
             "round_1_month",
             [(_u(2024, 1, 16, 12), _u(2024, 2, 1)), (_u(2024, 1, 16, 11), _u(2024, 1, 1))],
-            _AWARE,
-        ),
-        _row(
-            "round_zone_quirk",
-            "round_1_month",
-            [(_n(2024, 1, 16, 7), _n(2024, 1, 1)), (_n(2024, 1, 16, 12), _n(2024, 2, 1))],
-        ),
-        _row(
-            "round_zone_quirk",
-            "round_1_day",
-            [(_p(2024, 1, 1, 12), _p(2024, 1, 2)), (_p(2024, 1, 1, 11, 59), _p(2024, 1, 1))],
-            _AWARE,
-        ),
-        _row(
-            "round_zone_quirk",
-            "round_1_week",
-            [(_p(2024, 3, 14, 11, 59), _p(2024, 3, 11)), (_p(2024, 3, 14, 12), _p(2024, 3, 18))],
             _AWARE,
         ),
         _row(

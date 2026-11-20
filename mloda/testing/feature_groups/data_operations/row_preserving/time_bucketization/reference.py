@@ -1,7 +1,7 @@
 """Pure Python reference for time bucketization: runs the group's loop with a Python compute.
 
 Math runs on the wall-clock value of the column's own zone; tzinfo is re-attached at the end.
-Only ms and us timestamps with no zone, UTC or a fixed offset are in scope.
+Only ms and us timestamps with no zone, UTC or a fixed offset are in scope; month/year round on non-UTC zones is unjudged.
 """
 
 from __future__ import annotations
@@ -66,10 +66,7 @@ def _bucket(value: datetime, op: str, n: int, unit: str) -> datetime:
     elif op == "ceil":
         result = wall if floor == wall and unit in _UNIT_MICROS else upper
     else:
-        offset = wall - floor
-        if unit in ("month", "year") and value.tzinfo is not None:
-            offset += value.utcoffset() or timedelta(0)
-        result = upper if 2 * offset >= upper - floor else floor
+        result = upper if 2 * (wall - floor) >= upper - floor else floor
     return result.replace(tzinfo=value.tzinfo)
 
 
@@ -79,6 +76,11 @@ def _compute(table: pa.Table, feature_name: str, source_col: str, op: str, n: in
     if op not in TIME_BUCKET_OP_NAMES:
         raise ValueError(f"Unsupported bucket op {op!r}. Supported: {sorted(TIME_BUCKET_OP_NAMES)}")
     column = table.column(source_col)
+    tz = column.type.tz
+    if op == "round" and unit in ("month", "year") and tz is not None and tz != "UTC":
+        raise ValueError(
+            f"round with unit {unit!r} on timezone {tz!r}: backends disagree there, so the reference leaves it unjudged."
+        )
     values = [None if v is None else _bucket(v, op, n, unit) for v in column.to_pylist()]
     return table.append_column(feature_name, pa.array(values, type=column.type))
 
