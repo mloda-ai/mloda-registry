@@ -615,7 +615,7 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/datetime/duckdb_datetime.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_divergent_flags_are_declared
-- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_zone_date_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_pinned_row
 -->
 
 - **Operations**: `datetime` field extraction.

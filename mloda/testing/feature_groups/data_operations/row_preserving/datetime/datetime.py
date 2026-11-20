@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
-from mloda.provider import FeatureSet, Implementation
+from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import DataType
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
@@ -120,7 +120,7 @@ def _create_varied_times_data() -> TypedTestData:
 class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for datetime extraction framework tests."""
 
-    _case_fixtures: ClassVar[dict[str, str]] = {"zone_date_row_case": "zone_date_row_cases"}
+    _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
 
     @classmethod
     def tz_aware_source_reads_utc(cls) -> bool:
@@ -128,9 +128,8 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         return False
 
     @classmethod
-    def zone_date_row_cases(cls) -> dict[str, Any]:
-        rows = [r for r in DATETIME_PINNING.rows if r.case in {"timezone", "date"}]
-        return {f"{i}-{row.case}-{row.feature}": row for i, row in enumerate(rows)}
+    def pinned_row_cases(cls) -> dict[str, Any]:
+        return {f"{i}-{row.case}-{row.feature}": row for i, row in enumerate(DATETIME_PINNING.rows)}
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
@@ -296,11 +295,11 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         result_col = self.extract_column(result, "timestamp__month")
         assert result_col == VARIED_EXPECTED_MONTH
 
-    # -- Pinned timezone and date rows ---------------------------------------
+    # -- Pinned rows ---------------------------------------------------------
 
-    def test_zone_date_pinned_row(self, zone_date_row_case: str) -> None:
-        """Hand-computed timezone and date rows; a UTC-reading backend is pinned to the reference on UTC instants."""
-        row = self.zone_date_row_cases()[zone_date_row_case]
+    def test_pinned_row(self, pinned_row_case: str) -> None:
+        """Hand-computed rows; a UTC-reading backend is pinned to the reference on UTC instants."""
+        row = self.pinned_row_cases()[pinned_row_case]
         expected = row.expected[row.feature][1]
         column = next(iter(row.inputs))
         data_type, values = row.inputs[column]
@@ -322,7 +321,7 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         if not (isinstance(impl, type) and issubclass(impl, Implementation)):
             pytest.skip("implementation under test is not an Implementation class")
         if self.tz_aware_source_reads_utc():
-            assert impl.divergences
+            assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
 
     # -- Null handling tests -------------------------------------------------
 

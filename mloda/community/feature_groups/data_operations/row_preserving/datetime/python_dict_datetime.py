@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, cast
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
@@ -11,10 +11,9 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
-
-_TIME_OF_DAY_OPS = frozenset({"hour", "minute", "second"})
 
 
 class PythonDictDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
@@ -54,7 +53,7 @@ class PythonDictDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
                     f"Column {source_col!r} must contain datetime.date or datetime.datetime values to extract "
                     f"datetime components; got {type(value).__name__} ({value!r})."
                 )
-            if op in _TIME_OF_DAY_OPS and not isinstance(value, datetime):
+            if op in TIME_OF_DAY_OPS and not isinstance(value, datetime):
                 raise ValueError(
                     f"Column {source_col!r} holds a bare date, but {op!r} needs a time of day (datetime or timestamp)."
                 )
@@ -71,11 +70,11 @@ class PythonDictDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         elif op == "day":
             return value.day
         elif op == "hour":
-            return value.hour if isinstance(value, datetime) else None
+            return cast(datetime, value).hour
         elif op == "minute":
-            return value.minute if isinstance(value, datetime) else None
+            return cast(datetime, value).minute
         elif op == "second":
-            return value.second if isinstance(value, datetime) else None
+            return cast(datetime, value).second
         elif op == "dayofweek":
             return value.weekday()
         elif op == "is_weekend":
