@@ -681,8 +681,6 @@ _KIT_PYARROW_REFERENCE_IMPORTS: set[tuple[str, str]] = {
         f"{_COMMUNITY_DATA_OPS}.row_preserving.{op}.pyarrow_{op}",
     )
     for op in (
-        "binning",
-        "time_bucketization",
         "ffill",
         "sessionization",
         "lookup",

@@ -114,12 +114,11 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         }
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarrow_binning import (
-            PyArrowBinning,
-        )
+    def reference_calculate(cls, table: Any, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.binning.reference import reference_binning
 
-        return PyArrowBinning
+        return reference_binning(cls.feature_group_class(), table, features)
 
     # -- Concrete test methods -----------------------------------------------
 

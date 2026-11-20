@@ -84,5 +84,5 @@ Row count matches the input; each new column contains integers in `[0, N-1]` (or
 ## Related
 
 - [Row-preserving contract](02-row-preserving-contract.md) - How SQL `window()` keeps input order and when a tag-and-restore wrapper is still needed.
-- [Reference implementation pattern](03-reference-implementation.md) - PyArrow's rank-based `qbin` is the source of truth.
+- [Reference implementation pattern](03-reference-implementation.md) - the pure Python reference (`reference_binning`) is the source of truth.
 - [Adding a new data operation](10-adding-new-operation.md) - Template for extending binning to a new framework.

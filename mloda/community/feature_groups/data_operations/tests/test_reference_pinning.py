@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -12,12 +12,16 @@ import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
+from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
+    TimeBucketizationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import OPERATIONS
@@ -38,8 +42,16 @@ from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.refe
     reference_point_arithmetic,
     reference_scalar_arithmetic,
 )
+from mloda.testing.feature_groups.data_operations.row_preserving.binning.pinning_rows import BINNING_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.binning.reference import reference_binning
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import reference_datetime
+from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
+    TIME_BUCKETIZATION_PINNING,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.reference import (
+    reference_time_bucketization,
+)
 from mloda.testing.feature_groups.data_operations.string.pinning_rows import STRING_PINNING
 from mloda.testing.feature_groups.data_operations.string.reference import reference_string
 from mloda.testing.typed_data import TypedTestData
@@ -50,6 +62,8 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (ScalarArithmeticFeatureGroup, reference_scalar_arithmetic, SCALAR_ARITHMETIC_PINNING),
     (StringFeatureGroup, reference_string, STRING_PINNING),
     (DateTimeFeatureGroup, reference_datetime, DATETIME_PINNING),
+    (BinningFeatureGroup, reference_binning, BINNING_PINNING),
+    (TimeBucketizationFeatureGroup, reference_time_bucketization, TIME_BUCKETIZATION_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -60,6 +74,13 @@ ROW_PARAMS = [
 TABLE_PARAMS = [pytest.param(group, table, id=table.operation) for group, _, table in PINNED]
 
 
+def _expected_arrow_type(data_type: DataType, values: tuple[Any, ...]) -> pa.DataType:
+    if data_type == DataType.TIMESTAMP_MICROS_TZ:
+        # No single Arrow type: take the zone from the expected aware values.
+        return pa.array(list(values)).type
+    return DataType.to_arrow_type(data_type)
+
+
 @pytest.mark.parametrize(("group", "reference", "table", "row"), ROW_PARAMS)
 def test_reference_matches_pinned_row(
     group: type, reference: Callable[..., Any], table: PinningTable, row: PinningRow
@@ -67,7 +88,7 @@ def test_reference_matches_pinned_row(
     result = reference(group, arrow_table_of(TypedTestData(row.inputs)), make_feature_set(row.feature, **row.context))
     for name, (data_type, values) in row.expected.items():
         assert_values_with_nulls(result.column(name).to_pylist(), list(values), strict=True)
-        assert result.schema.field(name).type == DataType.to_arrow_type(data_type), f"column {name} type"
+        assert result.schema.field(name).type == _expected_arrow_type(data_type, values), f"column {name} type"
     assert set(result.column_names) == set(row.inputs) | set(row.expected)
 
 
@@ -125,7 +146,7 @@ def _fits(data_type: DataType, value: Any) -> bool:
         return isinstance(value, str)
     if data_type == DataType.DATE:
         return isinstance(value, date) and not isinstance(value, datetime)
-    if data_type == DataType.TIMESTAMP_MICROS:
+    if data_type in (DataType.TIMESTAMP_MICROS, DataType.TIMESTAMP_MILLIS):
         return isinstance(value, datetime) and value.tzinfo is None
     if data_type == DataType.TIMESTAMP_MICROS_TZ:
         return isinstance(value, datetime) and value.tzinfo is not None
@@ -140,6 +161,8 @@ _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
 _SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
 _STRING = (reference_string, StringFeatureGroup)
 _DATETIME = (reference_datetime, DateTimeFeatureGroup)
+_BINNING = (reference_binning, BinningFeatureGroup)
+_BUCKET = (reference_time_bucketization, TimeBucketizationFeatureGroup)
 
 _REJECTION_PARAMS = [
     pytest.param(
@@ -362,6 +385,48 @@ _REJECTION_PARAMS = [
     pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.int64(), [1])}, None, id="datetime-int-source"),
     pytest.param(
         *_DATETIME, "x__year", {}, {"x": (pa.timestamp("ns"), [datetime(2024, 1, 1)])}, None, id="datetime-ns-source"
+    ),
+    pytest.param(
+        *_BINNING,
+        "bogus_feature",
+        {"binning_op": "bogus", "n_bins": 3, "in_features": "x"},
+        {"x": (pa.int64(), [1])},
+        "bogus",
+        id="binning-unknown-op",
+    ),
+    pytest.param(*_BINNING, "x__bin_3", {}, {"x": (pa.bool_(), [True])}, None, id="binning-bool-source"),
+    pytest.param(*_BINNING, "x__bin_3", {}, {"x": (pa.string(), ["1"])}, None, id="binning-string-source"),
+    pytest.param(
+        *_BINNING, "x__bin_3", {}, {"x": (pa.decimal128(10, 2), [Decimal("1.00")])}, None, id="binning-decimal-source"
+    ),
+    pytest.param(*_BINNING, "x__bin_3", {}, {"x": (pa.null(), [None])}, None, id="binning-null-source"),
+    pytest.param(*_BINNING, "x__qbin_3", {}, {"x": (pa.string(), ["1"])}, None, id="qbinning-string-source"),
+    pytest.param(
+        *_BINNING, "x__bin_3", {}, {"x": (pa.float64(), [1.0, float("inf")])}, None, id="binning-bin-infinity"
+    ),
+    pytest.param(
+        *_BINNING, "x__bin_3", {}, {"x": (pa.int64(), [1, 2**53 + 1])}, None, id="binning-bin-integer-beyond-2-53"
+    ),
+    pytest.param(
+        *_BUCKET,
+        "x__floor_1_day",
+        {},
+        {"x": (pa.timestamp("ns"), [datetime(2024, 1, 1)])},
+        None,
+        id="bucket-ns-source",
+    ),
+    pytest.param(
+        *_BUCKET,
+        "x__floor_1_day",
+        {},
+        {"x": (pa.timestamp("us", tz="Europe/Berlin"), [datetime(2024, 1, 1, tzinfo=timezone.utc)])},
+        None,
+        id="bucket-named-zone-source",
+    ),
+    pytest.param(*_BUCKET, "x__floor_1_day", {}, {"x": (pa.int64(), [1])}, None, id="bucket-int-source"),
+    pytest.param(*_BUCKET, "x__floor_1_day", {}, {"x": (pa.string(), ["2024-01-01"])}, None, id="bucket-string-source"),
+    pytest.param(
+        *_BUCKET, "x__floor_1_day", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="bucket-date-source"
     ),
 ]
 

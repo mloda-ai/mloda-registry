@@ -7,7 +7,7 @@ Pattern: ``{src}__{op}_{n}_{unit}``
 
 Examples::
 
-    "timestamp__floor_1_day"       # day floor (midnight UTC)
+    "timestamp__floor_1_day"       # day floor (local wall-clock midnight)
     "timestamp__ceil_5_minute"     # next 5-minute boundary
     "timestamp__round_1_hour"      # nearest hour (half rounds up)
     "timestamp__floor_1_week"      # ISO-Monday week start
@@ -23,8 +23,7 @@ Semantics pinned across all backends:
   bucket), matching PyArrow's ``round_temporal`` and Polars' ``dt.round``.
 - **Idempotency**: ``ceil(aligned, X) == aligned`` for fixed-freq units
   (``minute`` / ``hour`` / ``day``). Calendar units (``week`` / ``month``
-  / ``year``) always advance to the next bucket on aligned input, matching
-  PyArrow's ``ceil_temporal`` behaviour.
+  / ``year``) advance to the next bucket on aligned input.
 - **Timezone**: preserved from input.
 - **Null**: propagated.
 - **Output dtype**: same timestamp type as input.
@@ -65,7 +64,7 @@ TIME_BUCKETIZATION_OPS: dict[str, str] = {
 TIME_BUCKETIZATION_UNITS: dict[str, str] = {
     "minute": "Minute-aligned buckets (sub-day, fixed length)",
     "hour": "Hour-aligned buckets (sub-day, fixed length)",
-    "day": "Day-aligned buckets (calendar day, midnight UTC)",
+    "day": "Day-aligned buckets (calendar day, local wall-clock midnight)",
     "week": "ISO-Monday-anchored week buckets (n=1 only)",
     "month": "Calendar-month buckets (n=1 only, non-uniform length)",
     "year": "Calendar-year buckets (n=1 only, non-uniform length)",
