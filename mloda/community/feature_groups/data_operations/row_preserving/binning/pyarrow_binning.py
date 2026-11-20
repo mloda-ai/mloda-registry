@@ -39,7 +39,7 @@ class PyArrowBinning(Implementation[BinningFeatureGroup]):
         if pc.any(nan_mask).as_py():
             col = pc.if_else(nan_mask, None, col)
 
-        non_null_count = pc.sum(pc.cast(pc.is_valid(col), pa.int64())).as_py()
+        non_null_count = pc.sum(pc.cast(pc.is_valid(col), pa.int64())).as_py() or 0
 
         if non_null_count == 0:
             null_col = pa.array([None] * len(col), type=pa.int64())
@@ -56,6 +56,7 @@ class PyArrowBinning(Implementation[BinningFeatureGroup]):
 
     @classmethod
     def _equal_width_bin(cls, col: pa.ChunkedArray, n_bins: int) -> pa.Array:
+        col = col.cast(pa.float64())
         col_min = pc.min(col)
         col_max = pc.max(col)
 
@@ -64,11 +65,11 @@ class PyArrowBinning(Implementation[BinningFeatureGroup]):
             return pc.cast(result, pa.int64())
 
         bin_width = pc.divide(
-            pc.subtract(col_max, col_min).cast(pa.float64()),
+            pc.subtract(col_max, col_min),
             pa.scalar(n_bins, type=pa.float64()),
         )
 
-        shifted = pc.subtract(col.cast(pa.float64()), col_min.cast(pa.float64()))
+        shifted = pc.subtract(col, col_min)
         raw_bin = pc.floor(pc.divide(shifted, bin_width))
 
         max_bin = pa.scalar(n_bins - 1, type=pa.float64())

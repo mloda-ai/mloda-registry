@@ -61,16 +61,16 @@ Pandas' built-in `Series.dt.round` is banker's rounding (half-to-even), so the F
 
 ---
 
-## Ceil idempotency rule (PyArrow quirk)
+## Ceil idempotency rule
 
-`ceil_temporal(ceil_is_strictly_greater=False)` has unit-dependent behaviour pinned across all backends:
+The pure Python reference pins a unit-dependent behaviour across all backends:
 
 | Unit family | Aligned input behaviour |
 |---|---|
 | Fixed-freq (`minute`, `hour`, `day`) | Idempotent. `ceil(2023-01-01, 1_day) = 2023-01-01`. |
-| Calendar (`week`, `month`, `year`) | Always advances. `ceil(2023-01-01, 1_year) = 2024-01-01`. |
+| Calendar (`week`, `month`, `year`) | Advances. `ceil(2023-01-01, 1_year) = 2024-01-01`. |
 
-For the day case, the test fixture's day-aligned rows (00:00:00) return themselves under `ceil_1_day`. For the year case, the same year-aligned `2023-01-01` returns `2024-01-01`. Every backend reproduces this quirk; DuckDB / SQLite / Pandas / Polars special-case the calendar units to always offset by one bucket.
+For the day case, the test fixture's day-aligned rows (00:00:00) return themselves under `ceil_1_day`. For the year case, the same year-aligned `2023-01-01` returns `2024-01-01`. Every backend reproduces this; DuckDB / SQLite / Pandas / Polars special-case the calendar units to always offset by one bucket.
 
 ---
 
@@ -121,5 +121,5 @@ Row count matches the input; each new column has the same timestamp type (resolu
 ## Related
 
 - [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input.
-- [Reference implementation pattern](03-reference-implementation.md) - PyArrow's `floor_temporal` / `ceil_temporal` / `round_temporal` are the cross-framework reference for time bucketization.
+- [Reference implementation pattern](03-reference-implementation.md) - the pure Python reference (`reference_time_bucketization`) is the cross-framework reference for time bucketization.
 - [Adding a new data operation](10-adding-new-operation.md) - Template for extending time bucketization to a new framework or new unit.

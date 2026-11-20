@@ -11,11 +11,9 @@ fixture (``_BUCKET_TIMESTAMPS``) that exercises sub-day, sub-hour, and
 sub-minute buckets, week-start alignment (ISO Monday), year/leap-day
 boundary crossings, and null propagation.
 
-Expected-value literals were computed from PyArrow as the offline oracle
-(``pyarrow.compute.floor_temporal``, ``ceil_temporal``, ``round_temporal``
-with ``week_starts_monday=True`` and ``ceil_is_strictly_greater=False``)
-and pasted in. PyArrow is the reference; this paste-in approach pins the
-spec independent of the production implementation.
+Expected-value literals are pasted in, so they pin the spec independent of
+any implementation; the pure Python reference computes the cross-framework
+comparison values.
 
 Fixture row layout::
 
@@ -76,7 +74,7 @@ def _create_bucket_data() -> TypedTestData:
 
 
 # ---------------------------------------------------------------------------
-# Expected values (offline-computed from PyArrow as the oracle)
+# Expected values (pasted in)
 # ---------------------------------------------------------------------------
 
 EXPECTED_FLOOR_5_MINUTE: list[Any] = [
@@ -179,8 +177,7 @@ EXPECTED_ROUND_5_MINUTE: list[Any] = [
 ]
 
 # Row 4 (14:25:00) is at the midpoint of the 10-minute buckets 14:20 / 14:30.
-# PyArrow's ``round_temporal`` (default tie-break) produces 14:30 here, so
-# that's the spec we pin. Other backends must agree.
+# Ties round up, so 14:30 is the spec we pin. Other backends must agree.
 EXPECTED_ROUND_10_MINUTE: list[Any] = [
     datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
     datetime(2023, 1, 2, 0, 0, 0, tzinfo=timezone.utc),
@@ -235,14 +232,13 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
         return cls.declared_supported(cls.ALL_OPS)
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        # Lazy import so the testing module imports cleanly even before the
-        # production code exists (Red phase, matrix drift check).
-        from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
-            PyArrowTimeBucketization,
+    def reference_calculate(cls, table: Any, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.reference import (
+            reference_time_bucketization,
         )
 
-        return PyArrowTimeBucketization
+        return reference_time_bucketization(cls.feature_group_class(), table, features)
 
     # -- Setup: use the dedicated 8-row bucketization fixture ---------------
 
@@ -329,9 +325,8 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
     def test_round_10_minute_at_midpoint(self) -> None:
         """Row 4 (14:25:00) is exactly midpoint between 10-min buckets 14:20 and 14:30.
 
-        PyArrow's ``round_temporal`` default tie-break produces 14:30; this
-        test pins that exact value as the cross-framework spec. Other backends
-        must match PyArrow here.
+        Ties round up to 14:30; this test pins that value as the cross-framework
+        spec. Every backend must match it.
         """
         fs = make_feature_set("timestamp__round_10_minute")
         result = calculate_with(self.implementation_class(), self.test_data, fs)
@@ -399,7 +394,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
     # -- Cross-framework comparison -----------------------------------------
 
     def _compare_bucket_with_reference(self, feature_name: str) -> None:
-        """Run the feature on this framework and the PyArrow reference; assert equal."""
+        """Run the feature on this framework and the pure Python reference; assert equal."""
         fs = make_feature_set(feature_name)
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         ref = self.reference_calculate(self._arrow_table, fs)
@@ -419,19 +414,24 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
         [
             pytest.param("timestamp__floor_1_day", id="floor_1_day"),
             # Backends with a built-in ``time_bucket`` (DuckDB) anchor sub-month widths
-            # at 2000-01-03 by default, which diverges from PyArrow's epoch-anchored
+            # at 2000-01-03 by default, which diverges from the epoch-anchored
             # buckets (multiples since 1970-01-01). These two cases pin that anchor.
             pytest.param("timestamp__floor_2_day", id="floor_2_day"),
             pytest.param("timestamp__floor_3_day", id="floor_3_day"),
             pytest.param("timestamp__ceil_1_day", id="ceil_1_day"),
             pytest.param("timestamp__round_5_minute", id="round_5_minute"),
+            pytest.param("timestamp__floor_6_hour", id="floor_6_hour"),
             pytest.param("timestamp__floor_1_week", id="floor_1_week"),
             pytest.param("timestamp__floor_1_month", id="floor_1_month"),
             pytest.param("timestamp__floor_1_year", id="floor_1_year"),
+            pytest.param("timestamp__ceil_1_week", id="ceil_1_week"),
+            pytest.param("timestamp__ceil_1_month", id="ceil_1_month"),
+            pytest.param("timestamp__round_1_month", id="round_1_month"),
+            pytest.param("timestamp__round_1_year", id="round_1_year"),
         ],
     )
     def test_cross_framework(self, feature_name: str) -> None:
-        """Every bucket op must agree with the PyArrow reference."""
+        """Every bucket op must agree with the pure Python reference."""
         self._compare_bucket_with_reference(feature_name)
 
     # -- Error / validation --------------------------------------------------

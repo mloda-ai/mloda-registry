@@ -48,6 +48,14 @@ class TestClassAttributes:
     def test_time_bucketization_units_contains_six_units(self) -> None:
         assert set(TIME_BUCKETIZATION_UNITS.keys()) == {"minute", "hour", "day", "week", "month", "year"}
 
+    def test_kit_reference_op_set_matches_time_bucketization_ops(self) -> None:
+        """The kit reference's ``TIME_BUCKET_OP_NAMES`` equals ``TIME_BUCKETIZATION_OPS``."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.reference import (
+            TIME_BUCKET_OP_NAMES,
+        )
+
+        assert TIME_BUCKET_OP_NAMES == set(TIME_BUCKETIZATION_OPS)
+
     def test_min_in_features_is_one(self) -> None:
         assert TimeBucketizationFeatureGroup.MIN_IN_FEATURES == 1
 

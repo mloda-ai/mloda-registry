@@ -27,6 +27,12 @@ class TestClassAttributes:
         for op in expected_ops:
             assert op in DATETIME_OPS, f"Missing operation: {op}"
 
+    def test_kit_reference_op_set_matches_datetime_ops(self) -> None:
+        """The kit reference's ``DATETIME_OP_NAMES`` equals ``DATETIME_OPS``."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import DATETIME_OP_NAMES
+
+        assert DATETIME_OP_NAMES == set(DATETIME_OPS)
+
     def test_min_in_features_is_one(self) -> None:
         assert DateTimeFeatureGroup.MIN_IN_FEATURES == 1
 

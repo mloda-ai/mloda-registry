@@ -23,6 +23,12 @@ class TestStringOpsRegistry:
         for op in expected_ops:
             assert op in STRING_OPS, f"Missing operation: {op}"
 
+    def test_kit_reference_op_set_matches_string_ops(self) -> None:
+        """The kit reference's ``STRING_OP_NAMES`` equals ``STRING_OPS``."""
+        from mloda.testing.feature_groups.data_operations.string.reference import STRING_OP_NAMES
+
+        assert STRING_OP_NAMES == set(STRING_OPS)
+
 
 _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 

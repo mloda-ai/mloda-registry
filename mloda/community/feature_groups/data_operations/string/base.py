@@ -66,9 +66,11 @@ class StringFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     Reference Contract
     ------------------
 
-    Null input gives null output; the PyArrow implementation is the reference. Row count and order are
-    preserved. ``length`` declares INT64. Each implementation passes ``compute_string(table, feature_name,
-    source_col, op)`` to ``transform_string``; it returns the input with the new column appended. SQLite serves only trim and length (``SqliteStringOps.supported``).
+    Null input gives null output; the pure Python reference in mloda-testing is the reference, and upper and lower
+    use PyArrow's simple per-codepoint case mapping (utf8proc, ß -> ẞ). Row count and order are preserved. ``length``
+    declares INT64. Each implementation passes ``compute_string(table, feature_name, source_col, op)`` to
+    ``transform_string``; it returns the input with the new column appended. SQLite serves only trim and length
+    (``SqliteStringOps.supported``).
     """
 
     CONTRACT_VERSION = 1
