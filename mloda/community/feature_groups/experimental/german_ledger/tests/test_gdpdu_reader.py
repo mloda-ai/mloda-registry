@@ -149,15 +149,28 @@ def _journal_origins(results: Any) -> list[str]:
     [("GdpduReader", "GL.txt"), ("DatevExtfReader", "EXTF_Buchungsstapel.csv")],
     ids=["gdpdu", "datev"],
 )
-def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(reader: str, scheme: str) -> None:
+def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(
+    reader: str, scheme: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The sibling reader declines when the other one is pinned, so only the pinned format answers."""
     pin = {reader: str(_twin_pair()[0 if reader == "GdpduReader" else 1])}
     origins = _journal_origins(_resolve(_twin_pair(), "ledger_journal", pin, journals=True))
     assert origins and all(o.startswith(scheme) for o in origins), origins
     # Core counts the class name and a prefix of it as declared; a pointed reader must still decline them.
     cls = {"GdpduReader": GdpduReader, "DatevExtfReader": DatevExtfReader}[reader]
+    probed: list[str] = []
+    real_find_sources = cls.find_sources.__func__  # type: ignore[attr-defined]
+
+    def spy(c: Any, route: Any, name: str, *args: Any, **kwargs: Any) -> Any:
+        probed.append(name)
+        return real_find_sources(c, route, name, *args, **kwargs)
+
+    monkeypatch.setattr(cls, "find_sources", classmethod(spy))
     for name in (reader, f"{reader}_x"):
-        assert not cls.match_feature_group_criteria(name, Options(pin)), name
+        options = Options(pin)
+        assert not cls.match_feature_group_criteria(name, options), name
+        assert options.group == pin, (name, options.group)
+        assert not probed, f"declined name {name} probed the source: {probed}"
 
 
 def _run_twin(options: dict[str, str]) -> Any:

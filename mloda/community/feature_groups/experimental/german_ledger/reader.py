@@ -583,9 +583,13 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         options: Options,
         data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
-        """Names other than JOURNAL decline; a pointed reader first lets core record the undeclared name."""
-        if cls.get_column_base_feature(str(feature_name)) != JOURNAL:
-            if any(key in options for key in cls.pointer_keys()):
+        """Names other than JOURNAL decline; a pointed reader lets core record only names it sees as undeclared."""
+        base = cls.get_column_base_feature(str(feature_name))
+        if base != JOURNAL:
+            core_declared = cls.feature_name_equal_to_class_name(
+                base
+            ) or cls.feature_name_contains_class_name_as_prefix(base)
+            if not core_declared and any(key in options for key in cls.pointer_keys()):
                 super().match_feature_group_criteria(feature_name, options, data_access_collection)
             return False
         return super().match_feature_group_criteria(feature_name, options, data_access_collection)
