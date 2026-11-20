@@ -111,8 +111,8 @@ AGGREGATION_PINNING = PinningTable(
         PinningRow(
             case="signed_zero",
             feature="v__count_agg",
-            inputs={"k": (_D, (0.0, -0.0, -0.0)), "v": (_I, (1, 2, 3))},
-            expected={"k": (_D, (0.0,)), "v__count_agg": (_I, (3,))},
+            inputs={"k": (_D, (-0.0, 0.0, 0.0)), "v": (_I, (1, 2, 3))},
+            expected={"k": (_D, (-0.0,)), "v__count_agg": (_I, (3,))},
             context={"partition_by": ["k"]},
         ),
         PinningRow(

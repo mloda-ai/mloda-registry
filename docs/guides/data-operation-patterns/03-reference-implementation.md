@@ -85,14 +85,12 @@ Aggregation, window aggregation, frame aggregate and scalar aggregate share one 
 | Partition keys | NaN keys form one group, None is its own key, groups come in first-occurrence order. `partition_by=[]` is one whole-table group, also on an empty table. |
 | Dtype | count and nunique int64; avg, mean, median, std*, var* float64; sum widens signed integers to int64, unsigned integers and bool to uint64, floats to float64 (a null-typed source gives float64, any other type raises `ValueError`); avg, mean, median, std* and var* accept only integer, floating or null sources and raise `ValueError` naming the type otherwise; an int64 sum that overflows raises; min, max, first, last and mode keep the source type. |
 
-Hand-computed rows in `mloda/testing/feature_groups/data_operations/aggregation_pinning_rows.py` pin these rules for the four references.
-
 - **Order**: within a group, `order_by` (window first and last, frame) sorts ascending: real values, then NaN, then None, stable.
 - **Row order**: window, frame and scalar keep input order; aggregation returns one row per group and is compared by key.
 - **Tolerance**: floats compare with `pytest.approx(rel=1e-6)` where a test sets `use_approx=True`.
 - **Masks**: non-matching rows become None before the aggregate. The mask semantics belong to mloda core's mask engine, so the references call the kit helper `masked_column` (`mloda/testing/feature_groups/data_operations/helpers.py`), which applies core's PyArrow mask engine, and only `to_pylist()` its output.
 
-Declared dtypes bind the reference only; backends are compared by value. For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)).
+Declared dtypes bind the reference only; backends are compared by value. For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)). Hand-computed rows in `mloda/testing/feature_groups/data_operations/aggregation_pinning_rows.py` pin cases of these rules.
 
 ---
 
