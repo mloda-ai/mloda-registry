@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from mloda.provider import FeatureSet
 
-from mloda.testing.feature_groups.data_operations.aggregation_helpers import group_rows, order_key
+from mloda.testing.feature_groups.data_operations.aggregation_helpers import order_key, ordered_groups
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -30,14 +30,14 @@ def _compute_session(
     order_vals = table.column(order_col).to_pylist()
     threshold = timedelta(seconds=threshold_seconds)
 
-    groups = list(group_rows(keys, table.num_rows).values())
+    groups = ordered_groups(keys, order_vals, table.num_rows)
     groups.sort(key=lambda rows: tuple(order_key(col[rows[0]]) for col in keys) if rows else ())
 
     result: list[Any] = [None] * table.num_rows
     counter = -1
     for rows in groups:
         prev: Any = None
-        for pos, i in enumerate(sorted(rows, key=lambda r: order_key(order_vals[r]))):
+        for pos, i in enumerate(rows):
             cur = order_vals[i]
             if pos == 0 or cur is None or prev is None or cur - prev > threshold:
                 counter += 1

@@ -86,6 +86,14 @@ PERCENTILE_PINNING = PinningTable(
             context=_CTX,
         ),
         PinningRow(
+            case="endpoints",
+            feature="v__p50_percentile",
+            inputs={"p": (_S, ("a",) * 2), "v": (_D, (INF, INF))},
+            # equal neighbours give that value, like pc.quantile, not inf - inf = NaN
+            expected={"v__p50_percentile": (_D, (INF,) * 2)},
+            context=_CTX,
+        ),
+        PinningRow(
             case="none",
             feature="v__p50_percentile",
             inputs={"p": (_S, ("a",) * 3), "v": (_D, (1.0, None, 3.0))},

@@ -130,6 +130,8 @@ def quantile(values: list[Any], q: float) -> Any:
     lo = int(pos)
     if pos == lo:
         return float(s[lo])
+    if s[lo] == s[lo + 1]:
+        return float(s[lo])
     return float(s[lo] + (s[lo + 1] - s[lo]) * (pos - lo))
 
 

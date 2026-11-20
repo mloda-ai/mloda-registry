@@ -16,7 +16,7 @@ RANK_RULES: Mapping[str, str] = MappingProxyType(
         "order": "Each partition is ordered by order_by ascending, stably: input order breaks ties.",
         "order_tiers": "In order_by real values come first, then NaN, then None; NaN and None are separate tiers.",
         "ties": "rank and percent_rank give a tie run the rank of its first row; dense_rank has no gaps.",
-        "top_bottom": "top_N and bottom_N treat NaN and None order values as null-like and place them last.",
+        "top_bottom": "top_N and bottom_N place NaN order values before None order values, both after every real value.",
         "partition_keys": "NaN partition keys merge into one group; a None partition key is its own group.",
         "all_none": "A partition whose order values are all None ties on every row.",
         "single_row": "percent_rank of a single-row partition is 0.0.",
@@ -139,7 +139,7 @@ RANK_PINNING = PinningTable(
             case="top_bottom",
             feature="o__top_4_ranked",
             inputs={"p": (_S, ("a",) * 5), "o": (_D, (1.0, NAN, 3.0, None, 2.0))},
-            # descending: 3.0, 2.0, 1.0, then the null-like rows in input order (NaN, None)
+            # descending: 3.0, 2.0, 1.0, then NaN, then None (NaN sorts before None, both after real values)
             expected={"o__top_4_ranked": (_B, (True, True, True, False, True))},
             context=_CTX,
         ),
@@ -155,6 +155,14 @@ RANK_PINNING = PinningTable(
             feature="o__bottom_4_ranked",
             inputs={"p": (_S, ("a",) * 5), "o": (_D, (1.0, NAN, 3.0, None, 2.0))},
             expected={"o__bottom_4_ranked": (_B, (True, True, True, False, True))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="top_bottom",
+            feature="o__top_2_ranked",
+            inputs={"p": (_S, ("a",) * 3), "o": (_D, (None, NAN, 1.0))},
+            # order: 1.0, then NaN, then None: top 2 is the 1.0 row and the NaN row
+            expected={"o__top_2_ranked": (_B, (False, True, True))},
             context=_CTX,
         ),
         PinningRow(

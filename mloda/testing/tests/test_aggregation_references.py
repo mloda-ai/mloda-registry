@@ -186,6 +186,15 @@ class TestQuantile:
     def test_integral_position_is_exact_with_infinities(self, q: float, expected: float) -> None:
         assert self._q([-math.inf, 1.0, math.inf], q) == expected
 
+    @pytest.mark.parametrize(
+        ("values", "expected"), [([math.inf, math.inf], math.inf), ([-math.inf, -math.inf], -math.inf)]
+    )
+    def test_equal_infinite_neighbours_return_that_value(self, values: list[Any], expected: float) -> None:
+        assert self._q(values, 0.5) == expected
+
+    def test_opposite_infinite_neighbours_stay_nan(self) -> None:
+        assert math.isnan(self._q([-math.inf, math.inf], 0.5))
+
 
 class TestDeclaredType:
     """declared_type(agg_type, source_type) is the schema of an aggregate column."""

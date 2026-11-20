@@ -55,7 +55,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_dat
 
 | Backend | Mechanism |
 |---|---|
-| PyArrow | `pc.fill_null_forward` applied **per partition slice** after a stable sort. Raw `fill_null_forward` ignores partition boundaries, so the reference fills each group independently and scatters back to original positions. |
+| PyArrow | (a backend, not the reference) `pc.fill_null_forward` applied **per partition slice** after a stable sort. Raw `fill_null_forward` ignores partition boundaries, so the reference fills each group independently and scatters back to original positions. |
 | Pandas | sort within partition, `groupby(partition_by, dropna=False)[col].ffill()`, then restore original order via a row-index tag. |
 | Polars (lazy) | `pl.col(col).forward_fill().over(partition_by)` after ordering; original order restored from a row index. |
 | DuckDB | `LAST_VALUE(col IGNORE NULLS)` over a `partition_by` / `order_by` window (unbounded preceding → current row), via the typed window helper. |

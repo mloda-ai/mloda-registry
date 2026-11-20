@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -238,6 +238,8 @@ class _HookLookup(NutsMappingHook, LookupFeatureGroup):
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
 _SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
 _SESSION = (reference_sessionization, SessionizationFeatureGroup)
+_OFFSET = (reference_offset, OffsetFeatureGroup)
+_OFFSET_CTX = {"partition_by": ["p"], "order_by": "o"}
 _LOOKUP = (reference_lookup, LookupFeatureGroup)
 _STR_MAP = {"a": "A"}
 _INT_MAP = {1: 10}
@@ -569,6 +571,22 @@ _REJECTION_PARAMS = [
         "must be a timestamp",
         id="sessionization-non-timestamp-order",
     ),
+    pytest.param(
+        *_OFFSET,
+        "v__diff_1_offset",
+        _OFFSET_CTX,
+        {"p": (pa.string(), ["a", "a"]), "o": (pa.int64(), [1, 2]), "v": (pa.bool_(), [True, False])},
+        "bool",
+        id="offset-diff-bool-source",
+    ),
+    pytest.param(
+        *_OFFSET,
+        "v__diff_1_offset",
+        _OFFSET_CTX,
+        {"p": (pa.string(), ["a", "a"]), "o": (pa.int64(), [1, 2]), "v": (pa.string(), ["x", "y"])},
+        "string",
+        id="offset-diff-string-source",
+    ),
 ]
 
 
@@ -642,3 +660,22 @@ class TestLookupReference:
         result = reference_lookup(LookupFeatureGroup, table, features)
         assert result.column("x__lookup").to_pylist() == [None, None]
         assert result.schema.field("x__lookup").type == value_type
+
+
+class TestOffsetDiffTimestamp:
+    """diff of a timestamp source is a duration in the source's unit (no DataType expresses a duration)."""
+
+    @pytest.mark.parametrize("unit", ["s", "ms", "us"])
+    def test_diff_is_duration_in_source_unit(self, unit: str) -> None:
+        t0 = datetime(2024, 1, 1, 0, 0, 0)
+        t1 = datetime(2024, 1, 1, 0, 1, 30)
+        table = _typed_table(
+            p=(pa.string(), ["a", "a"]),
+            o=(pa.int64(), [1, 2]),
+            v=(pa.timestamp(unit, tz="UTC"), [t0, t1]),
+        )
+        result = reference_offset(OffsetFeatureGroup, table, make_feature_set("v__diff_1_offset", **_OFFSET_CTX))
+        column = result.column("v__diff_1_offset")
+        assert column.type == pa.duration(unit)
+        # 00:01:30 - 00:00:00 is 90 seconds
+        assert column.to_pylist() == [None, timedelta(seconds=90)]

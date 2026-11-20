@@ -32,6 +32,18 @@ def _compute_offset(
     order_vals = table.column(order_by).to_pylist()
     source_vals = table.column(source_col).to_pylist()
 
+    source_type = table.schema.field(source_col).type
+    diff_type: pa.DataType | None = None
+    if offset_type.startswith("diff_"):
+        if pa.types.is_integer(source_type):
+            diff_type = pa.int64()
+        elif pa.types.is_floating(source_type):
+            diff_type = pa.float64()
+        elif pa.types.is_timestamp(source_type):
+            diff_type = pa.duration(source_type.unit)
+        else:
+            raise ValueError(f"Offset 'diff' is not defined for source type {source_type}")
+
     result_values: list[Any] = [None] * num_rows
 
     for rows in ordered_groups(keys, order_vals, num_rows):
@@ -82,7 +94,7 @@ def _compute_offset(
         else:
             raise ValueError(f"Unsupported offset type: {offset_type}")
 
-    declared = pa.float64() if offset_type.startswith("pct_change_") else table.schema.field(source_col).type
+    declared = pa.float64() if offset_type.startswith("pct_change_") else diff_type or source_type
     return table.append_column(feature_name, pa.array(result_values, type=declared))
 
 

@@ -28,8 +28,8 @@ Null rules (pinned and empirically verified):
 
 A kit reference (``reference_ema``) exists, but the backend value tests assert the BACKEND against
 the PINNED literals (single home: ``ema/pinning_rows.py``), computed offline from the canonical pandas
-formula, so a backend without pyarrow keeps its coverage; the reference is then checked against the same
-literals (skipped without pyarrow). The pandas <-> polars span-form agreement was verified empirically
+formula, so the backend assertion runs before the reference half, which is checked against the same
+literals and skips without pyarrow. The pandas <-> polars span-form agreement was verified empirically
 (elementwise, null-aware, within 1e-9) before pinning.
 
 Backends:
@@ -288,7 +288,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         assert float(col[1]) == pytest.approx(10.0), f"B seed row 1 should be 10.0, got {col[1]!r}"
 
     def test_tied_order_keeps_input_order(self) -> None:
-        """Rows tied on order_by keep input order (the tie is deliberate; no reference oracle exists)."""
+        """Rows tied on order_by keep input order (the tie is deliberate; the kit reference ties the same way)."""
         data = TypedTestData(
             {
                 "g": (DataType.STRING, ["a"] * 3),

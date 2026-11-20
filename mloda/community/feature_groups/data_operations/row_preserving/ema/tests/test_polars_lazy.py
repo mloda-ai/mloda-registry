@@ -1,7 +1,7 @@
 """Tests for PolarsLazyEma compute implementation.
 
 Also includes an explicit pandas-vs-polars cross-compute agreement test: there
-is no live PyArrow reference oracle for EMA, so this directly compares the two
+is a kit reference for EMA, but this also directly compares the two
 native backends against each other (in addition to both being asserted against
 the same pinned literals via ``EmaTestBase``).
 """
@@ -46,8 +46,7 @@ class TestPolarsLazyEma(PolarsLazyTestMixin, EmaTestBase):
 class TestPandasPolarsAgreement:
     """The two native backends must produce identical EMA output.
 
-    This is the cross-compute check that replaces the (impossible) PyArrow
-    reference oracle: pandas and polars share the same span -> alpha mapping,
+    This is a direct cross-compute check alongside the kit reference: pandas and polars share the same span -> alpha mapping,
     so their results must agree elementwise (null-aware) on the same fixture.
     """
 

@@ -59,7 +59,7 @@ Example with a 30-minute threshold for one user whose events are at `10:00, 10:2
 
 | Backend | Behavior |
 |---|---|
-| PyArrow | native: sort indices, sliced timestamp diff, `cumulative_sum`, scatter back. The reference oracle. |
+| PyArrow | native: sort indices, sliced timestamp diff, `cumulative_sum`, scatter back. |
 | Pandas | native `groupby(partition_by)[ts].diff()` + `cumsum`. |
 | Polars (lazy) | native `diff().over(partition_by)` + `cum_sum`. |
 | DuckDB | native SQL: `LAG` + `date_diff('second', ...)` over a window, then a running `SUM`. |

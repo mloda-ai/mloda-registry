@@ -20,7 +20,7 @@ OFFSET_RULES: Mapping[str, str] = MappingProxyType(
         "pct_change_zero": "pct_change with a previous value of zero gives None.",
         "first_last": "first_value and last_value skip None, give None for an all-None partition and broadcast.",
         "partition_keys": "NaN partition keys merge into one group; a None partition key is its own group.",
-        "dtype": "lag, lead, diff, first_value and last_value keep the source type; pct_change is float64.",
+        "dtype": "lag, lead, first_value and last_value keep the source type; diff is int64 for any integer source, float64 for a float source and a duration for a timestamp source; pct_change is float64.",
         "empty": "An empty input gives an empty column of the declared type.",
     }
 )
@@ -178,6 +178,22 @@ OFFSET_PINNING = PinningTable(
             feature="v__lag_1_offset",
             inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (_S, ("x", "y"))},
             expected={"v__lag_1_offset": (_S, (None, "x"))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="dtype",
+            feature="v__diff_1_offset",
+            inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (DataType.UINT8, (5, 1))},
+            # 1 - 5 = -4 does not wrap in uint8: diff of any integer source is int64
+            expected={"v__diff_1_offset": (_I, (None, -4))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="dtype",
+            feature="v__diff_1_offset",
+            inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (DataType.INT8, (-100, 100))},
+            # 100 - (-100) = 200 does not overflow int8
+            expected={"v__diff_1_offset": (_I, (None, 200))},
             context=_CTX,
         ),
         PinningRow(

@@ -494,7 +494,7 @@ regression_test:
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 
 <!-- machine-checked
-operation: resample, rank, sessionization, percentile
+operation: resample
 framework: python_dict
 condition: group_key_value passes 0.0 and -0.0 through unchanged, and Python's float equality/hash merge them as dict keys
 mitigation_location:
@@ -503,10 +503,10 @@ regression_test:
 - mloda/community/feature_groups/data_operations/tests/test_python_dict_helpers.py::TestGroupKeyValueMergesSignedZeroDocumentedDivergence::test_positive_and_negative_zero_collide_into_one_group
 -->
 
-- **Operations**: `resample`, `rank`, `sessionization`, `percentile` (every PythonDict backend that groups rows by a float-valued partition column). The aggregating operations have a pure Python reference that merges the keys too, so they do not diverge.
+- **Operations**: `resample` (a PythonDict backend that groups rows by a float-valued partition column). The aggregating operations and the ordered rank, sessionization and percentile have a pure Python reference that merges the keys too, so they do not diverge.
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`).
 - **Reference behavior**: PyArrow's `Table.group_by()` hashes a float key bitwise, so `0.0` and `-0.0` (distinct bit patterns) land in two separate groups (verified directly: grouping `[0.0, -0.0]` produces 2 groups).
-- **Cross-framework check**: verified directly against each engine: Pandas' `.groupby()`, Polars' `.group_by()` and DuckDB's `GROUP BY` all merge `0.0` and `-0.0` into a single group too, the same as PythonDict. PyArrow is the only one of the four that treats them as distinct, so PythonDict's raw-dict-key grouping matches the majority. These four operations are verified only informally, not by a per-operation test.
+- **Cross-framework check**: verified directly against each engine: Pandas' `.groupby()`, Polars' `.group_by()` and DuckDB's `GROUP BY` all merge `0.0` and `-0.0` into a single group too, the same as PythonDict. PyArrow is the only one of the four that treats them as distinct, so PythonDict's raw-dict-key grouping matches the majority. This operation is verified only informally, not by a per-operation test.
 - **Native PythonDict behavior**: `group_key_value` only special-cases NaN; `0.0` and `-0.0` pass through unchanged. Python's `float.__eq__` and `float.__hash__` both treat `0.0 == -0.0` as `True` with equal hashes, so a plain `dict`/`set` keyed by the raw value merges them into one group regardless of what `group_key_value` does.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted), as the outlier rule of the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier) prescribes.
 - **How**: A `group_key_value`-only fix would not even be internally consistent: `values_equal` (used by the sort-based sessionization grouping path) and `partition_sort_key` both treat `0.0 == -0.0` on purpose (see `test_negative_zero_equals_zero`, `test_negative_zero_and_zero_sort_together`), so PythonDict's own sort-keyed sessionization backend would keep merging them while its dict-keyed backends stopped, a new internal inconsistency. A real fix needs all three functions to become sign-aware (`(value, math.copysign(1.0, value))` instead of the raw value on every hot grouping path), and would only trade PythonDict's current agreement with Pandas/Polars/DuckDB for agreement with PyArrow alone, a lateral move in total cross-framework divergence for a sign-of-zero edge case that is exceedingly rare in real partition columns. The divergence is documented instead of mitigated.
