@@ -35,6 +35,8 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
     ) -> pd.DataFrame:
         data = data.copy()
         col = data[source_col]
+        if not pd.api.types.is_numeric_dtype(col.dtype) or pd.api.types.is_bool_dtype(col.dtype):
+            raise ValueError(f"Binning needs an integer or floating source column, but {source_col!r} is {col.dtype}")
         non_null_mask = col.notna()
 
         if non_null_mask.sum() == 0:

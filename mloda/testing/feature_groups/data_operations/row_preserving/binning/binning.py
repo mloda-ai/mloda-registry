@@ -95,8 +95,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         """Every hand-computed pinning row holds on the backend under test."""
         row = self.pinned_row_cases()[pinned_row_case]
         op, _ = self.feature_group_class().get_binning_params(row.feature)
-        if op == "qbin":
-            self._skip_if_unsupported(op)
+        self._skip_if_unsupported(op)
         # A Python dict cannot hold float32, so Arrow gives it the float32-rounded values a float32 column holds.
         arrow_types = {
             name: DataType.to_arrow_type(DataType.FLOAT)

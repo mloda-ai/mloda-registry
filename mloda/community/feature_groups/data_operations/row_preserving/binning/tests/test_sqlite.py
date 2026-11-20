@@ -31,7 +31,7 @@ class TestSqliteBinning(ReservedColumnsTestMixin, SqliteTestMixin, BinningTestBa
 
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
-        return {"__mloda_rn0__", "__mloda_rn1__", "__mloda_rn2__"}
+        return {"__mloda_rn0__", "__mloda_rn1__", "__mloda_rn2__", "__mloda_rn3__"}
 
     @classmethod
     def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:

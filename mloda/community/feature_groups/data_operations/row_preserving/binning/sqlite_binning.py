@@ -71,11 +71,15 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
         # qbin = (row_number - 1) * n / count over non-null rows (integer division truncates).
         # The partition key goes into a helper column first (Pattern W).
         original_cols = list(data.columns)
-        part = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        rank = pick_helper_column_name(taken=set(data.columns) | {feature_name, part})
-        cnt = pick_helper_column_name(taken=set(data.columns) | {feature_name, part, rank})
-        rel = data.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
-        rel = rel.window("ROW_NUMBER()", rank, partition_by=[part], order_by=[source_col])
+        # rn breaks ties by input position.
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        taken = set(data.columns) | {feature_name, rn}
+        part = pick_helper_column_name(taken=taken)
+        rank = pick_helper_column_name(taken=taken | {part})
+        cnt = pick_helper_column_name(taken=taken | {part, rank})
+        rel = data.with_row_number(rn)
+        rel = rel.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
+        rel = rel.window("ROW_NUMBER()", rank, partition_by=[part], order_by=[source_col, rn])
         rel = rel.window(f"COUNT({quoted_source})", cnt)
         feat_expr = (
             f"CASE WHEN {quoted_source} IS NULL THEN NULL "

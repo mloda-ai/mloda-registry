@@ -47,7 +47,7 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 
 ## SQL row order
 
-The `ROW_NUMBER` and `COUNT` windows run through `window()`, which keeps input order, so no workaround is needed; DuckDB breaks ties by input position. See [SQL backends: window() keeps row order](02-row-preserving-contract.md#sql-backends-window-keeps-row-order). Pandas and PyArrow assign by index and need no workaround.
+The `ROW_NUMBER` and `COUNT` windows run through `window()`, which keeps input order. Both SQL backends break qbin ties by input position, tagged with a row-number helper column. See [SQL backends: window() keeps row order](02-row-preserving-contract.md#sql-backends-window-keeps-row-order). Pandas and PyArrow assign by index and need no workaround.
 
 ---
 
