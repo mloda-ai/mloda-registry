@@ -76,7 +76,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -160,6 +160,11 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
         return {"__mloda_rn__"}
+
+    @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
+        return not declares_nan_as_null(cls.implementation_class())
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
@@ -303,6 +308,50 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         result = calculate_with(self.implementation_class(), self.create_test_data(data), fs)
         col = self.extract_column(result, "v__ema_2")
         assert [float(x) for x in col] == pytest.approx([5 / 3, 17 / 9, 3.0])
+
+    # -- NaN in order_by and in the source -----------------------------------
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.DOUBLE, [None, float("nan"), 1.0]),
+                "v": (DataType.DOUBLE, [10.0, 20.0, 30.0]),
+            }
+        )
+        fs = make_feature_set("v__ema_2", ["g"], "o")
+        reference = [130 / 9, 70 / 3, 30.0]
+        tied = [50 / 3, 170 / 9, 30.0]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = reference if self.orders_nan_before_none() else tied
+        assert [float(x) for x in self.extract_column(result, "v__ema_2")] == pytest.approx(expected)
+
+        ref = self.reference_calculate(arrow_table_of(table), fs).column("v__ema_2").to_pylist()
+        assert ref == pytest.approx(reference)
+
+    def test_nan_source_value_propagates(self) -> None:
+        """The reference lets a NaN input poison the state; a backend declaring nan_as_null treats it as null."""
+        nan = float("nan")
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 5),
+                "o": (DataType.INT64, [1, 2, 3, 4, 5]),
+                "v": (DataType.DOUBLE, [10.0, nan, 30.0, None, 50.0]),
+            }
+        )
+        fs = make_feature_set("v__ema_2", ["g"], "o")
+        reference = [10.0, nan, nan, None, nan]
+        as_null = [10.0, None, 70 / 3, None, 370 / 9]
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = reference if self.orders_nan_before_none() else as_null
+        col = self.extract_column(result, "v__ema_2")
+        assert [None if x is None else float(x) for x in col] == pytest.approx(expected, nan_ok=True)
+
+        ref = self.reference_calculate(arrow_table_of(table), fs).column("v__ema_2").to_pylist()
+        assert ref == pytest.approx(reference, nan_ok=True)
 
     # -- Row-preserving semantics -------------------------------------------
 

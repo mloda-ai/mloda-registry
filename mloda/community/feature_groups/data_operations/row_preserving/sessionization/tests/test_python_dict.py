@@ -41,7 +41,7 @@ class TestPythonDictNullPartitionKey:
     ``python_dict_offset.py``'s ``rows.sort(key=...)`` call) instead of
     comparing raw values. Sessionization does not yet follow that pattern.
 
-    PyArrow (the live reference oracle) does not crash: null partition keys
+    PyArrow does not crash: null partition keys
     sort last and form their own partition with non-null session ids.
     """
 

@@ -28,6 +28,9 @@ pd = pytest.importorskip("pandas")
 from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
+    PythonDictFramework,
+)
 
 # Loads the Implementations that serve the group.
 from mloda.community.feature_groups.data_operations.row_preserving.ema import manifest as _manifest  # noqa: F401
@@ -36,7 +39,13 @@ from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PANDAS_DATAFRAME,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
+)
+
+PYTHON_DICT_FRAMEWORK = (
+    "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework:PythonDictFramework"
 )
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,
@@ -83,6 +92,38 @@ class TestEmaIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationT
     @classmethod
     def compute_framework_class(cls) -> type:
         return PandasDataFrame
+
+    @classmethod
+    def group_options(cls) -> dict[str, Any]:
+        # Pandas ties NaN and null in order_by and treats a NaN source as null: it serves only with this variant.
+        return {"allow_variants": "nan_as_null"}
+
+    @classmethod
+    def routing_frameworks(cls) -> list[type[Any]]:
+        # Pandas data without the option is served by the PythonDict Implementation.
+        return [PythonDictFramework]
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.ema"
+        return [
+            RoutingCase(
+                "value_float__ema_2",
+                {"partition_by": ["region"], "order_by": "timestamp"},
+                f"{package}.python_dict_ema:PythonDictEma",
+                PYTHON_DICT_FRAMEWORK,
+            )
+        ]
+
+    @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.ema"
+        return RoutingCase(
+            "value_float__ema_2",
+            {"partition_by": ["region"], "order_by": "timestamp"},
+            f"{package}.pandas_ema:PandasEma",
+            PANDAS_DATAFRAME,
+        )
 
     @classmethod
     def several_frameworks(cls) -> list[type[Any]]:
@@ -165,7 +206,10 @@ class TestEmaRejectionRouting:
         plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, EmaFeatureGroup})
         feature = Feature(
             "value_float__ema_0",
-            options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}),
+            options=Options(
+                group={"allow_variants": "nan_as_null"},
+                context={"order_by": "timestamp", "partition_by": ["region"]},
+            ),
         )
 
         with pytest.raises(Exception, match="span"):

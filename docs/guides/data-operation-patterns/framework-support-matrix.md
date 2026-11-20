@@ -73,16 +73,16 @@ Cells reflect each operation group's Implementations, queryable via `DataOperati
 | binning | full | full | full | full | full | full | none |
 | datetime | full | full | full | full | full | full | none |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full | Pandas, SQLite |
-| offset | -- | full | full | full | full | full | none |
+| offset | -- | full | full | full | full | full | Pandas, SQLite |
 | percentile | -- | full | full | full | -- | full | none |
 | rank | -- | full | full | full | full | full | Pandas, SQLite, Python dict |
 | scalar_aggregate | full | full | full | full | partial (6/13) | full | Pandas, SQLite |
 | scalar_arithmetic | full | full | full | full | full | full | PyArrow, Pandas, Polars lazy, SQLite, Python dict |
 | point_arithmetic | full | full | full | full | full | full | PyArrow, Pandas, Polars lazy, SQLite, Python dict |
 | time_bucketization | full | full | full | full | full | full | none |
-| ffill | full | full | full | full | full | full | none |
+| ffill | full | full | full | full | full | full | Pandas, SQLite |
 | lookup | full | full | full | full | full | full | Pandas, DuckDB, Python dict |
-| ema | -- | full | full | -- | -- | full | none |
+| ema | -- | full | full | -- | -- | full | Pandas |
 | sessionization | full | full | full | full | full | full | none |
 | window_aggregation | partial (15/17) | full | full | full | partial (6/17) | full | Pandas, SQLite |
 | string | full | full | full | full | partial (2/5) | full | none |

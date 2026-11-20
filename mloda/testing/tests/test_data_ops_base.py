@@ -1300,14 +1300,23 @@ def test_declared_supported_returns_the_default_when_the_universe_is_empty() -> 
 
 
 def _order_tie_bases() -> list[tuple[type, str]]:
+    from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import EmaTestBase
+    from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import FfillTestBase
     from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
         FrameAggregateTestBase,
     )
+    from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import OffsetTestBase
     from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
         WindowAggregationTestBase,
     )
 
-    return [(FrameAggregateTestBase, "frame"), (WindowAggregationTestBase, "window")]
+    return [
+        (EmaTestBase, "ema"),
+        (FfillTestBase, "ffill"),
+        (FrameAggregateTestBase, "frame"),
+        (OffsetTestBase, "offset"),
+        (WindowAggregationTestBase, "window"),
+    ]
 
 
 def _hook_for(base: type, impl: Any) -> bool:
@@ -1344,8 +1353,15 @@ def _hooks(records: tuple[Any, ...]) -> dict[str, bool]:
     return seen
 
 
+_ALL = ("ema", "ffill", "frame", "offset", "window")
+
+
+def _flags(**overrides: bool) -> dict[str, bool]:
+    return {label: overrides.get(label, True) for label in _ALL}
+
+
 def test_orders_nan_before_none_ignores_a_scopeless_value_record() -> None:
-    assert _hooks((_value_record(),)) == {"frame": True, "window": True}
+    assert _hooks((_value_record(),)) == _flags()
 
 
 def test_orders_nan_before_none_window_ignores_a_value_record_naming_first() -> None:
@@ -1353,19 +1369,63 @@ def test_orders_nan_before_none_window_ignores_a_value_record_naming_first() -> 
 
 
 def test_orders_nan_before_none_flips_on_a_scopeless_nan_as_null_variant() -> None:
-    assert _hooks((_nan_as_null(),)) == {"frame": False, "window": False}
+    assert _hooks((_nan_as_null(),)) == _flags(**{label: False for label in _ALL})
 
 
 def test_orders_nan_before_none_window_flips_on_a_nan_as_null_variant_naming_first_or_last() -> None:
-    assert _hooks((_nan_as_null(subtypes=frozenset({"first"})),)) == {"frame": True, "window": False}
-    assert _hooks((_nan_as_null(subtypes=frozenset({"last", "sum"})),)) == {"frame": True, "window": False}
+    assert _hooks((_nan_as_null(subtypes=frozenset({"first"})),)) == _flags(window=False)
+    assert _hooks((_nan_as_null(subtypes=frozenset({"last", "sum"})),)) == _flags(window=False)
 
 
 def test_orders_nan_before_none_ignores_a_nan_as_null_variant_scoped_elsewhere() -> None:
-    assert _hooks((_nan_as_null(subtypes=frozenset({"sum"})),)) == {"frame": True, "window": True}
-    assert _hooks((_nan_as_null(outputs=frozenset({"o"})),)) == {"frame": True, "window": True}
+    assert _hooks((_nan_as_null(subtypes=frozenset({"sum"})),)) == _flags()
+    assert _hooks((_nan_as_null(outputs=frozenset({"o"})),)) == _flags()
 
 
 def test_orders_nan_before_none_is_true_for_a_non_implementation() -> None:
     for base, _label in _order_tie_bases():
         assert _hook_for(base, object) is True
+
+
+# -- declares_nan_as_null -------------------------------------------------------
+
+
+def _declares(records: tuple[Any, ...], subtypes: frozenset[str] = frozenset()) -> bool:
+    from mloda.testing.feature_groups.data_operations.base import declares_nan_as_null
+
+    seen: list[bool] = []
+
+    def check(group: Any, impl: Any) -> None:
+        group.VARIANTS = frozenset({"nan_as_null"})
+        seen.append(declares_nan_as_null(impl, subtypes))
+
+    _with_probe_impl(check, records)
+    return seen[0]
+
+
+def test_declares_nan_as_null_is_false_without_records_and_for_other_kinds() -> None:
+    assert _declares(()) is False
+    assert _declares((_value_record(),)) is False
+
+
+def test_declares_nan_as_null_is_true_for_a_scopeless_outputless_variant() -> None:
+    assert _declares((_nan_as_null(),)) is True
+    assert _declares((_nan_as_null(),), frozenset({"first"})) is True
+
+
+def test_declares_nan_as_null_ignores_an_outputs_scoped_variant() -> None:
+    assert _declares((_nan_as_null(outputs=frozenset({"o"})),)) is False
+
+
+def test_declares_nan_as_null_needs_a_named_subtype_when_scoped() -> None:
+    record = _nan_as_null(subtypes=frozenset({"first"}))
+    assert _declares((record,)) is False
+    assert _declares((record,), frozenset({"first", "last"})) is True
+    assert _declares((record,), frozenset({"last"})) is False
+
+
+def test_declares_nan_as_null_is_false_for_a_non_implementation() -> None:
+    from mloda.testing.feature_groups.data_operations.base import declares_nan_as_null
+
+    assert declares_nan_as_null(object) is False
+    assert declares_nan_as_null(object, frozenset({"first"})) is False

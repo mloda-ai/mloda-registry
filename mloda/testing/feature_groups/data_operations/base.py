@@ -69,6 +69,21 @@ def divergent_subtypes(implementation: Any, *, named_only: bool = False) -> froz
     return frozenset(covered)
 
 
+def declares_nan_as_null(implementation: Any, subtypes: frozenset[str] = frozenset()) -> bool:
+    """Whether a ``nan_as_null`` VARIANT record is scopeless and outputless, or names one of ``subtypes``.
+
+    False for anything that is not an ``Implementation`` subclass (a stub declares nothing).
+    """
+    if not (isinstance(implementation, type) and issubclass(implementation, Implementation)):
+        return False
+    return any(
+        r.kind is DivergenceKind.VARIANT
+        and r.variant == "nan_as_null"
+        and ((subtypes & set(r.subtypes)) or (not r.subtypes and not r.outputs))
+        for r in implementation.divergences
+    )
+
+
 class DataOpsTestBase(ABC):
     """Abstract base class shared by all data-operations test suites.
 

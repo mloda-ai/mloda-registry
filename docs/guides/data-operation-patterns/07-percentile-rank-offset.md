@@ -66,7 +66,7 @@ Feature(
 
 ## Offset
 
-`OffsetFeatureGroup` shifts a column by a fixed number of rows inside each partition. It is one `OperationFeatureGroup` (shared `offset` loop, `SUBTYPES` on `offset_type`) with `Implementation` classes such as `PandasOffset`; there is no PyArrow implementation.
+`OffsetFeatureGroup` shifts a column by a fixed number of rows inside each partition. It is one `OperationFeatureGroup` (shared `offset` loop, `SUBTYPES` on `offset_type`) with `Implementation` classes such as `PandasOffset`; there is no PyArrow implementation. Pandas and SQLite serve offset only with `allow_variants: "nan_as_null"` in the group options (they tie NaN and null in `order_by` and treat a NaN value as null), see [known divergences](known-divergences.md).
 
 | Pattern | Example |
 |---|---|

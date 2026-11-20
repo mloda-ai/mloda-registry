@@ -19,7 +19,7 @@ from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
@@ -165,6 +165,11 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
         return reference_offset(cls.feature_group_class(), table, features)
+
+    @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
+        return not declares_nan_as_null(cls.implementation_class())
 
     # -- Concrete tests ------------------------------------------------------
 
@@ -342,6 +347,53 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             assert result_col == pytest.approx(ref_col)
         else:
             assert result_col == ref_col
+
+    # -- NaN in order_by and in the source -----------------------------------
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        self._skip_if_unsupported("lag")
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.DOUBLE, [None, float("nan"), 1.0]),
+                "v": (DataType.INT64, [10, 20, 30]),
+            }
+        )
+        fs = make_feature_set("v__lag_1_offset", ["g"], "o")
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [20, 30, None] if self.orders_nan_before_none() else [30, 10, None]
+        assert self.extract_column(result, "v__lag_1_offset") == expected
+
+        assert extract_column(self.reference_calculate(arrow_table_of(table), fs), "v__lag_1_offset") == [20, 30, None]
+
+    @pytest.mark.parametrize(
+        "op,values,reference,as_null",
+        [
+            pytest.param("first_value", [float("nan"), 1.0, 2.0], [float("nan")] * 3, [1.0] * 3, id="first_value"),
+            pytest.param("last_value", [1.0, 2.0, float("nan")], [float("nan")] * 3, [2.0] * 3, id="last_value"),
+        ],
+    )
+    def test_nan_source_value(self, op: str, values: list[float], reference: list[float], as_null: list[float]) -> None:
+        """The reference keeps a NaN first/last value; a backend declaring nan_as_null skips it like a null."""
+        self._skip_if_unsupported(op)
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.INT64, [1, 2, 3]),
+                "v": (DataType.DOUBLE, values),
+            }
+        )
+        feature_name = f"v__{op}_offset"
+        fs = make_feature_set(feature_name, ["g"], "o")
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = reference if self.orders_nan_before_none() else as_null
+        assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
+
+        ref_col = extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name)
+        assert ref_col == pytest.approx(reference, nan_ok=True)
 
     # -- All-null column tests -----------------------------------------------
 

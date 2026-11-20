@@ -17,11 +17,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mloda.provider import DivergenceKind, FeatureSet, Implementation
+from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -509,13 +509,7 @@ class FrameAggregateTestBase(
     @classmethod
     def orders_nan_before_none(cls) -> bool:
         """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
-        impl = cls.implementation_class()
-        if isinstance(impl, type) and issubclass(impl, Implementation):
-            return not any(
-                r.kind is DivergenceKind.VARIANT and r.variant == "nan_as_null" and not r.subtypes and not r.outputs
-                for r in impl.divergences
-            )
-        return True
+        return not declares_nan_as_null(cls.implementation_class())
 
     # -- Rolling tests -------------------------------------------------------
 

@@ -15,11 +15,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mloda.provider import DivergenceKind, FeatureSet, Implementation
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
@@ -266,15 +266,7 @@ class WindowAggregationTestBase(
     @classmethod
     def orders_nan_before_none(cls) -> bool:
         """False exactly when a ``nan_as_null`` VARIANT record names ``first``/``last`` or is scopeless and outputless."""
-        impl = cls.implementation_class()
-        if isinstance(impl, type) and issubclass(impl, Implementation):
-            return not any(
-                r.kind is DivergenceKind.VARIANT
-                and r.variant == "nan_as_null"
-                and (({"first", "last"} & set(r.subtypes)) or (not r.subtypes and not r.outputs))
-                for r in impl.divergences
-            )
-        return True
+        return not declares_nan_as_null(cls.implementation_class(), frozenset({"first", "last"}))
 
     # -- MaskTestMixin configuration -------------------------------------------
 

@@ -56,7 +56,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -209,6 +209,11 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
 
         return reference_ffill(cls.feature_group_class(), table, features)
 
+    @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
+        return not declares_nan_as_null(cls.implementation_class())
+
     # -- Setup: use the dedicated 10-row ffill fixture ----------------------
 
     @classmethod
@@ -309,6 +314,44 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         assert [float(x) for x in col] == expected
         ref = self.reference_calculate(arrow_table_of(data), fs)
         assert [float(x) for x in col] == [float(x) for x in ref.column("v__ffill").to_pylist()]
+
+    # -- NaN in order_by and in the source -----------------------------------
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.DOUBLE, [None, float("nan"), 1.0]),
+                "v": (DataType.INT64, [10, None, 30]),
+            }
+        )
+        fs = make_feature_set("v__ffill", ["g"], "o")
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [10, 30, 30] if self.orders_nan_before_none() else [10, 10, 30]
+        assert self.extract_column(result, "v__ffill") == expected
+
+        assert self.reference_calculate(arrow_table_of(table), fs).column("v__ffill").to_pylist() == [10, 30, 30]
+
+    def test_nan_source_value_is_carried(self) -> None:
+        """The reference carries a NaN value into the following null; a backend declaring nan_as_null treats it as null."""
+        nan = float("nan")
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.INT64, [1, 2, 3]),
+                "v": (DataType.DOUBLE, [1.0, nan, None]),
+            }
+        )
+        fs = make_feature_set("v__ffill", ["g"], "o")
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        expected = [1.0, nan, nan] if self.orders_nan_before_none() else [1.0, 1.0, 1.0]
+        assert self.extract_column(result, "v__ffill") == pytest.approx(expected, nan_ok=True)
+
+        ref_col = self.reference_calculate(arrow_table_of(table), fs).column("v__ffill").to_pylist()
+        assert ref_col == pytest.approx([1.0, nan, nan], nan_ok=True)
 
     # -- Row-preserving semantics -------------------------------------------
 

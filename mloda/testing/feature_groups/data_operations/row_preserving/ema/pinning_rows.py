@@ -31,6 +31,7 @@ EMA_RULES: Mapping[str, str] = MappingProxyType(
         "order": "Each partition is ordered by order_by ascending, stably: input order breaks ties.",
         "order_tiers": "In order_by real values come first, then NaN, then None; NaN and None are separate tiers.",
         "none": "A None input gives None and does not advance the state; an all-None group stays None.",
+        "nan": "NaN in the source is a value: it propagates into the state, so its row and every later non-None row are NaN.",
         "partition_keys": "NaN partition keys merge into one group; a None partition key is its own group.",
         "whole_table": "Without partition_by the whole table is one group.",
         "dtype": "The output is float64, also for an integer source.",
@@ -215,6 +216,14 @@ EMA_PINNING = PinningTable(
             feature="v__ema_3",
             inputs={"p": (_S, ("a",) * 3), "o": (_I, (1, 2, 3)), "v": (_D, (None, 4.0, None))},
             expected={"v__ema_3": (_D, (None, 4.0, None))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="nan",
+            feature="v__ema_2",
+            inputs={"p": (_S, ("a",) * 5), "o": (_I, (1, 2, 3, 4, 5)), "v": (_D, (10.0, NAN, 30.0, None, 50.0))},
+            # seed 10, NaN poisons the state: NaN, NaN, None stays None, NaN
+            expected={"v__ema_2": (_D, (10.0, NAN, NAN, None, NAN))},
             context=_CTX,
         ),
         PinningRow(

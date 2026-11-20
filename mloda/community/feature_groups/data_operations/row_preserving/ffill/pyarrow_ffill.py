@@ -1,4 +1,4 @@
-"""PyArrow implementation of ffill-by-time (production AND reference)."""
+"""PyArrow implementation of ffill-by-time."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.base im
 
 
 class PyArrowFfill(Implementation[FfillFeatureGroup]):
-    """PyArrow backend; also the cross-framework reference implementation.
+    """PyArrow backend.
 
     ``pyarrow.compute.fill_null_forward`` does NOT respect partition boundaries,
     so the fill is applied PER PARTITION. Rows are tagged with their original
