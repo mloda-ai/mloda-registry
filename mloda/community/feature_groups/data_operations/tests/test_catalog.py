@@ -447,14 +447,10 @@ class TestDivergences:
     def test_python_dict_frame_aggregate_declares_none(self) -> None:
         assert DataOperationsCatalog.get("frame_aggregate").divergences["PythonDictFramework"] == ()
 
-    def test_sqlite_point_arithmetic_declares_divide_value_nan_variant_and_overflow_gap(self) -> None:
+    def test_sqlite_point_arithmetic_declares_a_divide_value_record(self) -> None:
         records = DataOperationsCatalog.get("point_arithmetic").divergences["SqliteFramework"]
-        assert sorted(r.kind.name for r in records) == ["GAP", "VALUE", "VARIANT"]
-        by_kind = {r.kind: r for r in records}
-        assert by_kind[DivergenceKind.VALUE].subtypes == frozenset({"divide"})
-        assert by_kind[DivergenceKind.VARIANT].variant == "nan_as_null"
-        assert not by_kind[DivergenceKind.VARIANT].subtypes
-        assert by_kind[DivergenceKind.GAP].subtypes == frozenset({"add", "subtract", "multiply"})
+        value_records = [r for r in records if r.kind is DivergenceKind.VALUE]
+        assert [r.subtypes for r in value_records] == [frozenset({"divide"})]
 
     @pytest.mark.parametrize("operation", ["point_arithmetic", "scalar_arithmetic"])
     def test_pandas_and_sqlite_arithmetic_declare_scopeless_nan_as_null(self, operation: str) -> None:
