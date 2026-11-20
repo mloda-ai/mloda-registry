@@ -40,12 +40,9 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
+    PYTHON_DICT_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
-)
-
-PYTHON_DICT_FRAMEWORK = (
-    "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework:PythonDictFramework"
 )
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,

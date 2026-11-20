@@ -76,7 +76,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -160,11 +160,6 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
         return {"__mloda_rn__"}
-
-    @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
-        return not declares_nan_as_null(cls.implementation_class())
 
     @classmethod
     def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
@@ -324,12 +319,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         reference = [130 / 9, 70 / 3, 30.0]
         tied = [50 / 3, 170 / 9, 30.0]
 
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = reference if self.orders_nan_before_none() else tied
-        assert [float(x) for x in self.extract_column(result, "v__ema_2")] == pytest.approx(expected)
-
-        ref = self.reference_calculate(arrow_table_of(table), fs).column("v__ema_2").to_pylist()
-        assert ref == pytest.approx(reference)
+        self._assert_nan_case(table, fs, "v__ema_2", reference, tied, approx=True)
 
     def test_nan_source_value_propagates(self) -> None:
         """The reference lets a NaN input poison the state; a backend declaring nan_as_null treats it as null."""
@@ -345,13 +335,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         reference = [10.0, nan, nan, None, nan]
         as_null = [10.0, None, 70 / 3, None, 370 / 9]
 
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = reference if self.orders_nan_before_none() else as_null
-        col = self.extract_column(result, "v__ema_2")
-        assert [None if x is None else float(x) for x in col] == pytest.approx(expected, nan_ok=True)
-
-        ref = self.reference_calculate(arrow_table_of(table), fs).column("v__ema_2").to_pylist()
-        assert ref == pytest.approx(reference, nan_ok=True)
+        self._assert_nan_case(table, fs, "v__ema_2", reference, as_null, approx=True)
 
     # -- Row-preserving semantics -------------------------------------------
 

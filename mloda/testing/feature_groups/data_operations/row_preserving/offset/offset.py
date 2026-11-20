@@ -19,7 +19,7 @@ from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
@@ -165,11 +165,6 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
         return reference_offset(cls.feature_group_class(), table, features)
-
-    @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
-        return not declares_nan_as_null(cls.implementation_class())
 
     # -- Concrete tests ------------------------------------------------------
 
@@ -361,12 +356,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
             }
         )
         fs = make_feature_set("v__lag_1_offset", ["g"], "o")
-
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = [20, 30, None] if self.orders_nan_before_none() else [30, 10, None]
-        assert self.extract_column(result, "v__lag_1_offset") == expected
-
-        assert extract_column(self.reference_calculate(arrow_table_of(table), fs), "v__lag_1_offset") == [20, 30, None]
+        self._assert_nan_case(table, fs, "v__lag_1_offset", [20, 30, None], [30, 10, None])
 
     @pytest.mark.parametrize(
         "op,values,reference,as_null",
@@ -388,12 +378,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         feature_name = f"v__{op}_offset"
         fs = make_feature_set(feature_name, ["g"], "o")
 
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = reference if self.orders_nan_before_none() else as_null
-        assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
-
-        ref_col = extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name)
-        assert ref_col == pytest.approx(reference, nan_ok=True)
+        self._assert_nan_case(table, fs, feature_name, reference, as_null, approx=True)
 
     # -- All-null column tests -----------------------------------------------
 

@@ -29,11 +29,11 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
+    PYARROW_TABLE,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
 
-PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.table:PyArrowTable"
 _PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.ffill"
 _ROUTING_OPTIONS = {"order_by": "timestamp", "partition_by": ["region"]}
 

@@ -56,7 +56,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -209,11 +209,6 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
 
         return reference_ffill(cls.feature_group_class(), table, features)
 
-    @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
-        return not declares_nan_as_null(cls.implementation_class())
-
     # -- Setup: use the dedicated 10-row ffill fixture ----------------------
 
     @classmethod
@@ -327,12 +322,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
             }
         )
         fs = make_feature_set("v__ffill", ["g"], "o")
-
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = [10, 30, 30] if self.orders_nan_before_none() else [10, 10, 30]
-        assert self.extract_column(result, "v__ffill") == expected
-
-        assert self.reference_calculate(arrow_table_of(table), fs).column("v__ffill").to_pylist() == [10, 30, 30]
+        self._assert_nan_case(table, fs, "v__ffill", [10, 30, 30], [10, 10, 30])
 
     def test_nan_source_value_is_carried(self) -> None:
         """The reference carries a NaN value into the following null; a backend declaring nan_as_null treats it as null."""
@@ -346,12 +336,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         )
         fs = make_feature_set("v__ffill", ["g"], "o")
 
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = [1.0, nan, nan] if self.orders_nan_before_none() else [1.0, 1.0, 1.0]
-        assert self.extract_column(result, "v__ffill") == pytest.approx(expected, nan_ok=True)
-
-        ref_col = self.reference_calculate(arrow_table_of(table), fs).column("v__ffill").to_pylist()
-        assert ref_col == pytest.approx([1.0, nan, nan], nan_ok=True)
+        self._assert_nan_case(table, fs, "v__ffill", [1.0, nan, nan], [1.0, 1.0, 1.0], approx=True)
 
     # -- Row-preserving semantics -------------------------------------------
 
