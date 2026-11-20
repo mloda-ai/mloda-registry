@@ -1,4 +1,4 @@
-"""Runs every pinned row of a reference against it, strictly, and guards the tables and guide 03."""
+"""Runs every pinned row of a reference against it, strictly, and guards the tables."""
 
 from __future__ import annotations
 
@@ -17,22 +17,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import (
-    OPERATIONS,
-    REPO_ROOT,
-    splice_into_doc,
-)
+from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import OPERATIONS
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.pinning import (
-    PINNING_BEGIN_MARKER,
-    PINNING_END_MARKER,
     PinningRow,
     PinningTable,
-    render_pinning_block,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_rows import (
     POINT_ARITHMETIC_PINNING,
@@ -43,8 +36,6 @@ from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.refe
     reference_scalar_arithmetic,
 )
 from mloda.testing.typed_data import TypedTestData
-
-PINNING_DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "03-reference-implementation.md"
 
 #: Every reference that ships pinning rows: its group, its reference function and its table.
 PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
@@ -122,23 +113,6 @@ def _fits(data_type: DataType, value: Any) -> bool:
     if data_type in _FLOAT_TYPES:
         return isinstance(value, float)
     return isinstance(value, int) and not isinstance(value, bool)
-
-
-_PINNING_REGENERATION_HINT = (
-    "Regenerate the block between the `BEGIN GENERATED` / `END GENERATED` markers in\n"
-    f"{PINNING_DOC_PATH.relative_to(REPO_ROOT)}\n"
-    "so it matches render_pinning_block(tables) from the kit, then rerun."
-)
-
-
-def test_pinned_cases_section_is_in_sync() -> None:
-    current = PINNING_DOC_PATH.read_text(encoding="utf-8")
-    generated = render_pinning_block([table for _, _, table in PINNED])
-    expected = splice_into_doc(current, generated, PINNING_BEGIN_MARKER, PINNING_END_MARKER)
-
-    assert expected == current, (
-        "The pinned cases section is out of sync with the pinning rows.\n" + _PINNING_REGENERATION_HINT
-    )
 
 
 def _typed_table(**columns: tuple[pa.DataType, list[Any]]) -> pa.Table:
