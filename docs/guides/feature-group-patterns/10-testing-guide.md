@@ -132,7 +132,7 @@ def test_my_feature_within_budget():
         assert entry.duration_seconds < BUDGET_SECONDS[name], name
 ```
 
-The duration covers the `calculate_feature` call only, so on a lazy framework such as `PolarsLazyDataFrame` or `DuckDBFramework` it measures building the frame, not executing it; see [the mloda API doc](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/mloda-api.md#explain-and-resolved_plan).
+The duration covers the `calculate_feature` call only, so on a lazy framework such as `PolarsLazyDataFrame` or `DuckDBFramework` it measures building the frame, not executing it; see [the mloda API doc](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/mloda-api.md#explain-and-resolved_plan).
 
 ### Level 3 Only: The Empty-Result Contract
 
@@ -288,7 +288,7 @@ def test_result_differs_from_the_reference_exactly_when_declared(implementation,
     assert differs == (op in declared(implementation))
 ```
 
-Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.20.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
+Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.21.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
 
 ## Locking a Shipped Plan
 

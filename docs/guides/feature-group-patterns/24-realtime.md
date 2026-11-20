@@ -33,7 +33,7 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 
 `session.run()` accepts additional parameters beyond `api_data`:
 
-- `parallelization_modes`: override parallelization per run
+- `parallelization_modes`: override parallelization per run (default: the modes given to `prepare()`; `MULTIPROCESSING` also needs `flight_server`)
 - `flight_server`: Arrow Flight server for distributed execution
 - `artifacts`: a previous run's `RunResult.artifacts` (`session.run().artifacts`, or `stream.artifacts` once a `stream_run()` stream is exhausted); keys must be in `session.artifact_inputs`, else it raises; matching feature groups switch to load mode
 - `credentials`: `{handle: Credential | dict}` replacing declared handles' values for this run only; `prepare` already needs a credential with the required fields under every declared handle (see [Secrets](11-options.md#secrets))

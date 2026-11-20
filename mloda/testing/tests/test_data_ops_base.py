@@ -1170,13 +1170,13 @@ def test_operation_group_shape_fails_for_a_supported_subtype_outside_the_univers
 def test_operation_group_shape_fails_for_a_divergence_record_without_a_reason() -> None:
     from mloda.provider import Cause, Divergence, DivergenceKind
 
-    # NOT_IMPLEMENTED is the one cause core accepts without a reason, so only the kit's own assert rejects it.
+    # NOT_IMPLEMENTED is the one cause Divergence accepts without a reason; core's shape check rejects it.
     records = (Divergence(kind=DivergenceKind.VALUE, cause=Cause.NOT_IMPLEMENTED, reason="skips NaN"),)
 
     def check(group: Any, impl: Any) -> None:
         for record in impl.divergences:
             object.__setattr__(record, "reason", "")
-        with pytest.raises(AssertionError, match="reason"):
+        with pytest.raises(pytest.fail.Exception, match="gives no reason"):
             _operation_group_host(group, impl).test_operation_group_shape()
 
     _with_probe_impl(check, records)

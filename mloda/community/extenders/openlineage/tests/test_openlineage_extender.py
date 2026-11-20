@@ -2299,6 +2299,14 @@ class TestOpenLineageExtenderParentRunFacet:
                 {
                     "divergences": [
                         {
+                            "kind": "value",
+                            "cause": "other",
+                            "subtypes": [],
+                            "outputs": ["a", "b"],
+                            "reason": "r",
+                            "docs": "d",
+                        },
+                        {
                             "source": "implementation",
                             "framework": "PythonDictFramework",
                             "kind": "variant",
@@ -2308,14 +2316,6 @@ class TestOpenLineageExtenderParentRunFacet:
                             "reason": "ties NaN with null in order_by",
                             "variant": "nan_as_null",
                             "docs": PythonDictRank.divergence_records()[0].docs,
-                        },
-                        {
-                            "kind": "value",
-                            "cause": "other",
-                            "subtypes": [],
-                            "outputs": ["a", "b"],
-                            "reason": "r",
-                            "docs": "d",
                         },
                     ]
                 },

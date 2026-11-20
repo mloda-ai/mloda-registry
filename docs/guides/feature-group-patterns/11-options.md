@@ -54,7 +54,7 @@ feature = Feature(
 )
 ```
 
-The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level; a credential handle key forwards only past a consumer that does not declare it (see [Secrets](#secrets)). A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
+The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level; a credential handle key forwards only past a consumer that does not declare it (see [Secrets](#secrets)). A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
 A key that a consumer and its input both read is declared only on the group the user requests; the input reads the forwarded value from `feature.options`, and declaring it on both logs a warning. A credential handle key is the exception: each group that reads it declares it, and the consumer sets it on the input itself (see [A Credential Handle the Input Reads Too](26-input-feature-forwarding.md#a-credential-handle-the-input-reads-too)).
 
@@ -167,7 +167,7 @@ def test_signs_in_run_all() -> None:
     assert result.frame_for("email__hmac_signed")["email__hmac_signed"] == [SIGNED]
 ```
 
-Core's [Declaring a credential handle](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#declaring-a-credential-handle) lists every plan-time refusal, and [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding) the read window and its limits.
+Core's [Declaring a credential handle](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/named-data-access-handles.md#declaring-a-credential-handle) lists every plan-time refusal, and [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding) the read window and its limits.
 
 ## PROPERTY_MAPPING value space
 
@@ -284,7 +284,7 @@ assert result[0]["guide11_price__shift_1"].tolist()[1:] == [1, 2]
 - `_resolve_operation` and `value_for` still return the captured text
 - Keep the converter pure and cheap, as it runs on every resolution
 
-See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
+See [How a name-parsed value binds to a key](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/property-mapping.md#how-a-name-parsed-value-binds-to-a-key) in the core docs.
 
 ### Annotate with ClassVar
 

@@ -29,7 +29,6 @@ from mloda.provider import (
 )
 from mloda.user import Options
 
-from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 from mloda.testing.operation_group_shape import Probe, assert_operation_group_shape
 
@@ -233,16 +232,9 @@ class OperationGroupTestBase(CaseParametrizationTestMixin, ABC):
         if not specs:
             pytest.skip("no listed implementation is installed")
         implementations = [self._implementation(spec) for spec in specs]
-        assert_operation_group_shape(self.feature_group_class(), self.alias_pairs(), self.shape_probe())
-        universe = self.feature_group_class().subtype_universe()
-        # Core's check sees only Implementations that serve a framework and accepts an empty reason on a
-        # NOT_IMPLEMENTED record, so the kit keeps these per listed Implementation.
-        for implementation in implementations:
-            supported = implementation.supported
-            assert supported is None or supported <= universe
-            assert divergent_subtypes(implementation) <= universe
-            for record in implementation.divergences:
-                assert isinstance(record.reason, str) and record.reason, f"{implementation.__name__}: empty reason"
+        assert_operation_group_shape(
+            self.feature_group_class(), self.alias_pairs(), self.shape_probe(), implementations=implementations
+        )
 
     def test_universe_is_the_declared_set(self) -> None:
         if self.universe() is None:

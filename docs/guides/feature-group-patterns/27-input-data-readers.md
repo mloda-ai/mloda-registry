@@ -7,7 +7,7 @@ How to point a feature at a source FeatureGroup and how to write your own for a 
 **Why**: Source selection is contract-driven, not guesswork; knowing the contract avoids reading mloda core source.
 **Where**: Connector plugins (a CKAN CSV group, a direct-URL group, a REST JSON group side by side).
 
-Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/data-access-patterns.md). Request data (`api_data=`) is served by the source group `ApiDataFG`; synthetic data by `DataCreatorFeatureGroup`.
+Core describes the model (claim routes, resolution, errors): [Data Access Patterns](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/data-access-patterns.md). Request data (`api_data=`) is served by the source group `ApiDataFG`; synthetic data by `DataCreatorFeatureGroup`.
 
 ## Pointing a Feature at a Group
 
@@ -252,7 +252,7 @@ Since mloda 0.20.0 a source group has two paths: bind what opens or selects the 
 
 A `Credential` may sit in options only as a source group's class-name pointer value (`{"SqliteFG": Credential(...)}`); core refuses it under any other option key, and it is the one exception to [Secrets](11-options.md#secrets). Prefer a named slot.
 
-A group never reads `os.environ` and no option or slot names an environment variable: the caller reads it (`Credential(token=os.environ["API_TOKEN"])`). A source that needs no credential binds nothing (`match_credentials` returns `None`), and one that needs it only sometimes, such as on a cache miss, reads it at run time. See [Secrets](11-options.md#secrets) and core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.20.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
+A group never reads `os.environ` and no option or slot names an environment variable: the caller reads it (`Credential(token=os.environ["API_TOKEN"])`). A source that needs no credential binds nothing (`match_credentials` returns `None`), and one that needs it only sometimes, such as on a cache miss, reads it at run time. See [Secrets](11-options.md#secrets) and core's [Runtime access versus match-time binding](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/named-data-access-handles.md#runtime-access-versus-match-time-binding).
 
 ## Families of Sibling Sources
 
@@ -439,17 +439,17 @@ def test_rotating_reader_reads_each_runs_credential() -> None:
     assert tokens == ["first-api-token", "rotated-api-token", "first-api-token"]
 ```
 
-A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.20.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
+A group that overrides `match_feature_group_criteria` or probes through `gated_probe` also needs an end-to-end gate test: plan with `mloda.prepare` and an `INPUT_DATA_MATCH` extender that sets `never_fall_back = True` and raises for the group, then assert the refusal is on `FeatureResolutionError.refusals` (or that a sibling serves the feature). To make a gate current without a run, wrap a matcher call in `mloda.steward.reader_probe_scope(ReaderProbeScope(extender, None, None, None, None))`. Core's [test_input_data_match_hook.py](https://github.com/mloda-ai/mloda/blob/0.21.0/tests/test_plugins/extender/test_input_data_match_hook.py) shows the pattern.
 
 ## Real Implementations
 
 | File | Description |
 |------|-------------|
-| [source_feature_group.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/input_data/source_feature_group.py) | `SourceFeatureGroup`: claim routes, `find_sources`, `load_neutral`, `gated_probe` |
-| [claim_route.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/input_data/claim_route.py) | `ClaimRoute`, `NamePolicy`, `SourceMatch` |
-| [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG`: `suffixes`, `column_names` |
-| [read_db_fg.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda/core/abstract_plugins/components/input_data/read_db_fg.py) | `ReadDBFG`: credentials, catalogs, optional query route |
-| [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.20.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
+| [source_feature_group.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda/core/abstract_plugins/components/input_data/source_feature_group.py) | `SourceFeatureGroup`: claim routes, `find_sources`, `load_neutral`, `gated_probe` |
+| [claim_route.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda/core/abstract_plugins/components/input_data/claim_route.py) | `ClaimRoute`, `NamePolicy`, `SourceMatch` |
+| [read_file_fg.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda/core/abstract_plugins/components/input_data/read_file_fg.py) | `ReadFileFG`: `suffixes`, `column_names` |
+| [read_db_fg.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda/core/abstract_plugins/components/input_data/read_db_fg.py) | `ReadDBFG`: credentials, catalogs, optional query route |
+| [csv_fg.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda_plugins/feature_group/input_data/file_formats/csv_fg.py) | `CsvFG` |
 
 ## Combines With
 
