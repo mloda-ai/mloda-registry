@@ -14,7 +14,7 @@ from mloda.user import DataType, Feature, Options
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
     SqliteFrameAggregate,
 )
-from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, feature_group_of
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin, SqliteViewTestMixin
@@ -61,7 +61,7 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
     def test_sqlite_rejects_month_time_window_at_match_time(self) -> None:
         """SQLite rejects month/year time windows because its calendar arithmetic diverges from the reference."""
         options = Options(context={"partition_by": ["region"], "order_by": "ts"})
-        group = feature_group_of(self.implementation_class())
+        group = self.feature_group_class()
         framework = self.compute_framework_class()
         assert not group.supports_compute_framework("value__sum_1_month_window", options, framework)
         assert not group.supports_compute_framework("value__sum_1_year_window", options, framework)

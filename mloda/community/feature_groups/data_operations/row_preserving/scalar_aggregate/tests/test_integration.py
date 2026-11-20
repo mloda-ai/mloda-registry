@@ -40,7 +40,7 @@ class TestScalarAggregateIntegration(
     MaskIntegrationTestMixin, OperationGroupIntegrationTestMixin, DataOpsIntegrationTestBase
 ):
     @classmethod
-    def feature_group_class(cls) -> type:
+    def feature_group_class(cls) -> type[ScalarAggregateFeatureGroup]:
         return ScalarAggregateFeatureGroup
 
     @classmethod
@@ -92,10 +92,10 @@ class TestScalarAggregateIntegration(
         return True
 
     def test_match_rejects_missing_config(self) -> None:
-        """Override: aggregation requires no config for pattern-based features."""
+        """Override: aggregation needs no config for pattern features."""
         options = Options()
         fg_cls = self.feature_group_class()
-        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)
 
     # -- OperationGroupIntegrationTestMixin configuration ----------------------
 

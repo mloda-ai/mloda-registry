@@ -23,7 +23,6 @@ from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
-    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -204,7 +203,7 @@ class ScalarAggregateTestBase(
             reference_scalar_aggregate,
         )
 
-        return reference_scalar_aggregate(feature_group_of(cls.implementation_class()), table, features)
+        return reference_scalar_aggregate(cls.feature_group_class(), table, features)
 
     # -- Concrete tests ------------------------------------------------------
 

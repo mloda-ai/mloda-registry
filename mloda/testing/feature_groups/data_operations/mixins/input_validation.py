@@ -19,7 +19,8 @@ from unittest.mock import patch
 import pytest
 from mloda.user import FeatureName, Options
 
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, feature_group_of, make_feature_set
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 from mloda.testing.typed_data import TypedTestData
 
@@ -49,16 +50,11 @@ class InputValidationCase:
     arrow_types: Mapping[str, Any] | None = None
 
 
-class InputValidationTestMixin(CaseParametrizationTestMixin):
+class InputValidationTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     """Mixin providing a standardized input-validation rejection test.
 
     Feature-group test bases mix this in and override ``input_validation_cases()``
     to declare the kinds. A missing or unknown kind fails at collection time.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``create_test_data(data, arrow_types)``
-    - ``test_data``
     """
 
     _case_fixtures: ClassVar[dict[str, str]] = {"input_validation_case": "input_validation_case_ids"}
@@ -73,7 +69,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         ``multi_column_in_features`` must be config-based or a reason string, since it also
         drives ``test_mixin_empty_in_features``.
         """
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override input_validation_cases")
 
     @classmethod
     def input_validation_case_ids(cls) -> list[str]:
@@ -104,8 +100,8 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
     def _case_test_data(self, case: InputValidationCase) -> Any:
         """Return the shared test data, or fresh data built from ``case.data``."""
         if case.data is None:
-            return self.test_data  # type: ignore[attr-defined]
-        return self.create_test_data(case.data, case.arrow_types)  # type: ignore[attr-defined]
+            return self.test_data
+        return self.create_test_data(case.data, case.arrow_types)
 
     # -- Concrete test methods ------------------------------------------------
 
@@ -119,7 +115,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         data = self._case_test_data(case)
         fs = make_feature_set(case.feature_name, **case.context)
         with pytest.raises(ValueError, match=case.match):
-            calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
+            calculate_with(self.implementation_class(), data, fs)
 
     def test_mixin_empty_in_features(self) -> None:
         """Derive a zero-length in_features rejection from the multi_column_in_features case."""
@@ -135,7 +131,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         feature = next(iter(fs.features))
         with patch.object(feature.options, "get_in_features", return_value=frozenset()):
             with pytest.raises(ValueError, match=r"requires at least \d+ in_feature"):
-                calculate_with(self.implementation_class(), data, fs)  # type: ignore[attr-defined]
+                calculate_with(self.implementation_class(), data, fs)
 
     def test_mixin_input_features_rejects_multi_column(self) -> None:
         """input_features rejects the multi_column_in_features count at build time, not only at calculate time."""
@@ -147,4 +143,4 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
 
         options = Options(context=case.context)
         with pytest.raises(ValueError, match=case.match):
-            feature_group_of(self.implementation_class())().input_features(options, FeatureName(case.feature_name))  # type: ignore[attr-defined]
+            self.feature_group_class()().input_features(options, FeatureName(case.feature_name))

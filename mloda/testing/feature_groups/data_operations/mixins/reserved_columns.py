@@ -30,6 +30,7 @@ from typing import Any
 import pytest
 from mloda.user import DataType
 
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     append_typed_columns,
     calculate_with,
@@ -38,7 +39,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 from mloda.testing.typed_data import TypedTestData
 
 
-class ReservedColumnsTestMixin:
+class ReservedColumnsTestMixin(DataOpsTestBase):
     """Mixin providing a standardized reserved-column acceptance test.
 
     Feature-group test bases mix this in and implement the configuration
@@ -46,12 +47,6 @@ class ReservedColumnsTestMixin:
 
     Every backend now accepts ``__mloda_``-prefixed user columns because helper
     columns are made collision-free at runtime; no reserved namespace exists.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``implementation_class()``
-    - ``_source`` attribute (set in setup_method)
-    - ``create_test_data(data, arrow_types)``
-    - ``_compare_with_reference(...)`` (only for ``reserved_columns_extra_feature_names``)
     """
 
     # -- Configuration methods (override per feature group) --------------------
@@ -59,7 +54,7 @@ class ReservedColumnsTestMixin:
     @classmethod
     def reserved_columns_feature_name(cls) -> str:
         """Feature name for the reserved-columns test (e.g. 'value_int__sum_window')."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override reserved_columns_feature_name")
 
     @classmethod
     def reserved_columns_partition_by(cls) -> list[str] | None:
@@ -129,16 +124,16 @@ class ReservedColumnsTestMixin:
         non-``None`` result.
         """
         colliding_name = "__MLODA_USER_COL__"
-        base: TypedTestData = self._source  # type: ignore[attr-defined]
+        base: TypedTestData = self._source
         colliding = append_typed_columns(base, {colliding_name: (DataType.INT64, [0] * base.row_count)})
-        colliding_data = self.create_test_data(colliding, self.source_arrow_types())  # type: ignore[attr-defined]
+        colliding_data = self.create_test_data(colliding, self.source_arrow_types())
         fs = make_feature_set(
             self.reserved_columns_feature_name(),
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
             **self.reserved_columns_extra_context(),
         )
-        result = calculate_with(self.implementation_class(), colliding_data, fs)  # type: ignore[attr-defined]
+        result = calculate_with(self.implementation_class(), colliding_data, fs)
         assert result is not None
 
     def test_mixin_helper_column_name_collision_survives(self) -> None:
@@ -160,12 +155,12 @@ class ReservedColumnsTestMixin:
         if not helper_names:
             pytest.skip("op opts out of the helper-column survival test")
 
-        base: TypedTestData = self._source  # type: ignore[attr-defined]
+        base: TypedTestData = self._source
         n = base.row_count
         # A distinct value range per helper column so a cross-column mix-up is caught too.
         expected = {name: [1000 * (j + 1) + i for i in range(n)] for j, name in enumerate(sorted(helper_names))}
         colliding = append_typed_columns(base, {name: (DataType.INT64, values) for name, values in expected.items()})
-        arrow_types = self.source_arrow_types()  # type: ignore[attr-defined]
+        arrow_types = self.source_arrow_types()
         runs: list[tuple[str, dict[str, Any], bool]] = [(self.reserved_columns_feature_name(), {}, False)]
         for entry in self.reserved_columns_extra_feature_names():
             extra_name, extra_ctx = (entry, {}) if isinstance(entry, str) else entry
@@ -180,18 +175,18 @@ class ReservedColumnsTestMixin:
             label = f"{feature_name} {pair_ctx}" if pair_ctx else feature_name
             fs = make_feature_set(feature_name, **kwargs)
             result = calculate_with(
-                self.implementation_class(),  # type: ignore[attr-defined]
-                self.create_test_data(colliding, arrow_types),  # type: ignore[attr-defined]
+                self.implementation_class(),
+                self.create_test_data(colliding, arrow_types),
                 fs,
             )
-            assert self.get_row_count(result) == n, label  # type: ignore[attr-defined]
+            assert self.get_row_count(result) == n, label
             for name, values in expected.items():
-                survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]
+                survived = [int(v) for v in self.extract_column(result, name)]
                 assert survived == values, f"{label}: user column {name} changed: {survived!r}"
             if is_extra:
-                self._compare_with_reference(  # type: ignore[attr-defined]
+                self._compare_with_reference(
                     feature_name,
                     use_approx=True,
-                    data=self.create_test_data(colliding, arrow_types),  # type: ignore[attr-defined]
+                    data=self.create_test_data(colliding, arrow_types),
                     **kwargs,
                 )

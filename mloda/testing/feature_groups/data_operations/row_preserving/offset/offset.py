@@ -25,7 +25,6 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
     extract_column,
-    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -163,7 +162,7 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         """Run the PyArrow-backed reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
 
-        return reference_offset(feature_group_of(cls.implementation_class()), table, features)
+        return reference_offset(cls.feature_group_class(), table, features)
 
     # -- Concrete tests ------------------------------------------------------
 
@@ -415,14 +414,10 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_match_rejects_empty_partition_by(self) -> None:
         """Empty partition_by must be rejected at match time, not reach backend-specific compute."""
         options = Options(context={"partition_by": [], "order_by": "value_int"})
-        assert not feature_group_of(self.implementation_class()).match_feature_group_criteria(
-            "value_int__lag_1_offset", options, None
-        )
+        assert not self.feature_group_class().match_feature_group_criteria("value_int__lag_1_offset", options, None)
 
         valid_options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        assert feature_group_of(self.implementation_class()).match_feature_group_criteria(
-            "value_int__lag_1_offset", valid_options, None
-        )
+        assert self.feature_group_class().match_feature_group_criteria("value_int__lag_1_offset", valid_options, None)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------
 

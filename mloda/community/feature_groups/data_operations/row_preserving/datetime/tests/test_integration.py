@@ -30,8 +30,8 @@ class TestDateTimeIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegra
 
     Datetime operations use pattern-based matching (``<source>__<op>``),
     so ``match_feature_group_criteria`` succeeds with empty Options when
-    the feature name contains the pattern. The ``test_match_rejects_missing_config``
-    test is overridden to use a non-pattern name that requires config-based matching.
+    the feature name contains the pattern. ``missing_config_feature_name`` returns a
+    non-pattern name.
     """
 
     @classmethod
@@ -92,10 +92,9 @@ class TestDateTimeIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegra
     def match_options(cls) -> Options:
         return Options()
 
-    def test_match_rejects_missing_config(self) -> None:
-        """Datetime uses pattern-based matching. A non-pattern name without config should fail."""
-        options = Options()
-        assert not DateTimeFeatureGroup.match_feature_group_criteria("my_custom_result", options)
+    @classmethod
+    def missing_config_feature_name(cls) -> str:
+        return "my_custom_result"
 
 
 class TestIntegrationMultipleFeatures:

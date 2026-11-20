@@ -6,8 +6,7 @@ with a ``PluginCollector``, including plugin discovery, feature-name resolution
 
 ffill is row-preserving and supports PyArrow natively, so the standard
 ``DataOpsIntegrationTestBase`` (12-row, exact column compare on PyArrow tables)
-fits directly. Matching is name-based (the ``.*__ffill$`` pattern), so
-``test_match_rejects_missing_config`` is overridden to use a non-pattern name.
+fits directly. Its primary needs ``order_by``, so the default missing-config probe applies.
 
 Expected fill columns are computed OFFLINE on the canonical dataset (per
 partition, in timestamp order) and pinned as literals; the production feature
@@ -51,8 +50,6 @@ class TestFfillIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegratio
 
     ffill uses name-based matching, so ``match_feature_group_criteria`` succeeds
     with empty Options when the feature name matches the ``.*__ffill$`` pattern.
-    ``test_match_rejects_missing_config`` is overridden below to use a non-pattern
-    name that cannot match without config.
     """
 
     @classmethod
@@ -104,11 +101,6 @@ class TestFfillIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegratio
     @classmethod
     def match_options(cls) -> Options:
         return Options(context={"order_by": "timestamp", "partition_by": ["region"]})
-
-    def test_match_rejects_missing_config(self) -> None:
-        """Name-based: a non-pattern name without config must fail to match."""
-        options = Options()
-        assert not FfillFeatureGroup.match_feature_group_criteria("my_custom_result", options)
 
     @pytest.mark.parametrize(
         ("name", "options_context", "match"),

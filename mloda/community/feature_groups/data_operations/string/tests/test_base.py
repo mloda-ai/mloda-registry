@@ -29,7 +29,7 @@ _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 class TestStringOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return StringFeatureGroup
 
     @classmethod

@@ -198,7 +198,7 @@ _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
 class TestYourOpOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return YourOpFeatureGroup
 
     @classmethod
@@ -236,7 +236,7 @@ class TestYourOpOperationGroup(OperationGroupTestBase):
 
 Each `ImplSpec.module` is the module that defines the Implementation. Set `dependency` for an optional backend: a missing dependency skips that spec, while a module that fails to import fails the test.
 
-Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, and, on `DataOpsIntegrationTestBase`, `group_options()`.
+Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, and, on `DataOpsIntegrationTestBase`, `group_options()` and `missing_config_feature_name()` (the name `test_match_rejects_missing_config` expects not to match without config; default `primary_feature_name()`).
 
 ---
 
@@ -292,7 +292,7 @@ class TestPandasYourOp(PandasTestMixin, YourOpTestBase):
         return PandasYourOp
 ```
 
-No test method bodies; everything is inherited. `implementation_class` returns the Implementation, and the test base reads its `supported`, so no skip override is needed. To also pin the match-time capability per framework, mix in `CapabilityHookTestMixin` (see `aggregation/tests/test_sqlite.py`).
+Base order: kit test mixins first, then the framework adapter mixin, then the family test base (or `DataOpsTestBase`) last; another order fails with an MRO error or leaves the class abstract so pytest skips it. No test method bodies; everything is inherited. `implementation_class` returns the Implementation, and the test base reads its `supported`, so no skip override is needed. To also pin the match-time capability per framework, mix in `CapabilityHookTestMixin` (see `aggregation/tests/test_sqlite.py`).
 
 From typed data, `PandasTestMixin` stores an `INT64` column with nulls as float64. To also run the suite on pandas nullable ints (`Int64` and friends), add a second class that swaps in `PandasNullableIntTestMixin`, e.g. `class TestPandasYourOpNullableInt(PandasNullableIntTestMixin, TestPandasYourOp)`, and reset any flags the float64 class sets for lossy ints. New SQLite ops also add a `SqliteViewTestMixin` class so the suite also runs on a view input (every feature after the first sees one).
 

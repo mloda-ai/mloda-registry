@@ -31,7 +31,6 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
     canonical_data_empty,
     extract_column,
-    feature_group_of,
     is_null,
     make_feature_set,
     make_multi_feature_set,
@@ -358,7 +357,7 @@ class AggregationTestBase(
         """Run the pure Python reference function on the canonical table."""
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
 
-        return reference_aggregation(feature_group_of(cls.implementation_class()), table, features)
+        return reference_aggregation(cls.feature_group_class(), table, features)
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -712,9 +711,7 @@ class AggregationTestBase(
         def fail(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError("compute_group must not run for an empty FeatureSet")
 
-        result = feature_group_of(self.implementation_class()).aggregate(
-            self.test_data, FeatureSet(), compute_group=fail
-        )
+        result = self.feature_group_class().aggregate(self.test_data, FeatureSet(), compute_group=fail)
         assert result is self.test_data
 
     # -- partition_by=[] on an empty table (one row: sum None, count 0) ------
@@ -746,7 +743,7 @@ class AggregationTestBase(
 
     def test_match_accepts_empty_partition_by(self) -> None:
         options = Options(context={"partition_by": []})
-        assert feature_group_of(self.implementation_class()).match_feature_group_criteria("value_int__sum_agg", options)
+        assert self.feature_group_class().match_feature_group_criteria("value_int__sum_agg", options)
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 

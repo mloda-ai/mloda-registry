@@ -30,12 +30,24 @@ import pytest
 import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import AdapterTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    OperationGroupIntegrationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 
 # Dunders that every class carries purely from being a class; they are not
 # "methods the author added" and must be excluded from collision detection.
@@ -332,10 +344,43 @@ class TestMixinIsolation:
             sorted(offenders)
         )
 
+    def test_mixins_subclass_their_host_base(self) -> None:
+        """Every discovered mixin subclasses its host base or is a listed neither-base mixin."""
+        host_bases: dict[type, type] = {
+            CapabilityHookTestMixin: DataOpsTestBase,
+            InputValidationTestMixin: DataOpsTestBase,
+            NanPolicyTestMixin: DataOpsTestBase,
+            ReservedColumnsTestMixin: DataOpsTestBase,
+            SingleValueStdVarTestMixin: DataOpsTestBase,
+            MaskTestMixin: DataOpsTestBase,
+            OutputContractTestMixin: DataOpsTestBase,
+            MaskIntegrationTestMixin: DataOpsIntegrationTestBase,
+            OperationGroupIntegrationTestMixin: DataOpsIntegrationTestBase,
+        }
+        for mixin, host_base in host_bases.items():
+            assert issubclass(mixin, host_base), f"{mixin.__name__} must subclass {host_base.__name__}"
+        neither_base = [
+            mixin
+            for mixin in _discover_mixin_classes()
+            if mixin is CaseParametrizationTestMixin or issubclass(mixin, AdapterTestMixin)
+        ]
+        assert AdapterTestMixin in neither_base, "AdapterTestMixin must be discovered; discovery is broken"
+        for mixin in neither_base:
+            assert not issubclass(mixin, DataOpsTestBase), f"{mixin.__name__} must not subclass DataOpsTestBase"
+            assert not issubclass(mixin, DataOpsIntegrationTestBase), (
+                f"{mixin.__name__} must not subclass DataOpsIntegrationTestBase"
+            )
+        unclassified = [
+            f"{mixin.__module__}.{mixin.__name__}"
+            for mixin in _discover_mixin_classes()
+            if mixin not in host_bases and mixin not in neither_base
+        ]
+        assert not unclassified, "mixins missing from the host map or neither-base list:\n" + "\n".join(unclassified)
+
     def test_input_validation_missing_or_unknown_kind_raises(self) -> None:
         """A subclass whose input_validation_cases() misses or adds a kind fails at collection time."""
 
-        class MissingKind(InputValidationTestMixin):
+        class MissingKind(InputValidationTestMixin, _StubTeardownBase):
             @classmethod
             def input_validation_cases(cls) -> dict[str, Any]:
                 return {
@@ -349,7 +394,7 @@ class TestMixinIsolation:
         with pytest.raises(TypeError, match="must declare exactly"):
             MissingKind().pytest_generate_tests(cast(pytest.Metafunc, stub))
 
-        class UnknownKind(InputValidationTestMixin):
+        class UnknownKind(InputValidationTestMixin, _StubTeardownBase):
             @classmethod
             def input_validation_cases(cls) -> dict[str, Any]:
                 return {
@@ -368,7 +413,7 @@ class TestMixinIsolation:
     def test_input_validation_none_not_parametrized_and_str_skips(self) -> None:
         """None omits a kind; str and InputValidationCase values are parametrized; a str value skips."""
 
-        class Declared(InputValidationTestMixin):
+        class Declared(InputValidationTestMixin, _StubTeardownBase):
             @classmethod
             def input_validation_cases(cls) -> dict[str, Any]:
                 return {
@@ -390,7 +435,7 @@ class TestMixinIsolation:
     def test_input_validation_case_ids_rejects_bad_value_types(self) -> None:
         """A value that is not InputValidationCase, str, or None must raise TypeError."""
 
-        class BadValueType(InputValidationTestMixin):
+        class BadValueType(InputValidationTestMixin, _StubTeardownBase):
             @classmethod
             def input_validation_cases(cls) -> dict[str, Any]:
                 return {
@@ -404,7 +449,7 @@ class TestMixinIsolation:
         with pytest.raises(TypeError, match="InputValidationCase"):
             BadValueType.input_validation_case_ids()
 
-        class EmptyReason(InputValidationTestMixin):
+        class EmptyReason(InputValidationTestMixin, _StubTeardownBase):
             @classmethod
             def input_validation_cases(cls) -> dict[str, Any]:
                 return {
@@ -435,15 +480,11 @@ class TestMixinIsolation:
                 return data
 
         def make_host(case: Any, impl: type = _FakeImplementation) -> type:
-            class Host(InputValidationTestMixin):
-                test_data: ClassVar[Any] = pa.table({"a": [1]})
+            class Host(InputValidationTestMixin, _StubTeardownBase):
+                test_data = pa.table({"a": [1]})
 
-                @staticmethod
-                def create_test_data(table: Any) -> Any:
-                    return table
-
-                @staticmethod
-                def implementation_class() -> type:
+                @classmethod
+                def implementation_class(cls) -> type:
                     return impl
 
                 @classmethod

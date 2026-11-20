@@ -107,6 +107,11 @@ class DataOpsIntegrationTestBase(ABC):
         """Feature name for the primary single-feature test (e.g. 'value_int__sum_window')."""
 
     @classmethod
+    def missing_config_feature_name(cls) -> str:
+        """Feature name that must not match without config; override when the primary name matches by pattern alone."""
+        return cls.primary_feature_name()
+
+    @classmethod
     @abstractmethod
     def primary_feature_options(cls) -> dict[str, Any]:
         """Options context dict for the primary feature (e.g. {'partition_by': ['region']})."""
@@ -332,6 +337,6 @@ class DataOpsIntegrationTestBase(ABC):
             )
 
     def test_match_rejects_missing_config(self) -> None:
-        """Verify match_feature_group_criteria rejects when required config is missing."""
+        """Verify match_feature_group_criteria rejects ``missing_config_feature_name()`` without config."""
         options = Options()
-        assert not self.feature_group_class().match_feature_group_criteria(self.primary_feature_name(), options)
+        assert not self.feature_group_class().match_feature_group_criteria(self.missing_config_feature_name(), options)

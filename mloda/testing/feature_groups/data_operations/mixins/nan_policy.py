@@ -17,25 +17,17 @@ from typing import Any, Callable, ClassVar
 import pytest
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 
-class NanPolicyTestMixin(CaseParametrizationTestMixin):
+class NanPolicyTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     """Mixin providing a standardized NaN-policy test.
 
     Feature-group test bases mix this in and override the configuration methods
     below to adapt the generic test to their semantics.
-
-    Requires the host class to provide (from DataOpsTestBase):
-    - ``nan_policy_table()``
-    - ``reference_calculate()`` (default delegates to ``reference_implementation_class()``)
-    - ``implementation_class()``
-    - ``create_test_data(data, arrow_types)``
-    - ``extract_column(result, column_name)``
-    - ``nan_divergent_agg_types()``
-    - ``_skip_if_unsupported(op)`` (only used by the default skip hook)
 
     A concrete class that mixes this in without overriding ``nan_policy_cases()``
     fails at collection time (``CaseParametrizationTestMixin.pytest_generate_tests``
@@ -49,7 +41,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
     @classmethod
     def nan_policy_cases(cls) -> dict[str, Any]:
         """Case id -> the policy's expected value for that case. Required."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override nan_policy_cases")
 
     @classmethod
     def nan_policy_divergent_cases(cls) -> dict[str, Any]:
@@ -59,7 +51,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
     @classmethod
     def nan_policy_feature_name(cls, case: str) -> str:
         """Feature name to run for the given case id. Required."""
-        raise NotImplementedError
+        raise NotImplementedError("Subclass must override nan_policy_feature_name")
 
     @classmethod
     def nan_policy_agg_type(cls, case: str) -> str:
@@ -73,7 +65,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
 
     def nan_policy_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
         """Skip the case if unsupported. Default: probe ``agg_type`` via ``_skip_if_unsupported``."""
-        self._skip_if_unsupported(agg_type)  # type: ignore[attr-defined]
+        self._skip_if_unsupported(agg_type)
 
     def nan_policy_extract_values(self, result: Any, feature_name: str, column: Callable[[Any, str], list[Any]]) -> Any:
         """Extract the comparable values from a result via ``column``. Default: a plain list column."""
@@ -88,34 +80,34 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
         feature_name = self.nan_policy_feature_name(case)
         self.nan_policy_skip_if_unsupported(case, agg_type, feature_name)
 
-        table = self.nan_policy_table()  # type: ignore[attr-defined]
+        table = self.nan_policy_table()
         fs = self.nan_policy_feature_set(feature_name)
         policy_expected = self.nan_policy_cases()[case]
 
         divergent_cases = self.nan_policy_divergent_cases()
-        if agg_type in self.nan_divergent_agg_types():  # type: ignore[attr-defined]
+        if agg_type in self.nan_divergent_agg_types():
             assert any(self.nan_policy_agg_type(divergent_case) == agg_type for divergent_case in divergent_cases), (
                 f"{type(self).__name__} pins {agg_type!r} via nan_divergent_agg_types(), but no case in "
                 "nan_policy_divergent_cases() has that agg type (stale hook)"
             )
         expected = (
             divergent_cases[case]
-            if case in divergent_cases and agg_type in self.nan_divergent_agg_types()  # type: ignore[attr-defined]
+            if case in divergent_cases and agg_type in self.nan_divergent_agg_types()
             else policy_expected
         )
 
         result = calculate_with(
-            self.implementation_class(),  # type: ignore[attr-defined]
-            self.create_test_data(table),  # type: ignore[attr-defined]
+            self.implementation_class(),
+            self.create_test_data(table),
             fs,
         )
         result_values = self.nan_policy_extract_values(
             result,
             feature_name,
-            self.extract_column,  # type: ignore[attr-defined]
+            self.extract_column,
         )
         assert result_values == pytest.approx(expected, nan_ok=True), f"{case} backend: {result_values!r}"
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)  # type: ignore[attr-defined]
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         ref_values = self.nan_policy_extract_values(ref, feature_name, _extract_column)
         assert ref_values == pytest.approx(policy_expected, nan_ok=True), f"{case} reference: {ref_values!r}"

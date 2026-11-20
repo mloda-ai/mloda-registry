@@ -142,3 +142,23 @@ def test_family_base_test_runs_for_a_third_party_abstract_base() -> None:
 def test_family_base_test_skips_for_a_concrete_parent_group() -> None:
     with pytest.raises(pytest.skip.Exception):
         _ToyTakeoverIntegration().test_family_base_is_not_selected_without_an_implementation()
+
+
+def test_missing_config_feature_name_defaults_to_the_primary_name() -> None:
+    assert _ToyIntegration.missing_config_feature_name() == _ToyIntegration.primary_feature_name()
+
+
+def test_match_rejects_missing_config_probes_the_hook() -> None:
+    class _NonMatching(_ToyIntegration):
+        @classmethod
+        def missing_config_feature_name(cls) -> str:
+            return "plain_feature"
+
+    class _Matching(_ToyIntegration):
+        @classmethod
+        def missing_config_feature_name(cls) -> str:
+            return "other__toy_double"
+
+    _NonMatching().test_match_rejects_missing_config()
+    with pytest.raises(AssertionError):
+        _Matching().test_match_rejects_missing_config()

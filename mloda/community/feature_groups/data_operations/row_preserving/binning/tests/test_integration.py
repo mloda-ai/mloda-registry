@@ -26,7 +26,7 @@ class TestBinningIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrat
     """Standard integration tests inherited from the base class."""
 
     @classmethod
-    def feature_group_class(cls) -> type:
+    def feature_group_class(cls) -> type[BinningFeatureGroup]:
         return BinningFeatureGroup
 
     @classmethod
@@ -88,15 +88,10 @@ class TestBinningIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrat
         return Options()
 
     def test_match_rejects_missing_config(self) -> None:
-        """Override: binning requires no config for pattern-based features.
-
-        Unlike window_aggregation (which needs partition_by), binning
-        extracts all parameters from the feature name pattern itself.
-        An empty Options() still matches ``value_int__bin_3``.
-        """
+        """Override: binning extracts all parameters from the name, so no config is needed."""
         options = Options()
         fg_cls = self.feature_group_class()
-        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)
 
     def test_own_contradictory_n_bins_raises_name_agreement_error(self) -> None:
         """The error is escalated: a contained match error would surface as FeatureResolutionError."""

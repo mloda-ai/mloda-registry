@@ -128,7 +128,7 @@ def _implementation_specs(family: str) -> list[ImplSpec]:
 
 class TestPointArithmeticOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return PointArithmeticFeatureGroup
 
     @classmethod
@@ -166,7 +166,7 @@ class TestPointArithmeticOperationGroup(OperationGroupTestBase):
 
 class TestScalarArithmeticOperationGroup(OperationGroupTestBase):
     @classmethod
-    def group_class(cls) -> Any:
+    def feature_group_class(cls) -> Any:
         return ScalarArithmeticFeatureGroup
 
     @classmethod

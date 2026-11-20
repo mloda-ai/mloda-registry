@@ -66,7 +66,6 @@ from mloda.user import DataType, Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
-    feature_group_of,
     make_feature_set,
     make_multi_feature_set,
 )
@@ -635,9 +634,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         def fail(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError("compute_resample must not run for an empty FeatureSet")
 
-        result = feature_group_of(self.implementation_class()).resample(
-            self.test_data, FeatureSet(), compute_resample=fail
-        )
+        result = self.feature_group_class().resample(self.test_data, FeatureSet(), compute_resample=fail)
         assert result is self.test_data
 
     @pytest.mark.parametrize(

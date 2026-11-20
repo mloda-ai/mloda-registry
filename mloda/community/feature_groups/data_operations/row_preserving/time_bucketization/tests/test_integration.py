@@ -62,9 +62,8 @@ class TestTimeBucketizationIntegration(OperationGroupIntegrationTestMixin, DataO
 
     Time-bucketization uses pattern-based matching, so
     ``match_feature_group_criteria`` succeeds with empty Options when the
-    feature name contains the pattern. ``test_match_rejects_missing_config``
-    is overridden below to use a non-pattern name that requires config-based
-    matching.
+    feature name contains the pattern. ``missing_config_feature_name`` returns a
+    non-pattern name.
     """
 
     @classmethod
@@ -131,10 +130,9 @@ class TestTimeBucketizationIntegration(OperationGroupIntegrationTestMixin, DataO
     def match_options(cls) -> Options:
         return Options()
 
-    def test_match_rejects_missing_config(self) -> None:
-        """Pattern-based: a non-pattern name without config must fail to match."""
-        options = Options()
-        assert not TimeBucketizationFeatureGroup.match_feature_group_criteria("my_custom_result", options)
+    @classmethod
+    def missing_config_feature_name(cls) -> str:
+        return "my_custom_result"
 
 
 class TestIntegrationMultipleFeatures:

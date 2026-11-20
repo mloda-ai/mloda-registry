@@ -231,8 +231,8 @@ def test_base_teardown_leaves_the_connection_to_the_adapter() -> None:
             closed.append("conn")
 
     stub = _StubTeardownBase()
-    stub.conn = _Conn()  # type: ignore[attr-defined]
-    stub.adapter = object()  # type: ignore[attr-defined]
+    stub.conn = _Conn()
+    stub.adapter = object()
     stub.teardown_method()
     assert closed == []
 
