@@ -757,8 +757,6 @@ class WindowAggregationTestBase(
         expected = [3, 3, 3] if self.merges_signed_zero_keys() else [1, 2, 2]
         assert self.extract_column(result, feature_name) == expected
 
-        assert self._ref_column(table, fs, feature_name) == [3, 3, 3]
-
     def test_signed_zero_nunique_values(self) -> None:
         """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
         self._skip_if_unsupported("nunique")
@@ -770,8 +768,6 @@ class WindowAggregationTestBase(
         expected = [1, 1, 1] if self.merges_signed_zero_keys() else [2, 2, 2]
         assert self.extract_column(result, feature_name) == expected
 
-        assert self._ref_column(table, fs, feature_name) == [1, 1, 1]
-
     def test_nan_orders_before_none(self) -> None:
         """The reference puts NaN before None in order_by: last on [None, NaN, 1.0], first on [None, NaN]."""
         nan = float("nan")
@@ -779,7 +775,6 @@ class WindowAggregationTestBase(
             ("last", [None, nan, 1.0], [10, 20, 30], [10, 10, 10], [20, 20, 20]),
             ("first", [None, nan], [10, 20], [20, 20], [10, 10]),
         ]
-        reference_runs = []
         for agg, order, values, reference, tied in cases:
             if agg not in self.supported_agg_types():
                 continue
@@ -796,10 +791,6 @@ class WindowAggregationTestBase(
             result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
             expected = reference if self.orders_nan_before_none() else tied
             assert self.extract_column(result, feature_name) == expected
-            reference_runs.append((table, fs, feature_name, reference))
-
-        for table, fs, feature_name, reference in reference_runs:
-            assert self._ref_column(table, fs, feature_name) == reference
 
     def test_first_keeps_leading_nan(self) -> None:
         """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
@@ -815,12 +806,6 @@ class WindowAggregationTestBase(
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = [1.0, 1.0] if "first" in self.nan_divergent_agg_types() else [nan, nan]
         assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
-
-        assert self._ref_column(table, fs, feature_name) == pytest.approx([nan, nan], nan_ok=True)
-
-    def _ref_column(self, table: TypedTestData, fs: FeatureSet, feature_name: str) -> list[Any]:
-        column: list[Any] = self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist()
-        return column
 
     def test_multi_key_float_avg(self) -> None:
         """Avg of value_float partitioned by [region, category]."""

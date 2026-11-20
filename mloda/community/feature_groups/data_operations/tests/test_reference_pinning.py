@@ -11,9 +11,13 @@ import pyarrow as pa
 import pytest
 from mloda.user import DataType, Options
 
+from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+    FrameAggregateFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
     build_unmatched_error,
@@ -21,14 +25,27 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+    ScalarAggregateFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TimeBucketizationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+    WindowAggregationFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import OPERATIONS
+from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+from mloda.testing.feature_groups.data_operations.aggregation_pinning_rows import (
+    AGGREGATION_PINNING,
+    FRAME_AGGREGATE_PINNING,
+    SCALAR_AGGREGATE_PINNING,
+    WINDOW_AGGREGATION_PINNING,
+)
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -53,14 +70,23 @@ from mloda.testing.feature_groups.data_operations.row_preserving.binning.pinning
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.reference import reference_binning
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import reference_datetime
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
+    reference_frame_aggregate,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import HOOK_REASONS, NutsMappingHook
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
+from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
+    reference_scalar_aggregate,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.reference import (
     reference_time_bucketization,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
+    reference_window_aggregation,
 )
 from mloda.testing.feature_groups.data_operations.string.pinning_rows import STRING_PINNING
 from mloda.testing.feature_groups.data_operations.string.reference import reference_string
@@ -75,6 +101,10 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (DateTimeFeatureGroup, reference_datetime, DATETIME_PINNING),
     (BinningFeatureGroup, reference_binning, BINNING_PINNING),
     (TimeBucketizationFeatureGroup, reference_time_bucketization, TIME_BUCKETIZATION_PINNING),
+    (AggregationFeatureGroup, reference_aggregation, AGGREGATION_PINNING),
+    (WindowAggregationFeatureGroup, reference_window_aggregation, WINDOW_AGGREGATION_PINNING),
+    (FrameAggregateFeatureGroup, reference_frame_aggregate, FRAME_AGGREGATE_PINNING),
+    (ScalarAggregateFeatureGroup, reference_scalar_aggregate, SCALAR_AGGREGATE_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -100,7 +130,8 @@ def test_reference_matches_pinned_row(
     for name, (data_type, values) in row.expected.items():
         assert_values_with_nulls(result.column(name).to_pylist(), list(values), strict=True)
         assert result.schema.field(name).type == _expected_arrow_type(data_type, values), f"column {name} type"
-    assert set(result.column_names) == set(row.inputs) | set(row.expected)
+    expected_columns = set(row.inputs) | set(row.expected) if table.row_preserving else set(row.expected)
+    assert set(result.column_names) == expected_columns
 
 
 @pytest.mark.parametrize(("group", "table"), TABLE_PARAMS)
@@ -155,6 +186,8 @@ def _fits(data_type: DataType, value: Any) -> bool:
         return isinstance(value, float)
     if data_type == DataType.STRING:
         return isinstance(value, str)
+    if data_type == DataType.BOOLEAN:
+        return isinstance(value, bool)
     if data_type == DataType.DATE:
         return isinstance(value, date) and not isinstance(value, datetime)
     if data_type in (DataType.TIMESTAMP_MICROS, DataType.TIMESTAMP_MILLIS):

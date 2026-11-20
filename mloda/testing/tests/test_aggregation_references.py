@@ -59,26 +59,6 @@ class TestReferenceWindowFirstLast:
         self._agg_no_warning("last", EXPECTED_LAST_BY_REGION)
 
 
-class TestAggregateKernelContract:
-    """The kernel counts NaN once and 0.0/-0.0 once, and mean is avg."""
-
-    def test_nunique_counts_nan_once(self) -> None:
-        from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
-
-        assert aggregate([NAN, float("nan"), 1.0, None], "nunique") == 2
-
-    def test_nunique_counts_signed_zero_once(self) -> None:
-        from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
-
-        assert aggregate([0.0, -0.0, -0.0], "nunique") == 1
-
-    def test_mean_equals_avg(self) -> None:
-        from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
-
-        values = [1.0, 2.0, None, 6.0]
-        assert aggregate(values, "mean") == aggregate(values, "avg") == 3.0
-
-
 class TestGroupRows:
     """group_rows partitions row indices by key tuple in first-occurrence order."""
 
@@ -276,25 +256,17 @@ class TestReferenceAggregationRejectsNonNumericSum:
             reference_aggregation(AggregationFeatureGroup, table, make_feature_set("value__sum_agg", ["g"]))
 
 
-class TestReferenceAggregationMask:
-    """A masked reference run sums only the rows passing the mask, per group."""
+class TestReferenceAggregationRejectsOverflowingSum:
+    """An int64 sum outside the int64 range raises instead of wrapping."""
 
-    def test_masked_sum_per_group_with_a_fully_masked_group(self) -> None:
+    def test_int64_sum_overflow_raises(self) -> None:
         from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
         from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        table = pa.table(
-            {
-                "g": ["a", "a", "b", "b", "c"],
-                "c": ["X", "Y", "X", "X", "Y"],
-                "value": [1, 10, 2, 3, 100],
-            }
-        )
-        fs = make_feature_set("value__sum_agg", ["g"], mask=("c", "equal", "X"))
-        result = reference_aggregation(AggregationFeatureGroup, table, fs)
-        assert extract_column(result, "g") == ["a", "b", "c"]
-        assert extract_column(result, "value__sum_agg") == [1, 5, None]
+        table = pa.table({"g": ["a", "a"], "value": pa.array([2**63 - 1, 1], type=pa.int64())})
+        with pytest.raises(OverflowError):
+            reference_aggregation(AggregationFeatureGroup, table, make_feature_set("value__sum_agg", ["g"]))
 
 
 class TestReferenceFrameRejectsUnknownFrameType:

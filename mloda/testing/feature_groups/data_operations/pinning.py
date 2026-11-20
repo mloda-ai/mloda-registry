@@ -29,3 +29,4 @@ class PinningTable:
     operation: str
     rules: Mapping[str, str]
     rows: tuple[PinningRow, ...]
+    row_preserving: bool = True  # False: the result holds the expected columns only, not the inputs
