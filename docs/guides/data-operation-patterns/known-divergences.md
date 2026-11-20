@@ -367,9 +367,9 @@ regression_test:
 ### Pandas and SQLite cannot tell NaN from null
 
 <!-- machine-checked
-operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate
+operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate, point_arithmetic, scalar_arithmetic
 framework: pandas, sqlite
-condition: pandas and SQLite skip NaN in sum/avg/count (pandas also in mode and std/var, drops it in nunique and skips it in first/last), pandas resample returns null for an all-NaN bucket
+condition: pandas and SQLite turn a NaN operand or result into null in point and scalar arithmetic, skip NaN in sum/avg/count (pandas also in mode and std/var, drops it in nunique and skips it in first/last), pandas resample returns null for an all-NaN bucket
 mitigation_location:
 - mloda/community/feature_groups/data_operations/pandas_helpers.py
 - mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py
@@ -381,6 +381,10 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/sqlite_scalar_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/pandas_point_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/pandas_scalar_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/sqlite_scalar_arithmetic.py
 regression_test:
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_pandas.py::TestPandasAggregation::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_sqlite.py::TestSqliteAggregation::test_mixin_nan_policy
@@ -391,10 +395,14 @@ regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_sqlite.py::TestSqliteScalarAggregate::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_pandas.py::TestPandasFrameAggregate::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_sqlite.py::TestSqliteFrameAggregate::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_pandas.py::TestPandasPointArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_pandas.py::TestPandasScalarArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_mixin_pinned_row
 -->
 
-- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp`/`nunique`/`first`/`last` (Pandas only); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only).
-- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`.
+- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp`/`nunique`/`first`/`last` (Pandas only); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only); `point_arithmetic` and `scalar_arithmetic` `add`/`subtract`/`multiply`/`divide` (Pandas and SQLite, a NaN operand or result becomes null).
+- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`; the Pandas and SQLite point and scalar arithmetic Implementations.
 - **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. `nunique` counts NaN as one value and `first`/`last` skip only None. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max/std/var.
 - **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null. Pandas' `nunique` also drops NaN, `first`/`last` skip it like null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
 - **Mitigation kind**: Accepted divergence. Neither pandas nor SQLite can represent NaN separately from null. The records are `DivergenceKind.VARIANT` records named `nan_as_null`: those Implementations run only for a feature whose group options set `allow_variants: "nan_as_null"`; otherwise another framework serves the step, or resolution fails naming the option.
@@ -568,6 +576,34 @@ regression_test:
 - **How**: `nulls_last_sort_key` and `order_values_equal` fold NaN and `None` into one null-like tier (`is_null_like`) on purpose: this fixes a tie-run-splitting bug where a NaN row could sort between two None rows and break the run. Splitting them would trade agreement with pandas for agreement with PyArrow 25/DuckDB/Polars, a lateral move, and reopen that bug, so the divergence is documented instead of mitigated.
 - **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` returns `"rank" not in divergent_subtypes(implementation_class())` (the kit helper), so it is `False` exactly for the three divergent implementations. The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run.
 
+### Integer arithmetic does not raise on overflow
+
+<!-- machine-checked
+operation: point_arithmetic, scalar_arithmetic
+framework: pyarrow, pandas, polars_lazy, python_dict, sqlite
+condition: add, subtract and multiply on integers that overflow the result width return a wrapped, widened or unbounded value instead of raising
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/arithmetic/base.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_pyarrow.py::TestPyArrowPointArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_pandas.py::TestPandasPointArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_polars_lazy.py::TestPolarsLazyPointArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_python_dict.py::TestPythonDictPointArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_pyarrow.py::TestPyArrowScalarArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_pandas.py::TestPandasScalarArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_polars_lazy.py::TestPolarsLazyScalarArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_python_dict.py::TestPythonDictScalarArithmetic::test_mixin_integer_overflow
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_mixin_integer_overflow
+-->
+
+- **Operations**: `point_arithmetic` and `scalar_arithmetic` `add`/`subtract`/`multiply`.
+- **Where it lives**: the overflow records in `arithmetic/base.py`.
+- **Reference behavior**: Integer overflow is an error, as on DuckDB.
+- **Native behavior**: PyArrow (point), Pandas and Polars lazy wrap at the operand width; PyArrow scalar wraps int64 and widens narrower results; PythonDict returns the unbounded result; SQLite turns an int64 overflow into REAL.
+- **Mitigation kind**: Accepted divergence, declared as `GAP` records so DuckDB is not preferred for every arithmetic step.
+- **Regression signal**: `test_mixin_integer_overflow` fails if a backend starts raising.
+
 ---
 
 ## Declared divergence records
@@ -616,11 +652,30 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
 
+### scalar_arithmetic
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| PyArrow | gap |  | backend | `add`, `multiply`, `subtract` | wraps an int64 overflow and widens a narrower result instead of raising |
+| Pandas | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
+| Pandas | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
+| Polars lazy | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
+| SQLite | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
+| SQLite | gap |  | backend | `add`, `multiply`, `subtract` | keeps 64-bit integers and turns an int64 overflow into REAL instead of raising |
+| Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
+
 ### point_arithmetic
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
+| PyArrow | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
+| Pandas | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
+| Pandas | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
+| Polars lazy | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
+| SQLite | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
+| SQLite | gap |  | backend | `add`, `multiply`, `subtract` | keeps 64-bit integers and turns an int64 overflow into REAL instead of raising |
 | SQLite | value |  | backend | `divide` | returns NULL on divide by zero |
+| Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
 
 ### window_aggregation
 

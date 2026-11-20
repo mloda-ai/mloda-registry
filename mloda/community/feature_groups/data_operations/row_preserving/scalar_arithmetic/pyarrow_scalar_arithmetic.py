@@ -10,6 +10,9 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
+    OVERFLOW_WRAPS_INT64_WIDENS,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pyarrow_numeric_source import (
     pyarrow_non_numeric_descriptor,
 )
@@ -22,6 +25,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 class PyArrowScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
     feature_group = ScalarArithmeticFeatureGroup
     compute_framework = PyArrowTable
+    divergences = (OVERFLOW_WRAPS_INT64_WIDENS,)
 
     @classmethod
     def calculate(

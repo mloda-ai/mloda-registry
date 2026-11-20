@@ -9,6 +9,10 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
+    NAN_AS_NULL_DIVERGENCE,
+    OVERFLOW_WRAPS_OPERAND_WIDTH,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pandas_numeric_source import (
     pandas_non_numeric_descriptor,
 )
@@ -21,6 +25,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 class PandasPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
     feature_group = PointArithmeticFeatureGroup
     compute_framework = PandasDataFrame
+    divergences = (
+        NAN_AS_NULL_DIVERGENCE,
+        OVERFLOW_WRAPS_OPERAND_WIDTH,
+    )
 
     @classmethod
     def calculate(

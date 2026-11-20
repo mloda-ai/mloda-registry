@@ -22,6 +22,15 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_mixin import (
+    ArithmeticPinningTestMixin,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_rows import (
+    SCALAR_ARITHMETIC_OVERFLOW,
+    SCALAR_ARITHMETIC_PINNING,
+    OverflowRow,
+)
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -31,7 +40,9 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class ScalarArithmeticTestBase(
+    ArithmeticPinningTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase
+):
     """Abstract base class for scalar arithmetic framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -40,6 +51,16 @@ class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin
         return make_feature_set("value_int__add_constant", constant=5)
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
+
+    # -- ArithmeticPinningTestMixin configuration -------------------------------
+
+    @classmethod
+    def arithmetic_pinning_table(cls) -> PinningTable:
+        return SCALAR_ARITHMETIC_PINNING
+
+    @classmethod
+    def arithmetic_overflow_rows(cls) -> tuple[OverflowRow, ...]:
+        return SCALAR_ARITHMETIC_OVERFLOW
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
