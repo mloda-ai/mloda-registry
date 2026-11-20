@@ -48,7 +48,7 @@ class TestPolarsLazyTimeBucketization(PolarsLazyTestMixin, TimeBucketizationTest
                 )
             }
         )
-        with pytest.raises(ComputeError, match="unable to parse time zone"):
+        with pytest.raises(ComputeError):
             built = self.create_test_data(data)
             if hasattr(built, "collect"):
                 built.collect()

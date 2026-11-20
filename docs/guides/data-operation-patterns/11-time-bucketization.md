@@ -76,7 +76,7 @@ For the day case, the test fixture's day-aligned rows (00:00:00) return themselv
 
 ## NULL propagation
 
-A NULL timestamp yields NULL on every backend; DuckDB and SQLite guard each CASE projection with `col IS NULL`, and pandas masks `NaT` to `None` after the half-up round.
+A NULL timestamp yields NULL on every backend; DuckDB guards each CASE projection with `col IS NULL`, SQLite fixed-unit ceil / round let NULL propagate through the arithmetic and `NULL || suffix` (floor and calendar ceil / round keep a guard), and pandas masks `NaT` to `None` after the half-up round.
 
 ---
 
@@ -86,7 +86,7 @@ Bucket math runs on the column's own wall clock and PyArrow, Pandas and Polars r
 
 For SQLite, all timestamps are stored as TEXT in ISO 8601. The bucketization SQL emits ISO 8601 strings directly (bucket math on the wall-clock portion, timezone suffix reattached), so the result column comes back from `to_arrow_table()` as `pa.string()`, on a plain `SqliteRelation`. There is no Python-side re-parse into `pa.timestamp` and no `SqliteRelation` subclass; see `tests/test_sqlite_result_type.py` for the contract.
 
-SQLite minute / hour / day buckets use integer epoch microseconds of the wall clock: the bucket is a multiple of `n` units counted from 1970-01-01 00:00 (flooring downward before 1970), and `round` compares `2 * (value - floor)` against the bucket width. Week / month / year use date functions on the 19-character `YYYY-MM-DD HH:MM:SS` slice.
+SQLite minute / hour / day buckets use integer epoch microseconds of the wall clock: the bucket is a multiple of `n` units counted from 1970-01-01 00:00 (flooring downward before 1970), and `round` compares `2 * (value - floor)` against the bucket width. Week / month / year use date functions on the 19-character `YYYY-MM-DD HH:MM:SS` slice, and `round` compares integer epoch microseconds of the offset against the bucket width.
 
 ---
 

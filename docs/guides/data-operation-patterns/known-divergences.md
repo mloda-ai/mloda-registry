@@ -688,6 +688,7 @@ regression_test:
 - **Operations**: `time_bucketization` (`floor`, `ceil`, `round`).
 - **Reference behavior**: Bucket math runs on the column's own wall clock and the result keeps the zone.
 - **Native DuckDB behavior**: `DuckdbRelation.from_arrow` stores TIMESTAMPTZ and drops the zone, so the group sees a UTC column, buckets on the UTC wall clock and returns UTC.
+- **Scope**: The record has no subtype or output scope, so it also covers type checks on naive and UTC inputs (no record field scopes by input zone).
 - **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
 - **Regression signal**: `test_pinned_row` pins the UTC result; `test_divergent_flags_are_declared` checks the record.
 
@@ -727,7 +728,7 @@ regression_test:
 - **Reference behavior**: A non-UTC zone is bucketed on its own wall clock and keeps its zone.
 - **Native SQLite behavior**: Only the numeric offset survives in TEXT, which is not enough for DST-correct bucket math.
 - **Mitigation kind**: Rejection with a `ValueError` that suggests converting to UTC or using another backend.
-- **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_pinned_row` skips non-UTC rows.
+- **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_pinned_row` asserts the up-front `ValueError` for non-UTC rows.
 - **Regression signal**: The rejection test fails if SQLite starts accepting such a column.
 
 ---

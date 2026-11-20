@@ -39,7 +39,8 @@ adds ``w``; round adds ``w`` when ``2 * (m - floor) >= w`` (ties up). The
 seconds come from the 19-char ``YYYY-MM-DD HH:MM:SS`` slice and the fraction
 is parsed separately, because older SQLite rounds fractional seconds to
 milliseconds. Week / month / year floors use the same 19-char slice and the
-calendar ceil always advances one bucket.
+calendar ceil always advances one bucket; calendar round compares integer
+epoch microseconds (offset from floor against bucket width, ties up).
 
 Ordering
 --------
@@ -140,11 +141,12 @@ def _calendar_expr(wall: str, op: str, unit: str) -> str:
     if op == "ceil":
         # Always advances, even on aligned input.
         return f"CASE WHEN {wall} IS NULL THEN NULL ELSE {upper} END"
-    offset_seconds = f"(julianday({wall}) - julianday({floor})) * 86400.0"
-    bucket_seconds = f"(julianday({upper}) - julianday({floor})) * 86400.0"
+    floor_secs = f"cast(strftime('%s', {floor}) as integer)"
+    upper_secs = f"cast(strftime('%s', {upper}) as integer)"
+    offset_micros = f"({_wall_micros_expr(wall)} - {floor_secs} * {_MICROS})"
+    width_micros = f"(({upper_secs} - {floor_secs}) * {_MICROS})"
     return (
-        f"CASE WHEN {wall} IS NULL THEN NULL "
-        f"WHEN {offset_seconds} * 2 >= {bucket_seconds} THEN {upper} ELSE {floor} END"
+        f"CASE WHEN {wall} IS NULL THEN NULL WHEN 2 * {offset_micros} >= {width_micros} THEN {upper} ELSE {floor} END"
     )
 
 

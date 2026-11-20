@@ -20,11 +20,11 @@ Semantics pinned across all backends:
 
 - **Week start**: ISO Monday (Sun 2023-01-01 floors to Mon 2022-12-26).
 - **Round tie-break**: half-up (every midpoint rounds toward the next
-  bucket), matching PyArrow's ``round_temporal`` and Polars' ``dt.round``.
+  bucket), matching PyArrow's ``round_temporal``.
 - **Idempotency**: ``ceil(aligned, X) == aligned`` for fixed-freq units
   (``minute`` / ``hour`` / ``day``). Calendar units (``week`` / ``month``
   / ``year``) advance to the next bucket on aligned input.
-- **Timezone**: preserved from input.
+- **Timezone**: preserved from input (DuckDB declares a gap: non-UTC zones arrive as UTC).
 - **Null**: propagated.
 - **Output dtype**: same timestamp type as input.
 
