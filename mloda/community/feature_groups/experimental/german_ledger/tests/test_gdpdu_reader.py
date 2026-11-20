@@ -154,6 +154,10 @@ def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(reader: str,
     pin = {reader: str(_twin_pair()[0 if reader == "GdpduReader" else 1])}
     origins = _journal_origins(_resolve(_twin_pair(), "ledger_journal", pin, journals=True))
     assert origins and all(o.startswith(scheme) for o in origins), origins
+    # Core counts the class name and a prefix of it as declared; a pointed reader must still decline them.
+    cls = {"GdpduReader": GdpduReader, "DatevExtfReader": DatevExtfReader}[reader]
+    for name in (reader, f"{reader}_x"):
+        assert not cls.match_feature_group_criteria(name, Options(pin)), name
 
 
 def _run_twin(options: dict[str, str]) -> Any:
