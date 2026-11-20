@@ -1,6 +1,6 @@
 """Shared test base, dedicated fixture, and expected values for key-lookup tests.
 
-Expected values are pinned as literals for each Implementation; the cross-framework comparison is against the pure Python reference.
+Expected values are pinned as literals; cross-framework results are compared to the pure Python reference.
 
 Fixture (``id`` is the row-order witness)::
 
