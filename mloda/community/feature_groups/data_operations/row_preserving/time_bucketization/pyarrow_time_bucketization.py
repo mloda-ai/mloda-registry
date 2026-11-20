@@ -1,4 +1,4 @@
-"""PyArrow implementation of time bucketization (production AND reference)."""
+"""PyArrow implementation of time bucketization."""
 
 from __future__ import annotations
 
@@ -16,13 +16,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 
 
 class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
-    """PyArrow backend; also the cross-framework reference implementation.
+    """PyArrow backend.
 
     Uses ``pyarrow.compute.{floor,ceil,round}_temporal`` with
-    ``week_starts_monday=True`` (ISO) and ``ceil_is_strictly_greater=False``
-    (idempotent on aligned). PyArrow's ``round_temporal`` default tie-break
-    is half-up (every midpoint rounds toward the next bucket), which is the
-    behaviour pinned for all backends.
+    ``week_starts_monday=True`` (ISO). Ceil is idempotent on aligned minute/hour/day;
+    week advances an aligned value. Round ties go up, as pinned for all backends.
     """
 
     feature_group = TimeBucketizationFeatureGroup
@@ -66,7 +64,7 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
                 multiple=n,
                 unit=unit,
                 week_starts_monday=True,
-                ceil_is_strictly_greater=False,
+                ceil_is_strictly_greater=unit == "week",
             )
         elif op == "round":
             result = pc.round_temporal(column, multiple=n, unit=unit, week_starts_monday=True)

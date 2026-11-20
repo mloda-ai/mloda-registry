@@ -28,6 +28,12 @@ class TestClassAttributes:
         for op in expected_ops:
             assert op in BINNING_OPS, f"Missing operation: {op}"
 
+    def test_kit_reference_op_set_matches_binning_ops(self) -> None:
+        """The kit reference's ``BINNING_OP_NAMES`` equals ``BINNING_OPS``."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.binning.reference import BINNING_OP_NAMES
+
+        assert BINNING_OP_NAMES == set(BINNING_OPS)
+
     def test_min_in_features_is_one(self) -> None:
         assert BinningFeatureGroup.MIN_IN_FEATURES == 1
 
