@@ -20,12 +20,12 @@ partition-aware fill differs from a naive whole-table fill, and orders the rows
 so that TIME order differs from ROW order (so sorting actually matters).
 
 Expected-value literals were computed offline with a pandas ``groupby`` /
-``ffill`` snippet (per-partition spec) and pasted in. PyArrow is the reference
-oracle; this paste-in approach pins the spec independent of the production
+``ffill`` snippet (per-partition spec) and pasted in. The kit reference (``reference_ffill``) is
+checked against them; this paste-in approach pins the spec independent of the production
 implementation. Note that ``pyarrow.compute.fill_null_forward`` does NOT
-respect partition boundaries, so the production PyArrow implementation must
+respect partition boundaries, so a PyArrow implementation must
 fill per partition; the reference comparison threads ``partition_by`` /
-``order_by`` through both calls so the oracle fills per partition too.
+``order_by`` through both calls so the reference fills per partition too.
 
 Fixture row layout (``id`` is the passthrough row-order witness)::
 
@@ -50,7 +50,7 @@ Fixture row layout (``id`` is the passthrough row-order witness)::
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -70,6 +70,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 _U = timezone.utc
 
@@ -200,16 +203,11 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         return {"__mloda_rn__", "__mloda_rn", "__mloda_rn0__", "__mloda_rn1__"}
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        # Lazy import so this testing module imports cleanly even before the
-        # production code exists (Red phase). The per-backend test files import
-        # their implementation classes at module top level; that is where Red
-        # fails with ImportError.
-        from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import (
-            PyArrowFfill,
-        )
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the kit reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.ffill.reference import reference_ffill
 
-        return PyArrowFfill
+        return reference_ffill(cls.feature_group_class(), table, features)
 
     # -- Setup: use the dedicated 10-row ffill fixture ----------------------
 
@@ -351,10 +349,10 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
     # -- Cross-framework comparison -----------------------------------------
 
     def test_cross_framework_partitioned(self) -> None:
-        """Compare partition-aware ffill against the PyArrow reference.
+        """Compare partition-aware ffill against the kit reference.
 
         Threads ``partition_by`` / ``order_by`` through BOTH the framework call
-        and the reference call so the oracle also fills per partition.
+        and the reference call so the reference also fills per partition.
         """
         self._compare_with_reference(
             "value__ffill",
@@ -363,7 +361,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         )
 
     def test_cross_framework_whole_table(self) -> None:
-        """Compare whole-table ffill (no partition) against the PyArrow reference."""
+        """Compare whole-table ffill (no partition) against the kit reference."""
         self._compare_with_reference(
             "value__ffill",
             partition_by=[],

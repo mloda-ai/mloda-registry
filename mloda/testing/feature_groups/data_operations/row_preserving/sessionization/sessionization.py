@@ -35,8 +35,8 @@ The main fixture below uses non-null UTC timestamps; null cases build their own
 small tables.
 
 NO PINNED-ONLY ORACLE. Unlike EMA, every backend computes sessionization
-NATIVELY (like ffill), so PyArrow is the live cross-framework reference oracle
-(``reference_implementation_class``). The expected session ids below are also
+NATIVELY (like ffill), so the kit reference (``reference_sessionization``) is the live cross-framework reference
+(``reference_calculate``). The expected session ids below are also
 PINNED literals (computed offline from the algorithm above) so the spec is
 fixed independent of any single backend.
 
@@ -69,7 +69,7 @@ SQL backends get a deterministic whole-table sort::
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -91,6 +91,9 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 _U = timezone.utc
 
@@ -200,16 +203,13 @@ class SessionizationTestBase(
         return ("ts__sessionize_1_hour",)
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        # Lazy import so this testing module imports cleanly even before the
-        # production code exists (Red phase). The per-backend test files import
-        # their implementation classes at module top level; that is where Red
-        # fails with ImportError.
-        from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
-            PyArrowSessionization,
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the kit reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.reference import (
+            reference_sessionization,
         )
 
-        return PyArrowSessionization
+        return reference_sessionization(cls.feature_group_class(), table, features)
 
     # -- Setup: use the dedicated 9-row sessionization fixture ---------------
 
@@ -370,7 +370,7 @@ class SessionizationTestBase(
     # -- Cross-framework comparison -----------------------------------------
 
     def test_cross_framework_partitioned(self) -> None:
-        """Compare partition-aware sessionization against the PyArrow reference."""
+        """Compare partition-aware sessionization against the kit reference."""
         self._compare_with_reference(
             "ts__sessionize_30_minute",
             partition_by=["user"],

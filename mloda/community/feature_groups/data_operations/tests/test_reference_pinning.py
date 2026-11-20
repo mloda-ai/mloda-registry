@@ -15,6 +15,8 @@ from mloda.community.feature_groups.data_operations.aggregation.base import Aggr
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -33,6 +35,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 )
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
+    SessionizationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TimeBucketizationFeatureGroup,
@@ -73,6 +78,10 @@ from mloda.testing.feature_groups.data_operations.row_preserving.binning.pinning
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.reference import reference_binning
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import reference_datetime
+from mloda.testing.feature_groups.data_operations.row_preserving.ema.pinning_rows import EMA_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.ema.reference import reference_ema
+from mloda.testing.feature_groups.data_operations.row_preserving.ffill.pinning_rows import FFILL_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.ffill.reference import reference_ffill
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
     reference_frame_aggregate,
 )
@@ -87,6 +96,12 @@ from mloda.testing.feature_groups.data_operations.row_preserving.rank.pinning_ro
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
     reference_scalar_aggregate,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.pinning_rows import (
+    SESSIONIZATION_PINNING,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.reference import (
+    reference_sessionization,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
@@ -117,6 +132,9 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (RankFeatureGroup, reference_rank, RANK_PINNING),
     (OffsetFeatureGroup, reference_offset, OFFSET_PINNING),
     (PercentileFeatureGroup, reference_percentile, PERCENTILE_PINNING),
+    (FfillFeatureGroup, reference_ffill, FFILL_PINNING),
+    (SessionizationFeatureGroup, reference_sessionization, SESSIONIZATION_PINNING),
+    (EmaFeatureGroup, reference_ema, EMA_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -219,6 +237,7 @@ class _HookLookup(NutsMappingHook, LookupFeatureGroup):
 
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
 _SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
+_SESSION = (reference_sessionization, SessionizationFeatureGroup)
 _LOOKUP = (reference_lookup, LookupFeatureGroup)
 _STR_MAP = {"a": "A"}
 _INT_MAP = {1: 10}
@@ -541,6 +560,14 @@ _REJECTION_PARAMS = [
     pytest.param(*_BUCKET, "x__floor_1_day", {}, {"x": (pa.string(), ["2024-01-01"])}, None, id="bucket-string-source"),
     pytest.param(
         *_BUCKET, "x__floor_1_day", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="bucket-date-source"
+    ),
+    pytest.param(
+        *_SESSION,
+        "ts__sessionize_30_minute",
+        {"order_by": "ts"},
+        {"ts": (pa.int64(), [1, 2])},
+        "must be a timestamp",
+        id="sessionization-non-timestamp-order",
     ),
 ]
 
