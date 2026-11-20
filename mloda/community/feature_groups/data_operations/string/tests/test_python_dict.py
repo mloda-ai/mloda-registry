@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
@@ -98,12 +99,18 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
 
 
 class TestPythonDictStringCaseMappingDriftCheck:
-    """``_UPPER_OVERRIDES`` / ``_LOWER_OVERRIDES`` are a hand-pasted snapshot of one
-    PyArrow build's Unicode special-casing data, verified against only two codepoints by
+    """``_UPPER_OVERRIDES`` / ``_LOWER_OVERRIDES`` are a snapshot of one
+    PyArrow build's Unicode special-casing data (lag entries come from the script named in
+    ``_FIX_HINT``), verified against only two codepoints by
     the tests above. Scanning every codepoint against a live PyArrow build here re-derives
     the invariant on every run, so a future utf8proc bump that adds, changes, or removes a
     special-casing entry fails a test instead of drifting silently.
     """
+
+    _FIX_HINT = (
+        f"run '{sys.executable} scripts/case_mapping_lag_entries.py' from the repo root "
+        "and paste its output into the override tables"
+    )
 
     @staticmethod
     def _all_codepoints() -> list[str]:
@@ -128,7 +135,7 @@ class TestPythonDictStringCaseMappingDriftCheck:
             (hex(ord(ch)), ch, ours, ref) for ch, ours, ref in zip(chars, result_col, reference_col) if ours != ref
         ]
         assert not mismatches, (
-            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_upper (first 10): {mismatches[:10]!r}"
+            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_upper (first 10): {mismatches[:10]!r}; {self._FIX_HINT}"
         )
 
     def test_lower_matches_pyarrow_for_every_codepoint(self) -> None:
@@ -150,5 +157,5 @@ class TestPythonDictStringCaseMappingDriftCheck:
             (hex(ord(ch)), ch, ours, ref) for ch, ours, ref in zip(chars, result_col, reference_col) if ours != ref
         ]
         assert not mismatches, (
-            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_lower (first 10): {mismatches[:10]!r}"
+            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_lower (first 10): {mismatches[:10]!r}; {self._FIX_HINT}"
         )
