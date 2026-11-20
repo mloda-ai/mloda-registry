@@ -123,6 +123,8 @@ def _fits(data_type: DataType, value: Any) -> bool:
         return isinstance(value, float)
     if data_type == DataType.STRING:
         return isinstance(value, str)
+    if data_type == DataType.DATE:
+        return isinstance(value, date) and not isinstance(value, datetime)
     if data_type == DataType.TIMESTAMP_MICROS:
         return isinstance(value, datetime) and value.tzinfo is None
     if data_type == DataType.TIMESTAMP_MICROS_TZ:
@@ -321,6 +323,15 @@ _REJECTION_PARAMS = [
     ),
     pytest.param(*_STRING, "x__upper", {}, {"x": (pa.int64(), [1])}, None, id="string-int-source"),
     pytest.param(*_STRING, "x__length", {}, {"x": (pa.binary(), [b"a"])}, None, id="string-binary-source"),
+    pytest.param(
+        *_STRING,
+        "x__upper",
+        {},
+        {"x": (pa.string_view(), ["a"])},
+        None,
+        id="string-string-view-source",
+        marks=pytest.mark.skipif(not hasattr(pa, "string_view"), reason="pyarrow without string_view"),
+    ),
     pytest.param(*_STRING, "x__upper", {}, {"x": (pa.null(), [None])}, None, id="string-null-source"),
     pytest.param(
         *_DATETIME,
@@ -338,7 +349,15 @@ _REJECTION_PARAMS = [
         "bogus",
         id="datetime-unknown-op-empty",
     ),
-    pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="datetime-date-source"),
+    pytest.param(
+        *_DATETIME, "x__hour", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="datetime-date-source-hour"
+    ),
+    pytest.param(
+        *_DATETIME, "x__minute", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="datetime-date-source-minute"
+    ),
+    pytest.param(
+        *_DATETIME, "x__second", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="datetime-date-source-second"
+    ),
     pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.string(), ["2024-01-01"])}, None, id="datetime-string-source"),
     pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.int64(), [1])}, None, id="datetime-int-source"),
     pytest.param(
