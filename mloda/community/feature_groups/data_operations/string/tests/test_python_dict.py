@@ -99,12 +99,10 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
 
 
 class TestPythonDictStringCaseMappingDriftCheck:
-    """``_UPPER_OVERRIDES`` / ``_LOWER_OVERRIDES`` are a snapshot of one
-    PyArrow build's Unicode special-casing data (lag entries come from the script named in
-    ``_FIX_HINT``), verified against only two codepoints by
-    the tests above. Scanning every codepoint against a live PyArrow build here re-derives
-    the invariant on every run, so a future utf8proc bump that adds, changes, or removes a
-    special-casing entry fails a test instead of drifting silently.
+    """The override tables snapshot one PyArrow build's Unicode special-casing data.
+
+    Scanning every codepoint against a live PyArrow build fails on any utf8proc drift. Lag entries for older
+    interpreters come from scripts/case_mapping_lag_entries.py.
     """
 
     _FIX_HINT = (
@@ -135,7 +133,8 @@ class TestPythonDictStringCaseMappingDriftCheck:
             (hex(ord(ch)), ch, ours, ref) for ch, ours, ref in zip(chars, result_col, reference_col) if ours != ref
         ]
         assert not mismatches, (
-            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_upper (first 10): {mismatches[:10]!r}; {self._FIX_HINT}"
+            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_upper (first 10): {mismatches[:10]!r}; "
+            f"{self._FIX_HINT}"
         )
 
     def test_lower_matches_pyarrow_for_every_codepoint(self) -> None:
@@ -157,5 +156,6 @@ class TestPythonDictStringCaseMappingDriftCheck:
             (hex(ord(ch)), ch, ours, ref) for ch, ours, ref in zip(chars, result_col, reference_col) if ours != ref
         ]
         assert not mismatches, (
-            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_lower (first 10): {mismatches[:10]!r}; {self._FIX_HINT}"
+            f"{len(mismatches)} codepoint(s) disagree with PyArrow utf8_lower (first 10): {mismatches[:10]!r}; "
+            f"{self._FIX_HINT}"
         )
