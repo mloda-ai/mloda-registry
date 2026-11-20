@@ -90,7 +90,7 @@ Aggregation, window aggregation, frame aggregate and scalar aggregate share one 
 - **Tolerance**: floats compare with `pytest.approx(rel=1e-6)` where a test sets `use_approx=True`.
 - **Masks**: non-matching rows become None before the aggregate. The mask semantics belong to mloda core's mask engine, so the references call the kit helper `masked_column` (`mloda/testing/feature_groups/data_operations/helpers.py`), which applies core's PyArrow mask engine, and only `to_pylist()` its output.
 
-Declared dtypes bind the reference only; backends are compared by value. For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)).
+Declared dtypes bind the reference only; backends are compared by value. For these four operations PyArrow is not the reference. Its `0.0`/`-0.0` split is an accepted divergence (see [Known divergences](known-divergences.md)). Hand-computed rows in `mloda/testing/feature_groups/data_operations/aggregation_pinning_rows.py` pin cases of these rules.
 
 ---
 

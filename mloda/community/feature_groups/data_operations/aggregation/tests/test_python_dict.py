@@ -83,7 +83,6 @@ class TestPythonDictNanPartitionKeyGrouping:
         arrow_table = arrow_table_of(typed)
         oracle = reference_aggregation(AggregationFeatureGroup, arrow_table, fs)
         oracle_val_col = extract_column(oracle, "val__sum_agg")
-        assert len(oracle_val_col) == 3, f"sanity check on the oracle itself failed: {oracle_val_col!r}"
         assert len(result_val_col) == len(oracle_val_col), (
             f"PythonDict={len(result_val_col)} groups {result_val_col!r} vs "
             f"PyArrow oracle={len(oracle_val_col)} groups {oracle_val_col!r}"
@@ -130,12 +129,10 @@ class TestPythonDictMinMaxSkipsNan:
         result_val = self._backend_val("min")
         assert result_val == 1.0, f"PythonDict min must skip NaN and be 1.0, got {result_val!r}"
         oracle_val = self._oracle_val("min")
-        assert oracle_val == 1.0, f"expected PyArrow oracle min to skip NaN and be 1.0, got {oracle_val!r}"
         assert result_val == oracle_val, f"PythonDict min={result_val!r} != PyArrow oracle min={oracle_val!r}"
 
     def test_max_skips_nan_matches_pyarrow_oracle(self) -> None:
         result_val = self._backend_val("max")
         assert result_val == 3.0, f"PythonDict max must skip NaN and be 3.0, got {result_val!r}"
         oracle_val = self._oracle_val("max")
-        assert oracle_val == 3.0, f"expected PyArrow oracle max to skip NaN and be 3.0, got {oracle_val!r}"
         assert result_val == oracle_val, f"PythonDict max={result_val!r} != PyArrow oracle max={oracle_val!r}"

@@ -531,7 +531,7 @@ regression_test:
 - **Operations**: `aggregation` and `window_aggregation` (partition keys and `nunique` values).
 - **Native behavior**: PyArrow hashes a float bitwise, so `0.0` and `-0.0` land in two groups and count as two distinct values. The reference, Pandas, Polars, DuckDB, SQLite and PythonDict merge them.
 - **Mitigation kind**: Accepted divergence. A branch on the hot grouping path for a sign-of-zero edge case the canonical fixture does not exercise is not worth it. It is not a `divergences` entry: those records are a routing penalty, and this is a key and value level edge case.
-- **Regression signal**: `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) assert the reference merges, and `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation` and `TestPyArrowWindowAggregation` override to `False`) pins each backend.
+- **Regression signal**: the reference's merge is pinned by rows in `aggregation_pinning_rows.py`; `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) pin each backend through `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation` and `TestPyArrowWindowAggregation` override to `False`).
 
 ### Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
 
@@ -551,7 +551,7 @@ regression_test:
 - **Operations**: `window_aggregation` (`first`, `last`, Pandas only) and `frame_aggregate` (every frame type, Pandas and SQLite).
 - **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`. Pandas (window and frame) and SQLite (frame) tie NaN and None, giving window `last` `[20, 20, 20]` and frame `cumsum` `[40, 60, 30]`, because both store NaN as null. PythonDict orders like the reference.
 - **Mitigation kind**: Accepted divergence, declared as `nan_as_null` variant records on the Implementations (see [Declared divergence records](#declared-divergence-records)).
-- **Regression signal**: `test_nan_orders_before_none` in both test bases asserts the reference value, then the backend value through `orders_nan_before_none()`, which reads the records.
+- **Regression signal**: the reference value is pinned by rows in `aggregation_pinning_rows.py`; `test_nan_orders_before_none` in both test bases asserts the backend value through `orders_nan_before_none()`, which reads the records.
 
 ### PythonDict, Pandas and SQLite rank tie None and NaN in order-value runs; PyArrow >= 25, DuckDB, and Polars rank them apart
 

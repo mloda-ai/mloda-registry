@@ -980,9 +980,6 @@ class FrameAggregateTestBase(
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
-        # Reference: row 0 sees only itself (10); row 1 sees both peers (10+20=30);
-        # row 2 sees only itself because 2023-01-06 - 3d = 2023-01-03 > peers' ts.
-        assert ref_col == [10, 30, 30]
         assert result_col == ref_col
 
     def test_cross_framework_time_window_with_null_cutoff(self) -> None:
@@ -1306,8 +1303,6 @@ class FrameAggregateTestBase(
         expected = [60, 50, 30] if self.orders_nan_before_none() else [40, 60, 30]
         assert self.extract_column(result, feature_name) == expected
 
-        assert self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist() == [60, 50, 30]
-
     @pytest.mark.parametrize(
         "feature_name,n_days,v,expected",
         [
@@ -1347,7 +1342,6 @@ class FrameAggregateTestBase(
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
 
         assert self.extract_column(result, feature_name) == expected
-        assert self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist() == expected
 
     # No ``supported_agg_types`` exists on this base, so a feature's support is probed
     # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.

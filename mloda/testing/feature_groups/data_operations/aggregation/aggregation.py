@@ -1099,10 +1099,6 @@ class AggregationTestBase(
         expected = {"a": 1.0 if "first" in self.nan_divergent_agg_types() else nan}
         assert actual == pytest.approx(expected, nan_ok=True)
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)
-        reference = _build_result_map(ref.column("grp").to_pylist(), ref.column(feature_name).to_pylist())
-        assert reference == pytest.approx({"a": nan}, nan_ok=True)
-
     # -- Unsupported operation raises ----------------------------------------
 
     def test_unsupported_aggregation_type_raises(self) -> None:
@@ -1235,10 +1231,6 @@ class AggregationTestBase(
             signs = sorted(math.copysign(1, v) for v in self.extract_column(result, "k"))
             assert signs == [-1.0, 1.0]
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)
-        assert ref.num_rows == 1, f"reference must merge 0.0/-0.0 into one group, got {ref.num_rows} rows"
-        assert extract_column(ref, feature_name) == [3]
-
     def test_signed_zero_nunique_values(self) -> None:
         """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
         self._skip_if_unsupported("nunique")
@@ -1249,5 +1241,3 @@ class AggregationTestBase(
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = 1 if self.merges_signed_zero_keys() else 2
         assert self.extract_column(result, feature_name) == [expected]
-
-        assert extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name) == [1]
