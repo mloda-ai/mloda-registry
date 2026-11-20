@@ -34,12 +34,12 @@ class TestPythonDictDateTimeExtraction(PythonDictTestMixin, DateTimeTestBase):
     # before ``_extract`` ever sees the value, per the "CFW Backend Rejection
     # over Python Fallback" rule (see
     # ``sqlite_time_bucketization._assert_source_column_is_timestamp`` for
-    # the established rejection-guard precedent). The PyArrow reference
+    # the established rejection-guard precedent). The reference
     # (``pyarrow_datetime.py``) does not currently raise ``ValueError`` for
     # either input; it raises ``pyarrow.lib.ArrowNotImplementedError`` (a
     # ``RuntimeError`` subtype) from the underlying compute kernel. These
     # tests therefore pin the desired PythonDict behavior directly rather
-    # than diffing against the PyArrow reference's current, also-imperfect,
+    # than diffing against the reference's current, also-imperfect,
     # behavior.
 
     def test_date_only_source_hour_raises_value_error(self) -> None:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import datetime
 from collections.abc import Callable
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -12,6 +12,7 @@ import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
+from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
     build_unmatched_error,
@@ -22,6 +23,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import OPERATIONS
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
@@ -43,9 +45,13 @@ from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.refe
     reference_point_arithmetic,
     reference_scalar_arithmetic,
 )
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import reference_datetime
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import HOOK_REASONS, NutsMappingHook
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
+from mloda.testing.feature_groups.data_operations.string.pinning_rows import STRING_PINNING
+from mloda.testing.feature_groups.data_operations.string.reference import reference_string
 from mloda.testing.typed_data import TypedTestData
 
 #: Every reference that ships pinning rows: its group, its reference function and its table.
@@ -53,6 +59,8 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (PointArithmeticFeatureGroup, reference_point_arithmetic, POINT_ARITHMETIC_PINNING),
     (ScalarArithmeticFeatureGroup, reference_scalar_arithmetic, SCALAR_ARITHMETIC_PINNING),
     (LookupFeatureGroup, reference_lookup, LOOKUP_PINNING),
+    (StringFeatureGroup, reference_string, STRING_PINNING),
+    (DateTimeFeatureGroup, reference_datetime, DATETIME_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -124,8 +132,12 @@ def _fits(data_type: DataType, value: Any) -> bool:
         return True
     if data_type in _FLOAT_TYPES:
         return isinstance(value, float)
-    if data_type is DataType.STRING:
+    if data_type == DataType.STRING:
         return isinstance(value, str)
+    if data_type == DataType.TIMESTAMP_MICROS:
+        return isinstance(value, datetime) and value.tzinfo is None
+    if data_type == DataType.TIMESTAMP_MICROS_TZ:
+        return isinstance(value, datetime) and value.tzinfo is not None
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -168,6 +180,8 @@ _OVERFLOW_PARAMS = [
     *_overflow_params(*_POINT, "point", POINT_ARITHMETIC_OVERFLOW),
     *_overflow_params(*_SCALAR, "scalar", SCALAR_ARITHMETIC_OVERFLOW),
 ]
+_STRING = (reference_string, StringFeatureGroup)
+_DATETIME = (reference_datetime, DateTimeFeatureGroup)
 
 _REJECTION_PARAMS = [
     pytest.param(
@@ -306,7 +320,7 @@ _REJECTION_PARAMS = [
         *_LOOKUP,
         "x__lookup",
         {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
-        {"x": (pa.date32(), [datetime.date(2020, 1, 1)])},
+        {"x": (pa.date32(), [date(2020, 1, 1)])},
         "source column 'x' has type",
         id="lookup-date-source",
     ),
@@ -341,6 +355,47 @@ _REJECTION_PARAMS = [
         {"x": (pa.int64(), [None, None])},
         "source column 'x' has type",
         id="lookup-str-keys-on-typed-all-null-int-column",
+    ),
+    pytest.param(
+        *_STRING,
+        "bogus_feature",
+        {"string_op": "bogus", "in_features": "x"},
+        {"x": (pa.string(), ["a"])},
+        "bogus",
+        id="string-unknown-op",
+    ),
+    pytest.param(
+        *_STRING,
+        "bogus_feature",
+        {"string_op": "bogus", "in_features": "x"},
+        {"x": (pa.string(), [])},
+        "bogus",
+        id="string-unknown-op-empty",
+    ),
+    pytest.param(*_STRING, "x__upper", {}, {"x": (pa.int64(), [1])}, None, id="string-int-source"),
+    pytest.param(*_STRING, "x__length", {}, {"x": (pa.binary(), [b"a"])}, None, id="string-binary-source"),
+    pytest.param(*_STRING, "x__upper", {}, {"x": (pa.null(), [None])}, None, id="string-null-source"),
+    pytest.param(
+        *_DATETIME,
+        "bogus_feature",
+        {"datetime_op": "bogus", "in_features": "x"},
+        {"x": (pa.timestamp("us"), [None])},
+        "bogus",
+        id="datetime-unknown-op",
+    ),
+    pytest.param(
+        *_DATETIME,
+        "bogus_feature",
+        {"datetime_op": "bogus", "in_features": "x"},
+        {"x": (pa.timestamp("us"), [])},
+        "bogus",
+        id="datetime-unknown-op-empty",
+    ),
+    pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="datetime-date-source"),
+    pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.string(), ["2024-01-01"])}, None, id="datetime-string-source"),
+    pytest.param(*_DATETIME, "x__year", {}, {"x": (pa.int64(), [1])}, None, id="datetime-int-source"),
+    pytest.param(
+        *_DATETIME, "x__year", {}, {"x": (pa.timestamp("ns"), [datetime(2024, 1, 1)])}, None, id="datetime-ns-source"
     ),
 ]
 

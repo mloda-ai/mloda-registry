@@ -24,7 +24,7 @@ class TestSqliteStringOps(CapabilityHookTestMixin, ReservedColumnsTestMixin, Sql
     """All tests inherited from the base class.
 
     SQLite supports only 'trim' and 'length' natively in a way that matches
-    the PyArrow reference. 'upper'/'lower' are ASCII-only in SQLite and
+    the pure Python reference. 'upper'/'lower' are ASCII-only in SQLite and
     'reverse' has no native SQLite function, so all three are refused at
     match time and resolved by another framework.
     """

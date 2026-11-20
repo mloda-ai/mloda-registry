@@ -35,7 +35,7 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
     # Python's own ``str.upper()`` / ``str.lower()`` use "full" Unicode case
     # mapping, which applies context-sensitive special-casing rules (e.g.
     # expanding German sharp s, adding a combining dot to Turkish dotted I).
-    # The PyArrow reference (``pc.utf8_upper`` / ``pc.utf8_lower``) uses
+    # The reference (simple case mapping, as PyArrow ``pc.utf8_upper`` / ``pc.utf8_lower``) uses
     # "simple", context-free, per-codepoint case mapping instead, and does
     # not apply these expansions. ``PythonDictStringOps._upper`` / ``_lower``
     # consult the ``_UPPER_OVERRIDES`` / ``_LOWER_OVERRIDES`` tables first

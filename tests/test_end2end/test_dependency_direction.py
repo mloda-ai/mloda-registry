@@ -685,10 +685,8 @@ _KIT_PYARROW_REFERENCE_IMPORTS: set[tuple[str, str]] = {
         "time_bucketization",
         "ffill",
         "sessionization",
-        "datetime",
     )
 } | {
-    (f"{_DATA_OPS}/string/string.py", f"{_COMMUNITY_DATA_OPS}.string.pyarrow_string"),
     (
         f"{_DATA_OPS}/row_changing/resample/resample.py",
         f"{_COMMUNITY_DATA_OPS}.row_changing.resample.pyarrow_resample",
