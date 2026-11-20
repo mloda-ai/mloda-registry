@@ -623,8 +623,8 @@ regression_test:
 - **Where it lives**: `mloda/community/feature_groups/data_operations/string/polars_lazy_string.py`.
 - **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
 - **Native Polars behavior**: Full case mapping: `ß` uppercases to `SS`, `İ` lowercases to `i` plus U+0307, and a final sigma lowers to `ς`.
-- **Mitigation kind**: Accepted divergence (a `value` record scoped to `upper` and `lower`, as for SQLite `divide`).
-- **Regression signal**: The shared `test_pinned_row` reads the record and pins Python's full mapping; removing the record fails the case rows.
+- **Mitigation kind**: Accepted divergence, declared as a `value` record on `upper` and `lower`.
+- **Regression signal**: `test_pinned_row` pins Python's full mapping while the record is declared; removing the record fails the case rows.
 
 ## Declared divergence records
 

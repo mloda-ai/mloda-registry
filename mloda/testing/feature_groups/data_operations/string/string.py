@@ -107,7 +107,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
 
     @classmethod
     def _full_case_mapping_declared(cls, op: str) -> bool:
-        """Whether the Implementation declares a value divergence for upper/lower (full Unicode case mapping)."""
+        """Whether the Implementation declares full case mapping for upper/lower."""
         from mloda.provider import Implementation
 
         impl = cls.implementation_class()
@@ -116,7 +116,7 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         return op in ("upper", "lower") and op in divergent_subtypes(impl, named_only=True)
 
     def test_pinned_row(self, pinned_row_case: str) -> None:
-        """Hand-computed rows; a declared upper/lower divergence pins Python's full case mapping instead."""
+        """Hand-computed rows; a declared upper/lower divergence pins Python's full mapping."""
         row = self.pinned_row_cases()[pinned_row_case]
         op = self.feature_group_class().get_string_op(row.feature)
         self._skip_if_unsupported(op)
