@@ -24,7 +24,7 @@ OVERFLOW_MESSAGE = r"(?i)overflow|outside|out of range"
 
 
 def _operation_of(feature: str) -> str:
-    """The arithmetic op named by a pattern feature such as ``a&b__add_point`` or ``a__add_constant``."""
+    """The op named by a feature such as ``a&b__add_point``."""
     return feature.rsplit("__", 1)[1].rsplit("_", 1)[0]
 
 
@@ -38,12 +38,12 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def arithmetic_pinning_table(cls) -> PinningTable:
-        """The hand-computed rows of the group under test. Required."""
+        """Hand-computed rows of the group under test."""
         raise NotImplementedError("Subclass must override arithmetic_pinning_table")
 
     @classmethod
     def arithmetic_overflow_rows(cls) -> tuple[OverflowRow, ...]:
-        """The inputs whose integer result leaves its operands' range. Required."""
+        """Inputs whose integer result leaves its operands' range."""
         raise NotImplementedError("Subclass must override arithmetic_overflow_rows")
 
     @classmethod
@@ -54,11 +54,9 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     def overflow_cases(cls) -> dict[str, Any]:
         return {row.case: row for row in cls.arithmetic_overflow_rows()}
 
-    # -- Records of the Implementation under test ----------------------------
-
     @classmethod
     def _nan_as_null_applies(cls, op: str) -> bool:
-        """Whether a ``nan_as_null`` VARIANT record covers ``op`` (a scopeless record covers every op)."""
+        """Whether a ``nan_as_null`` VARIANT record covers ``op``."""
         return any(
             record.kind is DivergenceKind.VARIANT
             and record.variant == "nan_as_null"
@@ -69,21 +67,19 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def _divide_is_null_where_non_finite(cls) -> bool:
-        """Whether a non-GAP record names ``divide``, so a non-finite quotient comes back as None."""
+        """Whether a non-GAP record names ``divide`` (non-finite quotient comes back as None)."""
         return "divide" in divergent_subtypes(cls.implementation_class(), named_only=True)
 
     @classmethod
     def _overflow_is_a_gap(cls, op: str) -> bool:
-        """Whether a GAP record names ``op``: the backend returns a value instead of raising."""
+        """Whether a GAP record names ``op``."""
         return any(
             record.kind is DivergenceKind.GAP and op in record.subtypes
             for record in getattr(cls.implementation_class(), "divergences", ())
         )
 
-    # -- Concrete tests -------------------------------------------------------
-
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
-        """A pinned row matches by value, with the Implementation's NaN and divide records applied."""
+        """A pinned row matches, with the Implementation's NaN and divide records applied."""
         row = self.pinned_row_cases()[pinned_row_case]
         op = _operation_of(row.feature)
         data_type, values = row.expected[row.feature]

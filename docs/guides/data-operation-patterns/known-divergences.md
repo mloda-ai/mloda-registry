@@ -598,11 +598,11 @@ regression_test:
 -->
 
 - **Operations**: `point_arithmetic` and `scalar_arithmetic` `add`/`subtract`/`multiply`.
-- **Where it lives**: the overflow records in `arithmetic/base.py`, declared by the PyArrow, Pandas, Polars lazy, PythonDict and SQLite point and scalar Implementations.
-- **Reference behavior**: Integer overflow is an error: DuckDB raises, and the reference does not hide the overflow.
-- **Native behavior**: PyArrow (point), Pandas and Polars lazy wrap at the operand width; PyArrow scalar wraps an int64 result and widens a narrower one; PythonDict returns the unbounded result because rows carry no integer width; SQLite keeps 64-bit integers and turns an int64 overflow into REAL.
-- **Mitigation kind**: Accepted divergence, declared as `GAP` records so ranking is unchanged and DuckDB is not preferred for every arithmetic step.
-- **Regression signal**: The stale direction of `test_mixin_integer_overflow`: a backend that starts raising fails the pinned native result.
+- **Where it lives**: the overflow records in `arithmetic/base.py`.
+- **Reference behavior**: Integer overflow is an error, as on DuckDB.
+- **Native behavior**: PyArrow (point), Pandas and Polars lazy wrap at the operand width; PyArrow scalar wraps int64 and widens narrower results; PythonDict returns the unbounded result; SQLite turns an int64 overflow into REAL.
+- **Mitigation kind**: Accepted divergence, declared as `GAP` records so DuckDB is not preferred for every arithmetic step.
+- **Regression signal**: `test_mixin_integer_overflow` fails if a backend starts raising.
 
 ---
 
