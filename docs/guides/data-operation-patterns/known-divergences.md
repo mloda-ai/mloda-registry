@@ -158,6 +158,25 @@ regression_test:
 - **How**: `SqliteStringOps.supported` is `frozenset(_SQLITE_STRING_EXPRS)` (trim, length). Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteFramework"]` is rejected at match time, so another enabled framework serves them or resolution fails. The suite reads that declaration, so no test-side override exists.
 - **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and the suite reads `SqliteStringOps.supported`, which restricts it to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
 
+### Polars upper/lower use full case mapping
+
+<!-- machine-checked
+operation: string
+framework: polars_lazy
+condition: upper and lower on characters with a multi-codepoint or context-dependent case mapping
+mitigation_location:
+- mloda/community/feature_groups/data_operations/string/polars_lazy_string.py
+regression_test:
+- mloda/community/feature_groups/data_operations/string/tests/test_polars_lazy.py::TestPolarsLazyStringOps::test_pinned_row
+-->
+
+- **Operations**: `string` (`upper` and `lower` ops).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/string/polars_lazy_string.py`.
+- **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
+- **Native Polars behavior**: Full case mapping: `ß` uppercases to `SS`, `İ` lowercases to `i` plus U+0307, and a final sigma lowers to `ς`.
+- **Mitigation kind**: Accepted divergence, declared as a `value` record on `upper` and `lower`.
+- **Regression signal**: `test_pinned_row` pins Python's full mapping while the record is declared; removing the record fails the case rows.
+
 ### Float accumulation order across SQL engines vs. columnar reductions
 
 <!-- machine-checked
@@ -606,25 +625,6 @@ regression_test:
 - **Regression signal**: `test_mixin_integer_overflow` fails if a backend starts raising.
 
 ---
-
-### Polars upper/lower use full case mapping
-
-<!-- machine-checked
-operation: string
-framework: polars_lazy
-condition: upper and lower on characters with a multi-codepoint or context-dependent case mapping
-mitigation_location:
-- mloda/community/feature_groups/data_operations/string/polars_lazy_string.py
-regression_test:
-- mloda/community/feature_groups/data_operations/string/tests/test_polars_lazy.py::TestPolarsLazyStringOps::test_pinned_row
--->
-
-- **Operations**: `string` (`upper` and `lower` ops).
-- **Where it lives**: `mloda/community/feature_groups/data_operations/string/polars_lazy_string.py`.
-- **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
-- **Native Polars behavior**: Full case mapping: `ß` uppercases to `SS`, `İ` lowercases to `i` plus U+0307, and a final sigma lowers to `ς`.
-- **Mitigation kind**: Accepted divergence, declared as a `value` record on `upper` and `lower`.
-- **Regression signal**: `test_pinned_row` pins Python's full mapping while the record is declared; removing the record fails the case rows.
 
 ## Declared divergence records
 

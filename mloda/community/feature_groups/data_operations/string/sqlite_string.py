@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.string.base import (
     StringFeatureGroup,
 )
 
+# TRIM strips the reference's whitespace set, not only spaces.
 _TRIM_CHARS_SQL = ", ".join(map(str, TRIM_WHITESPACE))
 
 # SQLite's native UPPER/LOWER are ASCII-only: UPPER('héllo') returns 'HéLLO'

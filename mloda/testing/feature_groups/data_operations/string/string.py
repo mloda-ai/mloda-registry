@@ -116,12 +116,12 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
         return op in ("upper", "lower") and op in divergent_subtypes(impl, named_only=True)
 
     def test_pinned_row(self, pinned_row_case: str) -> None:
-        """Hand-computed rows; a declared upper/lower divergence pins Python's full mapping."""
+        """Hand-computed rows; a declared upper/lower divergence pins Python's full mapping on case_mapping rows."""
         row = self.pinned_row_cases()[pinned_row_case]
         op = self.feature_group_class().get_string_op(row.feature)
         self._skip_if_unsupported(op)
         expected = list(row.expected[row.feature][1])
-        if self._full_case_mapping_declared(op):
+        if row.case == "case_mapping" and self._full_case_mapping_declared(op):
             source = next(iter(row.inputs.values()))[1]
             expected = [None if v is None else (v.upper() if op == "upper" else v.lower()) for v in source]
         result = calculate_with(
