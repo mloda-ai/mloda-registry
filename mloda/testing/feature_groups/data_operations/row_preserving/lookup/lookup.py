@@ -169,7 +169,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def hook_group_class(cls) -> Any:
-        """A ``NutsMappingHook`` subclass of ``LookupFeatureGroup`` (overriding ``UNMATCHED_ERROR`` with a subclass), or None to skip hook tests."""
+        """A ``NutsMappingHook`` ``LookupFeatureGroup`` subclass with its own ``UNMATCHED_ERROR``, or None to skip."""
         return None
 
     @classmethod
@@ -189,7 +189,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def typed_null_string_becomes_untyped(cls) -> bool:
-        """True if an all-null string column loses its type in the fixture (python dict, pandas 2)."""
+        """True if an all-null string column loses its type in the fixture."""
         return False
 
     @classmethod
