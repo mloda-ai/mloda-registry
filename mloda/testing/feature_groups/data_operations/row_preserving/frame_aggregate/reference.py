@@ -15,8 +15,7 @@ from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
     SUPPORTED_AGG_TYPES,
     aggregate,
     declared_type,
-    group_rows,
-    order_key,
+    ordered_groups,
     unsupported_agg_type_error,
 )
 from mloda.testing.feature_groups.data_operations.helpers import masked_column
@@ -50,8 +49,8 @@ def _compute_frame(
     source_vals = source.to_pylist()
 
     result_values: list[Any] = [None] * num_rows
-    for indices in group_rows(keys, num_rows).values():
-        rows = [(i, order_vals[i], source_vals[i]) for i in sorted(indices, key=lambda i: order_key(order_vals[i]))]
+    for indices in ordered_groups(keys, order_vals, num_rows):
+        rows = [(i, order_vals[i], source_vals[i]) for i in indices]
         for pos, (orig_idx, order_val, _) in enumerate(rows):
             if frame_type == "rolling":
                 wsize = int(frame_size) if frame_size is not None else 1

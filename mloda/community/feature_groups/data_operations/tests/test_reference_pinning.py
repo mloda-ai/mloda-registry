@@ -22,9 +22,12 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     build_unmatched_error,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import PercentileFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -76,6 +79,12 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import HOOK_REASONS, NutsMappingHook
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.pinning_rows import OFFSET_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
+from mloda.testing.feature_groups.data_operations.row_preserving.percentile.pinning_rows import PERCENTILE_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import reference_percentile
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.pinning_rows import RANK_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
     reference_scalar_aggregate,
 )
@@ -105,6 +114,9 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (WindowAggregationFeatureGroup, reference_window_aggregation, WINDOW_AGGREGATION_PINNING),
     (FrameAggregateFeatureGroup, reference_frame_aggregate, FRAME_AGGREGATE_PINNING),
     (ScalarAggregateFeatureGroup, reference_scalar_aggregate, SCALAR_AGGREGATE_PINNING),
+    (RankFeatureGroup, reference_rank, RANK_PINNING),
+    (OffsetFeatureGroup, reference_offset, OFFSET_PINNING),
+    (PercentileFeatureGroup, reference_percentile, PERCENTILE_PINNING),
 ]
 
 ROW_PARAMS = [

@@ -1,9 +1,7 @@
 """Test reference implementation for percentile feature groups.
 
-Accepts PyArrow tables but computes in Python. Used as the cross-framework
-comparison baseline in test suites. Uses PyArrow's group_by with list
-collection, then computes the percentile from the collected values using
-PyArrow's quantile function.
+Accepts PyArrow tables but computes in pure Python. Used as the cross-framework
+comparison baseline in test suites.
 """
 
 from __future__ import annotations
@@ -12,13 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.aggregation_helpers import group_rows, quantile
 from mloda.testing.feature_groups.data_operations.helpers import masked_column
 
 if TYPE_CHECKING:
     import pyarrow as pa
-
-_IDX_COL = "__mloda_pctl_idx__"
-_MASKED_COL = "__mloda_pctl_masked__"
 
 
 def _compute_percentile(
@@ -30,50 +26,21 @@ def _compute_percentile(
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
     import pyarrow as pa
-    import pyarrow.compute as pc
 
     num_rows = table.num_rows
-    t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
-
-    # Partition keys stay unmasked; the masked values are aggregated under a temp name.
-    agg_source = source_col
-    if mask_spec is not None:
-        agg_source = _MASKED_COL
-        t_with_idx = t_with_idx.append_column(_MASKED_COL, masked_column(table, source_col, mask_spec))
-
-    grouped = t_with_idx.group_by(partition_by).aggregate(
-        [
-            (agg_source, "list"),
-            (_IDX_COL, "list"),
-        ]
-    )
-    list_col = f"{agg_source}_list"
-    idx_list_col = f"{_IDX_COL}_list"
+    keys = [table.column(col).to_pylist() for col in partition_by]
+    source = masked_column(table, source_col, mask_spec) if mask_spec is not None else table.column(source_col)
+    values = source.to_pylist()
 
     result_values: list[Any] = [None] * num_rows
+    for rows in group_rows(keys, num_rows).values():
+        agg_val = quantile([values[i] for i in rows], percentile)
+        for i in rows:
+            result_values[i] = agg_val
 
-    for g in range(grouped.num_rows):
-        vals = grouped.column(list_col)[g].as_py()
-        indices = grouped.column(idx_list_col)[g].as_py()
-        non_null = [v for v in vals if v is not None]
-
-        if not non_null:
-            agg_val = None
-        else:
-            arr = pa.array(non_null, type=pa.float64())
-            q_result = pc.quantile(arr, q=percentile)
-            if len(q_result) == 0:
-                raise ValueError(
-                    f"pc.quantile returned an empty result for q={percentile} on {len(non_null)} non-null values"
-                )
-            agg_val = q_result[0].as_py()
-
-        for idx in indices:
-            result_values[idx] = agg_val
-
-    return table.append_column(feature_name, pa.array(result_values))
+    return table.append_column(feature_name, pa.array(result_values, type=pa.float64()))
 
 
 def reference_percentile(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
-    """Run the group's percentile loop with the PyArrow-backed reference compute."""
+    """Run the group's percentile loop with the pure Python reference compute."""
     return group.percentile(table, features, compute_percentile=_compute_percentile)
