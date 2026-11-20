@@ -4,7 +4,7 @@ Element-wise string transforms: uppercase, lowercase, trim, length, reverse. Row
 
 **What**: `StringFeatureGroup` handles feature names of the form `{col}__{op}` where `op` is one of `upper`, `lower`, `trim`, `length`, `reverse`. `length` returns an integer; the other four return strings.
 **When**: You need cleaned or derived text alongside the original column.
-**Why**: These cover the overwhelmingly common cases. `trim` and `length` map directly to a native function in every target framework. `upper`, `lower`, and `reverse` are not available on every framework: SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and diverge from the PyArrow reference on non-ASCII input. SQLite does not offer the group for all three (rejected at match time) rather than silently producing divergent results.
+**Why**: These cover the overwhelmingly common cases. `trim` and `length` map directly to a native function in every target framework. `upper`, `lower`, and `reverse` are not available on every framework: SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and diverge from the pure Python reference on non-ASCII input. SQLite does not offer the group for all three (rejected at match time) rather than silently producing divergent results.
 **Where**: `mloda/community/feature_groups/data_operations/string/`.
 **How**: Name the feature; no context options are required.
 

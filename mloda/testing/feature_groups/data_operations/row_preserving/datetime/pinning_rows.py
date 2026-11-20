@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import MappingProxyType
 
 from mloda.user import DataType
@@ -19,6 +19,7 @@ DATETIME_RULES: Mapping[str, str] = MappingProxyType(
         "weekday": "dayofweek runs 0 (Monday) to 6 (Sunday); is_weekend is 1 for Saturday and Sunday, else 0.",
         "quarter": "quarter is (month - 1) // 3 + 1, so Mar 31 is 1, Apr 1 is 2 and Dec 31 is 4.",
         "timezone": "A timezone-aware column gives the fields of its own timezone, not of UTC.",
+        "date": "A date column gives its calendar fields; hour, minute and second are not defined for it.",
         "dtype": "Every operation gives int64, is_weekend included.",
         "row_order": "Output rows keep the input order; an empty input gives empty int64 columns.",
     }
@@ -48,6 +49,26 @@ _SUB_HALF: _Value = (datetime(2024, 1, 1, 0, 0, 1, 500000), (2024, 1, 1, 0, 0, 1
 _UTC_LEAP: _Value = (datetime(2024, 2, 29, 13, 45, 59, 999999, tzinfo=timezone.utc), (2024, 2, 29, 13, 45, 59, 3, 0, 1))
 _PLUS_5_LATE: _Value = (datetime(2024, 3, 31, 22, 30, 15, tzinfo=_PLUS_5), (2024, 3, 31, 22, 30, 15, 6, 1, 1))
 _PLUS_5_NEXT_DAY: _Value = (datetime(2024, 4, 1, 2, 0, 0, tzinfo=_PLUS_5), (2024, 4, 1, 2, 0, 0, 0, 0, 2))
+
+_DATE_OPS = ("year", "month", "day", "dayofweek", "is_weekend", "quarter")
+_DATE_LEAP = (date(2024, 2, 29), (2024, 2, 29, 3, 0, 1))
+_DATE_PRE_EPOCH = (date(1969, 12, 31), (1969, 12, 31, 2, 0, 4))
+
+
+def _date_rows() -> tuple[PinningRow, ...]:
+    values = [_DATE_LEAP, _DATE_PRE_EPOCH, None]
+    rows = []
+    for index, op in enumerate(_DATE_OPS):
+        feature = f"d__{op}"
+        rows.append(
+            PinningRow(
+                case="date",
+                feature=feature,
+                inputs={"d": (DataType.DATE, tuple(None if v is None else v[0] for v in values))},
+                expected={feature: (_I, tuple(None if v is None else v[1][index] for v in values))},
+            )
+        )
+    return tuple(rows)
 
 
 def _rows(
@@ -82,6 +103,7 @@ DATETIME_PINNING = PinningTable(
         *_rows("quarter", _NAIVE, [_MAR_31, _APR_1, _DEC_31], ops=("quarter", "month", "dayofweek")),
         *_rows("timezone", _AWARE, [_UTC_LEAP]),
         *_rows("timezone", _AWARE, [_PLUS_5_LATE, _PLUS_5_NEXT_DAY, None]),
+        *_date_rows(),
         *_rows("dtype", _NAIVE, [_SUN]),
         *_rows("row_order", _NAIVE, [_MON, _SAT, _SUN], ops=("day", "dayofweek")),
         *_rows("row_order", _NAIVE, [], ops=_OPS),

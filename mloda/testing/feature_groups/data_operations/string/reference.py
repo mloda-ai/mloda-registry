@@ -1,6 +1,7 @@
 """Pure Python reference for string operations: runs the group's loop with a Python compute.
 
-Reproduces Unicode simple case mapping (PyArrow utf8_upper/utf8_lower) from the interpreter's Unicode database.
+Reproduces PyArrow's (utf8proc) simple per-codepoint case mapping, with ß -> ẞ and İ -> i, from the interpreter's
+Unicode database, so codepoints newer than that database map unchanged.
 """
 
 from __future__ import annotations
@@ -49,9 +50,7 @@ def _compute(table: pa.Table, feature_name: str, source_col: str, op: str) -> pa
     if op not in STRING_OP_NAMES:
         raise ValueError(f"Unsupported string operation {op!r}. Supported: {sorted(STRING_OP_NAMES)}")
     arrow_type = table.column(source_col).type
-    if not (
-        pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type) or pa.types.is_string_view(arrow_type)
-    ):
+    if not (pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type)):
         raise ValueError(f"String operation {op!r} requires a string source column, but {source_col!r} is {arrow_type}")
     values = [None if v is None else _element(v, op) for v in table.column(source_col).to_pylist()]
     declared = pa.int64() if op == "length" else pa.string()
