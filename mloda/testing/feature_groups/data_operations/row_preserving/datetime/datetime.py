@@ -302,8 +302,8 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         """Hand-computed timezone and date rows; a UTC-reading backend is pinned to the reference on UTC instants."""
         row = self.zone_date_row_cases()[zone_date_row_case]
         expected = row.expected[row.feature][1]
-        data_type, values = row.inputs["ts" if "ts" in row.inputs else "d"]
-        column = "ts" if "ts" in row.inputs else "d"
+        column = next(iter(row.inputs))
+        data_type, values = row.inputs[column]
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref_inputs = {column: (data_type, utc_values)}

@@ -27,12 +27,7 @@ class TestPythonDictDateTimeExtraction(PythonDictTestMixin, DateTimeTestBase):
 
     # -- Non-timestamp source column guard -----------------------------------
     #
-    # ``PythonDictDateTimeExtraction._compute_datetime`` accepts bare
-    # ``datetime.date`` values for date-level ops (year, month, day,
-    # dayofweek, is_weekend, quarter), like the reference. Time-of-day ops on
-    # a date column and string sources are rejected up front with a clear
-    # ``ValueError``, per the "CFW Backend Rejection over Python Fallback"
-    # rule. These tests pin the rejections directly.
+    # Date-level ops accept bare dates; time-of-day ops on dates and string sources raise ValueError.
 
     def test_date_only_source_hour_raises_value_error(self) -> None:
         """A ``date``-only source column (no time component) must be
