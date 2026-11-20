@@ -42,7 +42,7 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
             return data
 
         if op == "bin":
-            # width and offsets are computed in float64, NA becomes NaN
+            # float64 so width and offsets match the other backends
             col = pd.Series(col.to_numpy(dtype="float64", na_value=np.nan), index=col.index)
             col_min = col[non_null_mask].min()
             col_max = col[non_null_mask].max()

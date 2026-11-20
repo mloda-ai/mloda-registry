@@ -68,9 +68,8 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
         if op != "qbin":
             raise ValueError(f"Unsupported binning operation for SQLite: {op}")
 
-        # Quantile binning is (row_number - 1) * n // count over non-null rows (integer division
-        # truncates, operands are non-negative). Precompute the partition key into a helper column,
-        # run ROW_NUMBER and COUNT, then project the result (Pattern W).
+        # qbin = (row_number - 1) * n / count over non-null rows (integer division truncates).
+        # The partition key goes into a helper column first (Pattern W).
         original_cols = list(data.columns)
         part = pick_helper_column_name(taken=set(data.columns) | {feature_name})
         rank = pick_helper_column_name(taken=set(data.columns) | {feature_name, part})

@@ -59,7 +59,7 @@ EXPECTED_BIN_3 = [0, 0, 0, 1, None, 2, 1, 2, 1, 1, 2, 0]
 
 
 # ---------------------------------------------------------------------------
-# qbin expected values (rank-based rank * n // count)
+# qbin expected values (bin = rank * n // count)
 # ---------------------------------------------------------------------------
 # Non-null sorted with original indices:
 #   (-10, 11), (-5, 1), (0, 2), (10, 0), (15, 8), (15, 9),

@@ -38,7 +38,7 @@ CASE WHEN col IS NULL OR isnan(col) THEN NULL
      ELSE (ROW_NUMBER() OVER (
          PARTITION BY CASE WHEN col IS NOT NULL AND NOT isnan(col) THEN 1 END
          ORDER BY col, input_position) - 1) * N
-          // COUNT(col) OVER () FILTER (WHERE NOT isnan(col)) END
+          // COUNT(col) FILTER (WHERE NOT isnan(col)) OVER () END
 ```
 
 The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not participate in the rank at all; they stay unpartitioned and the CASE returns NULL for them.
