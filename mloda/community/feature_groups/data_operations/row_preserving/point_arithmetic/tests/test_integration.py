@@ -19,8 +19,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.manifest import (
     FEATURE_GROUPS as _LOADED_FEATURE_GROUPS,  # noqa: F401  loads the installed implementations
 )
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PYARROW_TABLE,
@@ -28,11 +30,15 @@ from mloda.testing.feature_groups.data_operations.mixins.operation_group_integra
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
-from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
-    EXPECTED_ADD,
-    EXPECTED_MULTIPLY,
-    EXPECTED_SUBTRACT,
-)
+from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.reference import reference_point_arithmetic
+
+
+def _reference(name: str, **context: Any) -> list[Any]:
+    """Reference values for a point arithmetic feature on the canonical data."""
+    table = arrow_table_of(DataOperationsTestDataCreator.typed_data())
+    result = reference_point_arithmetic(PointArithmeticFeatureGroup, table, make_feature_set(name, **context))
+    values: list[Any] = result.column(name).to_pylist()
+    return values
 
 
 def _approx_equal(actual: list[Any], expected: list[Any]) -> bool:
@@ -71,7 +77,7 @@ class TestPointArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOps
 
     @classmethod
     def primary_expected_values(cls) -> list[Any]:
-        return list(EXPECTED_ADD)
+        return _reference("value_int&amount__add_point")
 
     @classmethod
     def secondary_feature_name(cls) -> str:
@@ -83,7 +89,7 @@ class TestPointArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOps
 
     @classmethod
     def secondary_expected_values(cls) -> list[Any]:
-        return list(EXPECTED_MULTIPLY)
+        return _reference("value_int&amount__multiply_point")
 
     @classmethod
     def valid_feature_names(cls) -> list[str]:
@@ -174,11 +180,11 @@ class TestIntegrationMultipleFeatures:
                 continue
             if "value_int&amount__add_point" in table.column_names:
                 col = table.column("value_int&amount__add_point").to_pylist()
-                assert _approx_equal(col, EXPECTED_ADD)
+                assert _approx_equal(col, _reference("value_int&amount__add_point"))
                 add_found = True
             if "value_int&amount__multiply_point" in table.column_names:
                 col = table.column("value_int&amount__multiply_point").to_pylist()
-                assert _approx_equal(col, EXPECTED_MULTIPLY)
+                assert _approx_equal(col, _reference("value_int&amount__multiply_point"))
                 mul_found = True
 
         assert add_found, "add_point result not found"
@@ -215,7 +221,9 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "my_custom_add" in table.column_names:
                 col = table.column("my_custom_add").to_pylist()
-                assert _approx_equal(col, EXPECTED_ADD)
+                assert _approx_equal(
+                    col, _reference("my_custom_add", arithmetic_op="add", in_features=["value_int", "amount"])
+                )
                 assert len(col) == 12
                 found = True
 
@@ -248,7 +256,9 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "my_diff" in table.column_names:
                 col = table.column("my_diff").to_pylist()
-                assert _approx_equal(col, EXPECTED_SUBTRACT)
+                assert _approx_equal(
+                    col, _reference("my_diff", arithmetic_op="subtract", in_features=["value_int", "amount"])
+                )
                 found = True
 
         assert found, "option-based subtract result not found"
@@ -282,11 +292,13 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "value_int&amount__add_point" in table.column_names:
                 col = table.column("value_int&amount__add_point").to_pylist()
-                assert _approx_equal(col, EXPECTED_ADD)
+                assert _approx_equal(col, _reference("value_int&amount__add_point"))
                 add_found = True
             if "my_mul" in table.column_names:
                 col = table.column("my_mul").to_pylist()
-                assert _approx_equal(col, EXPECTED_MULTIPLY)
+                assert _approx_equal(
+                    col, _reference("my_mul", arithmetic_op="multiply", in_features=["value_int", "amount"])
+                )
                 mul_found = True
 
         assert add_found, "string-pattern add result not found"

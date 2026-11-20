@@ -1,7 +1,8 @@
-"""Shared test base and expected values for two-column point arithmetic."""
+"""Shared test base for two-column point arithmetic; expected values come from the reference."""
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -24,29 +25,8 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
-# ---------------------------------------------------------------------------
-# Source columns and expected values (module-level constants)
-# ---------------------------------------------------------------------------
-
+# Source column used by the divide-by-integer regression guard
 VALUE_INT: list[int | None] = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
-AMOUNT: list[float | None] = [100.0, None, 250.0, 75.0, 300.0, 0.0, 150.0, None, 50.0, 200.0, 125.0, 80.0]
-
-
-def _apply2(values_a: list[Any], values_b: list[Any], fn: Any) -> list[Any]:
-    """Apply a binary function element-wise; propagate None when either operand is None."""
-    out: list[Any] = []
-    for a, b in zip(values_a, values_b):
-        if a is None or b is None:
-            out.append(None)
-        else:
-            out.append(fn(a, b))
-    return out
-
-
-# Expected results for the canonical column pair
-EXPECTED_ADD: list[Any] = _apply2(VALUE_INT, AMOUNT, lambda a, b: a + b)
-EXPECTED_SUBTRACT: list[Any] = _apply2(VALUE_INT, AMOUNT, lambda a, b: a - b)
-EXPECTED_MULTIPLY: list[Any] = _apply2(VALUE_INT, AMOUNT, lambda a, b: a * b)
 
 
 # ---------------------------------------------------------------------------
@@ -210,15 +190,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     # -- Cross-framework comparison -----------------------------------------
 
-    @pytest.mark.parametrize(
-        "op",
-        [
-            pytest.param("add", id="add"),
-            pytest.param("subtract", id="subtract"),
-            pytest.param("multiply", id="multiply"),
-            pytest.param("divide", id="divide"),
-        ],
-    )
+    @pytest.mark.parametrize("op", ["add", "subtract", "multiply", "divide"])
     def test_cross_framework(self, op: str) -> None:
         """Compare against the reference; divide-by-zero rows are None where the backend declares the divergence."""
         feature_name = f"value_int&amount__{op}_point"
@@ -229,17 +201,11 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         ref = self.reference_calculate(self._arrow_table, fs)
 
-        result_col = self.extract_column(result, feature_name)
-        ref_col = list(ref.column(feature_name).to_pylist())
-
-        assert len(result_col) == len(ref_col)
-        for i, (ref_val, fw_val) in enumerate(zip(ref_col, result_col)):
-            if AMOUNT[i] == 0:
-                assert fw_val is None, f"row {i}: expected None, got {fw_val}"
-            elif ref_val is None:
-                assert fw_val is None, f"row {i}: expected None, got {fw_val}"
-            else:
-                assert fw_val == pytest.approx(ref_val, rel=1e-6), f"row {i}: {fw_val} != {ref_val}"
+        actual = self.extract_column(result, feature_name)
+        expected = [
+            None if isinstance(v, float) and not math.isfinite(v) else v for v in ref.column(feature_name).to_pylist()
+        ]
+        assert_values_with_nulls(actual, expected, approx=True)
 
     def test_divide_by_integer_constant_returns_float_per_row(self) -> None:
         """Regression guard: int/int divide must still produce float results."""

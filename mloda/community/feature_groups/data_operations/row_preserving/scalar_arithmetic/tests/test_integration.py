@@ -19,17 +19,22 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.manifest import (
     FEATURE_GROUPS as _LOADED_FEATURE_GROUPS,  # noqa: F401  loads the installed implementations
 )
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     OperationGroupIntegrationTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
-    EXPECTED_ADD_5,
-    EXPECTED_DIVIDE_2,
-    EXPECTED_MULTIPLY_2,
-    EXPECTED_SUBTRACT_10,
-)
+from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.reference import reference_scalar_arithmetic
+
+
+def _reference(name: str, **context: Any) -> list[Any]:
+    """Reference values for a scalar arithmetic feature on the canonical data."""
+    table = arrow_table_of(DataOperationsTestDataCreator.typed_data())
+    result = reference_scalar_arithmetic(ScalarArithmeticFeatureGroup, table, make_feature_set(name, **context))
+    values: list[Any] = result.column(name).to_pylist()
+    return values
 
 
 def _approx_equal(actual: list[Any], expected: list[Any]) -> bool:
@@ -68,7 +73,7 @@ class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOp
 
     @classmethod
     def primary_expected_values(cls) -> list[Any]:
-        return list(EXPECTED_ADD_5)
+        return _reference("value_int__add_constant", constant=5)
 
     @classmethod
     def secondary_feature_name(cls) -> str:
@@ -80,7 +85,7 @@ class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOp
 
     @classmethod
     def secondary_expected_values(cls) -> list[Any]:
-        return list(EXPECTED_MULTIPLY_2)
+        return _reference("value_int__multiply_constant", constant=2)
 
     @classmethod
     def valid_feature_names(cls) -> list[str]:
@@ -135,11 +140,11 @@ class TestIntegrationMultipleFeatures:
                 continue
             if "value_int__add_constant" in table.column_names:
                 col = table.column("value_int__add_constant").to_pylist()
-                assert _approx_equal(col, EXPECTED_ADD_5)
+                assert _approx_equal(col, _reference("value_int__add_constant", constant=5))
                 add_found = True
             if "value_int__multiply_constant" in table.column_names:
                 col = table.column("value_int__multiply_constant").to_pylist()
-                assert _approx_equal(col, EXPECTED_MULTIPLY_2)
+                assert _approx_equal(col, _reference("value_int__multiply_constant", constant=2))
                 mul_found = True
 
         assert add_found, "add_constant result not found"
@@ -177,7 +182,9 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "my_custom_add" in table.column_names:
                 col = table.column("my_custom_add").to_pylist()
-                assert _approx_equal(col, EXPECTED_ADD_5)
+                assert _approx_equal(
+                    col, _reference("my_custom_add", arithmetic_op="add", in_features="value_int", constant=5)
+                )
                 assert len(col) == 12
                 found = True
 
@@ -211,7 +218,9 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "minus_ten" in table.column_names:
                 col = table.column("minus_ten").to_pylist()
-                assert _approx_equal(col, EXPECTED_SUBTRACT_10)
+                assert _approx_equal(
+                    col, _reference("minus_ten", arithmetic_op="subtract", in_features="value_int", constant=10)
+                )
                 found = True
 
         assert found, "option-based subtract result not found"
@@ -244,7 +253,9 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "halved" in table.column_names:
                 col = table.column("halved").to_pylist()
-                assert _approx_equal(col, EXPECTED_DIVIDE_2)
+                assert _approx_equal(
+                    col, _reference("halved", arithmetic_op="divide", in_features="value_int", constant=2.0)
+                )
                 found = True
 
         assert found, "option-based divide result not found"
@@ -282,11 +293,13 @@ class TestIntegrationOptionBasedConfig:
                 continue
             if "value_int__add_constant" in table.column_names:
                 col = table.column("value_int__add_constant").to_pylist()
-                assert _approx_equal(col, EXPECTED_ADD_5)
+                assert _approx_equal(col, _reference("value_int__add_constant", constant=5))
                 add_found = True
             if "my_mul" in table.column_names:
                 col = table.column("my_mul").to_pylist()
-                assert _approx_equal(col, EXPECTED_MULTIPLY_2)
+                assert _approx_equal(
+                    col, _reference("my_mul", arithmetic_op="multiply", in_features="value_int", constant=2)
+                )
                 mul_found = True
 
         assert add_found, "string-pattern add result not found"

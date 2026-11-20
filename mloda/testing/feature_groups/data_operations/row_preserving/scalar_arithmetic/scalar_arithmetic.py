@@ -1,4 +1,4 @@
-"""Shared test base and expected values for scalar arithmetic."""
+"""Shared test base for scalar arithmetic; expected values come from the reference."""
 
 from __future__ import annotations
 
@@ -23,24 +23,6 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
-
-# ---------------------------------------------------------------------------
-# Source column and expected values (module-level constants)
-# ---------------------------------------------------------------------------
-
-VALUE_INT: list[int | None] = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
-
-
-def _apply(values: list[int | None], fn: Any) -> list[Any]:
-    return [None if v is None else fn(v) for v in values]
-
-
-# Expected results for canonical test constants
-EXPECTED_ADD_5: list[Any] = _apply(VALUE_INT, lambda v: v + 5)
-EXPECTED_SUBTRACT_10: list[Any] = _apply(VALUE_INT, lambda v: v - 10)
-EXPECTED_MULTIPLY_2: list[Any] = _apply(VALUE_INT, lambda v: v * 2)
-EXPECTED_DIVIDE_2: list[Any] = _apply(VALUE_INT, lambda v: v / 2.0)
-
 
 # ---------------------------------------------------------------------------
 # Reusable test base class
