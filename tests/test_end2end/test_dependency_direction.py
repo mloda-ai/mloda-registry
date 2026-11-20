@@ -686,7 +686,6 @@ _KIT_PYARROW_REFERENCE_IMPORTS: set[tuple[str, str]] = {
         "ffill",
         "sessionization",
         "datetime",
-        "lookup",
     )
 } | {
     (f"{_DATA_OPS}/string/string.py", f"{_COMMUNITY_DATA_OPS}.string.pyarrow_string"),

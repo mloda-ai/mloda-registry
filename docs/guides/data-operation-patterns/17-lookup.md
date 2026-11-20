@@ -112,7 +112,7 @@ A hook over a generic lookup (`{col}__lookup__{hook}`) passes the group `lookup_
 
 | Backend | Mechanism |
 |---|---|
-| PyArrow (reference) | `pc.index_in` on the keys, then `take` on the values; `keep` via `pc.if_else`. |
+| PyArrow | `pc.index_in` on the keys, then `take` on the values; `keep` via `pc.if_else`. |
 | Pandas | Exact index lookup on the keys (not `Series.map` or `isin`). Int output with nulls uses nullable `Int64`. |
 | Polars (lazy) | `replace_strict` stays lazy. Policy `raise` evaluates the upstream plan once more with one grouped query. |
 | DuckDB | The mapping is an Arrow relation, LEFT JOINed on the key with a row-number tag to restore order. Policy `raise` runs one grouped query. |

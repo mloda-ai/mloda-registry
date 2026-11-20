@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -50,6 +50,20 @@ class PandasLookup(Implementation[LookupFeatureGroup]):
 
     feature_group = LookupFeatureGroup
     compute_framework = PandasDataFrame
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="float64 with only finite integral values serves int keys",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pandas-classes-float64-sources-as-int-keys",
+        ),
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="an all-null float64 or object column is untyped and skips the key check",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pandas-treats-a-typed-all-null-int-source-as-untyped",
+        ),
+    )
 
     @classmethod
     def calculate(

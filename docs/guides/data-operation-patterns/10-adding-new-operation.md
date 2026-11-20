@@ -141,7 +141,7 @@ class PyArrowYourOp(Implementation[YourOpFeatureGroup]):
 
 Preserve row order. Preserve NULL. Handle the empty-table case.
 
-Every family has this shape; the reference each family compares against is listed in [Reference implementation pattern](03-reference-implementation.md#how-the-comparison-works). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare neither `supported` nor `divergences`. See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
+Every family has this shape; the reference each family compares against is listed in [Reference implementation pattern](03-reference-implementation.md#how-the-comparison-works). Rank and offset also declare `SUBTYPES` with parametric families (`ntile_N`, `top_N`, `bottom_N`; `lag_N`, `lead_N`, ...), which core collapses to the family name; lookup declares no `SUBTYPES`, so its Implementations declare no `supported` but some declare `divergences` (subtype-less `gap` records). See [Framework-Specific](../feature-group-patterns/09-framework-specific.md).
 
 ---
 

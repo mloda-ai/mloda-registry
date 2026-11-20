@@ -1,6 +1,6 @@
 """Shared test base, dedicated fixture, and expected values for key-lookup tests.
 
-Expected values are pinned as literals so the PyArrow reference is checked against the spec.
+Expected values are pinned as literals; cross-framework results are compared to the pure Python reference.
 
 Fixture (``id`` is the row-order witness)::
 
@@ -18,10 +18,10 @@ Fixture (``id`` is the row-order witness)::
 from __future__ import annotations
 
 import datetime
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -40,6 +40,9 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 _IDS: list[int] = [0, 1, 2, 3, 4, 5, 6]
 _PRODUCT_CODES: list[str | None] = ["A100", "B200", "A100", "C300", None, "D400", "C300"]
@@ -216,12 +219,11 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         return cls.feature_group_class().UNMATCHED_ERROR
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import (
-            PyArrowLookup,
-        )
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
 
-        return PyArrowLookup
+        return reference_lookup(cls.feature_group_class(), table, features)
 
     @classmethod
     def source_data(cls) -> TypedTestData:
@@ -554,6 +556,20 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         with pytest.raises(ValueError, match="'v'") as excinfo:
             self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
         assert not isinstance(excinfo.value, self.unmatched_error())
+
+    # -- Declared divergences ------------------------------------------------------
+
+    def test_divergent_flags_are_declared(self) -> None:
+        impl = self.implementation_class()
+        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
+            pytest.skip("implementation under test is not an Implementation class")
+        flags = (
+            self.untyped_null_source_becomes_int(),
+            self.typed_null_source_becomes_untyped(),
+            self.int_with_nulls_becomes_float(),
+        )
+        if any(flags):
+            assert impl.divergences
 
     # -- Hook path --------------------------------------------------------------
 

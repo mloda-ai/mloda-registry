@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
     PythonDictFramework,
 )
@@ -43,6 +43,14 @@ def _type_label(value: Any) -> str:
 class PythonDictLookup(Implementation[LookupFeatureGroup]):
     feature_group = LookupFeatureGroup
     compute_framework = PythonDictFramework
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="rows carry no dtype: a typed all-null column is untyped and skips the key check, in-range uint64 values serve int keys",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped",
+        ),
+    )
 
     @classmethod
     def calculate(

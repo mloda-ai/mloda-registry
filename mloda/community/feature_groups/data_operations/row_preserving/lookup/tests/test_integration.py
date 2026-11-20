@@ -10,7 +10,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.provider import Implementation, get_all_subclasses
+from mloda.provider import DivergenceKind, Implementation, get_all_subclasses
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -198,6 +198,9 @@ class TestLookupSeveralFrameworks:
             step = self._step([feature], frameworks, collector, group)
             assert step.implementation is PandasLookup
             assert step.compute_framework is PandasDataFrame
+            gaps = [(d.kind, d.reason) for d in step.divergences if d.kind is DivergenceKind.GAP]
+            assert gaps == sorted((DivergenceKind.GAP, d.reason) for d in PandasLookup.divergences)
+            assert len(gaps) == 2
 
             results = mloda.run_all([feature], compute_frameworks=frameworks, plugin_collector=collector)
             frames = [frame for frame in results if isinstance(frame, pd.DataFrame) and name in frame.columns]
