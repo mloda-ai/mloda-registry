@@ -104,7 +104,7 @@ def assert_pyarrow_groups_rows_together(keys: Sequence[Any], rows: Sequence[int]
     import pyarrow as pa
 
     table = pa.table({"grp": pa.array(keys, type=pa.float64()), "__idx__": pa.array(range(len(keys)))})
-    grouped = table.group_by(["grp"]).aggregate([("__idx__", "list")])
+    grouped = table.group_by(["grp"], use_threads=False).aggregate([("__idx__", "list")])
     group = next((g for g in grouped.column("__idx___list").to_pylist() if rows[0] in g), None)
     assert group == list(rows), (
         f"expected PyArrow's live group_by() to place rows {list(rows)} in one group, got {group!r}"
