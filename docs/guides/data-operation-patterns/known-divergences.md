@@ -467,7 +467,7 @@ regression_test:
 
 - **Operations**: `lookup`.
 - **Reference behavior**: The reference still checks a typed all-null column, so str keys on an int64 column raise `ValueError`, and it rejects a uint64 column.
-- **Native pandas behavior**: A typed all-null int64 column arrives as all-NaN float64. A nullable `Int64` all-null column keeps its type and is checked like the reference (`TestPandasLookupNullableInt`).
+- **Native pandas behavior**: A typed all-null int64 column arrives as all-NaN float64. A nullable `Int64` all-null column keeps its type and is checked like the reference (`TestPandasLookupNullableInt`). On pandas 2 an all-null string column arrives as object and is likewise untyped; pandas 3 keeps the string dtype and is checked like the reference.
 - **Mitigation kind**: Accepted divergence.
 - **How**: Declared as a `gap` record on the Implementation. The column is treated as untyped and yields all nulls.
 - **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output via `typed_null_source_becomes_untyped()`.
