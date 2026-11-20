@@ -22,6 +22,10 @@ class TestSqliteScalarArithmetic(SqliteTestMixin, ScalarArithmeticTestBase):
         return SqliteScalarArithmetic
 
     @classmethod
+    def keeps_zero_sign(cls) -> bool:
+        return False
+
+    @classmethod
     def detects_non_numeric_source(cls) -> set[str]:
         # SqliteRelation.from_arrow stores boolean columns with SQLite INTEGER
         # affinity (see mloda_plugins ``_arrow_type_to_sqlite``), so a boolean
