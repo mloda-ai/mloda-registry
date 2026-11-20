@@ -141,7 +141,7 @@ _UPPER_OVERRIDES: dict[str, str] = {
     "ﬗ": "ﬗ",  # ARMENIAN SMALL LIGATURE MEN XEH -> ARMENIAN SMALL LIGATURE MEN XEH
     # Unicode-version-lag entries: recent codepoints PyArrow's utf8proc maps but an older supported
     # CPython's `unicodedata` does not yet; regenerate with scripts/case_mapping_lag_entries.py
-    # under the oldest failing interpreter.
+    # under each interpreter whose drift test fails; it writes codepoints the interpreter does not know as escapes.
     "꟏": "꟎",  # U+A7CF -> U+A7CE
     "ꟓ": "꟒",  # U+A7D3 -> U+A7D2
     "ꟕ": "꟔",  # U+A7D5 -> U+A7D4

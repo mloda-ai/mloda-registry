@@ -41,7 +41,7 @@ def test_existing_key_is_marked_as_replaced() -> None:
     assert result == ['    "a": "Z",  # U+0061 -> U+005A (replaces existing entry)']
 
 
-@pytest.mark.parametrize(("key", "value"), [("\U00016ebb", "\U00016ea0"), ("\u0378", "\u0379")])
+@pytest.mark.parametrize(("key", "value"), [("\U00016ebb", "\U00016ea0"), ("\u0378", "\u0379"), ('"', "\\"), ("\u00df", "SS")])
 def test_rendered_line_round_trips_through_literal_eval(key: str, value: str) -> None:
     (line,) = lag.missing_entries([key], [value], _identity, set())
     assert ast.literal_eval("{\n" + line + "\n}") == {key: value}

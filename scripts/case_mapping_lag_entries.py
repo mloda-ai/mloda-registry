@@ -61,10 +61,12 @@ def main() -> int:
     if not upper and not lower:
         print("No entries are missing on this interpreter.")
         return 0
-    print("# _UPPER_OVERRIDES")
-    print("\n".join(upper))
-    print("# _LOWER_OVERRIDES")
-    print("\n".join(lower))
+    if upper:
+        print("# _UPPER_OVERRIDES")
+        print("\n".join(upper))
+    if lower:
+        print("# _LOWER_OVERRIDES")
+        print("\n".join(lower))
     return 0
 
 
