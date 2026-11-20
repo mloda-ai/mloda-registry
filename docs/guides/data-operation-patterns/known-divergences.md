@@ -693,6 +693,13 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | SQLite | value |  | backend | `divide` | returns NULL on divide by zero |
 | Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
 
+### ffill
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
+| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null |
+
 ### lookup
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
@@ -701,13 +708,6 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Pandas | gap |  | backend | (all) | an all-null float64 or object column is untyped and skips the key check ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pandas-treats-a-typed-all-null-int-source-as-untyped)) |
 | DuckDB | gap |  | backend | (all) | on DuckDB < 2 a null-typed source arrives as INTEGER ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-1x-reads-a-null-typed-lookup-source-as-integer)) |
 | Python dict | gap |  | backend | (all) | rows carry no dtype: a typed all-null column is untyped and skips the key check, in-range uint64 values serve int keys ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped)) |
-
-### ffill
-
-| Framework | Kind | Variant | Cause | Applies to | Reason |
-|---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
-| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null |
 
 ### ema
 
