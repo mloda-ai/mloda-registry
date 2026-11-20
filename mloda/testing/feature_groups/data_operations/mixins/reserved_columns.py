@@ -165,6 +165,7 @@ class ReservedColumnsTestMixin(DataOpsTestBase):
         for entry in self.reserved_columns_extra_feature_names():
             extra_name, extra_ctx = (entry, {}) if isinstance(entry, str) else entry
             runs.append((extra_name, extra_ctx, True))
+        reference_runs: list[tuple[str, dict[str, Any]]] = []
         for feature_name, pair_ctx, is_extra in runs:
             kwargs: dict[str, Any] = {
                 "partition_by": self.reserved_columns_partition_by(),
@@ -184,9 +185,12 @@ class ReservedColumnsTestMixin(DataOpsTestBase):
                 survived = [int(v) for v in self.extract_column(result, name)]
                 assert survived == values, f"{label}: user column {name} changed: {survived!r}"
             if is_extra:
-                self._compare_with_reference(
-                    feature_name,
-                    use_approx=True,
-                    data=self.create_test_data(colliding, arrow_types),
-                    **kwargs,
-                )
+                reference_runs.append((feature_name, kwargs))
+        # The reference half may skip without pyarrow, so it runs after every backend check.
+        for feature_name, kwargs in reference_runs:
+            self._compare_with_reference(
+                feature_name,
+                use_approx=True,
+                data=self.create_test_data(colliding, arrow_types),
+                **kwargs,
+            )

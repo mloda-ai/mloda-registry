@@ -18,7 +18,7 @@ Fixture (``id`` is the row-order witness)::
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 
 import pytest
 from mloda.provider import FeatureSet
@@ -40,9 +40,6 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
-
-if TYPE_CHECKING:
-    pass
 
 _IDS: list[int] = [0, 1, 2, 3, 4, 5, 6]
 _PRODUCT_CODES: list[str | None] = ["A100", "B200", "A100", "C300", None, "D400", "C300"]

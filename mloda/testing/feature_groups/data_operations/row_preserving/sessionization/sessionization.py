@@ -69,7 +69,7 @@ SQL backends get a deterministic whole-table sort::
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -91,9 +91,6 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
-
-if TYPE_CHECKING:
-    pass
 
 _U = timezone.utc
 

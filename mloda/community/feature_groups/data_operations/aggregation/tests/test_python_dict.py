@@ -67,28 +67,26 @@ class TestPythonDictNanPartitionKeyGrouping:
                 "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
             }
         )
-        arrow_table = arrow_table_of(typed)
         data = typed.to_python_dict()
         fs = make_feature_set("val__sum_agg", ["grp"])
 
         result = calculate_with(PythonDictAggregation, data, fs)
-        oracle = reference_aggregation(AggregationFeatureGroup, arrow_table, fs)
-
         result_val_col = extract_column(result, "val__sum_agg")
-        oracle_val_col = extract_column(oracle, "val__sum_agg")
-
-        assert len(oracle_val_col) == 3, f"sanity check on the oracle itself failed: {oracle_val_col!r}"
-        assert len(result_val_col) == len(oracle_val_col), (
-            f"expected 3 groups (the two NaN rows merged into one, matching the PyArrow oracle), "
-            f"got PythonDict={len(result_val_col)} groups {result_val_col!r} vs "
-            f"PyArrow oracle={len(oracle_val_col)} groups {oracle_val_col!r}"
-        )
-
         result_grp_col = extract_column(result, "grp")
+        assert len(result_val_col) == 3, f"expected 3 groups (the two NaN rows merged into one), got {result_val_col!r}"
         nan_sums = [v for k, v in zip(result_grp_col, result_val_col) if isinstance(k, float) and math.isnan(k)]
         assert nan_sums == [30.0], (
             f"expected the two NaN-keyed rows (values 10.0 and 20.0) to merge into one group summing "
             f"to 30.0 (matching PyArrow's grouping), got {nan_sums!r}"
+        )
+
+        arrow_table = arrow_table_of(typed)
+        oracle = reference_aggregation(AggregationFeatureGroup, arrow_table, fs)
+        oracle_val_col = extract_column(oracle, "val__sum_agg")
+        assert len(oracle_val_col) == 3, f"sanity check on the oracle itself failed: {oracle_val_col!r}"
+        assert len(result_val_col) == len(oracle_val_col), (
+            f"PythonDict={len(result_val_col)} groups {result_val_col!r} vs "
+            f"PyArrow oracle={len(oracle_val_col)} groups {oracle_val_col!r}"
         )
 
 
@@ -103,35 +101,41 @@ class TestPythonDictMinMaxSkipsNan:
     the non-NaN values, as does the pure Python ``reference_aggregation``.
     """
 
-    @staticmethod
-    def _agg_via(agg_type: str) -> tuple[Any, Any]:
-        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+    _TYPED = TypedTestData(
+        {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
+    )
+
+    @classmethod
+    def _backend_val(cls, agg_type: str) -> Any:
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
             extract_column,
             make_feature_set,
         )
 
-        typed = TypedTestData(
-            {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
-        )
-        arrow_table = arrow_table_of(typed)
-        data = typed.to_python_dict()
         fs = make_feature_set(f"val__{agg_type}_agg", ["grp"])
+        result = calculate_with(PythonDictAggregation, cls._TYPED.to_python_dict(), fs)
+        return extract_column(result, f"val__{agg_type}_agg")[0]
 
-        result = calculate_with(PythonDictAggregation, data, fs)
-        oracle = reference_aggregation(AggregationFeatureGroup, arrow_table, fs)
+    @classmethod
+    def _oracle_val(cls, agg_type: str) -> Any:
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
+        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
-        result_val = extract_column(result, f"val__{agg_type}_agg")[0]
-        oracle_val = extract_column(oracle, f"val__{agg_type}_agg")[0]
-        return result_val, oracle_val
+        fs = make_feature_set(f"val__{agg_type}_agg", ["grp"])
+        oracle = reference_aggregation(AggregationFeatureGroup, arrow_table_of(cls._TYPED), fs)
+        return extract_column(oracle, f"val__{agg_type}_agg")[0]
 
     def test_min_skips_nan_matches_pyarrow_oracle(self) -> None:
-        result_val, oracle_val = self._agg_via("min")
+        result_val = self._backend_val("min")
+        assert result_val == 1.0, f"PythonDict min must skip NaN and be 1.0, got {result_val!r}"
+        oracle_val = self._oracle_val("min")
         assert oracle_val == 1.0, f"expected PyArrow oracle min to skip NaN and be 1.0, got {oracle_val!r}"
         assert result_val == oracle_val, f"PythonDict min={result_val!r} != PyArrow oracle min={oracle_val!r}"
 
     def test_max_skips_nan_matches_pyarrow_oracle(self) -> None:
-        result_val, oracle_val = self._agg_via("max")
+        result_val = self._backend_val("max")
+        assert result_val == 3.0, f"PythonDict max must skip NaN and be 3.0, got {result_val!r}"
+        oracle_val = self._oracle_val("max")
         assert oracle_val == 3.0, f"expected PyArrow oracle max to skip NaN and be 3.0, got {oracle_val!r}"
         assert result_val == oracle_val, f"PythonDict max={result_val!r} != PyArrow oracle max={oracle_val!r}"

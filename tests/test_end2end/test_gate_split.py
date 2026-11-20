@@ -333,7 +333,7 @@ def test_no_pyarrow_env_syncs_without_pyarrow_and_fails_on_errors() -> None:
 
 
 def test_no_pyarrow_env_asserts_pyarrow_absent_then_runs_the_python_dict_suites() -> None:
-    """The commands check pyarrow is missing, then run the test_python_dict.py files of the data operations."""
+    """The commands check pyarrow is missing, then run the test_python_dict.py and test_python_dict_*.py files."""
     section = _declared_envs().get("no-pyarrow")
     assert section is not None, "tox.ini declares no no-pyarrow env"
     commands = [line.strip() for line in _tox()[section].get("commands", "").splitlines() if line.strip()]
@@ -342,7 +342,7 @@ def test_no_pyarrow_env_asserts_pyarrow_absent_then_runs_the_python_dict_suites(
         i
         for i, line in enumerate(commands)
         if "pytest" in line
-        and "-o python_files=test_python_dict.py" in line
+        and '-o "python_files=test_python_dict.py test_python_dict_*.py"' in line
         and "mloda/community/feature_groups/data_operations" in line
     ]
     assert checks and runs, (
