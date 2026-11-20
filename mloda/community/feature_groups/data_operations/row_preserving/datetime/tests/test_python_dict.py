@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import pytest
@@ -27,17 +27,12 @@ class TestPythonDictDateTimeExtraction(PythonDictTestMixin, DateTimeTestBase):
 
     # -- Non-timestamp source column guard -----------------------------------
     #
-    # ``PythonDictDateTimeExtraction._compute_datetime`` runs
-    # ``_assert_source_column_is_datetime`` up front, so a source column
-    # holding ``datetime.date`` objects (no time component) or a genuinely
-    # wrong type (e.g. plain strings) is rejected with a clear ``ValueError``
-    # before ``_extract`` ever sees the value, per the "CFW Backend Rejection
-    # over Python Fallback" rule (see
-    # ``sqlite_time_bucketization._assert_source_column_is_timestamp`` for
-    # the established rejection-guard precedent). The pure Python reference
-    # accepts DATE sources for date-level ops and raises ``ValueError`` for
-    # string sources. These tests pin the PythonDict rejection behavior
-    # directly.
+    # ``PythonDictDateTimeExtraction._compute_datetime`` accepts bare
+    # ``datetime.date`` values for date-level ops (year, month, day,
+    # dayofweek, is_weekend, quarter), like the reference. Time-of-day ops on
+    # a date column and string sources are rejected up front with a clear
+    # ``ValueError``, per the "CFW Backend Rejection over Python Fallback"
+    # rule. These tests pin the rejections directly.
 
     def test_date_only_source_hour_raises_value_error(self) -> None:
         """A ``date``-only source column (no time component) must be
@@ -56,3 +51,10 @@ class TestPythonDictDateTimeExtraction(PythonDictTestMixin, DateTimeTestBase):
 
         with pytest.raises(ValueError, match=r"(?i)date|datetime|timestamp"):
             self.implementation_class()._compute_datetime(data, "d__year", "d", "year")
+
+    def test_mixed_datetime_and_date_source_hour_raises_value_error(self) -> None:
+        """A column holding a datetime and a bare date is rejected as a whole for ``hour``."""
+        data = {"d": [datetime(2023, 1, 1, 5, 0, 0), date(2023, 1, 2), None]}
+
+        with pytest.raises(ValueError, match=r"(?i)date|datetime|timestamp"):
+            self.implementation_class()._compute_datetime(data, "d__hour", "d", "hour")

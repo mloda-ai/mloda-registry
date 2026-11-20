@@ -71,7 +71,7 @@ Cells reflect each operation group's Implementations, queryable via `DataOperati
 |---|---|---|---|---|---|---|---|
 | aggregation | partial (15/17) | full | full | full | partial (6/17) | full | Pandas, SQLite |
 | binning | full | full | full | full | full | full | none |
-| datetime | full | full | full | full | full | full | none |
+| datetime | full | full | full | full | full | full | DuckDB |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full | Pandas, SQLite |
 | offset | -- | full | full | full | full | full | none |
 | percentile | -- | full | full | full | -- | full | none |

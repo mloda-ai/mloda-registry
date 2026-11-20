@@ -51,6 +51,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 from mloda.community.feature_groups.data_operations.sqlite_helpers import (
     column_affinities,
     first_storage_class_outside,
+    offset_suffix_expr,
+    wall_clock_expr,
 )
 
 # Calendar units whose ``ceil`` always advances one bucket even on aligned
@@ -150,24 +152,6 @@ def _bucket_seconds(n: int, unit: str) -> int:
     if unit == "day":
         return 86400 * n
     raise ValueError(f"Bucket-seconds helper called for non-fixed-freq unit: {unit!r}")
-
-
-def _local_src_expr(quoted_source: str) -> str:
-    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` tz suffix.
-
-    SQLite has no inline ``LET``, so the caller substitutes this expression
-    everywhere a wall-clock view of the source is needed.
-    """
-    return (
-        f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') "
-        f"THEN substr({quoted_source}, 1, length({quoted_source}) - 6) "
-        f"ELSE {quoted_source} END)"
-    )
-
-
-def _tz_suffix_expr(quoted_source: str) -> str:
-    """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` suffix or ``''``."""
-    return f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') THEN substr({quoted_source}, -6) ELSE '' END)"
 
 
 class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
@@ -285,8 +269,8 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             raise ValueError(f"Unsupported bucket op {op!r} for SQLite; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         quoted_source = quote_ident(source_col)
-        local_src = _local_src_expr(quoted_source)
-        tz_suffix = _tz_suffix_expr(quoted_source)
+        local_src = wall_clock_expr(quoted_source)
+        tz_suffix = offset_suffix_expr(quoted_source)
         floor_expr = _floor_expr(local_src, n, unit)
 
         if op == "floor":

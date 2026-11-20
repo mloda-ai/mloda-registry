@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -33,6 +33,14 @@ _DUCKDB_DATETIME_EXPRS: dict[str, str] = {
 class DuckdbDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
     feature_group = DateTimeFeatureGroup
     compute_framework = DuckDBFramework
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="a tz-aware column arrives as UTC, so a non-UTC zone gives the UTC fields",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-datetime-extraction-reads-a-non-utc-zone-as-utc",
+        ),
+    )
 
     @classmethod
     def calculate(

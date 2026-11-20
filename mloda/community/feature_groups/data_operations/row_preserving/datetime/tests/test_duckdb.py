@@ -31,6 +31,10 @@ class TestDuckdbDateTimeExtraction(DuckdbTestMixin, DateTimeTestBase):
     def implementation_class(cls) -> Any:
         return DuckdbDateTimeExtraction
 
+    @classmethod
+    def tz_aware_source_reads_utc(cls) -> bool:
+        return True
+
 
 class TestDuckdbTimezoneBoundary:
     """Tests for DuckDB timezone-sensitive datetime extraction.

@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DateTimeFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.sqlite_helpers import wall_clock_expr
 
 # SQLite strftime-based expressions for datetime extraction.
 # dayofweek: SQLite %w returns 0=Sunday, 6=Saturday. Convert to 0=Monday:
@@ -52,7 +53,7 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
             raise ValueError(f"Unsupported datetime operation for SQLite: {op}")
 
         quoted_source = quote_ident(source_col)
-        expr = expr_template.format(col=quoted_source)
+        expr = expr_template.format(col=wall_clock_expr(quoted_source))
         quoted_feature = quote_ident(feature_name)
 
         # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
