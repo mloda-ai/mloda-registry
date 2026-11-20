@@ -31,7 +31,7 @@ a few abstract methods.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -52,6 +52,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, canonical 12-row dataset)
@@ -143,12 +146,13 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         }
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
-            PyArrowDateTimeExtraction,
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the pure Python reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import (
+            reference_datetime,
         )
 
-        return PyArrowDateTimeExtraction
+        return reference_datetime(cls.feature_group_class(), table, features)
 
     # -- Setup (extended for supplementary dataset) --------------------------
 

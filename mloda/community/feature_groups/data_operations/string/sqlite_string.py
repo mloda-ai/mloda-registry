@@ -15,7 +15,7 @@ from mloda.community.feature_groups.data_operations.string.base import (
 
 # SQLite's native UPPER/LOWER are ASCII-only: UPPER('héllo') returns 'HéLLO'
 # instead of 'HÉLLO'. Rather than emulate unicode-aware semantics in Python
-# and risk silent divergence from the PyArrow reference, SQLite refuses to
+# and risk silent divergence from the pure Python reference, SQLite refuses to
 # serve upper/lower and declares only the ops below as supported, so the
 # resolver falls back to another framework. The same holds for 'reverse',
 # which SQLite has no native function for.

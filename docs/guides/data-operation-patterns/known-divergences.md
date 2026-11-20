@@ -152,7 +152,7 @@ regression_test:
 
 - **Operations**: `string` (`upper`, `lower`, `reverse`).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/string/sqlite_string.py`.
-- **Reference behavior**: PyArrow's `pc.utf8_upper("héllo")` is `"HÉLLO"`.
+- **Reference behavior**: the pure Python reference (simple per-codepoint case mapping) gives `"HÉLLO"` for `"héllo"`.
 - **Native SQLite behavior**: `UPPER('héllo')` returns `'HéLLO'`. `REVERSE` is not implemented.
 - **Mitigation kind**: Excluded op.
 - **How**: `SqliteStringOps.supported` is `frozenset(_SQLITE_STRING_EXPRS)` (trim, length). Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks=["SqliteFramework"]` is rejected at match time, so another enabled framework serves them or resolution fails. The suite reads that declaration, so no test-side override exists.
