@@ -685,9 +685,7 @@ _KIT_PYARROW_REFERENCE_IMPORTS: set[tuple[str, str]] = {
         "time_bucketization",
         "ffill",
         "sessionization",
-        "point_arithmetic",
         "datetime",
-        "scalar_arithmetic",
         "lookup",
     )
 } | {
