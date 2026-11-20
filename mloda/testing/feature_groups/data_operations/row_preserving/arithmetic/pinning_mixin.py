@@ -23,11 +23,6 @@ from mloda.testing.typed_data import TypedTestData
 OVERFLOW_MESSAGE = r"(?i)overflow|outside|out of range"
 
 
-def _operation_of(feature: str) -> str:
-    """The op named by a feature such as ``a&b__add_point``."""
-    return feature.rsplit("__", 1)[1].rsplit("_", 1)[0]
-
-
 class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     """Pinned rows and overflow rows of an arithmetic group; the host base names its table and rows."""
 
@@ -74,14 +69,14 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     def _overflow_is_a_gap(cls, op: str) -> bool:
         """Whether a GAP record names ``op``."""
         return any(
-            record.kind is DivergenceKind.GAP and op in record.subtypes
+            record.kind is DivergenceKind.GAP and not record.outputs and op in record.subtypes
             for record in getattr(cls.implementation_class(), "divergences", ())
         )
 
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
-        """A pinned row matches, with the Implementation's NaN and divide records applied."""
+        """Rows are compared by value, so neither the result type nor the zero sign is checked on a backend."""
         row = self.pinned_row_cases()[pinned_row_case]
-        op = _operation_of(row.feature)
+        op = self.feature_group_class().get_arithmetic_op(row.feature)
         data_type, values = row.expected[row.feature]
         is_float = data_type in (DataType.FLOAT, DataType.DOUBLE)
         nan_to_null = self._nan_as_null_applies(op)
@@ -112,7 +107,7 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     def test_mixin_integer_overflow(self, overflow_case: str) -> None:
         """An integer result outside its operands' range raises, unless a GAP record names the op."""
         row = self.overflow_cases()[overflow_case]
-        op = _operation_of(row.feature)
+        op = self.feature_group_class().get_arithmetic_op(row.feature)
         length = len(next(iter(row.inputs.values()))[1])
 
         def run() -> list[Any]:
