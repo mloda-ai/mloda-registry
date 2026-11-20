@@ -9,9 +9,11 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
+if TYPE_CHECKING:
+    import pyarrow as pa
+
 
 # Sentinel key for NaN in mode, nunique and group keys: values come from to_pylist(), so every NaN
 # is a distinct float object and equality cannot merge them.
@@ -150,6 +152,8 @@ def order_key(value: Any) -> tuple[int, Any]:
 
 def declared_type(agg_type: str, source_type: pa.DataType) -> pa.DataType:
     """Output type of an aggregate column."""
+    import pyarrow as pa
+
     if agg_type in ("count", "nunique"):
         return pa.int64()
     if agg_type == "sum":

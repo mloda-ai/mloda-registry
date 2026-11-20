@@ -71,7 +71,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
@@ -90,6 +89,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
 
 _U = timezone.utc
@@ -285,6 +285,9 @@ class SessionizationTestBase(
         (30s <= 60 same session, 90s > 60 new session). Backends that hardcode a
         microsecond gap unit collapse a second-resolution column to all-zero.
         """
+        require_pyarrow()
+        import pyarrow as pa
+
         typed = TypedTestData(
             {
                 "user": (DataType.STRING, ["A", "A", "A"]),
@@ -388,9 +391,9 @@ class SessionizationTestBase(
         data = self.create_test_data(typed)
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(arrow_table_of(typed), fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert_values_with_nulls(col, [1, 0, 1, 1, 2, 2], cast=int)
+        ref = self.reference_calculate(arrow_table_of(typed), fs)
         assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
 
     # -- Null timestamps / null partition keys --------------------------------
@@ -413,10 +416,10 @@ class SessionizationTestBase(
         data = self.create_test_data(typed)
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=partition_by, order_by="ts")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(arrow_table_of(typed), fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
         assert all(v is not None for v in col), f"session ids must be non-null: {list(col)!r}"
         assert_values_with_nulls(col, expected, cast=int)
+        ref = self.reference_calculate(arrow_table_of(typed), fs)
         assert_values_with_nulls(col, extract_column(ref, "ts__sessionize_30_minute"), cast=int)
 
     def test_null_timestamp_starts_own_session(self) -> None:

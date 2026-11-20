@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.user import DataType
 
@@ -23,6 +22,8 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
 )
 from mloda.testing.typed_data import TypedTestData
 
+pa = pytest.importorskip("pyarrow")
+
 
 class _StubTeardownBase(DataOpsTestBase):
     """Minimal concrete base used to check the base teardown."""
@@ -31,7 +32,7 @@ class _StubTeardownBase(DataOpsTestBase):
     def implementation_class(cls) -> Any:
         return object
 
-    def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, pa.DataType] | None = None) -> Any:
+    def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, Any] | None = None) -> Any:
         return data
 
     def extract_column(self, result: Any, column_name: str) -> list[Any]:

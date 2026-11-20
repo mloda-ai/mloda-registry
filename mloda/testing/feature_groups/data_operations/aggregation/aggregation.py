@@ -16,9 +16,8 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 import math
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
@@ -50,6 +49,9 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SingleValueStdVarTestMixin,
 )
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -480,11 +482,9 @@ class AggregationTestBase(
         (catches a leaked helper column). ``table`` defaults to the canonical 12-row
         table; pass an alternate (e.g. an empty variant) to exercise edge cases.
         """
-        arrow_table = self._arrow_table if table is None else arrow_table_of(table)
         test_data = self.test_data if table is None else self.create_test_data(table)
         fs = make_feature_set(feature_name, partition_by)
         result = calculate_with(self.implementation_class(), test_data, fs)
-        ref = self.reference_calculate(arrow_table, fs)
 
         if not partition_by:
             assert self.get_row_count(result) == 1, (
@@ -494,6 +494,10 @@ class AggregationTestBase(
                 f"partition_by=[] must produce only {feature_name!r}, got {result_column_names(result)}"
             )
 
+        arrow_table = self._arrow_table if table is None else arrow_table_of(table)
+        ref = self.reference_calculate(arrow_table, fs)
+
+        if not partition_by:
             assert_values_with_nulls(
                 self.extract_column(result, feature_name), extract_column(ref, feature_name), approx=use_approx
             )
@@ -1090,14 +1094,14 @@ class AggregationTestBase(
         feature_name = "val__first_agg"
         fs = make_feature_set(feature_name, ["grp"])
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)
-        reference = _build_result_map(ref.column("grp").to_pylist(), ref.column(feature_name).to_pylist())
-        assert reference == pytest.approx({"a": nan}, nan_ok=True)
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         actual = _build_result_map(self.extract_column(result, "grp"), self.extract_column(result, feature_name))
         expected = {"a": 1.0 if "first" in self.nan_divergent_agg_types() else nan}
         assert actual == pytest.approx(expected, nan_ok=True)
+
+        ref = self.reference_calculate(arrow_table_of(table), fs)
+        reference = _build_result_map(ref.column("grp").to_pylist(), ref.column(feature_name).to_pylist())
+        assert reference == pytest.approx({"a": nan}, nan_ok=True)
 
     # -- Unsupported operation raises ----------------------------------------
 
@@ -1219,10 +1223,6 @@ class AggregationTestBase(
         feature_name = "v__count_agg"
         fs = make_feature_set(feature_name, ["k"])
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)
-        assert ref.num_rows == 1, f"reference must merge 0.0/-0.0 into one group, got {ref.num_rows} rows"
-        assert extract_column(ref, feature_name) == [3]
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         result_counts = sorted(self.extract_column(result, feature_name))
         row_count = self.get_row_count(result)
@@ -1235,6 +1235,10 @@ class AggregationTestBase(
             signs = sorted(math.copysign(1, v) for v in self.extract_column(result, "k"))
             assert signs == [-1.0, 1.0]
 
+        ref = self.reference_calculate(arrow_table_of(table), fs)
+        assert ref.num_rows == 1, f"reference must merge 0.0/-0.0 into one group, got {ref.num_rows} rows"
+        assert extract_column(ref, feature_name) == [3]
+
     def test_signed_zero_nunique_values(self) -> None:
         """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
         self._skip_if_unsupported("nunique")
@@ -1242,8 +1246,8 @@ class AggregationTestBase(
         feature_name = "v__nunique_agg"
         fs = make_feature_set(feature_name, ["k"])
 
-        assert extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name) == [1]
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = 1 if self.merges_signed_zero_keys() else 2
         assert self.extract_column(result, feature_name) == [expected]
+
+        assert extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name) == [1]

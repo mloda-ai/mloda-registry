@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
@@ -24,6 +23,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # Source column used by the divide-by-integer regression guard
 VALUE_INT: list[int | None] = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]

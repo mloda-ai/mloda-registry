@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleAgg
 from mloda.community.feature_groups.data_operations.row_changing.resample.python_dict_resample import (
     PythonDictResample,
@@ -37,7 +39,7 @@ class TestPythonDictNonDivisorBucketRowCount:
     def test_7_minute_sum_row_count_and_buckets_match_pyarrow_oracle(self) -> None:
         from datetime import datetime
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
             PyArrowResample,
@@ -89,7 +91,7 @@ class TestPythonDictNullTimestamp:
     def test_null_timestamp_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime, timezone
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
             PyArrowResample,
@@ -141,7 +143,7 @@ class TestPythonDictMinMaxSkipsNan:
     def _hour_bucket_via(agg: str) -> tuple[list[Any], list[Any]]:
         from datetime import datetime, timezone
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
             PyArrowResample,
@@ -197,7 +199,7 @@ class TestPythonDictNanPartitionKeyGrouping:
     def test_nan_partition_rows_merge_into_one_bucket_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime, timezone
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
             PyArrowResample,
@@ -276,7 +278,7 @@ class TestPythonDictNanPartitionColumnLeaksGroupKeySentinel:
         import math
         from datetime import datetime, timezone
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
             PyArrowResample,

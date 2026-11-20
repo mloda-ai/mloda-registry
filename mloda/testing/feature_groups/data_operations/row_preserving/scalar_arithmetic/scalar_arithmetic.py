@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
@@ -23,6 +22,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Reusable test base class

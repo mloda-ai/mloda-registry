@@ -24,7 +24,6 @@ from itertools import combinations
 from types import ModuleType
 from typing import Any, ClassVar, Iterator, cast
 
-import pyarrow as pa
 import pytest
 
 import mloda.community.feature_groups.data_operations as data_operations_pkg
@@ -48,6 +47,8 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
+
+pa = pytest.importorskip("pyarrow")
 
 # Dunders that every class carries purely from being a class; they are not
 # "methods the author added" and must be excluded from collision detection.

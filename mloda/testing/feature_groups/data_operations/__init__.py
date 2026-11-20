@@ -1,5 +1,1 @@
-"""Skips the data-operation test helpers unless pyarrow is installed."""
-
-from mloda.testing.import_isolation import require_pyarrow
-
-require_pyarrow()
+"""Data-operation test helpers; the Arrow-dependent parts skip without pyarrow."""

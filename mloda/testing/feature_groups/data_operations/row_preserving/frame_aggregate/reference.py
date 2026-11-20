@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import calendar
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
@@ -21,6 +20,9 @@ from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
     unsupported_agg_type_error,
 )
 from mloda.testing.feature_groups.data_operations.helpers import masked_column
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 def _compute_frame(
@@ -35,6 +37,8 @@ def _compute_frame(
     frame_unit: str | None = None,
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
+    import pyarrow as pa
+
     if agg_type not in SUPPORTED_AGG_TYPES:
         raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES, framework="Reference")
 

@@ -65,30 +65,27 @@ class TestPythonDictNanPartitionKeyGrouping:
             reference_window_aggregation,
         )
 
-        arrow_table = arrow_table_of(
-            TypedTestData(
-                {
-                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
-                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
-                }
-            )
+        typed = TypedTestData(
+            {
+                "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+            }
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        data = typed.to_python_dict()
         fs = make_feature_set("val__sum_window", ["grp"])
 
         result = calculate_with(PythonDictWindowAggregation, data, fs)
-        oracle = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table, fs)
-
         result_col = extract_column(result, "val__sum_window")
-        oracle_col = extract_column(oracle, "val__sum_window")
-
-        assert oracle_col == [30.0, 30.0, 100.0, 200.0], f"sanity check on the oracle itself failed: {oracle_col!r}"
         grp_col = extract_column(result, "grp")
         nan_broadcast = [v for k, v in zip(grp_col, result_col) if isinstance(k, float) and math.isnan(k)]
         assert nan_broadcast == [30.0, 30.0], (
             f"expected both NaN-keyed rows to broadcast the shared group's sum (10.0 + 20.0 = 30.0, "
-            f"matching the PyArrow oracle {oracle_col!r}), got {nan_broadcast!r}"
+            f"matching the PyArrow oracle), got {nan_broadcast!r}"
         )
+
+        oracle = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table_of(typed), fs)
+        oracle_col = extract_column(oracle, "val__sum_window")
+        assert oracle_col == [30.0, 30.0, 100.0, 200.0], f"sanity check on the oracle itself failed: {oracle_col!r}"
 
 
 class TestPythonDictMinMaxSkipsNan:
@@ -101,39 +98,43 @@ class TestPythonDictMinMaxSkipsNan:
     among the non-NaN values, as does the pure Python ``reference_window_aggregation``.
     """
 
-    @staticmethod
-    def _agg_via(agg_type: str) -> tuple[Any, Any]:
+    _TYPED = TypedTestData(
+        {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
+    )
 
+    @classmethod
+    def _backend_val(cls, agg_type: str) -> Any:
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
             extract_column,
             make_feature_set,
         )
+
+        fs = make_feature_set(f"val__{agg_type}_window", ["grp"])
+        result = calculate_with(PythonDictWindowAggregation, cls._TYPED.to_python_dict(), fs)
+        return extract_column(result, f"val__{agg_type}_window")[0]
+
+    @classmethod
+    def _oracle_val(cls, agg_type: str) -> Any:
+        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
         from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
             reference_window_aggregation,
         )
 
-        arrow_table = arrow_table_of(
-            TypedTestData(
-                {"grp": (DataType.STRING, ["A", "A", "A"]), "val": (DataType.DOUBLE, [float("nan"), 1.0, 3.0])}
-            )
-        )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set(f"val__{agg_type}_window", ["grp"])
-
-        result = calculate_with(PythonDictWindowAggregation, data, fs)
-        oracle = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table, fs)
-
-        result_val = extract_column(result, f"val__{agg_type}_window")[0]
-        oracle_val = extract_column(oracle, f"val__{agg_type}_window")[0]
-        return result_val, oracle_val
+        oracle = reference_window_aggregation(WindowAggregationFeatureGroup, arrow_table_of(cls._TYPED), fs)
+        return extract_column(oracle, f"val__{agg_type}_window")[0]
 
     def test_min_skips_nan_matches_pyarrow_oracle(self) -> None:
-        result_val, oracle_val = self._agg_via("min")
+        result_val = self._backend_val("min")
+        assert result_val == 1.0, f"PythonDict min must skip NaN and be 1.0, got {result_val!r}"
+        oracle_val = self._oracle_val("min")
         assert oracle_val == 1.0, f"expected PyArrow oracle min to skip NaN and be 1.0, got {oracle_val!r}"
         assert result_val == oracle_val, f"PythonDict min={result_val!r} != PyArrow oracle min={oracle_val!r}"
 
     def test_max_skips_nan_matches_pyarrow_oracle(self) -> None:
-        result_val, oracle_val = self._agg_via("max")
+        result_val = self._backend_val("max")
+        assert result_val == 3.0, f"PythonDict max must skip NaN and be 3.0, got {result_val!r}"
+        oracle_val = self._oracle_val("max")
         assert oracle_val == 3.0, f"expected PyArrow oracle max to skip NaN and be 3.0, got {oracle_val!r}"
         assert result_val == oracle_val, f"PythonDict max={result_val!r} != PyArrow oracle max={oracle_val!r}"

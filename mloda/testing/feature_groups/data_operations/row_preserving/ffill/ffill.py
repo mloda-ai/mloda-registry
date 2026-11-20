@@ -306,10 +306,10 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
         )
         fs = make_feature_set("v__ffill", partition_by=["g"], order_by="t")
         result = calculate_with(self.implementation_class(), self.create_test_data(data), fs)
-        ref = self.reference_calculate(arrow_table_of(data), fs)
 
         col = self.extract_column(result, "v__ffill")
         assert [float(x) for x in col] == expected
+        ref = self.reference_calculate(arrow_table_of(data), fs)
         assert [float(x) for x in col] == [float(x) for x in ref.column("v__ffill").to_pylist()]
 
     # -- Row-preserving semantics -------------------------------------------

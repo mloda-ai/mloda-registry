@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.python_dict_sessionization import (
     PythonDictSessionization,
 )
@@ -46,7 +48,7 @@ class TestPythonDictNullPartitionKey:
     def test_null_partition_value_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime, timezone
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pyarrow_sessionization import (
             PyArrowSessionization,
@@ -96,41 +98,22 @@ class TestPythonDictNanPartitionKeyGrouping:
         import math
         from datetime import datetime, timezone
 
-        import pyarrow as pa
-
         from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
         u = timezone.utc
-        arrow_table = pa.table(
-            {
-                "grp": pa.array([float("nan"), float("nan"), 1.0], type=pa.float64()),
-                "ts": pa.array(
-                    [
-                        datetime(2023, 1, 1, 10, 0, 0, tzinfo=u),
-                        datetime(2023, 1, 1, 10, 5, 0, tzinfo=u),
-                        datetime(2023, 1, 1, 10, 0, 0, tzinfo=u),
-                    ],
-                    type=pa.timestamp("us", tz="UTC"),
-                ),
-            }
-        )
-
-        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
-        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
-        idx_lists = grouped.column("__idx___list").to_pylist()
-        keys = grouped.column("grp").to_pylist()
-        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
-        assert nan_group_rows == [0, 1], (
-            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
-            f"group, got {nan_group_rows!r}"
-        )
-
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        data = {
+            "grp": [float("nan"), float("nan"), 1.0],
+            "ts": [
+                datetime(2023, 1, 1, 10, 0, 0, tzinfo=u),
+                datetime(2023, 1, 1, 10, 5, 0, tzinfo=u),
+                datetime(2023, 1, 1, 10, 0, 0, tzinfo=u),
+            ],
+        }
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["grp"], order_by="ts")
         result = calculate_with(PythonDictSessionization, data, fs)
         result_col = extract_column(result, "ts__sessionize_30_minute")
 
-        # Rows 0 and 1 share the NaN partition PyArrow reports above, and their gap
+        # Rows 0 and 1 share the NaN partition PyArrow reports below, and their gap
         # (5 minutes) is within the 30-minute threshold, so they must share one session id.
         assert result_col[0] == result_col[1], (
             f"expected both NaN-partition rows to share one session id (gap 5 min <= 30 min "
@@ -140,6 +123,18 @@ class TestPythonDictNanPartitionKeyGrouping:
         # Row 2 is a genuinely different partition (grp=1.0) and must not share that session.
         assert result_col[2] != result_col[0], (
             f"row 2 (a different partition) must not share row 0's session: {result_col!r}"
+        )
+
+        pa = pytest.importorskip("pyarrow")
+        arrow_table = pa.table({"grp": pa.array(data["grp"], type=pa.float64())})
+        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
+        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
+        idx_lists = grouped.column("__idx___list").to_pylist()
+        keys = grouped.column("grp").to_pylist()
+        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
+        assert nan_group_rows == [0, 1], (
+            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
+            f"group, got {nan_group_rows!r}"
         )
 
 

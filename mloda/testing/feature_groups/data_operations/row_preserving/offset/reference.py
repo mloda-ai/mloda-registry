@@ -6,10 +6,12 @@ comparison baseline in test suites.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 from mloda.provider import FeatureSet
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 def _compute_offset(
@@ -20,6 +22,8 @@ def _compute_offset(
     order_by: str,
     offset_type: str,
 ) -> pa.Table:
+    import pyarrow as pa
+
     num_rows = table.num_rows
 
     # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)

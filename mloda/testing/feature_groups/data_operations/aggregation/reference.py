@@ -5,9 +5,8 @@ pa.Table is only the I/O container; grouping and aggregation run on ``to_pylist(
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-import pyarrow as pa
 from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
@@ -18,6 +17,9 @@ from mloda.testing.feature_groups.data_operations.aggregation_helpers import (
     unsupported_agg_type_error,
 )
 from mloda.testing.feature_groups.data_operations.helpers import masked_column
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 class AggregationSpec(Protocol):
@@ -38,6 +40,8 @@ class AggregationSpec(Protocol):
 
 def _compute_group(table: pa.Table, specs: list[AggregationSpec], partition_by: list[str]) -> pa.Table:
     """One row per group (first-occurrence order): the partition columns plus one column per spec."""
+    import pyarrow as pa
+
     for spec in specs:
         if spec.agg_type not in SUPPORTED_AGG_TYPES:
             raise unsupported_agg_type_error(spec.agg_type, SUPPORTED_AGG_TYPES, framework="Reference")
