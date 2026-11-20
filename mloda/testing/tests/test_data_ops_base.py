@@ -428,6 +428,26 @@ def test_arrow_table_of_requires_pyarrow_first(monkeypatch: pytest.MonkeyPatch) 
     assert calls == ["require"]
 
 
+# -- helpers.assert_pyarrow_groups_rows_together -------------------------------------
+
+
+@pytest.mark.parametrize("keys", [[float("nan"), float("nan"), 1.0], [None, None, 1.0]])
+def test_assert_pyarrow_groups_rows_together_passes_when_rows_share_a_group(keys: list[float | None]) -> None:
+    helpers.assert_pyarrow_groups_rows_together(keys)
+
+
+def test_assert_pyarrow_groups_rows_together_fails_when_rows_are_split() -> None:
+    with pytest.raises(AssertionError, match="place rows"):
+        helpers.assert_pyarrow_groups_rows_together([1.0, 2.0, 1.0])
+
+
+def test_assert_pyarrow_groups_rows_together_requires_pyarrow_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(helpers, "require_pyarrow", lambda: calls.append("require"))
+    helpers.assert_pyarrow_groups_rows_together([None, None, 1.0])
+    assert calls == ["require"]
+
+
 # -- Structural guards: setup_method deleted, source_data declared ---
 
 

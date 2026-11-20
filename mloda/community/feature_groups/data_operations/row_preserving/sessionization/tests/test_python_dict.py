@@ -95,13 +95,16 @@ class TestPythonDictNanPartitionKeyGrouping:
     """
 
     def test_nan_partition_rows_share_one_session_matches_pyarrow_group_by(self) -> None:
-        import math
         from datetime import datetime, timezone
 
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            assert_pyarrow_groups_rows_together,
+            extract_column,
+            make_feature_set,
+        )
 
         u = timezone.utc
-        data = {
+        data: dict[str, list[Any]] = {
             "grp": [float("nan"), float("nan"), 1.0],
             "ts": [
                 datetime(2023, 1, 1, 10, 0, 0, tzinfo=u),
@@ -125,17 +128,7 @@ class TestPythonDictNanPartitionKeyGrouping:
             f"row 2 (a different partition) must not share row 0's session: {result_col!r}"
         )
 
-        pa = pytest.importorskip("pyarrow")
-        arrow_table = pa.table({"grp": pa.array(data["grp"], type=pa.float64())})
-        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
-        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
-        idx_lists = grouped.column("__idx___list").to_pylist()
-        keys = grouped.column("grp").to_pylist()
-        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
-        assert nan_group_rows == [0, 1], (
-            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
-            f"group, got {nan_group_rows!r}"
-        )
+        assert_pyarrow_groups_rows_together(data["grp"])
 
 
 class TestPythonDictNanOrderValueSortSurvives:

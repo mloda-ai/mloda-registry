@@ -17,6 +17,7 @@ Provides:
 - ``empty_like``: Typed test data with the same columns and types and zero rows.
 - ``canonical_data_empty``: The canonical typed data with zero rows, for empty-input cases.
 - ``arrow_table_of``: Typed test data as an Arrow table; skips under pytest without pyarrow.
+- ``assert_pyarrow_groups_rows_together``: Assert PyArrow's live ``group_by`` puts given rows in one group of float64 keys.
 - ``append_typed_columns``: Typed test data plus extra typed columns.
 - ``masked_column``: A table column with rows failing any mask condition set to null.
 """
@@ -95,6 +96,19 @@ def arrow_table_of(data: TypedTestData, arrow_types: Mapping[str, pa.DataType] |
     """The typed data as an Arrow table; skips under pytest when pyarrow is missing."""
     require_pyarrow()
     return to_arrow_table(data, arrow_types)
+
+
+def assert_pyarrow_groups_rows_together(keys: Sequence[Any], rows: Sequence[int] = (0, 1)) -> None:
+    """Assert PyArrow's live ``Table.group_by`` puts exactly ``rows`` in one group of float64 ``keys``; skips without pyarrow."""
+    require_pyarrow()
+    import pyarrow as pa
+
+    table = pa.table({"grp": pa.array(keys, type=pa.float64()), "__idx__": pa.array(range(len(keys)))})
+    grouped = table.group_by(["grp"]).aggregate([("__idx__", "list")])
+    group = next((g for g in grouped.column("__idx___list").to_pylist() if rows[0] in g), None)
+    assert group == list(rows), (
+        f"expected PyArrow's live group_by() to place rows {list(rows)} in one group, got {group!r}"
+    )
 
 
 def append_typed_columns(data: TypedTestData, columns: Mapping[str, tuple[DataType, Sequence[Any]]]) -> TypedTestData:
