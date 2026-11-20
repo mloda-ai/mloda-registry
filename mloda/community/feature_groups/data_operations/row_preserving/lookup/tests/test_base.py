@@ -7,7 +7,7 @@ import pickle  # nosec
 from typing import Any
 
 import pytest
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet, is_match_abort
+from mloda.provider import Cause, DivergenceKind, FeatureChainParserMixin, FeatureGroup, FeatureSet, is_match_abort
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
@@ -366,6 +366,28 @@ class TestReturnDataTypeRule:
     def test_hook_io_error_propagates(self) -> None:
         with pytest.raises(OSError):
             _FailingHookLookup.return_data_type_rule(Feature("x__failing", options=Options()))
+
+
+_DIVERGENCE_COUNTS = [
+    pytest.param("pandas", "pandas_lookup", "PandasLookup", 2, id="pandas"),
+    pytest.param(None, "python_dict_lookup", "PythonDictLookup", 1, id="python_dict"),
+    pytest.param("duckdb", "duckdb_lookup", "DuckdbLookup", 1, id="duckdb"),
+    pytest.param(None, "pyarrow_lookup", "PyArrowLookup", 0, id="pyarrow"),
+    pytest.param("polars", "polars_lazy_lookup", "PolarsLazyLookup", 0, id="polars_lazy"),
+    pytest.param("sqlite3", "sqlite_lookup", "SqliteLookup", 0, id="sqlite"),
+]
+
+
+@pytest.mark.parametrize(("dependency", "module", "name", "count"), _DIVERGENCE_COUNTS)
+def test_declared_divergence_records(dependency: str | None, module: str, name: str, count: int) -> None:
+    if dependency is not None:
+        pytest.importorskip(dependency)
+    import importlib
+
+    base = "mloda.community.feature_groups.data_operations.row_preserving.lookup"
+    records = getattr(importlib.import_module(f"{base}.{module}"), name).divergences
+    assert len(records) == count
+    assert all(r.kind is DivergenceKind.GAP and r.cause is Cause.BACKEND for r in records)
 
 
 _ENGINE = "mloda_plugins.compute_framework.base_implementations"

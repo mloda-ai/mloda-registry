@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
@@ -11,6 +12,7 @@ import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
@@ -35,12 +37,15 @@ from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.refe
     reference_point_arithmetic,
     reference_scalar_arithmetic,
 )
+from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
 from mloda.testing.typed_data import TypedTestData
 
 #: Every reference that ships pinning rows: its group, its reference function and its table.
 PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (PointArithmeticFeatureGroup, reference_point_arithmetic, POINT_ARITHMETIC_PINNING),
     (ScalarArithmeticFeatureGroup, reference_scalar_arithmetic, SCALAR_ARITHMETIC_PINNING),
+    (LookupFeatureGroup, reference_lookup, LOOKUP_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -112,6 +117,8 @@ def _fits(data_type: DataType, value: Any) -> bool:
         return True
     if data_type in _FLOAT_TYPES:
         return isinstance(value, float)
+    if data_type is DataType.STRING:
+        return isinstance(value, str)
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -121,6 +128,9 @@ def _typed_table(**columns: tuple[pa.DataType, list[Any]]) -> pa.Table:
 
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
 _SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
+_LOOKUP = (reference_lookup, LookupFeatureGroup)
+_STR_MAP = {"a": "A"}
+_INT_MAP = {1: 10}
 
 _REJECTION_PARAMS = [
     pytest.param(
@@ -286,10 +296,82 @@ _REJECTION_PARAMS = [
         "divide by zero",
         id="scalar-divide-by-negative-zero",
     ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
+        {"x": (pa.float64(), [1.0, float("nan")])},
+        "x",
+        id="lookup-float-source-nan",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
+        {"x": (pa.float64(), [1.0, 2.0])},
+        "x",
+        id="lookup-float-source",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
+        {"x": (pa.bool_(), [True, False])},
+        "x",
+        id="lookup-bool-source",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
+        {"x": (pa.date32(), [datetime.date(2020, 1, 1)])},
+        "x",
+        id="lookup-date-source",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
+        {"x": (pa.uint64(), [1, 2])},
+        "x",
+        id="lookup-uint64-source",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
+        {"x": (pa.int64(), [1, 2])},
+        "x",
+        id="lookup-str-keys-on-int-column",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
+        {"x": (pa.string(), ["a"])},
+        "x",
+        id="lookup-int-keys-on-str-column",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
+        {"x": (pa.int64(), [None, None])},
+        "x",
+        id="lookup-str-keys-on-typed-all-null-int-column",
+    ),
+    pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "raise"},
+        {"x": (pa.int64(), [1, 2])},
+        "1 row, 1 distinct key not in the mapping",
+        id="lookup-raise-unmatched",
+    ),
 ]
 
 
-class TestArithmeticReferenceRejections:
+class TestReferenceRejections:
     """The reference rejects what it cannot compute instead of guessing."""
 
     @pytest.mark.parametrize(("reference", "group", "feature", "context", "columns", "message"), _REJECTION_PARAMS)
@@ -305,3 +387,35 @@ class TestArithmeticReferenceRejections:
         table = _typed_table(**columns)
         with pytest.raises(ValueError, match=message):
             reference(group, table, make_feature_set(feature, **context))
+
+
+class TestLookupReference:
+    def test_unmatched_raise_uses_the_group_error(self) -> None:
+        table = _typed_table(x=(pa.int64(), [1, 2, 3, 2, None]))
+        features = make_feature_set("x__lookup", lookup_mapping=_INT_MAP, on_unmatched="raise")
+        with pytest.raises(LookupFeatureGroup.UNMATCHED_ERROR) as excinfo:
+            reference_lookup(LookupFeatureGroup, table, features)
+        err = excinfo.value
+        assert isinstance(err, LookupFeatureGroup.UNMATCHED_ERROR)
+        assert (err.unmatched_rows, err.distinct_keys, err.sample) == (3, 2, (2, 3))
+
+    @pytest.mark.parametrize(
+        ("policy", "mapping", "value_type"),
+        [
+            pytest.param(policy, mapping, value_type, id=f"{policy}-{name}")
+            for policy in ("raise", "null", "keep")
+            for name, mapping, value_type in (
+                ("str", _STR_MAP, pa.string()),
+                ("int", _INT_MAP, pa.int64()),
+                *((("float", {1: 1.5}, pa.float64()), ("bool", {1: True}, pa.bool_())) if policy != "keep" else ()),
+            )
+        ],
+    )
+    def test_null_typed_source_gives_all_null_of_the_value_type(
+        self, policy: str, mapping: dict[Any, Any], value_type: pa.DataType
+    ) -> None:
+        table = _typed_table(x=(pa.null(), [None, None]))
+        features = make_feature_set("x__lookup", lookup_mapping=mapping, on_unmatched=policy)
+        result = reference_lookup(LookupFeatureGroup, table, features)
+        assert result.column("x__lookup").to_pylist() == [None, None]
+        assert result.schema.field("x__lookup").type == value_type

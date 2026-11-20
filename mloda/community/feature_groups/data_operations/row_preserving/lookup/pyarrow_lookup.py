@@ -1,4 +1,4 @@
-"""PyArrow implementation of key-lookup (production AND reference)."""
+"""PyArrow implementation of key-lookup."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def arrow_source_family(arrow_type: pa.DataType) -> str:
 
 
 class PyArrowLookup(Implementation[LookupFeatureGroup]):
-    """PyArrow backend; also the cross-framework reference implementation."""
+    """PyArrow backend."""
 
     feature_group = LookupFeatureGroup
     compute_framework = PyArrowTable

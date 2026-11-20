@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
@@ -40,6 +40,14 @@ class DuckdbLookup(Implementation[LookupFeatureGroup]):
 
     feature_group = LookupFeatureGroup
     compute_framework = DuckDBFramework
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="on DuckDB < 2 a null-typed source arrives as INTEGER",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-1x-reads-a-null-typed-lookup-source-as-integer",
+        ),
+    )
 
     @classmethod
     def calculate(

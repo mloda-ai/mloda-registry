@@ -203,7 +203,7 @@ class LookupFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     ## Reference Contract
 
-    PyArrowLookup is the reference. Null keys stay null under every policy and never count as unmatched.
+    The reference is the pure Python ``reference_lookup``. Null keys stay null under every policy and never count as unmatched.
     The output type follows the mapping's value family.
     """
 
