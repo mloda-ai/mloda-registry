@@ -96,6 +96,8 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         row = self.pinned_row_cases()[pinned_row_case]
         op, _ = self.feature_group_class().get_binning_params(row.feature)
         self._skip_if_unsupported(op)
+        if any(data_type == DataType.FLOAT for data_type, _ in row.inputs.values()):
+            pytest.importorskip("pyarrow")
         # A Python dict cannot hold float32, so Arrow gives it the float32-rounded values a float32 column holds.
         arrow_types = {
             name: DataType.to_arrow_type(DataType.FLOAT)

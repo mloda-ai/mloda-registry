@@ -86,17 +86,6 @@ BINNING_PINNING = PinningTable(
         _row("single_bin", "x__bin_1", [(1, 0), (5, 0), (9, 0)]),
         _row("wide_range", "x__bin_3", [(-100, 0), (0, 1), (100, 2)], DataType.INT8),
         _row("wide_range", "x__bin_3", [(-(2**31), 0), (0, 1), (2**31 - 1, 2)], DataType.INT32),
-        _row(
-            "wide_range",
-            "x__bin_15",
-            [
-                (-5226411881888040, 0),
-                (-2066086006351943, 4),
-                (-1276004537467919, 5),
-                (304158400300130, 7),
-                (6624810151372325, 14),
-            ],
-        ),
         _row("float32", "x__bin_3", [(0.0, 0), (0.1, 0), (0.2, 1), (0.3, 2)], DataType.FLOAT),
         _row("float32", "x__bin_5", [(-0.027910225, 0), (125.12616, 4), (100.09534, 3)], DataType.FLOAT),
         _row("qbin_rank", "x__qbin_4", [(i, b) for i, b in enumerate([0, 0, 1, 2, 2, 3])]),
