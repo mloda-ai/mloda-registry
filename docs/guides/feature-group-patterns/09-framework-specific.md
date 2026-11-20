@@ -103,7 +103,7 @@ class ValueSource(DataCreatorFeatureGroup):
 
 `FeatureChainParserMixin` (Pattern 3) is what makes the group match `value__doubled`; `OperationFeatureGroup` alone does not.
 
-Capability and differences are declared on the Implementation, next to its code. Both are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)):
+Capability and differences are declared on the Implementation, next to its code. `supported` and subtype-scoped `divergences` are keyed by the group's canonical subtype, so they need a group that declares `SUBTYPES` (a `SubtypeDeclaration`, see core's [`AggregatedFeatureGroup`](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py)); a divergence scoped to outputs, or to nothing, does not:
 
 ```py
 from mloda.provider import Cause, Divergence, DivergenceKind, Implementation
@@ -120,7 +120,7 @@ class LimitedImplementation(Implementation[MyOperationGroup]):
 ```
 
 - `supported`: a feature whose subtype is outside the set is not offered on that framework. Reject up front; do not compute the result in Python inside the backend.
-- `divergences`: declared, accepted differences from the reference (`kind`, `cause`, `subtypes` or `outputs`, one-line `reason`). When several frameworks are enabled, every kind except `GAP` ranks the implementation below a matching one without it.
+- `divergences`: declared, accepted differences from the reference (`kind`, `cause`, `subtypes` or `outputs`, one-line `reason`). When several frameworks are enabled, every kind except `GAP` ranks the implementation below a matching one without it. An edge case whose narrowest scope still covers the whole operation is a `GAP` record, see [When to add](../data-operation-patterns/known-divergences.md#when-to-add-to-this-page).
 - `VARIANTS` on the group and `DivergenceKind.VARIANT` records: a VARIANT record names a `variant` (for example `nan_as_null`) the group lists in `VARIANTS`. The Implementation runs only for a feature whose group options set `allow_variants` to that name; otherwise another framework serves the step, or resolution fails naming the option. A group also declares an int `CONTRACT_VERSION` for its reference contract; telemetry carries it. The ColumnTotal example below keeps a VALUE record for brevity.
 
 ## Pin an Implementation
