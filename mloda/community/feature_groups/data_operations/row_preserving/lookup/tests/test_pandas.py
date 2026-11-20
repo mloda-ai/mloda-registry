@@ -39,6 +39,11 @@ class TestPandasLookup(PandasTestMixin, LookupTestBase):
         return True
 
     @classmethod
+    def typed_null_string_becomes_untyped(cls) -> bool:
+        # pandas 2 stores an all-null string column as object, which is untyped
+        return int(pd.__version__.split(".")[0]) < 3
+
+    @classmethod
     def int_with_nulls_becomes_float(cls) -> bool:
         return True
 

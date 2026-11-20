@@ -185,6 +185,8 @@ def build_unmatched_error(
     unmatched_rows: int,
     distinct_keys: Iterable[Any],
     reasons: Mapping[Any, str],
+    *,
+    error_class: type[LookupUnmatchedError],
 ) -> LookupUnmatchedError:
     """Build the error from the unmatched row count and the distinct unmatched keys."""
     keys = sorted(distinct_keys)
@@ -195,7 +197,7 @@ def build_unmatched_error(
         f"{feature_name}: {_plural(unmatched_rows, 'row')}, {_plural(len(keys), 'distinct key')} not in the mapping. "
         f"Sample: [{', '.join(shown)}]"
     )
-    return LookupUnmatchedError(message, feature_name, unmatched_rows, len(keys), sample, sample_reasons)
+    return error_class(message, feature_name, unmatched_rows, len(keys), sample, sample_reasons)
 
 
 class LookupFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):

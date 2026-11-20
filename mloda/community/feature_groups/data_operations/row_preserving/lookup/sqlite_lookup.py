@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import uuid
 from collections.abc import Mapping
 from typing import Any
@@ -14,6 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
+    LookupUnmatchedError,
     assert_key_family,
     build_unmatched_error,
     key_family,
@@ -37,7 +39,11 @@ class SqliteLookup(Implementation[LookupFeatureGroup]):
     def calculate(
         cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
+        return group.lookup(
+            data,
+            features,
+            compute_lookup=functools.partial(cls._compute_lookup, error_class=group.UNMATCHED_ERROR),
+        )
 
     @classmethod
     def _null_result(
@@ -67,6 +73,8 @@ class SqliteLookup(Implementation[LookupFeatureGroup]):
         mapping: Mapping[Any, Any],
         policy: str,
         reasons: Mapping[Any, str],
+        *,
+        error_class: type[LookupUnmatchedError],
     ) -> SqliteRelation:
         original_cols = list(data.columns)
         original_types = list(data.types)
@@ -99,7 +107,9 @@ class SqliteLookup(Implementation[LookupFeatureGroup]):
                 )
                 found = cursor.fetchall()
                 if found:
-                    raise build_unmatched_error(feature_name, sum(n for _, n in found), [k for k, _ in found], reasons)
+                    raise build_unmatched_error(
+                        feature_name, sum(n for _, n in found), [k for k, _ in found], reasons, error_class=error_class
+                    )
 
             result_expr = f"COALESCE(m.v, s.{q_source})" if policy == "keep" else "m.v"
             select_cols = ", ".join(f"s.{quote_ident(c)}" for c in original_cols)

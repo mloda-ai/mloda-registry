@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from typing import Any
 
@@ -14,6 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import p
 from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
+    LookupUnmatchedError,
     assert_key_family,
     build_unmatched_error,
     value_family,
@@ -53,7 +55,11 @@ class DuckdbLookup(Implementation[LookupFeatureGroup]):
     def calculate(
         cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
+        return group.lookup(
+            data,
+            features,
+            compute_lookup=functools.partial(cls._compute_lookup, error_class=group.UNMATCHED_ERROR),
+        )
 
     @classmethod
     def _compute_lookup(
@@ -64,6 +70,8 @@ class DuckdbLookup(Implementation[LookupFeatureGroup]):
         mapping: Mapping[Any, Any],
         policy: str,
         reasons: Mapping[Any, str],
+        *,
+        error_class: type[LookupUnmatchedError],
     ) -> DuckdbRelation:
         source_type = column_types(data)[source_col]
         # DuckDB 2 reports an Arrow null column as the quoted type "NULL" (1.x reads it as INTEGER).
@@ -94,7 +102,9 @@ class DuckdbLookup(Implementation[LookupFeatureGroup]):
             found = unmatched.aggregate(f"{quoted_source}, COUNT(*)", quoted_source).to_arrow_table()
             if found.num_rows:
                 counts = found.column(1).to_pylist()
-                raise build_unmatched_error(feature_name, sum(counts), found.column(0).to_pylist(), reasons)
+                raise build_unmatched_error(
+                    feature_name, sum(counts), found.column(0).to_pylist(), reasons, error_class=error_class
+                )
 
         # keep: unmatched non-null sources fall through; mapped values are never null.
         result_expr = quoted_val

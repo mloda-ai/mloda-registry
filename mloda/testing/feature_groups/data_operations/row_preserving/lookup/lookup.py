@@ -29,7 +29,9 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
     empty_like,
+    extract_column,
     make_feature_set,
+    make_multi_feature_set,
     typed_data_without,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -167,7 +169,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     @classmethod
     def hook_group_class(cls) -> Any:
-        """A ``NutsMappingHook`` subclass of ``LookupFeatureGroup``, or None to skip hook tests."""
+        """A ``NutsMappingHook`` subclass of ``LookupFeatureGroup`` (overriding ``UNMATCHED_ERROR`` with a subclass), or None to skip hook tests."""
         return None
 
     @classmethod
@@ -183,6 +185,11 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     @classmethod
     def typed_null_source_becomes_untyped(cls) -> bool:
         """True if an all-null int64 column loses its type in the fixture (pandas float64 fixture, python dict)."""
+        return False
+
+    @classmethod
+    def typed_null_string_becomes_untyped(cls) -> bool:
+        """True if an all-null string column loses its type in the fixture (python dict, pandas 2)."""
         return False
 
     @classmethod
@@ -307,6 +314,20 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         result = self._run("product_code__lookup", PARTIAL_STR_MAP, "null")
         assert [int(v) for v in self.extract_column(result, "id")] == _IDS
         assert self.extract_column(result, "product_code") == _PRODUCT_CODES
+
+    def test_two_features_in_one_feature_set(self) -> None:
+        specs: list[tuple[str, dict[str, Any]]] = [
+            ("product_code__lookup", {"lookup_mapping": PARTIAL_STR_MAP, "on_unmatched": "null"}),
+            ("store_id__lookup", {"lookup_mapping": PARTIAL_INT_MAP, "on_unmatched": "keep"}),
+        ]
+        fs = make_multi_feature_set(specs)
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        ref = self.reference_calculate(self._arrow_table, fs)
+        for name, expected in (("product_code__lookup", NULL_STR_PARTIAL), ("store_id__lookup", KEEP_INT_PARTIAL)):
+            col = self.extract_column(result, name)
+            assert_values_with_nulls(col, extract_column(ref, name), nan_is_null=True)
+            assert_values_with_nulls(col, expected, nan_is_null=True)
+        assert [int(v) for v in self.extract_column(result, "id")] == _IDS
 
     def test_empty_table(self) -> None:
         empty = self.create_test_data(empty_like(self._source))
@@ -546,15 +567,28 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         assert_values_with_nulls(self.extract_column(result, "v__lookup"), [None, None, None], nan_is_null=True)
 
     @pytest.mark.parametrize("policy", ["raise", "null", "keep"])
-    def test_typed_all_null_source_checks_key_family(self, policy: str) -> None:
-        table = self.create_test_data(_single(DataType.INT64, [None, None, None]))
-        if self.typed_null_source_becomes_untyped():
-            result = self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
+    @pytest.mark.parametrize(
+        ("data_type", "mapping"),
+        [
+            pytest.param(DataType.INT64, PARTIAL_STR_MAP, id="int64_str_keys"),
+            pytest.param(DataType.STRING, PARTIAL_INT_MAP, id="string_int_keys"),
+        ],
+    )
+    def test_typed_all_null_source_checks_key_family(
+        self, data_type: DataType, mapping: dict[Any, Any], policy: str
+    ) -> None:
+        table = self.create_test_data(_single(data_type, [None, None, None]))
+        if data_type == DataType.INT64:
+            untyped = self.typed_null_source_becomes_untyped()
+        else:
+            untyped = self.typed_null_string_becomes_untyped()
+        if untyped:
+            result = self._run("v__lookup", mapping, policy, data=table)
             assert self.get_row_count(result) == 3
             assert_values_with_nulls(self.extract_column(result, "v__lookup"), [None, None, None], nan_is_null=True)
             return
         with pytest.raises(ValueError, match="'v'") as excinfo:
-            self._run("v__lookup", PARTIAL_STR_MAP, policy, data=table)
+            self._run("v__lookup", mapping, policy, data=table)
         assert not isinstance(excinfo.value, self.unmatched_error())
 
     # -- Declared divergences ------------------------------------------------------
@@ -566,6 +600,7 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         flags = (
             self.untyped_null_source_becomes_int(),
             self.typed_null_source_becomes_untyped(),
+            self.typed_null_string_becomes_untyped(),
             self.int_with_nulls_becomes_float(),
         )
         if any(flags):
@@ -616,9 +651,10 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     def test_hook_reasons_in_error(self) -> None:
         hook = self._hook()
         name = f"product_code__{HOOK_SUFFIX}"
-        with pytest.raises(self.unmatched_error()) as excinfo:
+        with pytest.raises(hook.UNMATCHED_ERROR) as excinfo:
             calculate_with(self.implementation_class(), self.test_data, make_feature_set(name), group=hook)
         err = excinfo.value
+        assert type(err) is hook.UNMATCHED_ERROR
         assert dict(err.reasons) == HOOK_REASONS
         assert str(err) == (
             f"{name}: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300' (discontinued), 'D400']"

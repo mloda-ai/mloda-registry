@@ -485,7 +485,7 @@ regression_test:
 -->
 
 - **Operations**: `lookup`.
-- **Reference behavior**: The reference still checks a typed all-null column, so str keys on an int64 column raise `ValueError`.
+- **Reference behavior**: The reference still checks a typed all-null column, so str keys on an int64 column raise `ValueError`, and so do int keys on a typed all-null string column.
 - **Native python dict behavior**: Rows carry no dtype, so in-range uint64 values serve int keys.
 - **Mitigation kind**: Accepted divergence.
 - **How**: Declared as a `gap` record on the Implementation. The column is treated as untyped and yields all nulls; in-range uint64 values serve int keys.
