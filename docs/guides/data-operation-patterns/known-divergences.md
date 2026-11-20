@@ -155,9 +155,9 @@ regression_test:
 
 - **Operations**: `point_arithmetic` and `scalar_arithmetic`.
 - **Reference behavior**: The IEEE sign is kept: `0.0 * -1.0` is `-0.0`.
-- **Native SQLite behavior**: The sign is lost on ingest and on `append_column`, so the result is `0.0`.
-- **Mitigation kind**: Accepted divergence. Not a `divergences` record: the sign is lost in storage, not by the op.
-- **Regression signal**: `keeps_zero_sign()` is False on both SQLite test classes, so `test_mixin_pinned_row` pins `+0.0`. If SQLite starts keeping the sign, the rows fail: flip the override and delete this entry.
+- **Native SQLite behavior**: The sign is lost in storage, so the result is `0.0`.
+- **Mitigation kind**: Accepted divergence, not a `divergences` record (storage loses the sign, not the op).
+- **Regression signal**: Both SQLite test classes override `keeps_zero_sign()` to False, so `test_mixin_pinned_row` pins `+0.0`. If SQLite starts keeping the sign, the rows fail: remove the overrides and delete this entry.
 
 ### SQLite `UPPER`/`LOWER` are ASCII-only; no native `REVERSE`
 

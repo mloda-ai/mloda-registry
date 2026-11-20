@@ -43,7 +43,7 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def keeps_zero_sign(cls) -> bool:
-        """Whether the backend keeps the IEEE sign of a zero result; SQLite overrides to False."""
+        """Whether the backend keeps the sign of a zero result."""
         return True
 
     @classmethod
