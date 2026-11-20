@@ -1,20 +1,8 @@
-"""Shared test base class and expected values for two-column point arithmetic tests.
-
-Each test verifies that an element-wise arithmetic operation (add, subtract,
-multiply, divide) is computed between two source columns. Null values in
-either source column propagate to None in the output.
-
-Expected values are computed from the canonical 12-row dataset in
-``DataOperationsTestDataCreator``, using the ``value_int`` and ``amount`` columns
-as ``col_a`` and ``col_b`` respectively.
-
-value_int = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
-amount    = [100.0, None, 250.0, 75.0, 300.0, 0.0, 150.0, None, 50.0, 200.0, 125.0, 80.0]
-"""
+"""Shared test base and expected values for two-column point arithmetic."""
 
 from __future__ import annotations
 
-import math
+import re
 from typing import Any
 
 import pyarrow as pa
@@ -27,7 +15,6 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, d
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
-    feature_group_of,
     make_feature_set,
     typed_data_without,
 )
@@ -56,40 +43,10 @@ def _apply2(values_a: list[Any], values_b: list[Any], fn: Any) -> list[Any]:
     return out
 
 
-def _expected_divide(*, zero_to_null: bool) -> list[Any]:
-    """Element-wise divide expected values.
-
-    For the canonical (VALUE_INT, AMOUNT) pair, row 5 is ``50 / 0.0``.
-    Divide always yields float, so PyArrow/Pandas/Polars/DuckDB propagate
-    IEEE-754 inf/nan, while SQLite has no IEEE-754 storage and returns
-    NULL instead.
-
-    Set ``zero_to_null=True`` for SQLite expectations, ``False`` for the
-    other four backends.
-    """
-    out: list[Any] = []
-    for a, b in zip(VALUE_INT, AMOUNT):
-        if a is None or b is None:
-            out.append(None)
-        elif b == 0:
-            if zero_to_null:
-                out.append(None)
-            else:
-                if a == 0:
-                    out.append(float("nan"))
-                else:
-                    out.append(math.copysign(float("inf"), a))
-        else:
-            out.append(a / b)
-    return out
-
-
 # Expected results for the canonical column pair
 EXPECTED_ADD: list[Any] = _apply2(VALUE_INT, AMOUNT, lambda a, b: a + b)
 EXPECTED_SUBTRACT: list[Any] = _apply2(VALUE_INT, AMOUNT, lambda a, b: a - b)
 EXPECTED_MULTIPLY: list[Any] = _apply2(VALUE_INT, AMOUNT, lambda a, b: a * b)
-EXPECTED_DIVIDE_INF: list[Any] = _expected_divide(zero_to_null=False)
-EXPECTED_DIVIDE_NULL_FOR_ZERO: list[Any] = _expected_divide(zero_to_null=True)
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +97,7 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
             reference_point_arithmetic,
         )
 
-        return reference_point_arithmetic(feature_group_of(cls.implementation_class()), table, features)
+        return reference_point_arithmetic(cls.feature_group_class(), table, features)
 
     # -- Source-column dtype contract (shared across backends) ---------------
 
@@ -166,86 +123,6 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     # -- Concrete tests -----------------------------------------------------
 
-    def test_add(self) -> None:
-        """value_int + amount, null in either operand propagates."""
-        fs = make_feature_set("value_int&amount__add_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
-        assert self.get_row_count(result) == 12
-
-        result_col = self.extract_column(result, "value_int&amount__add_point")
-        for actual, expected in zip(result_col, EXPECTED_ADD):
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_subtract(self) -> None:
-        """value_int - amount, null propagates."""
-        fs = make_feature_set("value_int&amount__subtract_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int&amount__subtract_point")
-        for actual, expected in zip(result_col, EXPECTED_SUBTRACT):
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_multiply(self) -> None:
-        """value_int * amount, null propagates."""
-        fs = make_feature_set("value_int&amount__multiply_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int&amount__multiply_point")
-        for actual, expected in zip(result_col, EXPECTED_MULTIPLY):
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_divide(self) -> None:
-        """value_int / amount on non-zero rows, null propagates.
-
-        Row 5 (50 / 0.0) is excluded here: the divide-by-zero contract is
-        verified separately in ``test_divide_by_zero_returns_inf_or_null_per_backend``.
-        """
-        fs = make_feature_set("value_int&amount__divide_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int&amount__divide_point")
-        for i, (actual, expected) in enumerate(zip(result_col, EXPECTED_DIVIDE_INF)):
-            if i == 5:
-                # Divide-by-zero row, handled by dedicated test.
-                continue
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_null_propagates_when_col_a_is_null(self) -> None:
-        """A null in col_a propagates to None in the result regardless of op.
-
-        Row index 4 of value_int is None.
-        """
-        fs = make_feature_set("value_int&amount__multiply_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int&amount__multiply_point")
-        assert result_col[4] is None
-
-    def test_null_propagates_when_col_b_is_null(self) -> None:
-        """A null in col_b propagates to None in the result regardless of op.
-
-        Row index 1 of amount is None.
-        """
-        fs = make_feature_set("value_int&amount__add_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int&amount__add_point")
-        assert result_col[1] is None
-
     def test_unsupported_operation_raises(self) -> None:
         """An unrecognized arithmetic operation must raise ValueError."""
         feature = Feature(
@@ -257,74 +134,12 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
             calculate_with(self.implementation_class(), self.test_data, fs)
 
-    # -- Option-based configuration -----------------------------------------
-
-    def test_option_based_add(self) -> None:
-        """Option-based configuration (not string pattern) produces the same result."""
-        feature = Feature(
-            "my_custom_add",
-            options=Options(
-                context={
-                    "arithmetic_op": "add",
-                    "in_features": ["value_int", "amount"],
-                }
-            ),
+    @pytest.mark.parametrize("op", ["add", "subtract", "multiply"])
+    def test_option_based_config(self, op: str) -> None:
+        """Option-based configuration (not string pattern) matches the reference."""
+        self._compare_with_reference(
+            f"my_custom_{op}", use_approx=True, arithmetic_op=op, in_features=["value_int", "amount"]
         )
-        fs = FeatureSet()
-        fs.add(feature)
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "my_custom_add")
-        for actual, expected in zip(result_col, EXPECTED_ADD):
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
-        assert len(result_col) == 12
-
-    def test_option_based_subtract(self) -> None:
-        """Option-based subtract produces the correct values."""
-        feature = Feature(
-            "my_diff",
-            options=Options(
-                context={
-                    "arithmetic_op": "subtract",
-                    "in_features": ["value_int", "amount"],
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "my_diff")
-        for actual, expected in zip(result_col, EXPECTED_SUBTRACT):
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_option_based_multiply(self) -> None:
-        """Option-based multiply produces the correct values."""
-        feature = Feature(
-            "my_product",
-            options=Options(
-                context={
-                    "arithmetic_op": "multiply",
-                    "in_features": ["value_int", "amount"],
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-
-        result_col = self.extract_column(result, "my_product")
-        for actual, expected in zip(result_col, EXPECTED_MULTIPLY):
-            if expected is None:
-                assert actual is None
-            else:
-                assert actual == pytest.approx(expected, rel=1e-6)
 
     # -- In-feature count enforcement at compute time -----------------------
 
@@ -346,46 +161,37 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     # -- Source-column dtype enforcement ------------------------------------
 
-    def test_string_col_a_rejected(self) -> None:
-        """A non-numeric (string) col_a must raise ValueError naming the column."""
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("name&value_int__add_point", id="col_a"),
+            pytest.param("value_int&name__add_point", id="col_b"),
+        ],
+    )
+    def test_string_source_column_rejected(self, feature_name: str) -> None:
+        """A non-numeric (string) source column must raise ValueError naming the column."""
         if "string" not in self.detects_non_numeric_source():
             pytest.skip("Backend cannot distinguish string source columns at relation level")
-        import re
 
-        fs = make_feature_set("name&value_int__add_point")
+        fs = make_feature_set(feature_name)
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
             calculate_with(self.implementation_class(), self.test_data, fs)
         assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
             f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
         )
 
-    def test_string_col_b_rejected(self) -> None:
-        """A non-numeric (string) col_b must raise ValueError naming the column."""
-        if "string" not in self.detects_non_numeric_source():
-            pytest.skip("Backend cannot distinguish string source columns at relation level")
-        import re
-
-        fs = make_feature_set("value_int&name__add_point")
-        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            calculate_with(self.implementation_class(), self.test_data, fs)
-        assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
-            f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
-        )
-
-    def test_boolean_source_column_rejected_col_a(self) -> None:
-        """A boolean col_a must raise ValueError naming the column."""
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("is_active&value_int__add_point", id="col_a"),
+            pytest.param("value_int&is_active__add_point", id="col_b"),
+        ],
+    )
+    def test_boolean_source_column_rejected(self, feature_name: str) -> None:
+        """A boolean source column must raise ValueError naming the column."""
         if "boolean" not in self.detects_non_numeric_source():
             pytest.skip("Backend cannot distinguish boolean source columns at relation level")
-        fs = make_feature_set("is_active&value_int__add_point")
-        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            calculate_with(self.implementation_class(), self.test_data, fs)
-        assert "is_active" in str(exc_info.value)
-
-    def test_boolean_source_column_rejected_col_b(self) -> None:
-        """A boolean col_b must raise ValueError naming the column."""
-        if "boolean" not in self.detects_non_numeric_source():
-            pytest.skip("Backend cannot distinguish boolean source columns at relation level")
-        fs = make_feature_set("value_int&is_active__add_point")
+        fs = make_feature_set(feature_name)
         with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
             calculate_with(self.implementation_class(), self.test_data, fs)
         assert "is_active" in str(exc_info.value)
@@ -404,91 +210,44 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     # -- Cross-framework comparison -----------------------------------------
 
-    def _compare_arithmetic_with_reference(self, feature_name: str, skip_rows: set[int] | None = None) -> None:
-        """Compute the feature on this framework and on the reference; assert equal.
-
-        ``skip_rows`` lists row indices to exclude from the comparison (e.g. the
-        divide-by-zero row, which legitimately diverges between SQLite and the
-        IEEE-754 backends). Default ``None`` compares every row.
-        """
+    @pytest.mark.parametrize(
+        "op",
+        [
+            pytest.param("add", id="add"),
+            pytest.param("subtract", id="subtract"),
+            pytest.param("multiply", id="multiply"),
+            pytest.param("divide", id="divide"),
+        ],
+    )
+    def test_cross_framework(self, op: str) -> None:
+        """Compare against the reference; divide-by-zero rows are None where the backend declares the divergence."""
+        feature_name = f"value_int&amount__{op}_point"
+        if op != "divide" or self.divide_zero_propagates_inf():
+            self._compare_with_reference(feature_name, use_approx=True)
+            return
         fs = make_feature_set(feature_name)
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         ref = self.reference_calculate(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
-        # Reference is a pyarrow.Table.
         ref_col = list(ref.column(feature_name).to_pylist())
 
         assert len(result_col) == len(ref_col)
         for i, (ref_val, fw_val) in enumerate(zip(ref_col, result_col)):
-            if skip_rows is not None and i in skip_rows:
-                continue
-            if ref_val is None:
+            if AMOUNT[i] == 0:
+                assert fw_val is None, f"row {i}: expected None, got {fw_val}"
+            elif ref_val is None:
                 assert fw_val is None, f"row {i}: expected None, got {fw_val}"
             else:
                 assert fw_val == pytest.approx(ref_val, rel=1e-6), f"row {i}: {fw_val} != {ref_val}"
 
-    @pytest.mark.parametrize(
-        ("feature_name", "skip_rows"),
-        [
-            pytest.param("value_int&amount__add_point", None, id="add"),
-            pytest.param("value_int&amount__subtract_point", None, id="subtract"),
-            pytest.param("value_int&amount__multiply_point", None, id="multiply"),
-            # Row 5 (50 / 0.0) legitimately diverges between backends (SQLite NULL vs PyArrow
-            # inf); that row is pinned per-backend by
-            # ``test_divide_by_zero_returns_inf_or_null_per_backend`` and is excluded here.
-            pytest.param("value_int&amount__divide_point", {i for i, b in enumerate(AMOUNT) if b == 0}, id="divide"),
-        ],
-    )
-    def test_cross_framework(self, feature_name: str, skip_rows: set[int] | None) -> None:
-        self._compare_arithmetic_with_reference(feature_name, skip_rows=skip_rows)
-
-    # -- Divide-by-zero per-backend semantics -------------------------------
-
-    def test_divide_by_zero_returns_inf_or_null_per_backend(self) -> None:
-        """For the canonical (value_int, amount) pair, row 5 is 50 / 0.0.
-
-        Four backends (PyArrow / Pandas / Polars / DuckDB) cast operands to
-        float and produce IEEE-754 ``+inf`` (positive numerator) at row 5.
-        SQLite has no IEEE-754 storage and returns NULL.
-        """
-        fs = make_feature_set("value_int&amount__divide_point")
-        result = calculate_with(self.implementation_class(), self.test_data, fs)
-        result_col = self.extract_column(result, "value_int&amount__divide_point")
-
-        expected = EXPECTED_DIVIDE_INF if self.divide_zero_propagates_inf() else EXPECTED_DIVIDE_NULL_FOR_ZERO
-
-        for i, (actual, exp) in enumerate(zip(result_col, expected)):
-            if exp is None:
-                assert actual is None, f"row {i}: expected None got {actual}"
-            elif isinstance(exp, float) and math.isnan(exp):
-                assert actual is not None and isinstance(actual, float) and math.isnan(actual), (
-                    f"row {i}: expected nan got {actual}"
-                )
-            elif isinstance(exp, float) and math.isinf(exp):
-                assert actual is not None and isinstance(actual, float) and math.isinf(actual), (
-                    f"row {i}: expected inf got {actual}"
-                )
-                # Verify the sign of inf matches.
-                assert math.copysign(1.0, actual) == math.copysign(1.0, exp), (
-                    f"row {i}: inf sign mismatch (expected {exp}, got {actual})"
-                )
-            else:
-                assert actual == pytest.approx(exp, rel=1e-6), f"row {i}: {actual} != {exp}"
-
     def test_divide_by_integer_constant_returns_float_per_row(self) -> None:
-        """Regression guard: int/int divide must still produce float results.
-
-        Use ``value_int`` as both operands. Each non-null row should be a
-        Python float (or compatible) after the divide cast, never an int.
-        """
+        """Regression guard: int/int divide must still produce float results."""
         fs = make_feature_set("value_int&value_int__divide_point")
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         result_col = self.extract_column(result, "value_int&value_int__divide_point")
 
         for i, value in enumerate(result_col):
             if VALUE_INT[i] is None or VALUE_INT[i] == 0:
-                # Null and 0/0 rows are excluded from the float-type assertion:
-                # 0/0 is handled by the divide-by-zero contract elsewhere.
                 continue
             assert isinstance(value, float), f"row {i}: expected float got {type(value).__name__} ({value!r})"
