@@ -8,12 +8,13 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.python_dict_frame_aggregate import (
     PythonDictFrameAggregate,
 )
-from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
@@ -56,8 +57,6 @@ class TestPythonDictNanPartitionKeyGrouping:
     """
 
     def test_nan_partition_rows_share_one_group_matches_pyarrow_group_by(self) -> None:
-        import pyarrow as pa
-
         from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
         typed = TypedTestData(
@@ -67,20 +66,6 @@ class TestPythonDictNanPartitionKeyGrouping:
                 "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
             }
         )
-        arrow_table = arrow_table_of(typed)
-
-        # Live PyArrow grouping fact: which rows does PyArrow's own group_by()
-        # consider one partition for a NaN key?
-        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
-        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
-        idx_lists = grouped.column("__idx___list").to_pylist()
-        keys = grouped.column("grp").to_pylist()
-        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
-        assert nan_group_rows == [0, 1], (
-            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
-            f"group, got {nan_group_rows!r}"
-        )
-
         data = typed.to_python_dict()
         fs = make_feature_set("val__expanding_sum", ["grp"], order_by="ts")
         result = calculate_with(PythonDictFrameAggregate, data, fs)
@@ -94,14 +79,29 @@ class TestPythonDictNanPartitionKeyGrouping:
             "the NaN rows into separate one-row groups)"
         )
 
+        pa = pytest.importorskip("pyarrow")
+        arrow_table = pa.table({"grp": pa.array(data["grp"], type=pa.float64())})
+
+        # Live PyArrow grouping fact: which rows does PyArrow's own group_by()
+        # consider one partition for a NaN key?
+        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
+        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
+        idx_lists = grouped.column("__idx___list").to_pylist()
+        keys = grouped.column("grp").to_pylist()
+        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
+        assert nan_group_rows == [0, 1], (
+            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
+            f"group, got {nan_group_rows!r}"
+        )
+
 
 class TestPythonDictMinMaxSkipsNan:
     """min/max must skip NaN values within a window, matching the PyArrow oracle."""
 
     @staticmethod
     def _expanding_via(agg_type: str) -> tuple[list[Any], Any]:
-        import pyarrow as pa
-        import pyarrow.compute as pc
+        pa = pytest.importorskip("pyarrow")
+        pc = pytest.importorskip("pyarrow.compute")
 
         from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 

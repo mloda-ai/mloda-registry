@@ -318,3 +318,42 @@ def test_ci_has_a_duckdb1_job_outside_the_build_matrix() -> None:
         "the ci.yaml duckdb1 job has no 'run: tox -e duckdb1' step"
     )
     assert "duckdb1" not in _build_job(), "the ci.yaml build job must not name duckdb1: it has its own job"
+
+
+def test_no_pyarrow_env_syncs_without_pyarrow_and_fails_on_errors() -> None:
+    """The no-pyarrow env installs the frozen workspace minus pyarrow and does not ignore errors."""
+    section = _declared_envs().get("no-pyarrow")
+    assert section is not None, "tox.ini declares no no-pyarrow env"
+    env = _tox()[section]
+    flags = env.get("uv_sync_flags", "").split()
+    for flag in ("--frozen", "--all-packages"):
+        assert flag in flags, f"no-pyarrow uv_sync_flags must contain {flag}, has {flags}"
+    assert "--no-install-package pyarrow" in " ".join(flags), f"no-pyarrow must skip installing pyarrow: {flags}"
+    assert env.get("ignore_errors", "").strip() == "false", "no-pyarrow must set 'ignore_errors = false'"
+
+
+def test_no_pyarrow_env_asserts_pyarrow_absent_then_runs_the_python_dict_suites() -> None:
+    """The commands check pyarrow is missing, then run the test_python_dict.py files of the data operations."""
+    section = _declared_envs().get("no-pyarrow")
+    assert section is not None, "tox.ini declares no no-pyarrow env"
+    commands = [line.strip() for line in _tox()[section].get("commands", "").splitlines() if line.strip()]
+    checks = [i for i, line in enumerate(commands) if "find_spec(" in line and "pyarrow" in line and "is None" in line]
+    runs = [
+        i
+        for i, line in enumerate(commands)
+        if "pytest" in line
+        and "-o python_files=test_python_dict.py" in line
+        and "mloda/community/feature_groups/data_operations" in line
+    ]
+    assert checks and runs, (
+        f"no-pyarrow commands need a find_spec('pyarrow') is None check and a pytest run: {commands}"
+    )
+    assert checks[0] < runs[0], f"no-pyarrow must assert pyarrow is absent before running pytest: {commands}"
+
+
+def test_ci_has_a_no_pyarrow_job_outside_the_build_matrix() -> None:
+    """A separate ci.yaml job runs ``tox -e no-pyarrow``; the build job never names it."""
+    assert re.search(r"^\s*run:\s*tox -e no-pyarrow\s*$", _job_text("no-pyarrow"), re.MULTILINE), (
+        "the ci.yaml no-pyarrow job has no 'run: tox -e no-pyarrow' step"
+    )
+    assert "no-pyarrow" not in _build_job(), "the ci.yaml build job must not name no-pyarrow: it has its own job"

@@ -6,10 +6,12 @@ comparison baseline in test suites.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 from mloda.provider import FeatureSet
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 def _is_nan(value: Any) -> bool:
@@ -52,6 +54,8 @@ def _compute_rank(
     order_by: str,
     rank_type: str,
 ) -> pa.Table:
+    import pyarrow as pa
+
     num_rows = table.num_rows
 
     # Convert columns to Python lists once (O(n) per column) instead of

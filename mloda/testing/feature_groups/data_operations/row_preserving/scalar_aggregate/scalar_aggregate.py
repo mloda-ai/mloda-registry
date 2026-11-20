@@ -12,9 +12,8 @@ Non-null values: [10, -5, 0, 20, 50, 30, 60, 15, 15, 40, -10] (11 values)
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
@@ -36,6 +35,9 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
     SUPPORTED_SCALAR_AGG_TYPES,
 )
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)

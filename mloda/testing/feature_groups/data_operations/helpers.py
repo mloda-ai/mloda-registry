@@ -24,11 +24,11 @@ Provides:
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
@@ -37,6 +37,9 @@ from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.framework_adapter import to_arrow_table
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 def feature_group_of(plugin: Any) -> Any:
@@ -70,6 +73,7 @@ def masked_column(table: pa.Table, source_col: str, mask_spec: list[tuple[str, s
 
     The mask compares Python values, so mismatched operand types give False rather than an Arrow error.
     """
+    import pyarrow as pa
     import pyarrow.compute as pc
     from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_mask_engine import (
         PythonDictMaskEngine,
@@ -122,11 +126,17 @@ def canonical_data_empty() -> TypedTestData:
     return empty_like(DataOperationsTestDataCreator.typed_data())
 
 
+def _is_arrow_table(value: Any) -> bool:
+    """True for a pyarrow Table; never imports pyarrow, since a Table implies it is loaded."""
+    pa = sys.modules.get("pyarrow")
+    return pa is not None and isinstance(value, pa.Table)
+
+
 def result_column_names(result: Any) -> list[str]:
     """The column names of a framework result, mirroring ``extract_column``'s dispatch."""
     if isinstance(result, dict):
         return list(result.keys())
-    if isinstance(result, pa.Table):
+    if _is_arrow_table(result):
         return list(result.column_names)
     if hasattr(result, "to_arrow_table"):
         return list(result.to_arrow_table().column_names)
@@ -153,7 +163,7 @@ def result_column_values(results: list[Any], name: str) -> list[list[Any]]:
     """One value list per result frame (pyarrow or pandas) holding ``name``, NaN as None."""
     found = []
     for frame in results:
-        if isinstance(frame, pa.Table):
+        if _is_arrow_table(frame):
             if name in frame.column_names:
                 found.append(frame.column(name).to_pylist())
         elif hasattr(frame, "columns") and name in frame.columns:
@@ -233,7 +243,7 @@ def extract_column(result: Any, column_name: str) -> list[Any]:
     (DuckdbRelation, SqliteRelation) that expose .to_arrow_table(),
     Polars LazyFrames that expose .collect(), and pandas DataFrames.
     """
-    if isinstance(result, pa.Table):
+    if _is_arrow_table(result):
         return list(result.column(column_name).to_pylist())
     if hasattr(result, "to_arrow_table"):
         arrow_table = result.to_arrow_table()

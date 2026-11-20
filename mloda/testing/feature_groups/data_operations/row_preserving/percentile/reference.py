@@ -8,13 +8,14 @@ PyArrow's quantile function.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
-import pyarrow.compute as pc
 from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.helpers import masked_column
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 _IDX_COL = "__mloda_pctl_idx__"
 _MASKED_COL = "__mloda_pctl_masked__"
@@ -28,6 +29,9 @@ def _compute_percentile(
     percentile: float,
     mask_spec: list[tuple[str, str, Any]] | None = None,
 ) -> pa.Table:
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
     num_rows = table.num_rows
     t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
 

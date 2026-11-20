@@ -13,7 +13,6 @@ KIT_GATES: dict[str, str] = {
     "extenders/": "pyarrow",
     "extenders/otel.py": "otel",
     "extenders/openlineage.py": "openlineage",
-    "feature_groups/data_operations/": "pyarrow",
 }
 
 _SKIPPED_PARTS = {"tests", "__pycache__", "build", "dist"}

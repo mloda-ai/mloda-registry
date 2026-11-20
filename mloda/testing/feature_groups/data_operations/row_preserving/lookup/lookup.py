@@ -18,9 +18,8 @@ Fixture (``id`` is the row-order witness)::
 from __future__ import annotations
 
 import datetime
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
@@ -39,7 +38,11 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    pass
 
 _IDS: list[int] = [0, 1, 2, 3, 4, 5, 6]
 _PRODUCT_CODES: list[str | None] = ["A100", "B200", "A100", "C300", None, "D400", "C300"]
@@ -530,6 +533,9 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     )
     def test_untyped_all_null_source(self, mapping: dict[Any, Any], policy: str) -> None:
         # DataType has no null type; the arrow override keeps the column null-typed
+        require_pyarrow()
+        import pyarrow as pa
+
         table = self.create_test_data(_single(DataType.INT64, [None, None, None]), {"v": pa.null()})
         if self.untyped_null_source_becomes_int() and isinstance(next(iter(mapping)), str):
             with pytest.raises(ValueError) as excinfo:

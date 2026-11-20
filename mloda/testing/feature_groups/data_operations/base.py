@@ -22,9 +22,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import DivergenceKind, Implementation
 from mloda.user import DataType
@@ -39,6 +38,9 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # Capability methods ``_skip_if_unsupported`` probes, in order. Operation families
 # spell the same idea differently: aggregation has "agg_types", binning "ops",

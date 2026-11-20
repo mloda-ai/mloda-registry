@@ -1081,7 +1081,7 @@ def test_real_kit_has_a_binary_model_module_and_no_tests_module() -> None:
         pytest.param("extenders/openlineage.py", "openlineage", id="longest-prefix-other-file"),
         pytest.param("extenders/runners.py", "pyarrow", id="shorter-prefix"),
         pytest.param("binary_model/a/b.py", "binary-model", id="directory-prefix"),
-        pytest.param("feature_groups/data_operations/x.py", "pyarrow", id="data-operations"),
+        pytest.param("feature_groups/data_operations/x.py", None, id="data-operations"),
         pytest.param("feature_groups/other.py", None, id="sibling-directory-ungated"),
         pytest.param("base.py", None, id="top-level-ungated"),
     ],
@@ -1230,7 +1230,13 @@ _SKIP_THEN_IMPORT = (
         pytest.param("m.py", "def f() -> None:\n    import pandas\n", None, id="function-level-pandas"),
         pytest.param("m.py", "def f() -> None:\n    import pyarrow\n", None, id="function-level-pyarrow-ungated"),
         pytest.param("m.py", "import pyarrow\n", "import 'pyarrow'", id="module-level-pyarrow-ungated"),
-        pytest.param("feature_groups/data_operations/m.py", "import pyarrow\n", None, id="module-level-pyarrow-gated"),
+        pytest.param("extenders/m.py", "import pyarrow\n", None, id="module-level-pyarrow-gated"),
+        pytest.param(
+            "feature_groups/data_operations/m.py",
+            "import pyarrow\n",
+            "import 'pyarrow'",
+            id="module-level-pyarrow-in-data-operations",
+        ),
         pytest.param(
             "m.py", "def f() -> None:\n    import requests\n", "unknown import name", id="unknown-in-function"
         ),

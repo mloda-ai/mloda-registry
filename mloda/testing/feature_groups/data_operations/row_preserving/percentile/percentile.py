@@ -9,9 +9,8 @@ Uses PERCENTILE_CONT with linear interpolation.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
@@ -32,6 +31,9 @@ from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMix
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)

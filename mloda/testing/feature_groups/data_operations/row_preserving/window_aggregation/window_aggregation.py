@@ -12,9 +12,8 @@ methods. This follows the same pattern as mloda core's ``DataFrameTestBase`` in
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import DataType, Options
@@ -42,6 +41,9 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
 )
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -628,10 +630,10 @@ class WindowAggregationTestBase(
         data = self.create_test_data(table)
         fs = make_feature_set(f"v__{op}_window", ["g"], "t")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, f"v__{op}_window")
         assert result_col == expected
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         assert result_col == ref.column(f"v__{op}_window").to_pylist()
 
     # -- Null edge case tests ------------------------------------------------
@@ -751,11 +753,11 @@ class WindowAggregationTestBase(
         feature_name = "v__count_window"
         fs = make_feature_set(feature_name, ["k"])
 
-        assert self._ref_column(table, fs, feature_name) == [3, 3, 3]
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = [3, 3, 3] if self.merges_signed_zero_keys() else [1, 2, 2]
         assert self.extract_column(result, feature_name) == expected
+
+        assert self._ref_column(table, fs, feature_name) == [3, 3, 3]
 
     def test_signed_zero_nunique_values(self) -> None:
         """nunique over 0.0 and -0.0 values: the reference and merging backends count 1, PyArrow counts 2."""
@@ -764,11 +766,11 @@ class WindowAggregationTestBase(
         feature_name = "v__nunique_window"
         fs = make_feature_set(feature_name, ["k"])
 
-        assert self._ref_column(table, fs, feature_name) == [1, 1, 1]
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = [1, 1, 1] if self.merges_signed_zero_keys() else [2, 2, 2]
         assert self.extract_column(result, feature_name) == expected
+
+        assert self._ref_column(table, fs, feature_name) == [1, 1, 1]
 
     def test_nan_orders_before_none(self) -> None:
         """The reference puts NaN before None in order_by: last on [None, NaN, 1.0], first on [None, NaN]."""
@@ -777,6 +779,7 @@ class WindowAggregationTestBase(
             ("last", [None, nan, 1.0], [10, 20, 30], [10, 10, 10], [20, 20, 20]),
             ("first", [None, nan], [10, 20], [20, 20], [10, 10]),
         ]
+        reference_runs = []
         for agg, order, values, reference, tied in cases:
             if agg not in self.supported_agg_types():
                 continue
@@ -790,11 +793,13 @@ class WindowAggregationTestBase(
             feature_name = f"v__{agg}_window"
             fs = make_feature_set(feature_name, ["g"], order_by="o")
 
-            assert self._ref_column(table, fs, feature_name) == reference
-
             result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
             expected = reference if self.orders_nan_before_none() else tied
             assert self.extract_column(result, feature_name) == expected
+            reference_runs.append((table, fs, feature_name, reference))
+
+        for table, fs, feature_name, reference in reference_runs:
+            assert self._ref_column(table, fs, feature_name) == reference
 
     def test_first_keeps_leading_nan(self) -> None:
         """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
@@ -807,11 +812,11 @@ class WindowAggregationTestBase(
         feature_name = "v__first_window"
         fs = make_feature_set(feature_name, ["g"], order_by="o")
 
-        assert self._ref_column(table, fs, feature_name) == pytest.approx([nan, nan], nan_ok=True)
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = [1.0, 1.0] if "first" in self.nan_divergent_agg_types() else [nan, nan]
         assert self.extract_column(result, feature_name) == pytest.approx(expected, nan_ok=True)
+
+        assert self._ref_column(table, fs, feature_name) == pytest.approx([nan, nan], nan_ok=True)
 
     def _ref_column(self, table: TypedTestData, fs: FeatureSet, feature_name: str) -> list[Any]:
         column: list[Any] = self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist()

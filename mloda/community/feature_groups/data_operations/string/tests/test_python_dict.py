@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
+import pytest
 from mloda.user import DataType
 
-from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
-    PyArrowStringOps,
-)
 from mloda.community.feature_groups.data_operations.string.python_dict_string import (
     PythonDictStringOps,
 )
@@ -66,6 +63,9 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
         result = calculate_with(self.implementation_class(), data, fs)
         result_col = self.extract_column(result, "name__upper")
 
+        pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.string.pyarrow_string import PyArrowStringOps
+
         reference = calculate_with(PyArrowStringOps, arrow_table_of(typed), fs)
         reference_col = extract_column(reference, "name__upper")
 
@@ -85,6 +85,9 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
 
         result = calculate_with(self.implementation_class(), data, fs)
         result_col = self.extract_column(result, "name__lower")
+
+        pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.string.pyarrow_string import PyArrowStringOps
 
         reference = calculate_with(PyArrowStringOps, arrow_table_of(typed), fs)
         reference_col = extract_column(reference, "name__lower")
@@ -108,13 +111,16 @@ class TestPythonDictStringCaseMappingDriftCheck:
 
     def test_upper_matches_pyarrow_for_every_codepoint(self) -> None:
         chars = self._all_codepoints()
-        table = pa.table({"name": chars})
         fs = make_feature_set("name__upper")
 
         data = {"name": list(chars)}
         result = calculate_with(PythonDictStringOps, data, fs)
         result_col = extract_column(result, "name__upper")
 
+        pa = pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.string.pyarrow_string import PyArrowStringOps
+
+        table = pa.table({"name": chars})
         reference = calculate_with(PyArrowStringOps, table, fs)
         reference_col = extract_column(reference, "name__upper")
 
@@ -127,13 +133,16 @@ class TestPythonDictStringCaseMappingDriftCheck:
 
     def test_lower_matches_pyarrow_for_every_codepoint(self) -> None:
         chars = self._all_codepoints()
-        table = pa.table({"name": chars})
         fs = make_feature_set("name__lower")
 
         data = {"name": list(chars)}
         result = calculate_with(PythonDictStringOps, data, fs)
         result_col = extract_column(result, "name__lower")
 
+        pa = pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.string.pyarrow_string import PyArrowStringOps
+
+        table = pa.table({"name": chars})
         reference = calculate_with(PyArrowStringOps, table, fs)
         reference_col = extract_column(reference, "name__lower")
 

@@ -17,9 +17,8 @@ the abstract adapter methods from ``DataOpsTestBase``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType
@@ -37,6 +36,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -397,33 +399,36 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     def test_none_and_nan_order_by_rank(self) -> None:
         """Rank on a None/NaN order_by mix: apart or tied per backend."""
-        ref_col, result_col = self._none_and_nan_order_by("rank")
-        assert ref_col == EXPECTED_NONE_NAN_RANK_APART, f"reference: expected apart, got {ref_col!r}"
-
+        reference_col, result_col = self._none_and_nan_order_by("rank")
         expected = EXPECTED_NONE_NAN_RANK_APART if self.ranks_none_and_nan_apart() else EXPECTED_NONE_NAN_RANK_TIED
         assert result_col == expected, f"backend: expected {expected!r}, got {result_col!r}"
+
+        ref_col = reference_col()
+        assert ref_col == EXPECTED_NONE_NAN_RANK_APART, f"reference: expected apart, got {ref_col!r}"
 
     def test_none_and_nan_order_by_dense_rank(self) -> None:
         """Dense rank on a None/NaN order_by mix: apart or tied per backend."""
-        ref_col, result_col = self._none_and_nan_order_by("dense_rank")
-        assert ref_col == EXPECTED_NONE_NAN_RANK_APART, f"reference: expected apart, got {ref_col!r}"
-
+        reference_col, result_col = self._none_and_nan_order_by("dense_rank")
         expected = EXPECTED_NONE_NAN_RANK_APART if self.ranks_none_and_nan_apart() else EXPECTED_NONE_NAN_RANK_TIED
         assert result_col == expected, f"backend: expected {expected!r}, got {result_col!r}"
 
+        ref_col = reference_col()
+        assert ref_col == EXPECTED_NONE_NAN_RANK_APART, f"reference: expected apart, got {ref_col!r}"
+
     def test_none_and_nan_order_by_percent_rank(self) -> None:
         """Percent rank on a None/NaN order_by mix: apart or tied per backend."""
-        ref_col, result_col = self._none_and_nan_order_by("percent_rank")
-        assert ref_col == pytest.approx(EXPECTED_NONE_NAN_PERCENT_RANK_APART), (
-            f"reference: expected apart, got {ref_col!r}"
-        )
-
+        reference_col, result_col = self._none_and_nan_order_by("percent_rank")
         expected = (
             EXPECTED_NONE_NAN_PERCENT_RANK_APART
             if self.ranks_none_and_nan_apart()
             else EXPECTED_NONE_NAN_PERCENT_RANK_TIED
         )
         assert result_col == pytest.approx(expected), f"backend: expected {expected!r}, got {result_col!r}"
+
+        ref_col = reference_col()
+        assert ref_col == pytest.approx(EXPECTED_NONE_NAN_PERCENT_RANK_APART), (
+            f"reference: expected apart, got {ref_col!r}"
+        )
 
     # -- Option-based config tests -------------------------------------------
 
@@ -599,10 +604,10 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     # -- Helper methods ------------------------------------------------------
 
-    def _none_and_nan_order_by(self, rank_type: str) -> tuple[list[Any], list[Any]]:
+    def _none_and_nan_order_by(self, rank_type: str) -> tuple[Callable[[], list[Any]], list[Any]]:
         """Run ``val__<rank_type>_ranked`` on a None/NaN order_by mix.
 
-        Returns ``(reference_col, backend_col)`` for the same feature set.
+        Returns ``(reference_col, backend_col)``; the reference column is computed lazily on call.
         """
         self._skip_if_unsupported(rank_type)
         table = TypedTestData(
@@ -611,6 +616,9 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         feature_name = f"val__{rank_type}_ranked"
         fs = make_feature_set(feature_name, ["grp"], "val")
 
-        ref = self.reference_calculate(arrow_table_of(table), fs)
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        return _extract_column(ref, feature_name), self.extract_column(result, feature_name)
+
+        def reference_col() -> list[Any]:
+            return _extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name)
+
+        return reference_col, self.extract_column(result, feature_name)

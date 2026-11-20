@@ -14,9 +14,8 @@ small set of abstract methods. This follows the same pattern as
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
@@ -47,7 +46,11 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -830,13 +833,13 @@ class FrameAggregateTestBase(
         fs.add(feature)
 
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         assert self.get_row_count(result) == 5
         result_col = self.extract_column(result, feature_name)
+        assert [int(v) for v in self.extract_column(result, "__mloda_synth_ts__")] == [1000, 1001, 1002, 1003, 1004]
+        ref = self.reference_calculate(arrow_table_of(table), fs)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
-        assert [int(v) for v in self.extract_column(result, "__mloda_synth_ts__")] == [1000, 1001, 1002, 1003, 1004]
 
     def test_cross_framework_time_window_week(self) -> None:
         """A 1-week time window must match the reference on integer sums."""
@@ -1154,6 +1157,9 @@ class FrameAggregateTestBase(
 
     def test_all_null_values_returns_null(self) -> None:
         """When all values in the source column are null, results should be null."""
+        require_pyarrow()
+        import pyarrow as pa
+
         all_null_table = TypedTestData(
             {"region": (DataType.STRING, ["A", "A", "A"]), "value_int": (DataType.INT64, [None, None, None])}
         )
@@ -1296,11 +1302,11 @@ class FrameAggregateTestBase(
         self._skip_if_frame_feature_unsupported(feature_name, ["g"], "o")
         fs = make_feature_set(feature_name, ["g"], "o")
 
-        assert self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist() == [60, 50, 30]
-
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         expected = [60, 50, 30] if self.orders_nan_before_none() else [40, 60, 30]
         assert self.extract_column(result, feature_name) == expected
+
+        assert self.reference_calculate(arrow_table_of(table), fs).column(feature_name).to_pylist() == [60, 50, 30]
 
     @pytest.mark.parametrize(
         "feature_name,n_days,v,expected",

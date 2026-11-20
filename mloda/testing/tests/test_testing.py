@@ -99,7 +99,6 @@ def test_kit_works_without_optional_roots() -> None:
 @pytest.mark.parametrize(
     ("module", "guarded_package"),
     [
-        ("mloda.testing.feature_groups.data_operations.base", "mloda.testing.feature_groups.data_operations"),
         ("mloda.testing.extenders.contract", "mloda.testing.extenders"),
     ],
 )
@@ -122,7 +121,7 @@ sys.modules["pyarrow"] = None
 
 import mloda.testing
 
-GUARDED = ("mloda.testing.feature_groups.data_operations", "mloda.testing.extenders")
+GUARDED = ("mloda.testing.extenders",)
 for package in GUARDED:
     try:
         importlib.import_module(package)
@@ -137,6 +136,15 @@ for package in GUARDED:
 failed = []
 list(pkgutil.walk_packages(mloda.testing.__path__, "mloda.testing.", onerror=failed.append))
 assert set(GUARDED) <= set(failed), failed
+
+UNGATED = (
+    "mloda.testing.feature_groups.data_operations",
+    "mloda.testing.feature_groups.data_operations.base",
+    "mloda.testing.feature_groups.data_operations.mixins.frameworks",
+)
+for module in UNGATED:
+    importlib.import_module(module)
+assert not [n for n in failed if "data_operations" in n], failed
 print("ok")
 """
 
@@ -163,12 +171,11 @@ _ROOT_CONFTEST_LAYOUT = {
 
 _SKIPS_LAYOUT = {
     "conftest.py": (
-        "import pytest\n\n\n@pytest.fixture\ndef guarded() -> None:\n"
-        "    import mloda.testing.feature_groups.data_operations.base\n"
+        "import pytest\n\n\n@pytest.fixture\ndef guarded() -> None:\n    import mloda.testing.extenders.contract\n"
     ),
     "test_fixture.py": "def test_fixture_skip(guarded: None) -> None:\n    pass\n",
     "test_top.py": _GUARDED_IMPORT + "\n\ndef test_top() -> None:\n    pass\n",
-    "sub/conftest.py": "import mloda.testing.feature_groups.data_operations.base\n",
+    "sub/conftest.py": _GUARDED_IMPORT,
     "sub/test_sub.py": "def test_sub() -> None:\n    pass\n",
 }
 

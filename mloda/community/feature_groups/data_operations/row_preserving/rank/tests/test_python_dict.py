@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.python_dict_rank import (
     PythonDictRank,
 )
-from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
@@ -84,34 +84,18 @@ class TestPythonDictRankNanPartitionKeyGrouping:
     def test_nan_partition_rows_share_one_group_continues_numbering(self) -> None:
         import math
 
-        import pyarrow as pa
-
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
             extract_column,
             make_feature_set,
         )
 
-        arrow_table = arrow_table_of(
-            TypedTestData(
-                {
-                    "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
-                    "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
-                }
-            )
-        )
-
-        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
-        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
-        idx_lists = grouped.column("__idx___list").to_pylist()
-        keys = grouped.column("grp").to_pylist()
-        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
-        assert nan_group_rows == [0, 1], (
-            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
-            f"group, got {nan_group_rows!r}"
-        )
-
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        data = TypedTestData(
+            {
+                "grp": (DataType.DOUBLE, [float("nan"), float("nan"), 1.0, 2.0]),
+                "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
+            }
+        ).to_python_dict()
         fs = make_feature_set("val__row_number_ranked", ["grp"], "val")
         result = calculate_with(PythonDictRank, data, fs)
         result_col = extract_column(result, "val__row_number_ranked")
@@ -122,6 +106,18 @@ class TestPythonDictRankNanPartitionKeyGrouping:
             f"expected row 1's row number to continue the shared NaN partition's numbering "
             f"(row 0 first, row 1 second -> 2), got {result_col[1]!r} (PythonDict split "
             "the NaN rows into separate one-row groups)"
+        )
+
+        pa = pytest.importorskip("pyarrow")
+        arrow_table = pa.table({"grp": pa.array(data["grp"], type=pa.float64())})
+        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
+        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
+        idx_lists = grouped.column("__idx___list").to_pylist()
+        keys = grouped.column("grp").to_pylist()
+        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
+        assert nan_group_rows == [0, 1], (
+            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
+            f"group, got {nan_group_rows!r}"
         )
 
 
@@ -165,8 +161,6 @@ class TestPythonDictRankNonFloatNanHangs:
         assert result["r"] == [2, 1]
 
     def test_numpy_float32_nan_sorts_nulls_last_and_ranks_correctly(self) -> None:
-        import pytest
-
         np = pytest.importorskip("numpy")
 
         data: dict[str, list[Any]] = {"v": [np.float32("nan"), np.float32(1.0)]}

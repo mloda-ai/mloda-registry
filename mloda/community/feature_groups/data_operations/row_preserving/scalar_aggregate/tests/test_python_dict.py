@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.python_dict_scalar_aggregate import (
@@ -44,6 +45,7 @@ class TestPythonDictMinMaxSkipsNan:
 
     @staticmethod
     def _agg_via(agg_type: str) -> tuple[Any, Any]:
+        pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
             PyArrowScalarAggregate,

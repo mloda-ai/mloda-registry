@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from mloda.user import DataType
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.python_dict_offset import (
     PythonDictOffset,
 )
-from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import OffsetTestBase
 from mloda.testing.typed_data import TypedTestData
@@ -39,8 +39,6 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
     def test_nan_partition_rows_share_one_group_lag_carries_forward(self) -> None:
         import math
 
-        import pyarrow as pa
-
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,
             extract_column,
@@ -54,18 +52,6 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
                 "val": (DataType.DOUBLE, [10.0, 20.0, 100.0, 200.0]),
             }
         )
-        arrow_table = arrow_table_of(typed)
-
-        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
-        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
-        idx_lists = grouped.column("__idx___list").to_pylist()
-        keys = grouped.column("grp").to_pylist()
-        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
-        assert nan_group_rows == [0, 1], (
-            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
-            f"group, got {nan_group_rows!r}"
-        )
-
         data = typed.to_python_dict()
         fs = make_feature_set("val__lag_1_offset", ["grp"], "ord")
         result = calculate_with(PythonDictOffset, data, fs)
@@ -77,4 +63,16 @@ class TestPythonDictOffsetNanPartitionKeyGrouping:
             f"expected row 1's lag_1 to carry the shared NaN partition's first value "
             f"(10.0, matching PyArrow's own group_by()), got {result_col[1]!r} (PythonDict "
             "split the NaN rows into separate one-row groups)"
+        )
+
+        pa = pytest.importorskip("pyarrow")
+        arrow_table = pa.table({"grp": pa.array(data["grp"], type=pa.float64())})
+        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
+        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
+        idx_lists = grouped.column("__idx___list").to_pylist()
+        keys = grouped.column("grp").to_pylist()
+        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
+        assert nan_group_rows == [0, 1], (
+            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
+            f"group, got {nan_group_rows!r}"
         )

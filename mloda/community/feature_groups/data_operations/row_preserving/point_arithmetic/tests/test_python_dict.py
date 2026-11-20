@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import pytest
+
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.python_dict_point_arithmetic import (
     PythonDictPointArithmetic,
 )
@@ -46,7 +48,7 @@ class TestPythonDictDivideSignedZeroAndNan:
     @staticmethod
     def _divide_via(a: float, b: float) -> tuple[Any, Any]:
         """Run PythonDict and the pure Python reference for one (a, b) divide row; return (result, oracle)."""
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.testing.feature_groups.data_operations.helpers import (
             calculate_with,

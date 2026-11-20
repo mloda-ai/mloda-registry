@@ -19,7 +19,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     key_family,
     value_family,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
@@ -312,6 +311,9 @@ class TestHooks:
         assert dict(LookupFeatureGroup.resolve_unmatched_reasons(feature)) == {}
 
     def test_compute_lookup_signature(self) -> None:
+        pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
+
         result = PyArrowLookup._compute_lookup(
             arrow_table_of(create_lookup_data()), "product_code__lookup", "product_code", FULL_STR_MAP, "raise", {}
         )
@@ -487,6 +489,9 @@ class TestOnUnmatchedArity(ScalarArityTestBase):
 
     @classmethod
     def compute_values(cls, options: Options) -> list[Any] | None:
+        pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
+
         result = calculate_with(
             PyArrowLookup, arrow_table_of(create_lookup_data()), feature_set_for("my_result", options)
         )

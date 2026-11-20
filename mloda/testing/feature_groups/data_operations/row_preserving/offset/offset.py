@@ -12,9 +12,8 @@ Group compositions (ordered by value_int, nulls last):
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
@@ -36,6 +35,9 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 __all__ = [
     "EXPECTED_FIRST_VALUE",
@@ -328,15 +330,17 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         data = self.create_test_data(table)
         fs = make_feature_set(f"v__{op}_offset", ["g"], "t")
         result = calculate_with(self.implementation_class(), data, fs)
-        ref = self.reference_calculate(arrow_table_of(table), fs)
 
         result_col = self.extract_column(result, f"v__{op}_offset")
-        ref_col = extract_column(ref, f"v__{op}_offset")
         if op.startswith("pct_change"):
             assert result_col == pytest.approx(expected)
-            assert result_col == pytest.approx(ref_col)
         else:
             assert result_col == expected
+        ref = self.reference_calculate(arrow_table_of(table), fs)
+        ref_col = extract_column(ref, f"v__{op}_offset")
+        if op.startswith("pct_change"):
+            assert result_col == pytest.approx(ref_col)
+        else:
             assert result_col == ref_col
 
     # -- All-null column tests -----------------------------------------------

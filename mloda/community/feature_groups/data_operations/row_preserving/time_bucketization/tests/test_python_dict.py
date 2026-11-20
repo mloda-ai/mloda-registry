@@ -83,7 +83,7 @@ class TestPythonDictNonUtcTimezoneSupported:
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
             PyArrowTimeBucketization,
@@ -176,7 +176,7 @@ class TestPythonDictRoundDstCrossing:
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
             PyArrowTimeBucketization,
@@ -268,7 +268,7 @@ class TestPythonDictRoundCalendarUnitVariableLength:
     def test_round_1_month_variable_length_month_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
             PyArrowTimeBucketization,
@@ -299,7 +299,7 @@ class TestPythonDictRoundCalendarUnitVariableLength:
     def test_round_1_year_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime
 
-        import pyarrow as pa
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
             PyArrowTimeBucketization,
