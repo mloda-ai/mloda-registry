@@ -9,6 +9,9 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
+    OVERFLOW_WRAPS_OPERAND_WIDTH,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.polars_numeric_source import (
     polars_non_numeric_descriptor,
 )
@@ -21,6 +24,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 class PolarsLazyScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
     feature_group = ScalarArithmeticFeatureGroup
     compute_framework = PolarsLazyDataFrame
+    divergences = (OVERFLOW_WRAPS_OPERAND_WIDTH,)
 
     @classmethod
     def calculate(

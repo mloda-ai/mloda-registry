@@ -63,6 +63,7 @@ def _is_ordered_in_features(value: object) -> bool:
 
 class PointArithmeticFeatureGroup(ArithmeticOpMixin, OperationFeatureGroup):
     CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
     SUBTYPES = SubtypeDeclaration(key=ArithmeticOpMixin.ARITHMETIC_OP)
 
     # The source side must carry the '&' separator: point arithmetic needs two

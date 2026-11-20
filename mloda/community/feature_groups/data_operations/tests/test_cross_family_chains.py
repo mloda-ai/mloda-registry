@@ -38,7 +38,7 @@ def _column(results: list[Any], name: str) -> list[Any]:
     return found[0]
 
 
-# Pandas serves NaN-divergent subtypes only when a feature allows this variant.
+# Pandas and SQLite serve NaN-divergent subtypes only when a feature allows this variant.
 NAN_AS_NULL = {"allow_variants": "nan_as_null"}
 
 
@@ -135,7 +135,7 @@ class TestSqliteComputedColumnChains:
     def _run(name: str, context: dict[str, Any]) -> list[Any]:
         conn = sqlite3.connect(":memory:")
         try:
-            options = Options(context=context, cascade_context_keys=frozenset(context))
+            options = Options(group=NAN_AS_NULL, context=context, cascade_context_keys=frozenset(context))
             plugin_collector = enabled_with_implementations(
                 {SqliteDataOpsTestDataCreator, OffsetFeatureGroup, ScalarArithmeticFeatureGroup}
             )

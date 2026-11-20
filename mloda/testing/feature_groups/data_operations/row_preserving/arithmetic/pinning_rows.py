@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Any
 
 from mloda.user import DataType
 
-from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
+from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable, TypedColumns
 
 NAN = float("nan")
 INF = float("inf")
@@ -257,5 +259,66 @@ SCALAR_ARITHMETIC_PINNING = PinningTable(
             expected={"a__multiply_constant": (_I, ())},
             context={"constant": 2},
         ),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class OverflowRow:
+    """One input whose integer result falls outside its operands' integer range, so the reference rejects it."""
+
+    case: str
+    feature: str
+    inputs: TypedColumns
+    context: Mapping[str, Any] = field(default_factory=dict)
+
+
+POINT_ARITHMETIC_OVERFLOW = (
+    OverflowRow(
+        case="int64-overflow",
+        feature="a&b__add_point",
+        inputs={"a": (_I, (2**63 - 1,)), "b": (_I, (1,))},
+    ),
+    OverflowRow(
+        case="int32-overflow",
+        feature="a&b__add_point",
+        inputs={"a": (DataType.INT32, (2**31 - 1,)), "b": (DataType.INT32, (1,))},
+    ),
+    OverflowRow(
+        case="uint8-underflow",
+        feature="a&b__subtract_point",
+        inputs={"a": (DataType.UINT8, (1,)), "b": (DataType.UINT8, (2,))},
+    ),
+    OverflowRow(
+        case="int8-overflow",
+        feature="a&b__multiply_point",
+        inputs={"a": (DataType.INT8, (100,)), "b": (DataType.INT8, (100,))},
+    ),
+)
+
+SCALAR_ARITHMETIC_OVERFLOW = (
+    OverflowRow(
+        case="int64-overflow",
+        feature="a__add_constant",
+        inputs={"a": (_I, (2**63 - 1,))},
+        context={"constant": 1},
+    ),
+    OverflowRow(
+        case="int32-overflow",
+        feature="a__add_constant",
+        inputs={"a": (DataType.INT32, (2**31 - 1,))},
+        context={"constant": 1},
+    ),
+    OverflowRow(
+        case="uint8-underflow",
+        feature="a__subtract_constant",
+        inputs={"a": (DataType.UINT8, (1,))},
+        context={"constant": 2},
+    ),
+    OverflowRow(
+        case="int8-overflow",
+        feature="a__multiply_constant",
+        inputs={"a": (DataType.INT8, (100,))},
+        context={"constant": 100},
     ),
 )

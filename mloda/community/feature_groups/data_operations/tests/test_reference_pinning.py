@@ -28,8 +28,11 @@ from mloda.testing.feature_groups.data_operations.pinning import (
     PinningTable,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_rows import (
+    POINT_ARITHMETIC_OVERFLOW,
     POINT_ARITHMETIC_PINNING,
+    SCALAR_ARITHMETIC_OVERFLOW,
     SCALAR_ARITHMETIC_PINNING,
+    OverflowRow,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.reference import (
     reference_point_arithmetic,
@@ -122,6 +125,32 @@ def _typed_table(**columns: tuple[pa.DataType, list[Any]]) -> pa.Table:
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
 _SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
 
+
+def _overflow_params(
+    reference: Callable[..., Any], group: type, prefix: str, rows: tuple[OverflowRow, ...]
+) -> list[Any]:
+    return [
+        pytest.param(
+            reference,
+            group,
+            row.feature,
+            dict(row.context),
+            {
+                name: (DataType.to_arrow_type(data_type), list(values))
+                for name, (data_type, values) in row.inputs.items()
+            },
+            "outside",
+            id=f"{prefix}-{row.case}",
+        )
+        for row in rows
+    ]
+
+
+_OVERFLOW_PARAMS = [
+    *_overflow_params(*_POINT, "point", POINT_ARITHMETIC_OVERFLOW),
+    *_overflow_params(*_SCALAR, "scalar", SCALAR_ARITHMETIC_OVERFLOW),
+]
+
 _REJECTION_PARAMS = [
     pytest.param(
         *_POINT,
@@ -166,22 +195,7 @@ _REJECTION_PARAMS = [
         "must be numeric",
         id="scalar-string-source",
     ),
-    pytest.param(
-        *_POINT,
-        "x&y__add_point",
-        {},
-        {"x": (pa.int64(), [2**63 - 1]), "y": (pa.int64(), [1])},
-        "outside",
-        id="point-int64-overflow",
-    ),
-    pytest.param(
-        *_SCALAR,
-        "x__add_constant",
-        {"constant": 1},
-        {"x": (pa.int64(), [2**63 - 1])},
-        "outside",
-        id="scalar-int64-overflow",
-    ),
+    *_OVERFLOW_PARAMS,
     pytest.param(
         *_POINT,
         "x&y__bogus_point",
@@ -197,46 +211,6 @@ _REJECTION_PARAMS = [
         {"x": (pa.int64(), [])},
         "bogus",
         id="scalar-unknown-op-empty",
-    ),
-    pytest.param(
-        *_POINT,
-        "x&y__add_point",
-        {},
-        {"x": (pa.int32(), [2**31 - 1]), "y": (pa.int32(), [1])},
-        "outside",
-        id="point-int32-overflow",
-    ),
-    pytest.param(
-        *_POINT,
-        "x&y__subtract_point",
-        {},
-        {"x": (pa.uint8(), [1]), "y": (pa.uint8(), [2])},
-        "outside",
-        id="point-uint8-underflow",
-    ),
-    pytest.param(
-        *_POINT,
-        "x&y__multiply_point",
-        {},
-        {"x": (pa.int8(), [100]), "y": (pa.int8(), [100])},
-        "outside",
-        id="point-int8-overflow",
-    ),
-    pytest.param(
-        *_SCALAR,
-        "x__add_constant",
-        {"constant": 1},
-        {"x": (pa.int32(), [2**31 - 1])},
-        "outside",
-        id="scalar-int32-overflow",
-    ),
-    pytest.param(
-        *_SCALAR,
-        "x__subtract_constant",
-        {"constant": 2},
-        {"x": (pa.uint8(), [1])},
-        "outside",
-        id="scalar-uint8-underflow",
     ),
     pytest.param(
         *_POINT,

@@ -12,6 +12,9 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.python_dict_helpers import non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
+    OVERFLOW_UNBOUNDED,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     PointArithmeticFeatureGroup,
@@ -41,6 +44,7 @@ def _div(a: float, b: float) -> float:
 class PythonDictPointArithmetic(Implementation[PointArithmeticFeatureGroup]):
     feature_group = PointArithmeticFeatureGroup
     compute_framework = PythonDictFramework
+    divergences = (OVERFLOW_UNBOUNDED,)
 
     @classmethod
     def calculate(

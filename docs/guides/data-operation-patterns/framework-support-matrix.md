@@ -77,8 +77,8 @@ Cells reflect each operation group's Implementations, queryable via `DataOperati
 | percentile | -- | full | full | full | -- | full | none |
 | rank | -- | full | full | full | full | full | Pandas, SQLite, Python dict |
 | scalar_aggregate | full | full | full | full | partial (6/13) | full | Pandas, SQLite |
-| scalar_arithmetic | full | full | full | full | full | full | none |
-| point_arithmetic | full | full | full | full | full | full | SQLite |
+| scalar_arithmetic | full | full | full | full | full | full | PyArrow, Pandas, Polars lazy, SQLite, Python dict |
+| point_arithmetic | full | full | full | full | full | full | PyArrow, Pandas, Polars lazy, SQLite, Python dict |
 | time_bucketization | full | full | full | full | full | full | none |
 | ffill | full | full | full | full | full | full | none |
 | lookup | full | full | full | full | full | full | none |

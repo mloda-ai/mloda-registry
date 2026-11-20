@@ -23,6 +23,15 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_mixin import (
+    ArithmeticPinningTestMixin,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_rows import (
+    POINT_ARITHMETIC_OVERFLOW,
+    POINT_ARITHMETIC_PINNING,
+    OverflowRow,
+)
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -36,7 +45,9 @@ VALUE_INT: list[int | None] = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
 # ---------------------------------------------------------------------------
 
 
-class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class PointArithmeticTestBase(
+    ArithmeticPinningTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase
+):
     """Abstract base class for two-column point arithmetic framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -45,6 +56,16 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
         return make_feature_set("value_int&amount__add_point")
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
+
+    # -- ArithmeticPinningTestMixin configuration -------------------------------
+
+    @classmethod
+    def arithmetic_pinning_table(cls) -> PinningTable:
+        return POINT_ARITHMETIC_PINNING
+
+    @classmethod
+    def arithmetic_overflow_rows(cls) -> tuple[OverflowRow, ...]:
+        return POINT_ARITHMETIC_OVERFLOW
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
@@ -98,10 +119,10 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
     def divide_zero_propagates_inf(cls) -> bool:
         """Whether divide-by-zero produces IEEE-754 inf/nan, read from the Implementation's ``divergences``.
 
-        An Implementation that names ``divide`` in a divergence record (SQLite: no IEEE-754
-        storage, NULL for divide-by-zero rows) does not propagate inf.
+        An Implementation that names ``divide`` in a divergence record (SQLite: no IEEE-754 storage, NULL
+        for divide-by-zero rows) does not propagate inf; a scopeless record does not count.
         """
-        return "divide" not in divergent_subtypes(cls.implementation_class())
+        return "divide" not in divergent_subtypes(cls.implementation_class(), named_only=True)
 
     # -- Concrete tests -----------------------------------------------------
 

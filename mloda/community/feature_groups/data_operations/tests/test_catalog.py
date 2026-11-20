@@ -447,11 +447,34 @@ class TestDivergences:
     def test_python_dict_frame_aggregate_declares_none(self) -> None:
         assert DataOperationsCatalog.get("frame_aggregate").divergences["PythonDictFramework"] == ()
 
-    def test_sqlite_point_arithmetic_declares_one_divide_value_record(self) -> None:
+    def test_sqlite_point_arithmetic_declares_divide_value_nan_variant_and_overflow_gap(self) -> None:
         records = DataOperationsCatalog.get("point_arithmetic").divergences["SqliteFramework"]
-        assert len(records) == 1
-        assert records[0].kind is DivergenceKind.VALUE
-        assert records[0].subtypes == frozenset({"divide"})
+        assert sorted(r.kind.name for r in records) == ["GAP", "VALUE", "VARIANT"]
+        by_kind = {r.kind: r for r in records}
+        assert by_kind[DivergenceKind.VALUE].subtypes == frozenset({"divide"})
+        assert by_kind[DivergenceKind.VARIANT].variant == "nan_as_null"
+        assert not by_kind[DivergenceKind.VARIANT].subtypes
+        assert by_kind[DivergenceKind.GAP].subtypes == frozenset({"add", "subtract", "multiply"})
+
+    @pytest.mark.parametrize("operation", ["point_arithmetic", "scalar_arithmetic"])
+    def test_pandas_and_sqlite_arithmetic_declare_scopeless_nan_as_null(self, operation: str) -> None:
+        pytest.importorskip("pandas")
+        info = DataOperationsCatalog.get(operation)
+        for framework in ("PandasDataFrame", "SqliteFramework"):
+            variants = [r for r in info.divergences[framework] if r.kind is DivergenceKind.VARIANT]
+            assert [r.variant for r in variants] == ["nan_as_null"], framework
+            assert not variants[0].subtypes, framework
+
+    @pytest.mark.parametrize("operation", ["point_arithmetic", "scalar_arithmetic"])
+    def test_arithmetic_overflow_gap_on_wrapping_backends_only(self, operation: str) -> None:
+        info = DataOperationsCatalog.get(operation)
+        wrapping = {"PyArrowTable", "PandasDataFrame", "PolarsLazyDataFrame", "PythonDictFramework", "SqliteFramework"}
+        for framework, records in info.divergences.items():
+            gaps = [r for r in records if r.kind is DivergenceKind.GAP]
+            if framework in wrapping:
+                assert [r.subtypes for r in gaps] == [frozenset({"add", "subtract", "multiply"})], framework
+            elif framework == "DuckDBFramework":
+                assert gaps == [], framework
 
 
 # ---------------------------------------------------------------------------
