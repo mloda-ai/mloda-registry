@@ -21,7 +21,7 @@ import datetime
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -560,8 +560,16 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
     # -- Declared divergences ------------------------------------------------------
 
     def test_divergent_flags_are_declared(self) -> None:
-        if self.untyped_null_source_becomes_int() or self.typed_null_source_becomes_untyped():
-            assert self.implementation_class().divergences
+        impl = self.implementation_class()
+        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
+            pytest.skip("implementation under test is not an Implementation class")
+        flags = (
+            self.untyped_null_source_becomes_int(),
+            self.typed_null_source_becomes_untyped(),
+            self.int_with_nulls_becomes_float(),
+        )
+        if any(flags):
+            assert impl.divergences
 
     # -- Hook path --------------------------------------------------------------
 

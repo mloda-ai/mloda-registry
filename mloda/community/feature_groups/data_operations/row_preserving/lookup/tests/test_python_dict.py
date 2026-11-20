@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.
     _EmptyMappingHookLookup,
     _HookLookup,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     LookupTestBase,
@@ -46,3 +46,9 @@ class TestPythonDictLookup(PythonDictTestMixin, LookupTestBase):
             calculate_with(PythonDictLookup, {"v": [1, 2**70, None]}, fs)
         assert "outside int64" in str(excinfo.value)
         assert not isinstance(excinfo.value, LookupUnmatchedError)
+
+    def test_in_range_uint64_values_serve_int_keys(self) -> None:
+        """Rows carry no dtype, so a UINT64 column with in-range values maps; the reference rejects uint64."""
+        fs = make_feature_set("v__lookup", lookup_mapping={1: 10, 2: 20}, on_unmatched="null")
+        result = calculate_with(PythonDictLookup, {"v": [1, 2, None]}, fs)
+        assert extract_column(result, "v__lookup") == [10, 20, None]

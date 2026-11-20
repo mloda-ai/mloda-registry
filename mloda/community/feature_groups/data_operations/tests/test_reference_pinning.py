@@ -12,7 +12,10 @@ import pytest
 from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
-from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import LookupFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
+    LookupFeatureGroup,
+    build_unmatched_error,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
@@ -37,6 +40,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.refe
     reference_point_arithmetic,
     reference_scalar_arithmetic,
 )
+from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import HOOK_REASONS, NutsMappingHook
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
 from mloda.testing.typed_data import TypedTestData
@@ -124,6 +128,10 @@ def _fits(data_type: DataType, value: Any) -> bool:
 
 def _typed_table(**columns: tuple[pa.DataType, list[Any]]) -> pa.Table:
     return pa.table({name: pa.array(values, type=arrow_type) for name, (arrow_type, values) in columns.items()})
+
+
+class _HookLookup(NutsMappingHook, LookupFeatureGroup):
+    pass
 
 
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
@@ -301,7 +309,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
         {"x": (pa.float64(), [1.0, float("nan")])},
-        "x",
+        "source column 'x' has type",
         id="lookup-float-source-nan",
     ),
     pytest.param(
@@ -309,7 +317,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
         {"x": (pa.float64(), [1.0, 2.0])},
-        "x",
+        "source column 'x' has type",
         id="lookup-float-source",
     ),
     pytest.param(
@@ -317,7 +325,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
         {"x": (pa.bool_(), [True, False])},
-        "x",
+        "source column 'x' has type",
         id="lookup-bool-source",
     ),
     pytest.param(
@@ -325,7 +333,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
         {"x": (pa.date32(), [datetime.date(2020, 1, 1)])},
-        "x",
+        "source column 'x' has type",
         id="lookup-date-source",
     ),
     pytest.param(
@@ -333,7 +341,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
         {"x": (pa.uint64(), [1, 2])},
-        "x",
+        "source column 'x' has type",
         id="lookup-uint64-source",
     ),
     pytest.param(
@@ -341,7 +349,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
         {"x": (pa.int64(), [1, 2])},
-        "x",
+        "source column 'x' has type",
         id="lookup-str-keys-on-int-column",
     ),
     pytest.param(
@@ -349,7 +357,7 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
         {"x": (pa.string(), ["a"])},
-        "x",
+        "source column 'x' has type",
         id="lookup-int-keys-on-str-column",
     ),
     pytest.param(
@@ -357,16 +365,8 @@ _REJECTION_PARAMS = [
         "x__lookup",
         {"lookup_mapping": _STR_MAP, "on_unmatched": "null"},
         {"x": (pa.int64(), [None, None])},
-        "x",
+        "source column 'x' has type",
         id="lookup-str-keys-on-typed-all-null-int-column",
-    ),
-    pytest.param(
-        *_LOOKUP,
-        "x__lookup",
-        {"lookup_mapping": _INT_MAP, "on_unmatched": "raise"},
-        {"x": (pa.int64(), [1, 2])},
-        "1 row, 1 distinct key not in the mapping",
-        id="lookup-raise-unmatched",
     ),
 ]
 
@@ -398,6 +398,28 @@ class TestLookupReference:
         err = excinfo.value
         assert isinstance(err, LookupFeatureGroup.UNMATCHED_ERROR)
         assert (err.unmatched_rows, err.distinct_keys, err.sample) == (3, 2, (2, 3))
+
+    def test_unmatched_error_matches_the_group_builder_with_hook_reasons(self) -> None:
+        table = _typed_table(x=(pa.string(), ["C300", "D400", "C300", "A100", None]))
+        features = make_feature_set("x__nuts2024", on_unmatched="raise")
+        with pytest.raises(_HookLookup.UNMATCHED_ERROR) as excinfo:
+            reference_lookup(_HookLookup, table, features)
+        err = excinfo.value
+        assert dict(err.reasons) == HOOK_REASONS
+        expected = build_unmatched_error("x__nuts2024", 3, ["C300", "D400"], HOOK_REASONS)
+        assert str(err) == str(expected)
+
+    def test_unmatched_sample_is_the_first_ten_sorted_keys(self) -> None:
+        keys = list(range(100, 88, -1))
+        table = _typed_table(x=(pa.int64(), [*keys, 1]))
+        features = make_feature_set("x__lookup", lookup_mapping=_INT_MAP, on_unmatched="raise")
+        with pytest.raises(LookupFeatureGroup.UNMATCHED_ERROR) as excinfo:
+            reference_lookup(LookupFeatureGroup, table, features)
+        err = excinfo.value
+        assert err.distinct_keys == 12
+        assert err.unmatched_rows == 12
+        assert err.sample == tuple(sorted(keys)[:10])
+        assert str(err) == str(build_unmatched_error("x__lookup", 12, sorted(keys), {}))
 
     @pytest.mark.parametrize(
         ("policy", "mapping", "value_type"),
