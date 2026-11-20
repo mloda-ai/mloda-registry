@@ -47,7 +47,7 @@ class PythonDictLookup(Implementation[LookupFeatureGroup]):
         Divergence(
             kind=DivergenceKind.GAP,
             cause=Cause.BACKEND,
-            reason="rows carry no dtype, so a typed all-null column is untyped and skips the key check",
+            reason="rows carry no dtype: a typed all-null column is untyped and skips the key check, in-range uint64 values serve int keys",
             docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped",
         ),
     )

@@ -430,7 +430,7 @@ regression_test:
 <!-- machine-checked
 operation: lookup
 framework: duckdb
-condition: on DuckDB < 2 a null-typed arrow column arrives as INTEGER, so str keys raise the key-type ValueError and int keys yield nulls, unlike PyArrow's all-null output
+condition: on DuckDB < 2 a null-typed arrow column arrives as INTEGER, so str keys raise the key-type ValueError and int keys yield nulls, unlike the reference's all-null output
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/lookup/duckdb_lookup.py
 regression_test:
@@ -454,10 +454,11 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/lookup/pandas_lookup.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_pandas.py::TestPandasLookup::test_typed_all_null_source_checks_key_family
+- mloda/community/feature_groups/data_operations/row_preserving/lookup/tests/test_python_dict.py::TestPythonDictLookup::test_in_range_uint64_values_serve_int_keys
 -->
 
 - **Operations**: `lookup`.
-- **Reference behavior**: The reference still checks a typed all-null column, so str keys on an int64 column raise `ValueError`.
+- **Reference behavior**: The reference still checks a typed all-null column, so str keys on an int64 column raise `ValueError`, and it rejects a uint64 column.
 - **Native pandas behavior**: A typed all-null int64 column arrives as all-NaN float64. A nullable `Int64` all-null column keeps its type and is checked like the reference (`TestPandasLookupNullableInt`).
 - **Mitigation kind**: Accepted divergence.
 - **How**: Declared as a `gap` record on the Implementation. The column is treated as untyped and yields all nulls.
@@ -468,7 +469,7 @@ regression_test:
 <!-- machine-checked
 operation: lookup
 framework: python_dict
-condition: python dict rows carry no dtype, so a typed all-null column is treated as untyped and yields all nulls instead of the key-type ValueError
+condition: python dict rows carry no dtype, so a typed all-null column is treated as untyped and yields all nulls instead of the key-type ValueError, and in-range uint64 values serve int keys where the reference rejects a uint64 column
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/lookup/python_dict_lookup.py
 regression_test:
@@ -477,10 +478,10 @@ regression_test:
 
 - **Operations**: `lookup`.
 - **Reference behavior**: The reference still checks a typed all-null column, so str keys on an int64 column raise `ValueError`.
-- **Native python dict behavior**: Rows carry no dtype.
+- **Native python dict behavior**: Rows carry no dtype, so in-range uint64 values serve int keys.
 - **Mitigation kind**: Accepted divergence.
-- **How**: Declared as a `gap` record on the Implementation. The column is treated as untyped and yields all nulls.
-- **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output.
+- **How**: Declared as a `gap` record on the Implementation. The column is treated as untyped and yields all nulls; in-range uint64 values serve int keys.
+- **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output and `test_in_range_uint64_values_serve_int_keys` the uint64 case.
 
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 
@@ -629,7 +630,7 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Pandas | gap |  | backend | (all) | float64 with only finite integral values serves int keys ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pandas-classes-float64-sources-as-int-keys)) |
 | Pandas | gap |  | backend | (all) | an all-null float64 or object column is untyped and skips the key check ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pandas-treats-a-typed-all-null-int-source-as-untyped)) |
 | DuckDB | gap |  | backend | (all) | on DuckDB < 2 a null-typed source arrives as INTEGER ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-1x-reads-a-null-typed-lookup-source-as-integer)) |
-| Python dict | gap |  | backend | (all) | rows carry no dtype, so a typed all-null column is untyped and skips the key check ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped)) |
+| Python dict | gap |  | backend | (all) | rows carry no dtype: a typed all-null column is untyped and skips the key check, in-range uint64 values serve int keys ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped)) |
 
 ### window_aggregation
 
@@ -661,7 +662,7 @@ Add a new entry here if and only if all three hold:
 2. That difference cannot be hidden by the cross-framework comparison (i.e. it would require an `expected_*()` override, a `use_approx=True` bump, a `pytest.skip`, or a `supported` exclusion on the Implementation).
 3. The decision (fix vs. document vs. exclude) has been made and landed in code.
 
-A divergence the planner, `explain`, the plan lock and lineage should see is declared as a `Divergence` record on the Implementation, and the generated "Declared divergence records" section is then regenerated (the drift check fails until it is). Divergences deliberately not records (signed zero, float tolerance) stay entries only.
+A divergence the planner, `explain`, the plan lock and lineage should see is declared as a `Divergence` record on the Implementation, and the generated "Declared divergence records" section is then regenerated (the drift check fails until it is). Divergences deliberately not records (signed zero, float tolerance) stay entries only. An edge-case divergence on an operation without subtypes, where a ranking penalty would move every feature of the operation off the backend, is declared as a `gap` record (shown in explain, the plan lock and lineage, not in ranking); the lookup records are the example.
 
 Do not add speculative entries. If an audit only uncovered a hypothetical divergence, add a failing regression test first so the entry corresponds to something the test suite measures.
 
