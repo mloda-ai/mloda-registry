@@ -607,6 +607,25 @@ regression_test:
 
 ---
 
+### Polars upper/lower use full case mapping
+
+<!-- machine-checked
+operation: string
+framework: polars_lazy
+condition: upper and lower on characters with a multi-codepoint or context-dependent case mapping
+mitigation_location:
+- mloda/community/feature_groups/data_operations/string/polars_lazy_string.py
+regression_test:
+- mloda/community/feature_groups/data_operations/string/tests/test_polars_lazy.py::TestPolarsLazyStringOps::test_pinned_row
+-->
+
+- **Operations**: `string` (`upper` and `lower` ops).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/string/polars_lazy_string.py`.
+- **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
+- **Native Polars behavior**: Full case mapping: `ß` uppercases to `SS`, `İ` lowercases to `i` plus U+0307, and a final sigma lowers to `ς`.
+- **Mitigation kind**: Accepted divergence (a `value` record scoped to `upper` and `lower`, as for SQLite `divide`).
+- **Regression signal**: The shared `test_pinned_row` reads the record and pins Python's full mapping; removing the record fails the case rows.
+
 ## Declared divergence records
 
 The divergences that stay in a result are declared on the Implementation as `Divergence` records, which the planner, `explain`, the plan lock and lineage read. The table below is generated from them, so do not edit it by hand; a drift check in `mloda/community/feature_groups/data_operations/tests/test_known_divergences.py` fails when it is stale.
@@ -697,6 +716,12 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Pandas | variant | `nan_as_null` | backend | `first`, `last` | float64 cannot tell NaN from null, so they tie in order_by |
 | SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
+
+### string
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Polars lazy | value |  | backend | `lower`, `upper` | full case mapping: ß upper is SS, İ lower keeps a combining dot, a final sigma lowers to ς ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#polars-upperlower-use-full-case-mapping)) |
 
 ### resample
 

@@ -20,20 +20,21 @@ and implementing a few abstract methods.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set, typed_data_without
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.string.pinning_rows import STRING_PINNING
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -97,6 +98,38 @@ EXPECTED_REVERSE: list[Any] = [
 
 class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for string operation framework tests."""
+
+    _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
+
+    @classmethod
+    def pinned_row_cases(cls) -> dict[str, Any]:
+        return {f"{i}-{row.case}-{row.feature}": row for i, row in enumerate(STRING_PINNING.rows)}
+
+    @classmethod
+    def _full_case_mapping_declared(cls, op: str) -> bool:
+        """Whether the Implementation declares a value divergence for upper/lower (full Unicode case mapping)."""
+        from mloda.provider import Implementation
+
+        impl = cls.implementation_class()
+        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
+            return False
+        return op in ("upper", "lower") and op in divergent_subtypes(impl, named_only=True)
+
+    def test_pinned_row(self, pinned_row_case: str) -> None:
+        """Hand-computed rows; a declared upper/lower divergence pins Python's full case mapping instead."""
+        row = self.pinned_row_cases()[pinned_row_case]
+        op = self.feature_group_class().get_string_op(row.feature)
+        self._skip_if_unsupported(op)
+        expected = list(row.expected[row.feature][1])
+        if self._full_case_mapping_declared(op):
+            source = next(iter(row.inputs.values()))[1]
+            expected = [None if v is None else (v.upper() if op == "upper" else v.lower()) for v in source]
+        result = calculate_with(
+            self.implementation_class(),
+            self.create_test_data(TypedTestData(row.inputs)),
+            make_feature_set(row.feature, **row.context),
+        )
+        assert self.extract_column(result, row.feature) == expected
 
     # -- OutputContractTestMixin configuration ----------------------------------
     # trim is supported by every framework, unlike upper/lower/reverse.

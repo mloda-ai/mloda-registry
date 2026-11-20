@@ -36,7 +36,7 @@ SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only an
 ```py
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
 _SQLITE_STRING_EXPRS: dict[str, str] = {
-    "trim": "TRIM({col})",
+    "trim": f"TRIM({{col}}, char({_TRIM_CHARS_SQL}))",
     "length": "LENGTH({col})",
 }
 
