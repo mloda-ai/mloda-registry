@@ -46,12 +46,24 @@ class TestPythonDictDivideSignedZeroAndNan:
     """
 
     @staticmethod
-    def _divide_via(a: float, b: float) -> tuple[Any, Any]:
-        """Run PythonDict and the pure Python reference for one (a, b) divide row; return (result, oracle)."""
+    def _divide_backend(a: float, b: float) -> Any:
+        """Run PythonDict for one (a, b) divide row; needs no pyarrow."""
+        from mloda.testing.feature_groups.data_operations.helpers import (
+            calculate_with,
+            extract_column,
+            make_feature_set,
+        )
+
+        fs = make_feature_set("a&b__divide_point")
+        result = calculate_with(PythonDictPointArithmetic, {"a": [a], "b": [b]}, fs)
+        return extract_column(result, "a&b__divide_point")[0]
+
+    @staticmethod
+    def _divide_reference(a: float, b: float) -> Any:
+        """The pure Python reference value for one (a, b) divide row; skips without pyarrow."""
         pa = pytest.importorskip("pyarrow")
 
         from mloda.testing.feature_groups.data_operations.helpers import (
-            calculate_with,
             extract_column,
             feature_group_of,
             make_feature_set,
@@ -66,20 +78,16 @@ class TestPythonDictDivideSignedZeroAndNan:
                 "b": pa.array([b], type=pa.float64()),
             }
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
         fs = make_feature_set("a&b__divide_point")
-
-        result = calculate_with(PythonDictPointArithmetic, data, fs)
         oracle = reference_point_arithmetic(feature_group_of(PythonDictPointArithmetic), arrow_table, fs)
-
-        result_val = extract_column(result, "a&b__divide_point")[0]
-        oracle_val = extract_column(oracle, "a&b__divide_point")[0]
-        return result_val, oracle_val
+        return extract_column(oracle, "a&b__divide_point")[0]
 
     def test_positive_divided_by_negative_zero_matches_reference(self) -> None:
         """``1.0 / -0.0``: the reference gives ``-inf``; the buggy helper gives ``+inf``."""
-        result_val, oracle_val = self._divide_via(1.0, -0.0)
+        result_val = self._divide_backend(1.0, -0.0)
+        assert math.isinf(result_val) and result_val < 0, f"PythonDict divide expected -inf, got {result_val!r}"
 
+        oracle_val = self._divide_reference(1.0, -0.0)
         assert math.isinf(oracle_val) and math.copysign(1.0, oracle_val) < 0, (
             f"expected reference to be -inf, got {oracle_val!r}"
         )
@@ -89,8 +97,10 @@ class TestPythonDictDivideSignedZeroAndNan:
 
     def test_negative_divided_by_negative_zero_matches_reference(self) -> None:
         """``-1.0 / -0.0``: the reference gives ``+inf``."""
-        result_val, oracle_val = self._divide_via(-1.0, -0.0)
+        result_val = self._divide_backend(-1.0, -0.0)
+        assert math.isinf(result_val) and result_val > 0, f"PythonDict divide expected +inf, got {result_val!r}"
 
+        oracle_val = self._divide_reference(-1.0, -0.0)
         assert math.isinf(oracle_val) and math.copysign(1.0, oracle_val) > 0, (
             f"expected reference to be +inf, got {oracle_val!r}"
         )
@@ -100,9 +110,10 @@ class TestPythonDictDivideSignedZeroAndNan:
 
     def test_nan_divided_by_zero_matches_reference(self) -> None:
         """``nan / 0.0``: the reference gives ``nan``; the buggy helper gives ``+inf``."""
-        result_val, oracle_val = self._divide_via(float("nan"), 0.0)
-
-        assert oracle_val is not None and math.isnan(oracle_val), f"expected reference to be nan, got {oracle_val!r}"
+        result_val = self._divide_backend(float("nan"), 0.0)
         assert result_val is not None and math.isnan(result_val), (
             f"PythonDict divide expected nan (matching reference), got {result_val!r}"
         )
+
+        oracle_val = self._divide_reference(float("nan"), 0.0)
+        assert oracle_val is not None and math.isnan(oracle_val), f"expected reference to be nan, got {oracle_val!r}"

@@ -6,10 +6,12 @@ pa.Table is only the I/O container; the element kernel runs on ``to_pylist()`` v
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
 from mloda.provider import FeatureSet
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 ARITHMETIC_OPS = frozenset({"add", "subtract", "multiply", "divide"})
 
@@ -19,6 +21,8 @@ _INT64_MAX = 2**63 - 1
 
 def _non_numeric(table: pa.Table, col: str) -> pa.DataType | None:
     """The column type when it is not integer or floating (bool, string, null and decimal included), else None."""
+    import pyarrow as pa
+
     arrow_type = table.column(col).type
     if pa.types.is_integer(arrow_type) or pa.types.is_floating(arrow_type):
         return None
@@ -26,6 +30,8 @@ def _non_numeric(table: pa.Table, col: str) -> pa.DataType | None:
 
 
 def _declared_type(op: str, *is_float: bool) -> pa.DataType:
+    import pyarrow as pa
+
     return pa.float64() if op == "divide" or any(is_float) else pa.int64()
 
 
@@ -56,6 +62,8 @@ def _check_op(op: str) -> None:
 
 
 def _int_range(arrow_type: pa.DataType) -> tuple[int, int]:
+    import pyarrow as pa
+
     bits = arrow_type.bit_width
     if pa.types.is_signed_integer(arrow_type):
         return -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
@@ -79,6 +87,8 @@ def _append(
     declared: pa.DataType,
     operand_types: list[pa.DataType],
 ) -> pa.Table:
+    import pyarrow as pa
+
     values = [_element(x, y, op) for x, y in zip(a, b)]
     if pa.types.is_integer(declared):
         low, high, type_name = _allowed_range(operand_types)
@@ -92,6 +102,8 @@ def _append(
 
 
 def _compute_point(table: pa.Table, feature_name: str, col_a: str, col_b: str, op: str) -> pa.Table:
+    import pyarrow as pa
+
     _check_op(op)
     types = [table.column(col).type for col in (col_a, col_b)]
     declared = _declared_type(op, *(pa.types.is_floating(t) for t in types))
@@ -101,6 +113,8 @@ def _compute_point(table: pa.Table, feature_name: str, col_a: str, col_b: str, o
 
 
 def _compute_scalar(table: pa.Table, feature_name: str, source_col: str, op: str, constant: int | float) -> pa.Table:
+    import pyarrow as pa
+
     _check_op(op)
     source_type = table.column(source_col).type
     declared = _declared_type(op, pa.types.is_floating(source_type), isinstance(constant, float))
