@@ -53,7 +53,8 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
             raise ValueError(f"Unsupported datetime operation for SQLite: {op}")
 
         quoted_source = quote_ident(source_col)
-        expr = expr_template.format(col=wall_clock_expr(quoted_source))
+        # First 19 chars (second precision): older SQLite rounds a fractional pre-epoch value across midnight.
+        expr = expr_template.format(col=f"substr({wall_clock_expr(quoted_source)}, 1, 19)")
         quoted_feature = quote_ident(feature_name)
 
         # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
