@@ -18,6 +18,7 @@ from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,
 )
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestDuckdbBinning(ReservedColumnsTestMixin, DuckdbTestMixin, BinningTestBase):
@@ -72,3 +73,17 @@ class TestDuckdbBinning(ReservedColumnsTestMixin, DuckdbTestMixin, BinningTestBa
 
         result_user_col = self.extract_column(result, colliding_name)
         assert result_user_col == list(range(num_rows))
+
+    def test_qbin_ties_keep_input_order_on_large_input(self) -> None:
+        """Tied values keep input order in the rank even when DuckDB runs the window in parallel."""
+        n_rows, n_bins = 300_000, 4
+        values = [i % 3 for i in range(n_rows)]
+        data = self.create_test_data(TypedTestData({"x": (DataType.INT64, values)}))
+
+        result = calculate_with(self.implementation_class(), data, make_feature_set("x__qbin_4"))
+
+        order = sorted(range(n_rows), key=lambda i: (values[i], i))
+        expected: list[int] = [0] * n_rows
+        for rank, i in enumerate(order):
+            expected[i] = rank * n_bins // n_rows
+        assert self.extract_column(result, "x__qbin_4") == expected

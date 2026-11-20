@@ -87,6 +87,8 @@ BINNING_PINNING = PinningTable(
         _row("wide_range", "x__bin_3", [(-100, 0), (0, 1), (100, 2)], DataType.INT8),
         _row("wide_range", "x__bin_3", [(-(2**31), 0), (0, 1), (2**31 - 1, 2)], DataType.INT32),
         _row("float32", "x__bin_3", [(0.0, 0), (0.1, 0), (0.2, 1), (0.3, 2)], DataType.FLOAT),
+        _row("float32", "x__bin_5", [(-0.027910225, 0), (125.12616, 4), (100.09534, 3)], DataType.FLOAT),
+        _row("qbin_rank", "x__qbin_4", [(i, b) for i, b in enumerate([0, 0, 1, 2, 2, 3])]),
         _row("qbin_rank", "x__qbin_2", [(30, 1), (10, 0), (20, 0), (40, 1)]),
         _row("qbin_rank", "x__qbin_3", [(5, 2), (None, None), (1, 0), (3, 1)]),
         _row("ties", "x__qbin_4", [(0.0, 0), (-0.0, 1), (1.0, 3), (-0.0, 2)], _D),

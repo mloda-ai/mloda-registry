@@ -45,12 +45,3 @@ class TestPyArrowBinning(PyArrowTestMixin, BinningTestBase):
         column = self._bin_column([], pa.int64(), "x__qbin_3")
         assert column.to_pylist() == []
         assert column.type == pa.int64()
-
-    def test_bin_int8_wide_range(self) -> None:
-        """int8 -100..100 must not overflow: width 200 / 3 is computed in float64."""
-        assert self._bin_column([-100, 0, 100], pa.int8(), "x__bin_3").to_pylist() == [0, 1, 2]
-
-    def test_bin_float32_matches_float64_formula(self) -> None:
-        """The float32 values widened to float64: (100.0953369 + 0.0279102) / 25.030814 is 3.99999965, so bin 3."""
-        column = self._bin_column([-0.027910225, 125.12616, 100.09534], pa.float32(), "x__bin_5")
-        assert column.to_pylist() == [0, 4, 3]

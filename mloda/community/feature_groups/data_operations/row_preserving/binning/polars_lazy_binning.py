@@ -43,7 +43,7 @@ class PolarsLazyBinning(Implementation[BinningFeatureGroup]):
 
     @classmethod
     def _build_bin_expr(cls, source_col: str, n_bins: int) -> pl.Expr:
-        col = pl.col(source_col).fill_nan(None)
+        col = pl.col(source_col).cast(pl.Float64).fill_nan(None)
         col_min = col.min()
         col_max = col.max()
         col_range = col_max - col_min
