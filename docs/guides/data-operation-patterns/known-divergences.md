@@ -143,7 +143,7 @@ regression_test:
 <!-- machine-checked
 operation: point_arithmetic, scalar_arithmetic
 framework: sqlite
-condition: a REAL that is integral is stored as an integer, so a negative zero comes back as 0.0
+condition: a REAL-affinity column stores an integral REAL as an integer, so a negative zero comes back as 0.0
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/sqlite_scalar_arithmetic.py
@@ -155,7 +155,7 @@ regression_test:
 
 - **Operations**: `point_arithmetic` and `scalar_arithmetic`.
 - **Reference behavior**: The IEEE sign is kept: `0.0 * -1.0` is `-0.0`.
-- **Native SQLite behavior**: The sign is lost in storage, so the result is `0.0`.
+- **Native SQLite behavior**: A REAL-affinity column stores an integral REAL as an integer, so the sign is lost on ingest and on `append_column` and the result is `0.0`. The op itself keeps it (`SELECT 0.0 * -1.0` is `-0.0`).
 - **Mitigation kind**: Accepted divergence, not a `divergences` record (storage loses the sign, not the op).
 - **Regression signal**: Both SQLite test classes override `keeps_zero_sign()` to False, so `test_mixin_pinned_row` pins `+0.0`. If SQLite starts keeping the sign, the rows fail: remove the overrides and delete this entry.
 
