@@ -48,7 +48,7 @@ Pandas' default `Period` alias for "week starting Monday" is `W-SUN` (week *endi
 
 ## Round tie-breaking: half-up
 
-Every midpoint rolls toward the *next* (higher) bucket. This matches PyArrow's `round_temporal` and Polars' `dt.round` defaults; the other backends (Pandas, DuckDB, SQLite) implement explicit midpoint comparisons to match.
+Every midpoint rolls toward the *next* (higher) bucket. This matches PyArrow's `round_temporal`; Polars, Pandas, DuckDB and SQLite implement an explicit midpoint comparison (`2 * (value - floor) >= bucket length`) to match, because their native rounding differs or does not exist.
 
 | Input | Bucket | Output |
 |---|---|---|
@@ -82,9 +82,11 @@ A NULL timestamp yields NULL on every backend; DuckDB and SQLite guard each CASE
 
 ## Timezone fidelity
 
-Input timezone is preserved on output for every backend. The fixture used by the inherited tests is UTC, but a `pa.timestamp("us", tz="Europe/Berlin")` input flows through unchanged. Pandas' `PeriodIndex` strips tz, so `_calendar_floor` re-localises after `to_timestamp()`.
+Bucket math runs on the column's own wall clock and PyArrow, Pandas and Polars return the input timezone. Exceptions: DuckDB receives a tz-aware column as UTC, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC (a declared `GAP`); SQLite rejects non-UTC offsets up front; Polars cannot hold a sub-hour fixed offset, so such a column fails in the framework transfer. See [known divergences](known-divergences.md). Pandas' `PeriodIndex` strips tz, so `_calendar_floor` re-localises after `to_timestamp()`.
 
 For SQLite, all timestamps are stored as TEXT in ISO 8601. The bucketization SQL emits ISO 8601 strings directly (bucket math on the wall-clock portion, timezone suffix reattached), so the result column comes back from `to_arrow_table()` as `pa.string()`, on a plain `SqliteRelation`. There is no Python-side re-parse into `pa.timestamp` and no `SqliteRelation` subclass; see `tests/test_sqlite_result_type.py` for the contract.
+
+SQLite minute / hour / day buckets use integer epoch microseconds of the wall clock: the bucket is a multiple of `n` units counted from 1970-01-01 00:00 (flooring downward before 1970), and `round` compares `2 * (value - floor)` against the bucket width. Week / month / year use date functions on the 19-character `YYYY-MM-DD HH:MM:SS` slice.
 
 ---
 

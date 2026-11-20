@@ -32,6 +32,10 @@ class TestSqliteTimeBucketization(ReservedColumnsTestMixin, SqliteTestMixin, Tim
         return SqliteTimeBucketization
 
     @classmethod
+    def rejects_non_utc_source(cls) -> bool:
+        return True
+
+    @classmethod
     def reserved_columns_feature_name(cls) -> str:
         return "timestamp__floor_1_day"
 

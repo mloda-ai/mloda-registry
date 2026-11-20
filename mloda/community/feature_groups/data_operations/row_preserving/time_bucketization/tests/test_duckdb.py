@@ -27,6 +27,10 @@ class TestDuckdbTimeBucketization(DuckdbTestMixin, TimeBucketizationTestBase):
     def implementation_class(cls) -> Any:
         return DuckdbTimeBucketization
 
+    @classmethod
+    def tz_aware_source_reads_utc(cls) -> bool:
+        return True
+
 
 class TestDuckdbDateSourceRejected:
     """DATE source columns are rejected up-front with a clear ValueError.

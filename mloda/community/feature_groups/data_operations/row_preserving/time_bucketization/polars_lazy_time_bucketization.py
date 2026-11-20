@@ -1,11 +1,10 @@
 """Polars Lazy implementation of time bucketization.
 
-Uses Polars' native ``dt.truncate`` (floor) and ``dt.round`` (half-up by
-default in Polars). Polars has no built-in ``ceil_temporal``; the
-workaround stays inside this file: ``ceiled = when(col == floored) then
-floored otherwise floored.offset_by(duration)`` for fixed-freq units, and
-``floored + 1 bucket`` (always) for calendar units (matching PyArrow's
-``ceil_temporal(ceil_is_strictly_greater=False)`` quirk).
+Floor is the native ``dt.truncate``. Polars has no ``ceil_temporal`` and its
+``dt.round`` does not match the reference midpoint rule on calendar units, so
+ceil and round are built from the floor and ``floor.offset_by(duration)``:
+ceil keeps an aligned fixed-freq value and always advances a calendar one;
+round takes the upper boundary when ``2 * (col - floor) >= upper - floor``.
 """
 
 from __future__ import annotations
@@ -72,10 +71,8 @@ class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
         elif op == "ceil":
             expr = cls._ceil_expr(col, duration, unit)
         elif op == "round":
-            # Polars ``dt.round`` is half-up by default for time series,
-            # matching PyArrow's ``round_temporal``. Verified empirically:
-            # 14:25 -> 14:30, 14:35 -> 14:40, 14:45 -> 14:50.
-            expr = col.dt.round(duration)
+            floored, upper = cls._floor_and_upper(col, duration)
+            expr = pl.when(2 * (col - floored) >= upper - floored).then(upper).otherwise(floored)
         else:
             raise ValueError(f"Unsupported bucket op {op!r} for Polars; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
@@ -84,9 +81,15 @@ class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
     @classmethod
     def _ceil_expr(cls, col: pl.Expr, duration: str, unit: str) -> pl.Expr:
         """Polars ceil expression matching PyArrow's quirky calendar-unit behaviour."""
-        floored = col.dt.truncate(duration)
+        floored, upper = cls._floor_and_upper(col, duration)
         if unit in _CALENDAR_CEIL_ALWAYS_ADVANCES:
             # Calendar units always advance even on aligned input.
-            return floored.dt.offset_by(duration)
+            return upper
         # Fixed-freq units: idempotent on aligned input.
-        return pl.when(col == floored).then(floored).otherwise(floored.dt.offset_by(duration))
+        return pl.when(col == floored).then(floored).otherwise(upper)
+
+    @staticmethod
+    def _floor_and_upper(col: pl.Expr, duration: str) -> tuple[pl.Expr, pl.Expr]:
+        """Floor of ``col`` and the next bucket boundary above that floor."""
+        floored = col.dt.truncate(duration)
+        return floored, floored.dt.offset_by(duration)

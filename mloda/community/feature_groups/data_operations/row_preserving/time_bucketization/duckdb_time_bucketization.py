@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -60,6 +60,14 @@ class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
 
     feature_group = TimeBucketizationFeatureGroup
     compute_framework = DuckDBFramework
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="a tz-aware column arrives as UTC, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-time-bucketization-buckets-a-non-utc-zone-on-the-utc-wall-clock",
+        ),
+    )
 
     @classmethod
     def calculate(
