@@ -19,10 +19,8 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     """PyArrow backend.
 
     Uses ``pyarrow.compute.{floor,ceil,round}_temporal`` with
-    ``week_starts_monday=True`` (ISO) and ``ceil_is_strictly_greater=False``
-    (idempotent on aligned minute/hour/day; week advances an aligned value). PyArrow's ``round_temporal`` default tie-break
-    is half-up (every midpoint rounds toward the next bucket), which is the
-    behaviour pinned for all backends.
+    ``week_starts_monday=True`` (ISO). Ceil is idempotent on aligned minute/hour/day;
+    week advances an aligned value. Round ties go up, as pinned for all backends.
     """
 
     feature_group = TimeBucketizationFeatureGroup
