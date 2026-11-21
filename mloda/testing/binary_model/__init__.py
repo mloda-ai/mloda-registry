@@ -5,7 +5,7 @@ copy.
 The re-exported constants below, including the error codes, come from the mixin's own
 ``mloda.community.feature_groups.binary_model.contract``, the single source of the contract rules;
 the kit depends on the mixin, never the reverse. Everything else (the worked example, Arrow IPC
-mechanics, the "hash" algorithm, license-token shapes) lives in this package's own modules.
+mechanics, the "hash" algorithm) lives in this package's own modules.
 """
 
 from __future__ import annotations

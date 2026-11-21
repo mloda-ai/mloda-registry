@@ -245,14 +245,21 @@ def test_bare_kit_job_probes_ungated_modules_with_no_plugin_package_present() ->
     assert sorted(_probe_imports(probe)) == sorted(ungated), "bare kit probe must import exactly the ungated modules"
 
 
-@pytest.mark.parametrize("spec", sorted(set(kit_map.kit_modules()) - {"binary-model", None}))
+@pytest.mark.parametrize("spec", sorted(set(kit_map.kit_modules()) - {None}))
 def test_gated_kit_job_probes_no_plugin_package_present(spec: str) -> None:
-    """Every kit job but binary-model asserts no community/enterprise package is importable."""
+    """Every kit job asserts no enterprise package is importable; all but binary-model also no community package."""
     probe = _kit_jobs()[f"mloda-testing[{spec}]==9.9.9"]
-    for package in ("mloda.community", "mloda.enterprise"):
-        assert f'find_spec("{package}") is None' in probe or f"find_spec('{package}') is None" in probe, (
-            f"[{spec}] kit probe does not assert find_spec({package!r}) is None: {probe!r}"
+
+    def asserted(package: str) -> bool:
+        return (
+            f'find_spec("{package}") is None, "{package} must be absent"' in probe
+            or f"find_spec('{package}') is None, '{package} must be absent'" in probe
         )
+
+    assert asserted("mloda.enterprise"), f"[{spec}] kit probe does not assert mloda.enterprise is absent: {probe!r}"
+    assert asserted("mloda.community") == (spec != "binary-model"), (
+        f"[{spec}] kit probe has the wrong mloda.community absence assertion: {probe!r}"
+    )
 
 
 def test_one_kit_job_per_gate_extra_imports_exactly_that_extras_modules() -> None:
