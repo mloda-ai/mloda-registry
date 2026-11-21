@@ -27,6 +27,8 @@ from mloda.testing.feature_groups.data_operations.integration import DataOpsInte
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
     PYTHON_DICT_FRAMEWORK,
+    SQLITE_DATA_CREATOR,
+    SQLITE_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
@@ -74,18 +76,31 @@ class TestOffsetIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrati
                 {"partition_by": ["region"], "order_by": "value_int"},
                 f"{package}.python_dict_offset:PythonDictOffset",
                 PYTHON_DICT_FRAMEWORK,
-            )
+            ),
+            # SQLite-held data without allow_variants is served by the PythonDict Implementation.
+            RoutingCase(
+                "value_int__lag_1_offset",
+                {"partition_by": ["region"], "order_by": "value_int"},
+                f"{package}.python_dict_offset:PythonDictOffset",
+                PYTHON_DICT_FRAMEWORK,
+                SQLITE_DATA_CREATOR,
+            ),
         ]
 
     @classmethod
-    def variant_required_case(cls) -> RoutingCase | None:
+    def variant_required_cases(cls) -> list[RoutingCase]:
         package = "mloda.community.feature_groups.data_operations.row_preserving.offset"
-        return RoutingCase(
-            "value_int__lag_1_offset",
-            {"partition_by": ["region"], "order_by": "value_int"},
-            f"{package}.pandas_offset:PandasOffset",
-            PANDAS_DATAFRAME,
-        )
+        options = {"partition_by": ["region"], "order_by": "value_int"}
+        return [
+            RoutingCase("value_int__lag_1_offset", options, f"{package}.pandas_offset:PandasOffset", PANDAS_DATAFRAME),
+            RoutingCase(
+                "value_int__lag_1_offset",
+                options,
+                f"{package}.sqlite_offset:SqliteOffset",
+                SQLITE_FRAMEWORK,
+                SQLITE_DATA_CREATOR,
+            ),
+        ]
 
     @classmethod
     def several_frameworks(cls) -> list[type[Any]]:

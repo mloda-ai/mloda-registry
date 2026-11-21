@@ -607,6 +607,24 @@ regression_test:
 - **How**: `nulls_last_sort_key` and `order_values_equal` fold NaN and `None` into one null-like tier (`is_null_like`) on purpose: this fixes a tie-run-splitting bug where a NaN row could sort between two None rows and break the run. Splitting them would trade agreement with pandas for agreement with PyArrow 25/DuckDB/Polars, a lateral move, and reopen that bug, so the divergence is documented instead of mitigated.
 - **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` returns `"rank" not in divergent_subtypes(implementation_class())` (the kit helper), so it is `False` exactly for the three divergent implementations. The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run.
 
+### Pandas and SQLite rank merge None and NaN partition keys into one group
+
+<!-- machine-checked
+operation: rank
+framework: pandas, sqlite
+condition: a float partition column holding None and NaN collapses both into one group on Pandas and SQLite; the reference, PythonDict, DuckDB and Polars keep None as its own group and merge NaN keys with each other
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/sqlite_rank.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_nan_and_none_partition_keys
+-->
+
+- **Operations**: `rank` (every rank type). On partition keys `[None, NaN, None]` ordered by `[1, 2, 3]`, `row_number`, `rank` and `dense_rank` give `[1, 1, 2]` on the reference and `[1, 2, 3]` merged.
+- **Where it lives**: Pandas (a float64 column cannot tell NaN from null) and SQLite (the driver coerces NaN to NULL on ingest).
+- **Mitigation kind**: Accepted divergence, not a `divergences` record: a record would move every Pandas/SQLite rank feature for a rare data condition.
+- **Regression signal**: `RankTestBase.merges_none_and_nan_partition_keys()` is overridden to `True` in `TestPandasRank` (inherited by the nullable-int class) and `TestSqliteRank`; `test_nan_and_none_partition_keys` pins the merged result there and the reference result everywhere else.
+
 ### Integer arithmetic does not raise on overflow
 
 <!-- machine-checked

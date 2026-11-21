@@ -27,6 +27,7 @@ PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.ta
 PANDAS_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.pandas.dataframe:PandasDataFrame"
 POLARS_LAZY_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe:PolarsLazyDataFrame"
 SQLITE_FRAMEWORK = "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework:SqliteFramework"
+SQLITE_DATA_CREATOR = "mloda.testing.data_creator.sqlite:SqliteDataOpsTestDataCreator"
 PYTHON_DICT_FRAMEWORK = (
     "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework:PythonDictFramework"
 )
@@ -37,13 +38,15 @@ class RoutingCase:
     """A feature and the (implementation, compute framework) pair that must serve it.
 
     ``implementation`` and ``compute_framework`` are ``"module:Name"`` strings, resolved lazily so a case
-    can name an optional backend.
+    can name an optional backend. ``data_creator`` names the creator holding the routed data (empty: the
+    ``routing_data_creator()``).
     """
 
     feature_name: str
     options: dict[str, Any] = field(default_factory=dict)
     implementation: str = ""
     compute_framework: str = ""
+    data_creator: str = ""
 
 
 def _resolve(qualified: str) -> Any:
@@ -63,6 +66,8 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
       Default: ``pipeline_compute_frameworks()``.
     - ``variant_required_case()``: a feature whose only enabled framework holds a variant Implementation, so
       resolution fails naming ``allow_variants``.
+    - ``variant_required_cases()``: the list form of the above. Default: ``variant_required_case()`` if set.
+    - ``RoutingCase.data_creator``: per-case data creator, overriding ``routing_data_creator()``.
     - ``unsupported_framework_case()``: a (feature name, options) that ``compute_framework_class()`` alone
       cannot serve, so a run on it is rejected at resolve time.
     """
@@ -87,8 +92,19 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
 
     @classmethod
     def variant_required_case(cls) -> RoutingCase | None:
-        """The case for ``test_variant_only_framework_needs_the_option``. Default: none (the test skips)."""
+        """The variant-required case (``variant_required_cases()`` is the list form). Default: none (the test skips)."""
         return None
+
+    @classmethod
+    def variant_required_cases(cls) -> list[RoutingCase]:
+        """The cases for ``test_variant_only_framework_needs_the_option``. Default: ``variant_required_case()``."""
+        case = cls.variant_required_case()
+        return [] if case is None else [case]
+
+    @classmethod
+    def _case_creator(cls, case: RoutingCase) -> type[Any]:
+        """The case's data creator, else ``routing_data_creator()``."""
+        return _resolve(case.data_creator) if case.data_creator else cls.routing_data_creator()
 
     @classmethod
     def unsupported_framework_case(cls) -> tuple[str, dict[str, Any]] | None:
@@ -203,43 +219,50 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
         if not cases:
             pytest.skip("the group declares no divergent routing cases")
 
-        creator = self.routing_data_creator()
         group = self.feature_group_class()
-        frameworks = list(dict.fromkeys([creator.compute_framework, *self.routing_frameworks()]))
-        collector = enabled_with_implementations({creator, group})
         for case in cases:
+            label = f"{case.feature_name} on {case.compute_framework}"
+            creator = self._case_creator(case)
+            frameworks = list(dict.fromkeys([creator.compute_framework, *self.routing_frameworks()]))
+            collector = enabled_with_implementations({creator, group})
             # No group_options here: allowing a variant would readmit the divergent Implementation being routed away.
             feature = Feature(case.feature_name, options=Options(context=case.options))
             plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
             steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
-            assert len(steps) == 1, case.feature_name
-            assert steps[0].implementation is _resolve(case.implementation), case.feature_name
-            assert steps[0].compute_framework is _resolve(case.compute_framework), case.feature_name
+            assert len(steps) == 1, label
+            assert steps[0].implementation is _resolve(case.implementation), label
+            assert steps[0].compute_framework is _resolve(case.compute_framework), label
 
     def test_variant_only_framework_needs_the_option(self) -> None:
         """On the variant framework alone, resolution needs allow_variants and then plans that Implementation."""
-        case = self.variant_required_case()
-        if case is None:
+        cases = self.variant_required_cases()
+        if not cases:
             pytest.skip("the group declares no variant-required case")
 
-        creator = self.routing_data_creator()
         group = self.feature_group_class()
-        collector = enabled_with_implementations({creator, group})
-        # No group_options here: allowing a variant would readmit the Implementation that must be refused.
-        feature = Feature(case.feature_name, options=Options(context=case.options))
-        with pytest.raises(FeatureResolutionError, match="allow_variants"):
-            mloda.run_all([feature], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector)
+        for case in cases:
+            label = f"{case.feature_name} on {case.compute_framework}"
+            creator = self._case_creator(case)
+            collector = enabled_with_implementations({creator, group})
+            # No group_options here: allowing a variant would readmit the Implementation that must be refused.
+            feature = Feature(case.feature_name, options=Options(context=case.options))
+            with pytest.raises(FeatureResolutionError, match="allow_variants"):
+                mloda.run_all(
+                    [feature], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector
+                )
 
-        implementation = _resolve(case.implementation)
-        variants = sorted({r.variant for r in implementation.divergences if r.kind is DivergenceKind.VARIANT})
-        allowed = Feature(case.feature_name, options=Options(group={"allow_variants": variants}, context=case.options))
-        plan = mloda.explain(
-            [allowed], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector
-        )
-        steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
-        assert len(steps) == 1, case.feature_name
-        assert steps[0].implementation is implementation, case.feature_name
-        assert steps[0].compute_framework is _resolve(case.compute_framework), case.feature_name
+            implementation = _resolve(case.implementation)
+            variants = sorted({r.variant for r in implementation.divergences if r.kind is DivergenceKind.VARIANT})
+            allowed = Feature(
+                case.feature_name, options=Options(group={"allow_variants": variants}, context=case.options)
+            )
+            plan = mloda.explain(
+                [allowed], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector
+            )
+            steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
+            assert len(steps) == 1, label
+            assert steps[0].implementation is implementation, label
+            assert steps[0].compute_framework is _resolve(case.compute_framework), label
 
     def test_unsupported_input_is_rejected_at_resolve_time(self) -> None:
         """An input the framework's Implementation does not support is dropped at match time, not at compute time."""

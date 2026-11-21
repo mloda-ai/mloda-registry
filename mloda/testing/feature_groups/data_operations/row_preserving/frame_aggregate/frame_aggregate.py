@@ -21,7 +21,7 @@ from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -505,11 +505,6 @@ class FrameAggregateTestBase(
     def supports_datetime_min_max_source(cls) -> bool:
         """Whether min/max over a datetime source column is computed; ``False`` expects a ValueError."""
         return True
-
-    @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
-        return not declares_nan_as_null(cls.implementation_class())
 
     # -- Rolling tests -------------------------------------------------------
 
@@ -1293,9 +1288,7 @@ class FrameAggregateTestBase(
         self._skip_if_frame_feature_unsupported(feature_name, ["g"], "o")
         fs = make_feature_set(feature_name, ["g"], "o")
 
-        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-        expected = [60, 50, 30] if self.orders_nan_before_none() else [40, 60, 30]
-        assert self.extract_column(result, feature_name) == expected
+        self._assert_nan_case(table, fs, feature_name, [60, 50, 30], [40, 60, 30])
 
     @pytest.mark.parametrize(
         "feature_name,n_days,v,expected",

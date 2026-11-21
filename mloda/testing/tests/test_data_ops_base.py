@@ -861,6 +861,61 @@ def test_variant_required_case_defaults_to_none() -> None:
     assert OperationGroupIntegrationTestMixin.variant_required_case() is None
 
 
+def test_variant_required_cases_defaults_to_empty() -> None:
+    from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+        OperationGroupIntegrationTestMixin,
+    )
+
+    class _Host(OperationGroupIntegrationTestMixin):
+        pass
+
+    assert _Host.variant_required_cases() == []
+
+
+def test_variant_required_cases_wraps_an_overridden_variant_required_case() -> None:
+    from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+        OperationGroupIntegrationTestMixin,
+        RoutingCase,
+    )
+
+    case = RoutingCase("f", {}, "m:Impl", "m:Framework")
+
+    class _Host(OperationGroupIntegrationTestMixin):
+        @classmethod
+        def variant_required_case(cls) -> RoutingCase | None:
+            return case
+
+    assert _Host.variant_required_cases() == [case]
+
+
+def test_routing_case_data_creator_defaults_to_empty() -> None:
+    from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import RoutingCase
+
+    assert RoutingCase("f").data_creator == ""
+
+
+def test_case_creator_prefers_the_case_data_creator_over_routing_data_creator() -> None:
+    """A set ``data_creator`` is resolved without calling ``routing_data_creator()``; an empty one falls back."""
+    from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+        SQLITE_DATA_CREATOR,
+        OperationGroupIntegrationTestMixin,
+        RoutingCase,
+    )
+
+    class _Raises(OperationGroupIntegrationTestMixin):
+        @classmethod
+        def routing_data_creator(cls) -> type[Any]:
+            raise AssertionError("routing_data_creator must not be called")
+
+    class _Fallback(OperationGroupIntegrationTestMixin):
+        @classmethod
+        def routing_data_creator(cls) -> type[Any]:
+            return PyArrowDataOpsTestDataCreator
+
+    assert _Raises._case_creator(RoutingCase("f", data_creator=SQLITE_DATA_CREATOR)) is SqliteDataOpsTestDataCreator
+    assert _Fallback._case_creator(RoutingCase("f")) is PyArrowDataOpsTestDataCreator
+
+
 def test_framework_rejection_loads_group_implementations_before_reading_frameworks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

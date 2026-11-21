@@ -771,9 +771,7 @@ class WindowAggregationTestBase(
             feature_name = f"v__{agg}_window"
             fs = make_feature_set(feature_name, ["g"], order_by="o")
 
-            result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
-            expected = reference if self.orders_nan_before_none() else tied
-            assert self.extract_column(result, feature_name) == expected
+            self._assert_nan_case(table, fs, feature_name, reference, tied)
 
     def test_first_keeps_leading_nan(self) -> None:
         """The reference `first` keeps a leading NaN; a backend declaring `first` NaN-divergent skips it."""
