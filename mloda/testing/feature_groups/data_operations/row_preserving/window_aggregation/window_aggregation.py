@@ -255,15 +255,6 @@ class WindowAggregationTestBase(
         return cls.declared_supported(cls.ALL_AGG_TYPES)
 
     @classmethod
-    def merges_signed_zero_keys(cls) -> bool:
-        """Whether this framework merges 0.0 and -0.0 partition keys and nunique values.
-
-        The reference merges them. PyArrow splits partition keys and nunique values;
-        TestPyArrowWindowAggregation overrides to False.
-        """
-        return True
-
-    @classmethod
     def orders_nan_before_none(cls) -> bool:
         """False exactly when a ``nan_as_null`` VARIANT record names ``first``/``last`` or is scopeless and outputless."""
         return not declares_nan_as_null(cls.implementation_class(), frozenset({"first", "last"}))

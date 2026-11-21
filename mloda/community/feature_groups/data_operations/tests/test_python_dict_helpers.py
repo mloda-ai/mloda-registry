@@ -320,9 +320,9 @@ class TestReduceAgg:
         assert result is not None and math.isnan(result), f"mode={result!r} != PyArrow oracle mode={oracle!r} (nan)"
 
 
-class TestGroupKeyValueMergesSignedZeroDocumentedDivergence:
+class TestGroupKeyValueMergesSignedZero:
     def test_positive_and_negative_zero_collide_into_one_group(self) -> None:
-        """Documented divergence: group_key_value merges 0.0 and -0.0 into one group."""
+        """group_key_value merges 0.0 and -0.0 into one group, like the reference."""
         groups: dict[Any, list[int]] = {}
         for i, v in enumerate([0.0, -0.0]):
             groups.setdefault(group_key_value(v), []).append(i)

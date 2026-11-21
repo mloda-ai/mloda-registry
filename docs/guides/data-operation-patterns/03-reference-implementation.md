@@ -1,24 +1,12 @@
 # Reference Implementation Pattern
 
-Every data operation has one framework designated as the reference. Other frameworks are correct if and only if they match the reference on the shared test suite. The aggregating operations (aggregation, window aggregation, frame aggregate, scalar aggregate), point and scalar arithmetic, string, datetime, binning, time bucketization, lookup and the ordered families (rank, offset, percentile, ffill, sessionization, EMA) have a pure Python reference. PyArrow is the reference for most other operations that ship today; where it has no exact grouped kernel, a pure-Python reference applies PyArrow's semantics (see [When PyArrow has no kernel](#when-pyarrow-has-no-kernel-or-is-the-outlier)).
+Every data operation has a pure Python reference in `mloda/testing`; no framework is the source of truth. Backends are correct if and only if they match the reference on the shared test suite. Where the reference has no PyArrow kernel to follow, or PyArrow is the outlier, see [When PyArrow has no kernel](#when-pyarrow-has-no-kernel-or-is-the-outlier).
 
-**What**: One framework implementation is the source of truth. Cross-framework tests run the same feature through both the target framework and the reference, then assert the two results match.
+**What**: One pure Python reference function per operation is the source of truth. Cross-framework tests run the same feature through both the target framework and the reference, then assert the two results match.
 **When**: Every time you add a new operation or add a new framework implementation for an existing operation.
-**Why**: Without a fixed reference, frameworks drift into mutually incompatible results (e.g. different NULL handling, different tie-breaking in ranks). For the operations that keep a PyArrow-based reference, making PyArrow authoritative keeps semantics aligned without requiring everyone to agree on an abstract spec; the aggregating operations pin the same idea in a written contract instead.
+**Why**: Without a fixed reference, frameworks drift into mutually incompatible results (e.g. different NULL handling, different tie-breaking in ranks). A written, executable contract keeps semantics aligned without requiring everyone to agree on an abstract spec.
 **Where**: `mloda/testing/feature_groups/data_operations/base.py::DataOpsTestBase._compare_with_reference`.
 **How**: Each framework mixin provides `create_test_data` (converts typed test data to the framework's native format) and `extract_column` (materializes the result back to a Python list for comparison).
-
----
-
-## Why PyArrow
-
-For the families that keep a PyArrow-based reference, PyArrow implementations are:
-
-- **Columnar and index-based**, so row order is trivially preserved.
-- **Explicit about NULL** via `pa.array` masks, so NULL handling is unambiguous.
-- **Deterministic**: `pc.sort_indices`, `pc.rank`, `pc.round` give the same result every run.
-
-These properties make PyArrow a reasonable ground truth for those families. It is not faster than the others; it is the cleanest semantic reference.
 
 ---
 
@@ -38,7 +26,7 @@ ref_col = _extract_column(ref, feature_name)
 assert result_col == ref_col  # or pytest.approx for floats
 ```
 
-Aggregation, window aggregation, frame aggregate, scalar aggregate, point arithmetic, scalar arithmetic, string, datetime, binning, time bucketization, rank, offset, percentile, lookup, ffill, sessionization and EMA are the exceptions: each is one `OperationFeatureGroup` served by one `Implementation` per framework, so their test bases have no `reference_implementation_class`. Their references are the functions `reference_aggregation`, `reference_window_aggregation`, `reference_frame_aggregate`, `reference_scalar_aggregate`, `reference_point_arithmetic`, `reference_scalar_arithmetic`, `reference_string`, `reference_datetime`, `reference_binning`, `reference_time_bucketization`, `reference_rank`, `reference_offset`, `reference_percentile`, `reference_lookup`, `reference_ffill`, `reference_sessionization` and `reference_ema` (each `(group, table, features)`, in the operation's `reference.py` under `mloda/testing/feature_groups/data_operations/`; the two arithmetic references live in the shared `row_preserving/arithmetic/reference.py`), which run the parsing loop of the group under test with the kit's compute kernel and import nothing from the code they judge; `reference_calculate` passes `feature_group_class()` and reaches them, and the test kit runs the implementation with `calculate_with` (`mloda/testing/feature_groups/data_operations/helpers.py`). Their NaN divergences come from the implementation's shipped `divergences` records. Resample is an operation group too, but keeps `reference_implementation_class` pointing at its PyArrow Implementation; the default `reference_calculate` runs it through `calculate_with`, and the tests run the implementation under test with `calculate_with` as well.
+Every family overrides `reference_calculate` with a kit reference function; each operation is one `OperationFeatureGroup` served by one `Implementation` per framework. The references are `reference_aggregation`, `reference_window_aggregation`, `reference_frame_aggregate`, `reference_scalar_aggregate`, `reference_point_arithmetic`, `reference_scalar_arithmetic`, `reference_string`, `reference_datetime`, `reference_binning`, `reference_time_bucketization`, `reference_rank`, `reference_offset`, `reference_percentile`, `reference_lookup`, `reference_ffill`, `reference_sessionization`, `reference_ema` and `reference_resample` (each `(group, table, features)`, in the operation's `reference.py` under `mloda/testing/feature_groups/data_operations/`; the two arithmetic references live in the shared `row_preserving/arithmetic/reference.py`), which run the parsing loop of the group under test with the kit's compute kernel and import nothing from the code they judge; `reference_calculate` passes `feature_group_class()` and reaches them, and the test kit runs the implementation with `calculate_with` (`mloda/testing/feature_groups/data_operations/helpers.py`). Their NaN divergences come from the implementation's shipped `divergences` records.
 
 `self.test_data` is produced by the framework mixin's `create_test_data(TypedTestData)`. The input is typed data with a declared `DataType` per column; core's adapter converts it per framework, once per test. The reference side takes the same data as an Arrow table via `arrow_table_of`. This keeps the fixtures aligned: both sides compute from the *same* starting values, just in different native representations. Building PythonDict data needs no pyarrow and the kit imports without it; the other adapters and the reference comparison need it, and those tests skip without `mloda-testing[pyarrow]`.
 
@@ -62,18 +50,18 @@ Row-preserving and aggregation tests share a canonical input: 12 rows defined in
 
 Bugs happen. If the reference implementation is wrong:
 
-1. Fix the reference implementation (PyArrow, or the pure-Python reference in `mloda/testing`).
+1. Fix the pure-Python reference in `mloda/testing`.
 2. Update the operation's test base (`BinningTestBase`, `AggregationTestBase`, etc.) so the expected values reflect the correct result.
-3. Run every framework's test class. Every non-PyArrow implementation that was "matching" the bug will now fail.
+3. Run every framework's test class. Every implementation that was "matching" the bug will now fail.
 4. Fix each framework implementation so it matches the corrected reference.
 
-Do not "fix" a non-PyArrow framework to agree with the PyArrow bug. The reference is where correctness lives, so fixing the reference is what realigns the ecosystem.
+Do not "fix" a framework to agree with a reference bug. The reference is where correctness lives, so fixing the reference is what realigns the ecosystem.
 
 ---
 
 ## Pure Python reference for the aggregating operations
 
-Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. The ordered families (rank, offset, ffill, sessionization, EMA) share the kernel's `ordered_groups`, and percentile uses its `quantile`. Other operations do not have this reference yet (point and scalar arithmetic, string, datetime, binning, time bucketization and lookup have their own). The contract, per agg type over one group's values:
+Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. Resample shares `group_rows` and `aggregate` through `compute_groups` and the time bucketization floor (`bucket_helpers.py`). The ordered families (rank, offset, ffill, sessionization, EMA) share the kernel's `ordered_groups`, and percentile uses its `quantile`. Point and scalar arithmetic, string, datetime, binning, time bucketization and lookup have their own. The contract, per agg type over one group's values:
 
 | Rule | Contract |
 |---|---|
@@ -104,7 +92,7 @@ PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Py
 
 [Known divergences](known-divergences.md) records each decision. The reference and PythonDict stay separate implementations of the same rules: one shared implementation could not verify itself.
 
-**PyArrow as the outlier.** For the operations that keep a PyArrow-based reference, PyArrow stays the reference when its convention is the odd one out: re-voting the reference per edge case brings back the drift this pattern exists to prevent. A backend that would need a hot-path branch to match such an edge case, which the canonical fixture does not exercise, keeps its native convention as an accepted divergence, with a regression test that pins its choice.
+**PyArrow as the outlier.** When PyArrow's convention is the odd one out, the reference stays as written: re-voting the reference per edge case brings back the drift this pattern exists to prevent. A backend that would need a hot-path branch to match such an edge case, which the canonical fixture does not exercise, keeps its native convention as an accepted divergence, with a regression test that pins its choice.
 
 ---
 
@@ -113,4 +101,4 @@ PyArrow has no exact grouped kernel for rank, offset or percentile, so a pure-Py
 - [Row-preserving contract](02-row-preserving-contract.md) - The row-count-and-order invariant that the reference comparison enforces.
 - [Supported ops per framework](04-supported-ops.md) - How a framework skips comparisons for ops it cannot express.
 - [Known divergences](known-divergences.md) - Audited cases where a framework's native operator would diverge from the reference, and the fix or exclusion used.
-- [Adding a new data operation](10-adding-new-operation.md) - Where to put the PyArrow reference when adding an op.
+- [Adding a new data operation](10-adding-new-operation.md) - Where to put the reference when adding an op.

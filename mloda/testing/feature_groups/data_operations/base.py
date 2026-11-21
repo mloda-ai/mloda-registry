@@ -135,17 +135,17 @@ class DataOpsTestBase(ABC):
     # -- Reference implementation (for cross-framework comparison) --------------------
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        """Return the reference implementation for cross-framework comparison.
-
-        Operation-specific bases override this to import the correct class.
-        """
-        raise NotImplementedError("Subclass must override reference_implementation_class")
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the kit reference on the canonical PyArrow table; every family overrides this."""
+        raise NotImplementedError(
+            "Subclass must override reference_calculate with a kit reference function, "
+            "e.g. `return reference_my_op(cls.feature_group_class(), table, features)`"
+        )
 
     @classmethod
-    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
-        """Run the reference (a FeatureGroup or Implementation class) on the canonical PyArrow table; override for a function."""
-        return calculate_with(cls.reference_implementation_class(), table, features)
+    def merges_signed_zero_keys(cls) -> bool:
+        """Whether this framework merges 0.0 and -0.0 (partition keys and nunique values) like the reference."""
+        return True
 
     @classmethod
     def contract_version(cls) -> int:

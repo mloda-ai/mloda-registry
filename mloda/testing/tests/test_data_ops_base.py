@@ -311,6 +311,12 @@ def test_source_arrow_table_is_gone_from_the_base() -> None:
     assert not hasattr(DataOpsTestBase, "source_arrow_table")
 
 
+def test_reference_implementation_class_is_gone_and_reference_calculate_must_be_overridden() -> None:
+    assert not hasattr(DataOpsTestBase, "reference_implementation_class")
+    with pytest.raises(NotImplementedError, match="reference_calculate"):
+        _StubDataOpsTestBase.reference_calculate(pa.table({"f": [1]}), helpers.make_feature_set("f"))
+
+
 def test_setup_method_uses_source_data_default() -> None:
     stub = _StubDataOpsTestBase()
     stub.setup_method()
@@ -480,8 +486,8 @@ class _CompareStub(_StubDataOpsTestBase):
         return _RecordingImpl
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        return _RecordingImpl
+    def reference_calculate(cls, table: Any, features: Any) -> Any:
+        return helpers.calculate_with(_RecordingImpl, table, features)
 
     def extract_column(self, result: Any, column_name: str) -> list[Any]:
         return list(result.column(column_name).to_pylist())
@@ -592,15 +598,6 @@ def test_calculate_with_runs_an_implementation_on_the_passed_group() -> None:
         del fs, _ProbeImpl, _ProbeSubGroup, _ProbeGroup
         gc.collect()
     assert not [c for c in get_all_subclasses(Implementation) if c.__name__ == "_ProbeImpl"]
-
-
-def test_reference_calculate_defaults_to_the_reference_class_calculate_feature() -> None:
-    _RecordingImpl.seen = []
-    table = pa.table({"f": [1]})
-    fs = helpers.make_feature_set("f", partition_by=["g"])
-    result = _CompareStub.reference_calculate(table, fs)
-    assert result.column("f").to_pylist() == [1]
-    assert _RecordingImpl.seen == [{"partition_by": ["g"]}]
 
 
 # -- DataOpsTestBase.contract_version ------------------------------------------
@@ -774,30 +771,13 @@ def _records(*subtypes: str) -> tuple[Any, ...]:
     )
 
 
-def _stub_for(impl: Any, *, reference: bool) -> type[_StubDataOpsTestBase]:
+def _stub_for(impl: Any) -> type[_StubDataOpsTestBase]:
     class _ImplStub(_StubDataOpsTestBase):
         @classmethod
         def implementation_class(cls) -> Any:
             return impl
 
-        @classmethod
-        def reference_implementation_class(cls) -> Any:
-            if not reference:
-                raise NotImplementedError
-            return impl
-
     return _ImplStub
-
-
-def test_reference_calculate_default_runs_an_implementation_reference() -> None:
-    def check(group: Any, impl: Any) -> None:
-        fs = helpers.make_feature_set("f")
-        result = _stub_for(impl, reference=True).reference_calculate(pa.table({"f": [1]}), fs)
-        assert result[0] == "implementation"
-        assert result[1] is group
-        assert fs.implementation is impl
-
-    _with_probe_impl(check)
 
 
 # -- nan_divergent_agg_types default ------------------------------------------
@@ -805,14 +785,14 @@ def test_reference_calculate_default_runs_an_implementation_reference() -> None:
 
 def test_nan_divergent_agg_types_default_reads_the_implementation_divergent() -> None:
     def check(_: Any, impl: Any) -> None:
-        assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset({"sum", "mean"})
+        assert _stub_for(impl).nan_divergent_agg_types() == frozenset({"sum", "mean"})
 
     _with_probe_impl(check, _records("sum", "mean"))
 
 
 def test_nan_divergent_agg_types_default_is_empty_for_an_implementation_without_divergence() -> None:
     def check(_: Any, impl: Any) -> None:
-        assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset()
+        assert _stub_for(impl).nan_divergent_agg_types() == frozenset()
 
     _with_probe_impl(check, ())
 
@@ -1258,7 +1238,7 @@ def test_nan_divergent_agg_types_default_ignores_a_scopeless_record() -> None:
 
     def check(group: Any, impl: Any) -> None:
         group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
-        assert _stub_for(impl, reference=False).nan_divergent_agg_types() == frozenset({"sum"})
+        assert _stub_for(impl).nan_divergent_agg_types() == frozenset({"sum"})
 
     _with_probe_impl(check, records)
 
@@ -1268,7 +1248,7 @@ def test_nan_divergent_agg_types_default_ignores_a_scopeless_record() -> None:
 
 def test_declared_supported_returns_the_implementation_supported_set() -> None:
     def check(_: Any, impl: Any) -> None:
-        assert _stub_for(impl, reference=False).declared_supported({"x"}) == {"sum", "mean"}
+        assert _stub_for(impl).declared_supported({"x"}) == {"sum", "mean"}
 
     _with_probe_impl(check, supported=frozenset({"sum", "mean"}))
 
@@ -1277,7 +1257,7 @@ def test_declared_supported_returns_the_group_universe_when_supported_is_none() 
     def check(group: Any, impl: Any) -> None:
         group.subtype_universe = classmethod(lambda cls: frozenset({"sum", "mean", "min"}))
         assert impl.supported is None
-        assert _stub_for(impl, reference=False).declared_supported({"x"}) == {"sum", "mean", "min"}
+        assert _stub_for(impl).declared_supported({"x"}) == {"sum", "mean", "min"}
 
     _with_probe_impl(check)
 
@@ -1291,7 +1271,7 @@ def test_declared_supported_returns_the_default_when_the_universe_is_empty() -> 
     def check(group: Any, impl: Any) -> None:
         assert impl.supported is None
         assert group.subtype_universe() == frozenset()
-        assert _stub_for(impl, reference=False).declared_supported({"x"}) == {"x"}
+        assert _stub_for(impl).declared_supported({"x"}) == {"x"}
 
     _with_probe_impl(check)
 

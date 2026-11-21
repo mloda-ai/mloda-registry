@@ -10,7 +10,7 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 
 1. [Overview](01-overview.md) - Categories, naming patterns, and where the code lives
 2. [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input
-3. [Reference implementation pattern](03-reference-implementation.md) - PyArrow is the source of truth for most operations; the aggregating, arithmetic and ordered (rank, offset, percentile, ffill, sessionization, EMA) operations have a pure Python reference
+3. [Reference implementation pattern](03-reference-implementation.md) - every operation has a pure Python reference
 4. [Supported ops per framework](04-supported-ops.md) - Excluding ops a framework cannot express
 5. [Binning](05-binning.md) - `bin` vs `qbin`, SQL qbin formula, NULL handling
 6. [Window aggregation](06-window-aggregation.md) - Partitioned aggregates broadcast per row

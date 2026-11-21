@@ -132,7 +132,7 @@ class TestResampleIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegra
 
     @classmethod
     def divergent_routing_cases(cls) -> list[RoutingCase]:
-        """Pandas declares every resample agg divergent (it skips NaN), so the PyArrow reference serves them."""
+        """Pandas declares every resample agg divergent (it skips NaN), so PyArrow serves them."""
         return [
             RoutingCase(
                 "value_float__resample_1_day_mean",

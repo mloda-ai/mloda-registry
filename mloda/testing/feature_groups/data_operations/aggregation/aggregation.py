@@ -242,15 +242,6 @@ class AggregationTestBase(
         """Subtypes the Implementation declares; the full set for a stub."""
         return cls.declared_supported(cls.ALL_AGG_TYPES)
 
-    @classmethod
-    def merges_signed_zero_keys(cls) -> bool:
-        """Whether this framework merges 0.0 and -0.0 partition keys into one group.
-
-        The reference merges them (also for nunique values). PyArrow splits partition keys
-        and nunique values; TestPyArrowAggregation overrides to False.
-        """
-        return True
-
     # -- MaskTestMixin configuration -------------------------------------------
 
     @classmethod
