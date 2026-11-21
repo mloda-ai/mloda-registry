@@ -621,7 +621,7 @@ regression_test:
 
 - **Operations**: `rank` (every rank type). On partition keys `[None, NaN, None]` ordered by `[1, 2, 3]`, `row_number`, `rank` and `dense_rank` give `[1, 1, 2]` on the reference and `[1, 2, 3]` merged.
 - **Where it lives**: Pandas (a float64 column cannot tell NaN from null) and SQLite (the driver coerces NaN to NULL on ingest).
-- **Mitigation kind**: Accepted divergence, not a `divergences` record: a record would move every Pandas/SQLite rank feature for a data condition few inputs hit. A framework-level declaration is the long-term home. Same shape as the signed-zero entries.
+- **Mitigation kind**: Accepted divergence, not a `divergences` record: a record would move every Pandas/SQLite rank feature for a rare data condition.
 - **Regression signal**: `RankTestBase.merges_none_and_nan_partition_keys()` is overridden to `True` in `TestPandasRank` (inherited by the nullable-int class) and `TestSqliteRank`; `test_nan_and_none_partition_keys` pins the merged result there and the reference result everywhere else.
 
 ### Integer arithmetic does not raise on overflow

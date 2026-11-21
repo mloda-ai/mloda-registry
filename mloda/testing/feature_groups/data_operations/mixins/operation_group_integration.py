@@ -103,7 +103,7 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
 
     @classmethod
     def _case_creator(cls, case: RoutingCase) -> type[Any]:
-        """The case's data creator, else ``routing_data_creator()`` (called only then, so its importorskip is lazy)."""
+        """The case's data creator, else ``routing_data_creator()``."""
         return _resolve(case.data_creator) if case.data_creator else cls.routing_data_creator()
 
     @classmethod
