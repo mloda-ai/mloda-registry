@@ -357,11 +357,27 @@ def test_way_2_guide_usage_line_resolves_to_exactly_one_sibling() -> None:
     assert result.candidates == [namespace["FaissRetriever"]]
 
 
-def test_way_2_unknown_discriminator_value_resolves_to_nothing() -> None:
-    _, result = _resolve_way_2(Feature("retrieved_passages", options=Options(group={"retrieve_backend": "fiass"})))
+@pytest.mark.parametrize(
+    "group, code, value",
+    [
+        ({}, "[code: required_option_absent]", None),
+        ({"retrieve_backend": "fiass"}, "[code: option_value_rejected]", "'fiass'"),
+    ],
+)
+def test_way_2_absent_or_unknown_discriminator_resolves_to_nothing(
+    group: dict[str, str], code: str, value: str | None
+) -> None:
+    _, result = _resolve_way_2(Feature("retrieved_passages", options=Options(group=group)))
     assert result.feature_group is None
     assert result.candidates == []
-    assert "No feature groups found" in str(result.error)
+    error = str(result.error)
+    assert "No feature groups found" in error
+    if value is not None:
+        assert value in error
+    lines = error.splitlines()
+    for sibling in ("Bm25Retriever", "FaissRetriever"):
+        assert any(sibling in line and "retrieve_backend" in line and code in line for line in lines), error
+    assert "BaseRetriever" not in error
 
 
 def test_way_3_guide_usage_resolves_to_the_reader_sibling() -> None:
