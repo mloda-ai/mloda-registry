@@ -139,12 +139,9 @@ _UPPER_OVERRIDES: dict[str, str] = {
     "ﬕ": "ﬕ",  # ARMENIAN SMALL LIGATURE MEN INI -> ARMENIAN SMALL LIGATURE MEN INI
     "ﬖ": "ﬖ",  # ARMENIAN SMALL LIGATURE VEW NOW -> ARMENIAN SMALL LIGATURE VEW NOW
     "ﬗ": "ﬗ",  # ARMENIAN SMALL LIGATURE MEN XEH -> ARMENIAN SMALL LIGATURE MEN XEH
-    # Unicode-version-lag entries: recently assigned codepoints where this repo's pinned
-    # PyArrow build (utf8proc) already has a case mapping but some supported CPython
-    # version's own `unicodedata` does not yet (the gap differs by interpreter -- 3.10 is
-    # furthest behind, 3.14 is caught up -- so the union across all five is needed; see the
-    # drift test in string/tests/test_python_dict.py). Written as escapes rather than
-    # literal glyphs since not every font/terminal has them yet.
+    # Unicode-version-lag entries: recent codepoints PyArrow's utf8proc maps but an older supported
+    # CPython's `unicodedata` does not yet; regenerate with scripts/case_mapping_lag_entries.py
+    # under each interpreter whose drift test fails; it writes codepoints the interpreter does not know as escapes.
     "꟏": "꟎",  # U+A7CF -> U+A7CE
     "ꟓ": "꟒",  # U+A7D3 -> U+A7D2
     "ꟕ": "꟔",  # U+A7D5 -> U+A7D4
