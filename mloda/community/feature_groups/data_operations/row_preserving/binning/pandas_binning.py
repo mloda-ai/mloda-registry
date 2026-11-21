@@ -17,6 +17,17 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.base 
 )
 
 
+def _binning_non_numeric_descriptor(data: pd.DataFrame, source_col: str) -> Any | None:
+    """Binning accepts integer or floating only (complex is rejected, unlike arithmetic)."""
+    descriptor = pandas_non_numeric_descriptor(data, source_col)
+    if descriptor is not None:
+        return descriptor
+    dtype = data[source_col].dtype
+    if pd.api.types.is_complex_dtype(dtype):
+        return dtype
+    return None
+
+
 class PandasBinning(Implementation[BinningFeatureGroup]):
     feature_group = BinningFeatureGroup
     compute_framework = PandasDataFrame
@@ -29,7 +40,7 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
             data,
             features,
             compute_binning=cls._compute_binning,
-            non_numeric=pandas_non_numeric_descriptor,
+            non_numeric=_binning_non_numeric_descriptor,
             integer_bounds=cls._integer_bounds,
         )
 
