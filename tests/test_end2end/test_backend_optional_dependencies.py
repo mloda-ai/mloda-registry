@@ -22,7 +22,7 @@ _script = load_script("verify_backend_extras", _REPO_ROOT / "scripts" / "verify_
 # Extras that never name a compute framework, so they're excluded from the backend comparison.
 _NON_FRAMEWORK_EXTRAS = frozenset({"all", "dev"})
 
-# Backends whose extra depends on exactly their own pip package.
+# Backends whose extra depends on exactly their own pip package (plus `_PANDAS_EXTRA_DEPS`).
 _PACKAGED_BACKENDS = {"pyarrow", "polars", "pandas"}
 
 # Backends whose extra must mirror mloda core's same-named extra exactly (duckdb and sqlite need pyarrow too).

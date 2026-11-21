@@ -22,12 +22,14 @@ def _is_pyarrow_backed(col: Any) -> bool:
     dtype = col.dtype
     if isinstance(dtype, pd.ArrowDtype):
         return True
-    return isinstance(dtype, pd.StringDtype) and str(dtype.storage) in ("pyarrow", "pyarrow_numpy")
+    return isinstance(dtype, pd.StringDtype) and dtype.storage in ("pyarrow", "pyarrow_numpy")
 
 
 def _pyarrow_backed(col: Any, op: str) -> Any:
-    """Return a pyarrow-backed string column so case mapping matches the reference."""
+    """Return string-valued columns as pyarrow-backed so case mapping matches the reference."""
     if _is_pyarrow_backed(col):
+        return col
+    if pd.api.types.infer_dtype(col, skipna=True) not in ("string", "empty"):
         return col
     if not _pyarrow_available():
         raise ValueError(

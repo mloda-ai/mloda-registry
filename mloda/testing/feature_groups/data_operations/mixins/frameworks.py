@@ -87,12 +87,6 @@ def _is_arrow_string(arrow_type: pa.DataType) -> bool:
     return bool(pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type))
 
 
-def _series_of(values: list[Any], dtype: Any) -> Any:
-    import pandas as pd
-
-    return pd.Series(values, dtype=dtype)
-
-
 class _ProductionPandasAdapter(PandasAdapter):
     """Frames as production builds them: ``to_pandas()`` widens nullable ints to float64 and bools to object."""
 
@@ -113,10 +107,12 @@ class _ObjectStringPandasAdapter(_ProductionPandasAdapter):
     string_dtype: ClassVar[Any] = object
 
     def from_arrow(self, table: pa.Table) -> Any:
+        import pandas as pd
+
         frame = super().from_arrow(table)
         for i, field in enumerate(table.schema):
             if _is_arrow_string(field.type):
-                frame[field.name] = _series_of(table.column(i).to_pylist(), self.string_dtype)
+                frame[field.name] = pd.Series(table.column(i).to_pylist(), dtype=self.string_dtype)
         return frame
 
 

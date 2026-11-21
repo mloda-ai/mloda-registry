@@ -3,7 +3,7 @@
 
 The probe checks is_available(), not imports: core guards its optional backend imports. One venv per extra is
 safe because test_backend_optional_dependencies.py forces every leaf's same-named extra to the same packages
-(bar declared overrides).
+(bar the per-leaf overrides that test declares).
 
 Run: python scripts/verify_backend_extras.py
 Exit code: 1 if any wheel fails to build or any extra is insufficient, 0 otherwise.
