@@ -169,10 +169,10 @@ class TestMyOutputSchema(OutputSchemaSuite):
 
 The adapter owns the connection (see `DuckDBAdapter` and `SqliteAdapter`). `ConnectionEndToEndSuite` needs a destination feature group that reads `raw_val` and writes `tfs_doubled` on your framework:
 
-```py
+```python
 from typing import Any
 
-from mloda.provider import FeatureGroup
+from mloda.provider import ComputeFramework, FeatureGroup
 from mloda.testing.compute_framework.connection_suite import ConnectionEndToEndSuite, ConnectionPickSuite
 from mloda.testing.compute_framework.relation_suite import SqlRelationWindowSuite
 from mloda.testing.compute_framework.run_all_suite import EmptyResultRunAllSuite, PolicyRaises
@@ -190,7 +190,7 @@ class DoubledFeatureGroup(FeatureGroup):
         return {"tfs_doubled"}
 
     @classmethod
-    def compute_framework_rule(cls) -> set[type[DuckDBFramework]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
 
     @classmethod

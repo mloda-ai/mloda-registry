@@ -442,7 +442,7 @@ A host with `has_backend_sink() == True` must also implement `make_injected_and_
 
 A host outside this repo that opts into `supports_real_worker_sink()` must supply its own `flight_server` fixture; the published `mloda-testing` does not ship one.
 
-```py
+```python
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 
 
