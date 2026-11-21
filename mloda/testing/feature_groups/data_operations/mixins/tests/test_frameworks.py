@@ -63,6 +63,8 @@ _FRAMEWORKS = [
     ("PolarsLazyTestMixin", "PolarsLazyAdapter", "polars"),
     ("PandasTestMixin", "PandasAdapter", "pandas"),
     ("PandasNullableIntTestMixin", "PandasAdapter", "pandas"),
+    ("PandasObjectStringTestMixin", "PandasAdapter", "pandas"),
+    ("PandasPythonStringTestMixin", "PandasAdapter", "pandas"),
     ("DuckdbTestMixin", "DuckDBAdapter", "duckdb"),
     ("SqliteTestMixin", "SqliteAdapter", None),
     ("SqliteViewTestMixin", "SqliteAdapter", None),
@@ -120,6 +122,23 @@ def test_pandas_mixin_builds_value_int_with_the_expected_dtype(mixin_name: str, 
     probe.setup_method()
     try:
         assert str(probe.test_data["value_int"].dtype) == expected_dtype
+    finally:
+        probe.teardown_method()
+
+
+@pytest.mark.parametrize(
+    ("mixin_name", "expected_dtype", "expected_storage"),
+    [("PandasObjectStringTestMixin", "object", None), ("PandasPythonStringTestMixin", "string", "python")],
+)
+def test_pandas_string_mixin_builds_string_columns_with_the_expected_storage(
+    mixin_name: str, expected_dtype: str, expected_storage: str | None
+) -> None:
+    probe = _probe(_mixin(mixin_name, "pandas"))
+    probe.setup_method()
+    try:
+        dtype = probe.test_data["name"].dtype
+        assert str(dtype) == expected_dtype
+        assert getattr(dtype, "storage", None) == expected_storage
     finally:
         probe.teardown_method()
 

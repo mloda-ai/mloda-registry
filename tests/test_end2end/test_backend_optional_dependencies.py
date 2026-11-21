@@ -22,7 +22,7 @@ _script = load_script("verify_backend_extras", _REPO_ROOT / "scripts" / "verify_
 # Extras that never name a compute framework, so they're excluded from the backend comparison.
 _NON_FRAMEWORK_EXTRAS = frozenset({"all", "dev"})
 
-# Backends whose extra depends on exactly their own pip package.
+# Backends whose extra depends on exactly their own pip package (plus `_PANDAS_EXTRA_DEPS`).
 _PACKAGED_BACKENDS = {"pyarrow", "polars", "pandas"}
 
 # Backends whose extra must mirror mloda core's same-named extra exactly (duckdb and sqlite need pyarrow too).
@@ -31,6 +31,10 @@ _CORE_MIRRORED_BACKENDS = {"duckdb", "sqlite"}
 # Per-package polars floors above mloda core's, where a leaf needs a newer polars than core requires.
 # frame-aggregate: time-window rolling_*_by rejects null values below polars 1.38.
 _POLARS_FLOOR_OVERRIDES: dict[str, str] = {"mloda-community-frame-aggregate": ">=1.38"}
+
+# Extra packages a backend's extra may carry besides the backend itself, per package.
+# string: pandas upper/lower cast non-pyarrow string storage to string[pyarrow] for simple case mapping.
+_PANDAS_EXTRA_DEPS: dict[str, set[str]] = {"mloda-community-string": {"pyarrow"}}
 
 
 def _dep_name(spec: str) -> str:
@@ -113,9 +117,17 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
     for backend in backends & _PACKAGED_BACKENDS:
         deps = actual[backend]
         assert deps, f"{package_name}: {backend} extra must not be empty"
-        assert {_dep_name(dep) for dep in deps} == {backend}, (
-            f"{package_name}: {backend} extra must depend on the '{backend}' package, got {deps!r}"
+        extra = _PANDAS_EXTRA_DEPS.get(package_name, set()) if backend == "pandas" else set()
+        assert {_dep_name(dep) for dep in deps} == {backend} | extra, (
+            f"{package_name}: {backend} extra must depend on the {sorted({backend} | extra)} package(s), got {deps!r}"
         )
+        for dep in deps:
+            if backend == "pandas" and _dep_name(dep) == "pyarrow":
+                specifier = Requirement(dep).specifier
+                assert specifier == _CORE_PYARROW_REQUIREMENT.specifier, (
+                    f"{package_name}: pandas extra's pyarrow must require {_CORE_PYARROW_REQUIREMENT.specifier} "
+                    f"(mloda core's pyarrow extra floor), got {specifier}"
+                )
         if backend == "polars":
             override = _POLARS_FLOOR_OVERRIDES.get(package_name)
             expected = SpecifierSet(override) if override is not None else _CORE_POLARS_REQUIREMENT.specifier

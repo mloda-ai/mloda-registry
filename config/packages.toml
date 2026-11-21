@@ -209,7 +209,7 @@ keywords = ["string-operations", "text"]
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/string"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb<3", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb<3"] }
+optional_dependencies = { pyarrow = ["pyarrow>=14.0.1"], sqlite = ["pyarrow>=14.0.1"], python_dict = [], duckdb = ["duckdb<3", "pyarrow>=14.0.1"], polars = ["polars>=1.21"], pandas = ["pandas", "pyarrow>=14.0.1"], all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb<3"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-binning]
