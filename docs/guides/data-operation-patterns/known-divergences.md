@@ -138,6 +138,27 @@ regression_test:
 - **How**: Both SQLite test classes override `detects_non_numeric_source()` to `{"string"}`, so the boolean rejection tests skip and `test_boolean_source_column_computed_when_undetected` pins the 0/1 result. Not declared in `divergences`: a `value` record would rank SQLite last for all arithmetic, and an unscoped `gap` record would excuse every type failure of SQLite arithmetic in the shape check ([When to add](#when-to-add-to-this-page)); the pinning test guards the 0/1 result.
 - **Regression signal**: If SQLite starts rejecting booleans, the pinning test fails; remove both `detects_non_numeric_source` overrides and delete this entry.
 
+### SQLite arithmetic loses the sign of a zero result
+
+<!-- machine-checked
+operation: point_arithmetic, scalar_arithmetic
+framework: sqlite
+condition: a REAL-affinity column stores an integral REAL as an integer, so a negative zero comes back as 0.0
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/sqlite_scalar_arithmetic.py
+- mloda/testing/feature_groups/data_operations/row_preserving/arithmetic/pinning_mixin.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_mixin_pinned_row
+-->
+
+- **Operations**: `point_arithmetic` and `scalar_arithmetic`.
+- **Reference behavior**: The IEEE sign is kept: `0.0 * -1.0` is `-0.0`.
+- **Native SQLite behavior**: A REAL-affinity column stores an integral REAL as an integer, so the sign is lost on ingest and on `append_column` and the result is `0.0`. The op itself keeps it (`SELECT 0.0 * -1.0` is `-0.0`).
+- **Mitigation kind**: Accepted divergence, not a `divergences` record (storage loses the sign, not the op).
+- **Regression signal**: Both SQLite test classes override `keeps_zero_sign()` to False, so `test_mixin_pinned_row` pins `+0.0`. If SQLite starts keeping the sign, the rows fail: remove the overrides and delete this entry.
+
 ### SQLite `UPPER`/`LOWER` are ASCII-only; no native `REVERSE`
 
 <!-- machine-checked

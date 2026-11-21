@@ -42,6 +42,11 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         raise NotImplementedError("Subclass must override arithmetic_overflow_rows")
 
     @classmethod
+    def keeps_zero_sign(cls) -> bool:
+        """Whether the backend keeps the sign of a zero result."""
+        return True
+
+    @classmethod
     def pinned_row_cases(cls) -> dict[str, Any]:
         return {f"{i}-{row.case}": row for i, row in enumerate(cls.arithmetic_pinning_table().rows)}
 
@@ -74,7 +79,7 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         )
 
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
-        """Rows are compared by value, so neither the result type nor the zero sign is checked on a backend."""
+        """Rows are compared by value, so the result type is not checked; the sign of a zero result is."""
         row = self.pinned_row_cases()[pinned_row_case]
         op = self.feature_group_class().get_arithmetic_op(row.feature)
         data_type, values = row.expected[row.feature]
@@ -89,11 +94,11 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
                 value = float(value)
                 if (math.isnan(value) and nan_to_null) or (not math.isfinite(value) and non_finite_to_null):
                     return None
-                return value + 0.0
+                return value if self.keeps_zero_sign() else value + 0.0
             return int(value)
 
         def cast(value: Any) -> Any:
-            return float(value) + 0.0 if is_float else int(value)
+            return float(value) if is_float else int(value)
 
         result = calculate_with(
             self.implementation_class(),

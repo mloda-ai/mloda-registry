@@ -53,8 +53,8 @@ class DuckdbScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        # Preserve int-vs-float in SQL literal so int + int stays int.
-        literal = repr(constant) if isinstance(constant, int) else repr(float(constant))
+        # Int stays int; float is cast to DOUBLE (a bare decimal literal is DECIMAL and drops the sign of -0.0).
+        literal = repr(constant) if isinstance(constant, int) else f"CAST('{float(constant)!r}' AS DOUBLE)"
 
         # Cast only for divide, to avoid SQL integer-division truncation
         # (e.g. 10 / 3 -> 3). For add/subtract/multiply, native arithmetic
