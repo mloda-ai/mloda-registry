@@ -21,19 +21,9 @@ Binning maps a numeric column onto integer bucket indices `0..n-1`. Two variants
 
 ---
 
-## NTILE vs rank-based equivalence
+## SQL qbin is not NTILE
 
-SQL engines offer `NTILE(N)` to partition rows into N buckets. Its semantics are "assign bucket `ceil(rank * N / n)`", which is equivalent to the rank-based formula `r * N // n` up to a 1-based-vs-0-based offset. The mloda convention is 0-based, so SQL implementations subtract 1 and clamp at `N-1`.
-
-Pseudocode equivalence:
-
-| Expression | Produces |
-|---|---|
-| PyArrow `rank * n_bins // n` | 0..N-1 |
-| DuckDB `NTILE(N) OVER (ORDER BY col) - 1` | 0..N-1 |
-| Pandas `(rank * N // n).astype("Int64")` | 0..N-1 |
-
-All three resolve to the same labels for the same row order, but only after accounting for how each framework handles ties and NULLs.
+`NTILE(N)` is not equivalent to `r * N // n`: it spreads the remainder over the first buckets (6 rows into 4 bins gives `[0,0,1,1,2,3]`, the formula gives `[0,0,1,2,2,3]`) and leaves no gaps when there are more bins than rows. The SQL backends therefore compute `(ROW_NUMBER() - 1) * N // COUNT` over the non-null rows instead, so every backend resolves to the same labels. `bin` computes the width and offsets in float64 on every backend.
 
 ---
 
@@ -45,9 +35,10 @@ All three resolve to the same labels for the same row order, but only after acco
 
 ```sql
 CASE WHEN col IS NULL OR isnan(col) THEN NULL
-     ELSE LEAST(NTILE(N) OVER (
+     ELSE (ROW_NUMBER() OVER (
          PARTITION BY CASE WHEN col IS NOT NULL AND NOT isnan(col) THEN 1 END
-         ORDER BY col) - 1, N - 1) END
+         ORDER BY col, input_position) - 1) * N
+          // COUNT(col) FILTER (WHERE NOT isnan(col)) OVER () END
 ```
 
 The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not participate in the rank at all; they stay unpartitioned and the CASE returns NULL for them.
@@ -56,7 +47,7 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 
 ## SQL row order
 
-`NTILE` runs through `window()`, which keeps input order, so no workaround is needed. See [SQL backends: window() keeps row order](02-row-preserving-contract.md#sql-backends-window-keeps-row-order). Pandas and PyArrow assign by index and need no workaround.
+The `ROW_NUMBER` and `COUNT` windows run through `window()`, which keeps input order. Both SQL backends break qbin ties by input position, tagged with a row-number helper column. See [SQL backends: window() keeps row order](02-row-preserving-contract.md#sql-backends-window-keeps-row-order). Pandas and PyArrow assign by index and need no workaround.
 
 ---
 

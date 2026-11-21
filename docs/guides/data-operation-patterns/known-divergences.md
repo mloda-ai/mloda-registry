@@ -220,7 +220,7 @@ regression_test:
 - mloda/testing/feature_groups/data_operations/mixins/reserved_columns.py::ReservedColumnsTestMixin::test_mixin_helper_column_name_collision_survives
 -->
 
-- **Operations**: every row-preserving op that tags rows with an internal helper column, for example `frame_aggregate`, `offset`, `rank`, `window_aggregation`, plus the mode helpers shared by `aggregation` / `scalar_aggregate` / `window_aggregation`, and the SQL `binning` NTILE path.
+- **Operations**: every row-preserving op that tags rows with an internal helper column, for example `frame_aggregate`, `offset`, `rank`, `window_aggregation`, plus the mode helpers shared by `aggregation` / `scalar_aggregate` / `window_aggregation`, and the SQL `binning` paths.
 - **Where it lives**: the non-SQL backends use `unique_helper_name(base, taken)` in `mloda/community/feature_groups/data_operations/helper_columns.py`; the SQL backends (DuckDB, SQLite) use `pick_helper_column_name(taken=...)` from `mloda_plugins` `sql_utils`.
 - **Reference behavior**: PyArrow's reference implementation does not need helper columns and is silent about column names starting with `__mloda_`.
 - **Native framework behavior**: An implementation that adds an internal helper column (for example to record original row order before a reordering window function) under a hardcoded name would overwrite user data or be dropped silently if the input already carried a column with that name.

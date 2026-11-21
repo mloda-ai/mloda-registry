@@ -35,6 +35,8 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
     ) -> pd.DataFrame:
         data = data.copy()
         col = data[source_col]
+        if not pd.api.types.is_numeric_dtype(col.dtype) or pd.api.types.is_bool_dtype(col.dtype):
+            raise ValueError(f"Binning needs an integer or floating source column, but {source_col!r} is {col.dtype}")
         non_null_mask = col.notna()
 
         if non_null_mask.sum() == 0:
@@ -42,6 +44,8 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
             return data
 
         if op == "bin":
+            # float64 so width and offsets match the other backends
+            col = pd.Series(col.to_numpy(dtype="float64", na_value=np.nan), index=col.index)
             col_min = col[non_null_mask].min()
             col_max = col[non_null_mask].max()
             bin_width = (col_max - col_min) / n_bins

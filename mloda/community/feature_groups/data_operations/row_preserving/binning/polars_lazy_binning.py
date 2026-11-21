@@ -32,6 +32,10 @@ class PolarsLazyBinning(Implementation[BinningFeatureGroup]):
         op: str,
         n_bins: int,
     ) -> pl.LazyFrame:
+        dtype = data.collect_schema()[source_col]
+        if not dtype.is_numeric():
+            raise ValueError(f"Binning needs an integer or floating source column, but {source_col!r} is {dtype}")
+
         if op == "bin":
             expr = cls._build_bin_expr(source_col, n_bins)
         elif op == "qbin":
@@ -43,12 +47,12 @@ class PolarsLazyBinning(Implementation[BinningFeatureGroup]):
 
     @classmethod
     def _build_bin_expr(cls, source_col: str, n_bins: int) -> pl.Expr:
-        col = pl.col(source_col).fill_nan(None)
+        col = pl.col(source_col).cast(pl.Float64).fill_nan(None)
         col_min = col.min()
         col_max = col.max()
         col_range = col_max - col_min
 
-        safe_width = pl.when(col_range == 0).then(pl.lit(1.0)).otherwise(col_range.cast(pl.Float64) / n_bins)
+        safe_width = pl.when(col_range == 0).then(pl.lit(1.0)).otherwise(col_range / n_bins)
 
         raw_bin = ((col - col_min) / safe_width).floor()
 

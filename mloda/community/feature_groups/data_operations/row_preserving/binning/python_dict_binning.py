@@ -61,8 +61,8 @@ class PythonDictBinning(Implementation[BinningFeatureGroup]):
     @classmethod
     def _equal_width_bin(cls, col: list[Any], non_null: list[tuple[int, Any]], n_bins: int) -> list[Any]:
         values = [v for _, v in non_null]
-        col_min = min(values)
-        col_max = max(values)
+        col_min = float(min(values))
+        col_max = float(max(values))
 
         result: list[Any] = [None] * len(col)
 
@@ -75,7 +75,7 @@ class PythonDictBinning(Implementation[BinningFeatureGroup]):
         max_bin = n_bins - 1
 
         for i, v in non_null:
-            bin_idx = math.floor((v - col_min) / bin_width)
+            bin_idx = math.floor((float(v) - col_min) / bin_width)
             result[i] = min(bin_idx, max_bin)
 
         return result

@@ -68,16 +68,22 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
         if op != "qbin":
             raise ValueError(f"Unsupported binning operation for SQLite: {op}")
 
-        # Quantile binning is a real NTILE window with an expression partition key
-        # (non-null rows only) wrapped in scalar MIN(..., n-1). Precompute the partition
-        # key into a helper column, run NTILE, then apply the wrapper via a raw
-        # projection (Pattern W). ``MIN(a, b)`` here is the 2-arg scalar min.
+        # qbin = (row_number - 1) * n / count over non-null rows (integer division truncates).
+        # The partition key goes into a helper column first (Pattern W).
         original_cols = list(data.columns)
-        part = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        ntile = pick_helper_column_name(taken=set(data.columns) | {feature_name, part})
-        rel = data.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
-        rel = rel.window(f"NTILE({n_bins})", ntile, partition_by=[part], order_by=[source_col])
-        qntile = quote_ident(ntile)
-        feat_expr = f"CASE WHEN {quoted_source} IS NULL THEN NULL ELSE MIN({qntile} - 1, {n_bins - 1}) END"
+        # rn breaks ties by input position.
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        taken = set(data.columns) | {feature_name, rn}
+        part = pick_helper_column_name(taken=taken)
+        rank = pick_helper_column_name(taken=taken | {part})
+        cnt = pick_helper_column_name(taken=taken | {part, rank})
+        rel = data.with_row_number(rn)
+        rel = rel.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
+        rel = rel.window("ROW_NUMBER()", rank, partition_by=[part], order_by=[source_col, rn])
+        rel = rel.window(f"COUNT({quoted_source})", cnt)
+        feat_expr = (
+            f"CASE WHEN {quoted_source} IS NULL THEN NULL "
+            f"ELSE ({quote_ident(rank)} - 1) * {n_bins} / {quote_ident(cnt)} END"
+        )
         proj = ", ".join(quote_ident(c) for c in original_cols) + f", {feat_expr} AS {quoted_feature}"
         return rel.select(_raw_sql=proj)

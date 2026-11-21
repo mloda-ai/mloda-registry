@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import with_input_position
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -43,15 +44,16 @@ class DuckdbBinning(Implementation[BinningFeatureGroup]):
             bin_min = pick_helper_column_name(taken=set(data.columns) | {feature_name})
             bin_max = pick_helper_column_name(taken=set(data.columns) | {feature_name, bin_min})
             not_nan = f"NOT isnan({quoted_source})"
-            rel: DuckdbRelation = data.window(f"MIN({quoted_source}) FILTER (WHERE {not_nan})", bin_min)
-            rel = rel.window(f"MAX({quoted_source}) FILTER (WHERE {not_nan})", bin_max)
+            dsource = f"CAST({quoted_source} AS DOUBLE)"
+            rel: DuckdbRelation = data.window(f"MIN({dsource}) FILTER (WHERE {not_nan})", bin_min)
+            rel = rel.window(f"MAX({dsource}) FILTER (WHERE {not_nan})", bin_max)
             qmin = quote_ident(bin_min)
             qmax = quote_ident(bin_max)
             expr = (
                 f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
                 f"WHEN {qmax} = {qmin} THEN 0 "
                 f"ELSE LEAST(CAST(FLOOR("
-                f"({quoted_source} - {qmin}) / "
+                f"({dsource} - {qmin}) / "
                 f"NULLIF(({qmax} - {qmin}) / {n_bins}.0, 0)"
                 f") AS INTEGER), {n_bins - 1}) END"
             )
@@ -60,19 +62,27 @@ class DuckdbBinning(Implementation[BinningFeatureGroup]):
             return rel.project(keep)
 
         if op == "qbin":
-            # The NTILE partition key is a SQL CASE expression, so it must be
-            # projected into a helper column before being used as partition_by.
-            qbin_part = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-            qbin_ntile = pick_helper_column_name(taken=set(data.columns) | {feature_name, qbin_part})
-            part_case = f"CASE WHEN {quoted_source} IS NOT NULL AND NOT isnan({quoted_source}) THEN 1 END"
-            rel = data.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
-            rel = rel.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
-            qntile = quote_ident(qbin_ntile)
-            expr = (
-                f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
-                f"ELSE LEAST({qntile} - 1, {n_bins - 1}) END"
+            # bin = (row_number - 1) * n // count over present rows; the partition key is a CASE
+            # expression, so it is projected into a helper column first. rn breaks ties by input position.
+            return with_input_position(
+                data, feature_name, lambda rel, rn: cls._qbin_window(rel, rn, feature_name, source_col, n_bins)
             )
-            keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (qbin_part, qbin_ntile))
-            return rel.project(f"{keep}, {expr} AS {quoted_feature}")
 
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")
+
+    @classmethod
+    def _qbin_window(
+        cls, rel: DuckdbRelation, rn: str, feature_name: str, source_col: str, n_bins: int
+    ) -> DuckdbRelation:
+        quoted_source = quote_ident(source_col)
+        taken = set(rel.columns) | {feature_name}
+        part = pick_helper_column_name(taken=taken)
+        rank = pick_helper_column_name(taken=taken | {part})
+        cnt = pick_helper_column_name(taken=taken | {part, rank})
+        present = f"{quoted_source} IS NOT NULL AND NOT isnan({quoted_source})"
+        rel = rel.project(f"*, CASE WHEN {present} THEN 1 END AS {quote_ident(part)}")
+        rel = rel.window("ROW_NUMBER()", rank, partition_by=[part], order_by=[source_col, rn])
+        rel = rel.window(f"COUNT({quoted_source}) FILTER (WHERE NOT isnan({quoted_source}))", cnt)
+        expr = f"CASE WHEN {present} THEN ({quote_ident(rank)} - 1) * {n_bins} // {quote_ident(cnt)} END"
+        keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (part, rank, cnt))
+        return rel.project(f"{keep}, {expr} AS {quote_ident(feature_name)}")

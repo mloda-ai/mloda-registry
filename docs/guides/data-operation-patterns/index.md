@@ -12,7 +12,7 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 2. [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input
 3. [Reference implementation pattern](03-reference-implementation.md) - PyArrow is the source of truth for most operations; the aggregating, arithmetic and ordered (rank, offset, percentile, ffill, sessionization, EMA) operations have a pure Python reference
 4. [Supported ops per framework](04-supported-ops.md) - Excluding ops a framework cannot express
-5. [Binning](05-binning.md) - `bin` vs `qbin`, NTILE vs rank, NULL handling
+5. [Binning](05-binning.md) - `bin` vs `qbin`, SQL qbin formula, NULL handling
 6. [Window aggregation](06-window-aggregation.md) - Partitioned aggregates broadcast per row
 7. [Percentile, rank, offset](07-percentile-rank-offset.md) - The analytic window family
 8. [Scalar aggregate, frame aggregate, scalar arithmetic, and point arithmetic](08-scalar-and-frame-aggregate.md) - Global broadcast, rolling/expanding windows, element-wise column-vs-constant arithmetic, and element-wise column-vs-column arithmetic

@@ -73,5 +73,5 @@ Aggregations under `data_operations/aggregation/` are **not** row-preserving. Th
 ## Related
 
 - [Reference implementation pattern](03-reference-implementation.md) - Which reference each operation uses (PyArrow or pure Python).
-- [Binning](05-binning.md) - `bin` vs `qbin` and the NTILE equivalence.
+- [Binning](05-binning.md) - `bin` vs `qbin` and the SQL qbin formula.
 - [Adding a new data operation](10-adding-new-operation.md) - How to wire up the tests that enforce this contract.
