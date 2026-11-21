@@ -672,6 +672,65 @@ regression_test:
 - **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
 - **Regression signal**: `tz_aware_source_reads_utc()` pins the UTC fields.
 
+### DuckDB time bucketization buckets a non-UTC zone on the UTC wall clock
+
+<!-- machine-checked
+operation: time_bucketization
+framework: duckdb
+condition: a tz-aware source column in a non-UTC zone is bucketed on the UTC wall clock and returned in UTC
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/duckdb_time_bucketization.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_duckdb.py::TestDuckdbTimeBucketization::test_divergent_flags_are_declared
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_duckdb.py::TestDuckdbTimeBucketization::test_pinned_row
+-->
+
+- **Operations**: `time_bucketization` (`floor`, `ceil`, `round`).
+- **Reference behavior**: Bucket math runs on the column's own wall clock and the result keeps the zone.
+- **Native DuckDB behavior**: `DuckdbRelation.from_arrow` stores TIMESTAMPTZ and drops the zone, so the group sees a UTC column, buckets on the UTC wall clock and returns UTC.
+- **Scope**: The record has no subtype or output scope, so it also covers type checks on naive and UTC inputs (no record field scopes by input zone).
+- **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
+- **Regression signal**: `test_pinned_row` pins the UTC result; `test_divergent_flags_are_declared` checks the record.
+
+### Polars lazy cannot hold a sub-hour fixed offset
+
+<!-- machine-checked
+operation: time_bucketization
+framework: polars_lazy
+condition: a tz-aware source with a sub-hour fixed offset (for example +05:30) fails in the framework transfer before the group runs
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/polars_lazy_time_bucketization.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_polars_lazy.py::TestPolarsLazyTimeBucketization::test_sub_hour_offset_still_unsupported
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_polars_lazy.py::TestPolarsLazyTimeBucketization::test_pinned_row
+-->
+
+- **Operations**: `time_bucketization`.
+- **Reference behavior**: A half-hour offset is bucketed on its own wall clock.
+- **Native Polars behavior**: `pl.from_arrow` raises `ComputeError` for the offset in the framework transfer, before the group runs.
+- **Mitigation kind**: Accepted limitation. Not declared in `divergences`: the failure comes from ingest, not from the op.
+- **Regression signal**: `test_pinned_row` skips the sub-hour rows via `holds_sub_hour_offset()`; the sentinel test fails if Polars starts accepting them.
+
+### SQLite time bucketization rejects a non-UTC offset
+
+<!-- machine-checked
+operation: time_bucketization
+framework: sqlite
+condition: a tz-aware source with a non-UTC offset is rejected, because TEXT storage keeps the offset but not the IANA zone
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/sqlite_time_bucketization.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite_result_type.py::TestSqliteResultTypeContract::test_non_utc_tz_aware_rejected
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite.py::TestSqliteTimeBucketization::test_pinned_row
+-->
+
+- **Operations**: `time_bucketization`.
+- **Reference behavior**: A non-UTC zone is bucketed on its own wall clock and keeps its zone.
+- **Native SQLite behavior**: Only the numeric offset survives in TEXT, which is not enough for DST-correct bucket math.
+- **Mitigation kind**: Rejection with a `ValueError` that suggests converting to UTC or using another backend.
+- **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_pinned_row` asserts the up-front `ValueError` for non-UTC rows.
+- **Regression signal**: The rejection test fails if SQLite starts accepting such a column.
+
 ---
 
 ## Declared divergence records
@@ -757,6 +816,12 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | SQLite | gap |  | backend | `add`, `multiply`, `subtract` | keeps 64-bit integers and turns an int64 overflow into REAL instead of raising |
 | SQLite | value |  | backend | `divide` | returns NULL on divide by zero |
 | Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
+
+### time_bucketization
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| DuckDB | gap |  | backend | (all) | a tz-aware column arrives as UTC, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-time-bucketization-buckets-a-non-utc-zone-on-the-utc-wall-clock)) |
 
 ### ffill
 

@@ -79,7 +79,7 @@ Cells reflect each operation group's Implementations, queryable via `DataOperati
 | scalar_aggregate | full | full | full | full | partial (6/13) | full | Pandas, SQLite |
 | scalar_arithmetic | full | full | full | full | full | full | PyArrow, Pandas, Polars lazy, SQLite, Python dict |
 | point_arithmetic | full | full | full | full | full | full | PyArrow, Pandas, Polars lazy, SQLite, Python dict |
-| time_bucketization | full | full | full | full | full | full | none |
+| time_bucketization | full | full | full | full | full | full | DuckDB |
 | ffill | full | full | full | full | full | full | Pandas, SQLite |
 | lookup | full | full | full | full | full | full | Pandas, DuckDB, Python dict |
 | ema | -- | full | full | -- | -- | full | Pandas |

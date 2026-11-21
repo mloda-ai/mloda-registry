@@ -138,7 +138,7 @@ class PandasTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
 
         Pandas' ``Series.dt.round`` defaults to half-to-even (banker's), but
         the cross-framework spec is half-up (matches PyArrow's
-        ``round_temporal`` and Polars' ``dt.round``). For fixed-freq units
+        ``round_temporal``). For fixed-freq units
         we still rely on ``dt.floor`` / ``dt.ceil`` to get the bracket
         bucket and then pick via midpoint comparison.
         """

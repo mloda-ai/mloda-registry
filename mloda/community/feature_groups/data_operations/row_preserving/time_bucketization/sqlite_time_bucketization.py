@@ -28,6 +28,20 @@ Python-side re-parse into ``pa.timestamp`` and no ``SqliteRelation``
 subclass. Null sources propagate as ``NULL`` (Python ``None``) end-to-end,
 because SQLite's ``NULL || anything`` is ``NULL``.
 
+Bucket math
+-----------
+
+Minute / hour / day buckets run on integer epoch microseconds of the wall
+clock (``m``), so they are multiples of ``n`` units counted from
+1970-01-01 00:00 and floor goes down before 1970. With width ``w``:
+``floor = m - ((m % w) + w) % w``; ceil keeps an aligned ``m`` and otherwise
+adds ``w``; round adds ``w`` when ``2 * (m - floor) >= w`` (ties up). The
+seconds come from the 19-char ``YYYY-MM-DD HH:MM:SS`` slice and the fraction
+is parsed separately, because older SQLite rounds fractional seconds to
+milliseconds. Week / month / year floors use the same 19-char slice and the
+calendar ceil always advances one bucket; calendar round compares integer
+epoch microseconds (offset from floor against bucket width, ties up).
+
 Ordering
 --------
 
@@ -55,12 +69,6 @@ from mloda.community.feature_groups.data_operations.sqlite_helpers import (
     wall_clock_expr,
 )
 
-# Calendar units whose ``ceil`` always advances one bucket even on aligned
-# input (PyArrow's behaviour for week / month / year with
-# ``ceil_is_strictly_greater=False``). Fixed-freq units are idempotent on
-# aligned input.
-_CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
-
 # Affinity strings (from PRAGMA table_info) that imply a timestamp source.
 # ``SqliteRelation.from_arrow`` maps a tz-aware ``pa.timestamp(..., tz="UTC")``
 # arrow type to SQLite ``TEXT`` (see ``_arrow_type_to_sqlite``), and the
@@ -71,87 +79,75 @@ _SQLITE_TIMESTAMP_AFFINITIES: frozenset[str] = frozenset({"TEXT", "DATETIME", "T
 _TIMESTAMP_STORAGE_CLASSES: frozenset[str] = frozenset({"text"})
 
 
-def _zero_pad_two(int_expr: str) -> str:
-    """SQL expression that left-pads a non-negative integer expression to two digits.
-
-    SQLite has no ``printf('%02d', ...)`` shorthand here so we synthesize it via
-    ``substr('00' || x, -2, 2)``. Extracted because the minute and hour
-    ``n > 1`` floor branches both need it.
-    """
-    return f"substr('00' || {int_expr}, -2, 2)"
+_MICROS = 1_000_000
+_FIXED_UNIT_MICROS: dict[str, int] = {"minute": 60 * _MICROS, "hour": 3600 * _MICROS, "day": 86400 * _MICROS}
 
 
-# Map a (unit, n) pair to the strftime / date / datetime expression that
-# yields the bucket-aligned timestamp string for floor. Calendar-unit n=1
-# cases use strftime-style truncation. Fixed-freq (n > 1) cases use bucket
-# math on the appropriate field.
-def _floor_expr(quoted_source: str, n: int, unit: str) -> str:
-    """SQL expression that floors ``quoted_source`` to a ``(n, unit)`` bucket.
+def _wall_micros_expr(wall: str) -> str:
+    """SQL expression for the wall clock as integer epoch microseconds (NULL for NULL)."""
+    # Always the 19-char slice: older SQLite rounds fractional seconds to ms.
+    secs = f"cast(strftime('%s', substr({wall}, 1, 19)) as integer)"
+    frac = (
+        f"CASE WHEN substr({wall}, 20, 1) = '.' "
+        f"THEN cast(substr(substr({wall}, 21) || '000000', 1, 6) as integer) ELSE 0 END"
+    )
+    return f"({secs} * {_MICROS} + {frac})"
 
-    All branches return a ``YYYY-MM-DD HH:MM:SS`` string (no tz suffix);
-    null input propagates because ``strftime`` of null is null. ``quoted_source``
-    is expected to be a *local-time* expression (tz suffix already stripped by
-    the caller).
-    """
-    if unit == "minute":
-        if n == 1:
-            return f"strftime('%Y-%m-%d %H:%M:00', {quoted_source})"
-        # Floor minutes to multiples of n.
-        bucket_minute = f"((cast(strftime('%M', {quoted_source}) as integer) / {n}) * {n})"
-        return f"strftime('%Y-%m-%d %H:', {quoted_source}) || {_zero_pad_two(bucket_minute)} || ':00'"
-    if unit == "hour":
-        if n == 1:
-            return f"strftime('%Y-%m-%d %H:00:00', {quoted_source})"
-        bucket_hour = f"((cast(strftime('%H', {quoted_source}) as integer) / {n}) * {n})"
-        return f"strftime('%Y-%m-%d ', {quoted_source}) || {_zero_pad_two(bucket_hour)} || ':00:00'"
-    if unit == "day":
-        if n == 1:
-            return f"strftime('%Y-%m-%d 00:00:00', {quoted_source})"
-        # Bucket on days since 1970-01-01 (Thursday). Note: n=7 is not a
-        # week alias in v1; only ``week`` (calendar Monday) is supported.
-        bucket = f"cast((julianday(date({quoted_source})) - julianday('1970-01-01')) as integer) / {n}"
-        return f"strftime('%Y-%m-%d 00:00:00', date('1970-01-01', '+' || ({bucket} * {n}) || ' days'))"
+
+def _micros_to_text(micros: str) -> str:
+    """``YYYY-MM-DD HH:MM:SS`` text for boundary microseconds (whole minutes, so exact)."""
+    return f"datetime(({micros}) / {_MICROS}, 'unixepoch')"
+
+
+def _fixed_expr(wall: str, op: str, n: int, unit: str) -> str:
+    """Floor / ceil / round for minute, hour and day on integer epoch microseconds."""
+    w = n * _FIXED_UNIT_MICROS[unit]
+    m = _wall_micros_expr(wall)
+    floor = f"({m} - (({m} % {w}) + {w}) % {w})"
+    if op == "floor":
+        result = floor
+    elif op == "ceil":
+        result = f"(CASE WHEN {m} = {floor} THEN {floor} ELSE {floor} + {w} END)"
+    else:
+        result = f"(CASE WHEN 2 * ({m} - {floor}) >= {w} THEN {floor} + {w} ELSE {floor} END)"
+    return _micros_to_text(result)
+
+
+def _calendar_floor_expr(wall: str, unit: str) -> str:
+    """Floor of a week / month / year bucket as ``YYYY-MM-DD HH:MM:SS`` text."""
+    src = f"substr({wall}, 1, 19)"
     if unit == "week":
         # ISO Monday: %w returns 0=Sunday..6=Saturday, so days_since_monday = (w + 6) % 7.
-        offset = f"(cast(strftime('%w', {quoted_source}) as integer) + 6) % 7"
-        return f"strftime('%Y-%m-%d 00:00:00', date({quoted_source}, '-' || ({offset}) || ' days'))"
+        offset = f"(cast(strftime('%w', {src}) as integer) + 6) % 7"
+        return f"strftime('%Y-%m-%d 00:00:00', date({src}, '-' || ({offset}) || ' days'))"
     if unit == "month":
-        return f"strftime('%Y-%m-01 00:00:00', {quoted_source})"
+        return f"strftime('%Y-%m-01 00:00:00', {src})"
     if unit == "year":
-        return f"strftime('%Y-01-01 00:00:00', {quoted_source})"
+        return f"strftime('%Y-01-01 00:00:00', {src})"
     raise ValueError(f"Unsupported time bucketization unit for SQLite: {unit!r}")
 
 
-def _interval_modifier(n: int, unit: str) -> str:
-    """SQLite date/datetime modifier corresponding to one bucket of ``(n, unit)``."""
-    if unit == "minute":
-        return f"'+{n} minutes'"
-    if unit == "hour":
-        return f"'+{n} hours'"
-    if unit == "day":
-        return f"'+{n} days'"
-    if unit == "week":
-        return "'+7 days'"
-    if unit == "month":
-        return "'+1 month'"
-    if unit == "year":
-        return "'+1 year'"
-    raise ValueError(f"Unsupported time bucketization unit for SQLite: {unit!r}")
+def _calendar_modifier(unit: str) -> str:
+    """SQLite date modifier for one calendar bucket."""
+    return {"week": "'+7 days'", "month": "'+1 month'", "year": "'+1 year'"}[unit]
 
 
-def _bucket_seconds(n: int, unit: str) -> int:
-    """Length of one ``(n, unit)`` bucket in seconds, for fixed-freq units only.
-
-    Used by the ``round`` half-up midpoint comparison. Calendar units are
-    handled separately because their length varies per row.
-    """
-    if unit == "minute":
-        return 60 * n
-    if unit == "hour":
-        return 3600 * n
-    if unit == "day":
-        return 86400 * n
-    raise ValueError(f"Bucket-seconds helper called for non-fixed-freq unit: {unit!r}")
+def _calendar_expr(wall: str, op: str, unit: str) -> str:
+    """Floor / ceil / round for week, month and year."""
+    floor = _calendar_floor_expr(wall, unit)
+    if op == "floor":
+        return floor
+    upper = f"datetime({floor}, {_calendar_modifier(unit)})"
+    if op == "ceil":
+        # Always advances, even on aligned input.
+        return f"CASE WHEN {wall} IS NULL THEN NULL ELSE {upper} END"
+    floor_secs = f"cast(strftime('%s', {floor}) as integer)"
+    upper_secs = f"cast(strftime('%s', {upper}) as integer)"
+    offset_micros = f"({_wall_micros_expr(wall)} - {floor_secs} * {_MICROS})"
+    width_micros = f"(({upper_secs} - {floor_secs}) * {_MICROS})"
+    return (
+        f"CASE WHEN {wall} IS NULL THEN NULL WHEN 2 * {offset_micros} >= {width_micros} THEN {upper} ELSE {floor} END"
+    )
 
 
 class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
@@ -269,22 +265,14 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             raise ValueError(f"Unsupported bucket op {op!r} for SQLite; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         quoted_source = quote_ident(source_col)
-        local_src = wall_clock_expr(quoted_source)
+        wall = wall_clock_expr(quoted_source)
         tz_suffix = offset_suffix_expr(quoted_source)
-        floor_expr = _floor_expr(local_src, n, unit)
-
-        if op == "floor":
-            # Floor has no internal null guard, so wrap it here. Note that
-            # ``NULL || tz_suffix`` is NULL in SQLite, so this guard primarily
-            # documents intent for callers reading the SQL.
-            bucket_expr = f"CASE WHEN {quoted_source} IS NULL THEN NULL ELSE {floor_expr} || {tz_suffix} END"
-        elif op == "ceil":
-            ceil_expr = cls._ceil_expression(local_src, n, unit, floor_expr)
-            # ceil_expr already returns NULL for null input; NULL || tz_suffix is NULL.
-            bucket_expr = f"({ceil_expr}) || {tz_suffix}"
-        else:  # round
-            round_expr = cls._round_expression(local_src, n, unit, floor_expr)
-            bucket_expr = f"({round_expr}) || {tz_suffix}"
+        if unit in _FIXED_UNIT_MICROS:
+            bucket = _fixed_expr(wall, op, n, unit)
+        else:
+            bucket = _calendar_expr(wall, op, unit)
+        # NULL || suffix is NULL, so null sources propagate.
+        bucket_expr = f"({bucket}) || {tz_suffix}"
 
         # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
         quoted_feature = quote_ident(feature_name)
@@ -298,70 +286,3 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         result_values = [row[0] for row in cursor.fetchall()]
 
         return data.append_column(feature_name, result_values)
-
-    @classmethod
-    def _ceil_expression(cls, quoted_source: str, n: int, unit: str, floor_expr: str) -> str:
-        """SQL expression for ceil bucketization.
-
-        ``quoted_source`` here is the *local-time* expression (tz suffix stripped).
-
-        Matches PyArrow's ``ceil_temporal(..., ceil_is_strictly_greater=False)``,
-        which is unit-dependent:
-
-        - **Fixed-freq units** (``minute`` / ``hour`` / ``day``): idempotent
-          on aligned input (``ceil(aligned) == aligned``).
-        - **Calendar units** (``week`` / ``month`` / ``year``): NOT
-          idempotent; aligned input advances one full bucket (e.g.
-          ``ceil_1_year(2023-01-01) == 2024-01-01``).
-        """
-        ceil_next = f"datetime({floor_expr}, {_interval_modifier(n, unit)})"
-        if unit in _CALENDAR_CEIL_ALWAYS_ADVANCES:
-            return f"CASE WHEN {quoted_source} IS NULL THEN NULL ELSE {ceil_next} END"
-        return (
-            f"CASE "
-            f"WHEN {quoted_source} IS NULL THEN NULL "
-            # Compare the input timestamp (after coercion to YYYY-MM-DD HH:MM:SS via datetime())
-            # against the floored value. ``quoted_source`` is already local-time, so this
-            # produces an apples-to-apples comparison with the floor expression.
-            f"WHEN datetime({quoted_source}) = {floor_expr} THEN {floor_expr} "
-            f"ELSE {ceil_next} "
-            f"END"
-        )
-
-    @classmethod
-    def _round_expression(cls, quoted_source: str, n: int, unit: str, floor_expr: str) -> str:
-        """SQL expression for round-half-up bucketization.
-
-        ``quoted_source`` here is the *local-time* expression (tz suffix stripped).
-
-        For fixed-freq units (minute / hour / day) the midpoint compares
-        the offset from the floor against half the bucket length in seconds.
-        For calendar units (week / month / year) the midpoint compares the
-        offset against half the bucket length, computed from
-        ``ceil_next - floored`` (in seconds via ``julianday``).
-        """
-        ceil_next = f"datetime({floor_expr}, {_interval_modifier(n, unit)})"
-
-        # Offset of the input from the floored bucket, in seconds.
-        offset_seconds = f"(julianday({quoted_source}) - julianday({floor_expr})) * 86400.0"
-
-        if unit in {"minute", "hour", "day"}:
-            half = _bucket_seconds(n, unit) / 2.0
-            return (
-                f"CASE "
-                f"WHEN {quoted_source} IS NULL THEN NULL "
-                f"WHEN {offset_seconds} >= {half!r} THEN {ceil_next} "
-                f"ELSE {floor_expr} "
-                f"END"
-            )
-
-        # Calendar units (week, month, year): bucket length depends on row,
-        # so we compute it from ceil_next - floor in seconds.
-        bucket_seconds = f"(julianday({ceil_next}) - julianday({floor_expr})) * 86400.0"
-        return (
-            f"CASE "
-            f"WHEN {quoted_source} IS NULL THEN NULL "
-            f"WHEN {offset_seconds} * 2 >= {bucket_seconds} THEN {ceil_next} "
-            f"ELSE {floor_expr} "
-            f"END"
-        )
