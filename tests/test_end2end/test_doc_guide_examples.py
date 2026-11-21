@@ -14,7 +14,7 @@ small, named, importable helpers so the regression tests below can feed the two 
 variants through the exact same validation logic used against the real guide, instead of
 re-implementing the check inline.
 
-It also runs every discovered doc's python blocks in its own process and runs its tests under pytest (marks, fixtures and test classes work),
+It also runs every discovered doc's python blocks in its own process, with their tests under pytest,
 except the docs in ``SKIPPED_DOCS``.
 """
 
@@ -718,8 +718,7 @@ def _display_path(path: str) -> str:
 
 
 def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool, list[str]]:
-    """Return the last marker kind and text, the last checked file (display form), whether the run finished and the
-    ids of the tests started."""
+    """Return the last marker, the last checked file, whether the run finished and the started test ids."""
     if isinstance(stdout, bytes):
         stdout = stdout.decode(errors="replace")
     kind, text, checked, done, started = "CHECKING", "", "<before the first file>", False, []
@@ -818,10 +817,7 @@ def _fork_server(load_plugins: bool) -> _ForkServer:
 def run_md_files_isolated(
     paths: Sequence[Path], cwd: Path, *, load_plugins: bool = True, fork: bool | None = None, timeout: int = 300
 ) -> list[str]:
-    """Run the python blocks of *paths* in a fresh process (forked from a warm server unless fork is False).
-
-    Returns the ids of the tests started, in order.
-    """
+    """Run the python blocks of *paths* in a fresh process (forked unless fork is False); return the started test ids."""
     if fork is None:
         fork = _FORK_SUPPORTED and os.environ.get("MLODA_DOC_RUNNER") != "subprocess"
     try:

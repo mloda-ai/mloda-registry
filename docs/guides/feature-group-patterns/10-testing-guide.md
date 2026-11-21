@@ -217,14 +217,13 @@ Use when upstream features are slow (API calls, ML inference) or you need contro
 
 ## Groups That Wrap a Model the Gate Cannot Install
 
-Some groups get their result from a model too large or slow for CI (for example an NER model). Test them in four parts:
+Some groups get their result from a model too large or slow for CI (for example an NER model). Test them in three parts:
 
-- One corpus of texts with the result each must give, read by every level.
-- Fake models built from that corpus, so the gate proves the group's own mechanism on every OS. For a spaCy model use a blank pipeline with an entity ruler; the example uses a plain callable so it needs no model.
-- The same checks run a second time on the real model, skipped where it is not installed and run before a release (the same pattern as [Against the real wheel](29-binary-backed-features.md#against-the-real-wheel)).
-- A test that fails when the group's rules outgrow the corpus: every `KEEP_CLEAR` word needs a case the model tags, or the fake never produces it.
+- One corpus of texts with the result each must give, read by every check.
+- A fake model built from that corpus, so the gate proves the group's own mechanism on every OS. For spaCy, use a blank pipeline with an entity ruler; the example uses a plain callable so it needs no model.
+- The same `test_corpus` run on the real model, skipped where it is not installed and run in a release job (as in [Against the real wheel](29-binary-backed-features.md#against-the-real-wheel)).
 
-`tagged` is recorded from the real model, not guessed; the real run's tagged assert is what keeps the fake honest. Run the fake only through `enabled_feature_groups`, since it matches the same names as the real group.
+Record `tagged` from the real model rather than guessing it; the real run's tagged assert keeps the fake honest. Run the fake only through `enabled_feature_groups`, since it matches the same names as the real group. A last test fails when the group's rules outgrow the corpus: every `KEEP_CLEAR` word needs a case the model tags, or the fake never produces it.
 
 ```python
 from functools import cache
@@ -314,8 +313,6 @@ def test_every_keep_clear_word_has_a_case() -> None:
     tagged = {word for case in CORPUS for word, _ in case.tagged}
     assert KEEP_CLEAR <= tagged, "the fake never produces these, so the gate proves nothing"
 ```
-
-CI runs the fake; a release job that installs the real model runs the same suite, so `real` runs there.
 
 ## Operation Groups: Conformance to the Reference Contract
 
