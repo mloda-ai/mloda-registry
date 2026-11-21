@@ -116,7 +116,7 @@ Rules:
 
 - **Keep the value sets disjoint.** Two siblings claiming `"faiss"` fail with `Multiple feature groups found`. Pin this with a test that enables every sibling at once.
 - **Only the discriminator stays required.** Core's presence guard keeps an override's `False` and records nothing, so the matcher above records the absent key itself; that is why the error names it. Declare every other key with `default=None` ([Options](11-options.md#validation-and-conditional-requirements)).
-- **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): here `retrieve_backend="fiass"` is not rejected by `strict` / `allowed_values`, only by the matcher's own record. Required presence, defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
+- **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): here `strict` / `allowed_values` never see `retrieve_backend="fiass"`, only the matcher's own record reports it. Required presence, defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
 - **Record why a sibling declined.** The matcher above ends this way, so the error lists each sibling's reason (a matching sibling hides them). `record_match_rejection` and `CoreDeclineCode` come from `mloda.provider`:
 
 ```text
@@ -259,6 +259,8 @@ def test_faiss_resolves_to_exactly_one_sibling() -> None:
     assert result.candidates == [FaissRetriever]
 ```
 
+Pass both arguments: the pinned `plugin_collector` keeps other loaded plugins out of the result, and `compute_frameworks` keeps it independent of which compute framework plugins the process has imported (with none loaded, every matching sibling is reported as eliminated: `none of its compute frameworks are enabled for this run`).
+
 ```python
 from mloda.testing.feature_group_shape import assert_feature_group_shape
 
@@ -271,8 +273,6 @@ def test_siblings_keep_the_shape_contract() -> None:
 ```
 
 The options supply the required discriminator and `requests=` limits the probe to the served name (the class name is not one).
-
-Pass both arguments: the pinned `plugin_collector` keeps other loaded plugins out of the result, and `compute_frameworks` keeps it independent of which compute framework plugins the process has imported (with none loaded, every matching sibling is reported as eliminated: `none of its compute frameworks are enabled for this run`).
 
 ## Combines With
 
