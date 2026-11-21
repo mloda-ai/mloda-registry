@@ -4,7 +4,25 @@
 **When**: Always test feature groups; use appropriate level for each concern.
 **Why**: Catch bugs early (unit), verify computation (framework), ensure end-to-end works (integration).
 **Where**: `tests/` directory alongside your feature group code.
-**How**: pytest with mock FeatureSets for unit/framework; `mloda.run_all()` for integration.
+**How**: the shipped `mloda.testing` kit first; pytest with mock FeatureSets for unit/framework; `mloda.run_all()` for integration.
+
+## Start from the Shipped Kit
+
+`pip install mloda-testing`, then start from the check that fits your plugin; each module lives under `mloda.testing`.
+
+| Your plugin | Start from | Module | Covered in |
+|-------------|------------|--------|------------|
+| Plain FeatureGroup | `assert_feature_group_shape` | `feature_group_shape` | [Level 1 of this guide](#level-1-unit-test-example) |
+| Subclass that takes over on an option | `assert_subclass_scope` | `subclass_scope` | [Subclasses That Take Over on an Option](#subclasses-that-take-over-on-an-option) |
+| Source or reader group | `SourceFeatureGroupTestMixin`, `ReadFileFGTestMixin`, `ReadDBFGTestMixin`, `ReadDocumentFGTestMixin`, the loads-into-framework mixins, `ColumnDiscoveryContractTestMixin` | `source` | [Source FeatureGroups: Test](27-input-data-readers.md#test) |
+| Operation group | `assert_operation_group_shape`; a data-operation family uses `OperationGroupTestBase` (it already runs that assert) and the data-operation mixins | `operation_group_shape`, `feature_groups.data_operations` | [Operation Groups](#operation-groups-conformance-to-the-reference-contract) and [adding an operation](../data-operation-patterns/10-adding-new-operation.md) |
+| Binary-backed group | simulated binary, license vectors, `BinaryModelConformanceBase` (extra `mloda-testing[binary-model]`) | `binary_model` | [Binary-Backed Features: Test](29-binary-backed-features.md#test) |
+| Extender package | `ExtenderContractTestMixin` (extra `mloda-testing[pyarrow]`) | `extenders` | [Create an Extender: Testing](../11-create-extender.md#testing) |
+| Extender package with an optional dependency | `OptionalDependencyPackageTestMixin` | `optional_dependency` | [Create an Extender: Optional dependency packages](../11-create-extender.md#optional-dependency-packages) |
+| Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
+| Compute framework | `assert_compute_framework_shape`, the suites, `TypedTestData`, `FrameworkAdapter` | `compute_framework_shape`, `compute_framework`, `typed_data`, `framework_adapter` | [Compute Framework Testing Guide](../compute-framework-patterns/09-testing-guide.md) |
+
+The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases: name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
 
 ## Testing Levels
 
@@ -57,19 +75,22 @@ class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
 
 ## Level 1: Unit Test Example
 
-`assert_feature_group_shape` from `mloda.testing.feature_group_shape` is the shipped check of a plain FeatureGroup's match contract (pass `input_data=` to also check the run).
+`assert_feature_group_shape` from `mloda.testing.feature_group_shape` checks the match contract of a plain FeatureGroup: the declared names match, a foreign name does not, `input_features()` resolves, required and strict options are enforced, no option is secret-shaped, and `version()` and `compute_framework_rule()` are well formed. A pattern-matching group passes the names to probe as `requests=`. `check_feature_group_shape` returns the `CheckResult` (failures and notes) instead of failing. Keep hand asserts for what is specific to the group:
 
 ```python
-def test_matching():
-    # Class name matching
-    assert MyFeature.match_feature_group_criteria("MyFeature", Options())
-    assert not MyFeature.match_feature_group_criteria("Wrong", Options())
+from mloda.testing.feature_group_shape import assert_feature_group_shape
 
-    # Chained pattern matching
-    assert ScaledFeature.match_feature_group_criteria("price__scaled", Options())
+
+def test_my_feature_shape():
+    assert_feature_group_shape(MyFeature)
+
+
+def test_scaled_feature_shape():
+    assert_feature_group_shape(ScaledFeature, requests=["price__scaled"])
+
+
+def test_scaled_feature_specifics():
     assert not ScaledFeature.match_feature_group_criteria("price", Options())
-
-    # Framework restriction
     assert PandasDataFrame in ScaledFeature.compute_framework_rule()
 ```
 
@@ -90,6 +111,25 @@ def test_calculate_feature():
     assert len(result) == 3
     assert result.min() >= 0 and result.max() <= 1
 ```
+
+With `input_data=` the shape check also runs the group through the adapter's compute framework (default `PythonDictAdapter`) and checks the output columns, their types, a zero-row input and determinism. A run the check cannot make, such as an adapter whose framework the group's rule excludes, is a failure unless `require_run=False`.
+
+```python
+from mloda.testing.framework_adapter import PandasAdapter
+from mloda.testing.typed_data import TypedTestData
+from mloda.user import DataType
+
+
+def test_scaled_feature_runs():
+    assert_feature_group_shape(
+        ScaledFeature,
+        requests=["price__scaled"],
+        input_data=TypedTestData({"price": (DataType.DOUBLE, [1.0, 2.0, 3.0])}),
+        adapter=PandasAdapter(),
+    )
+```
+
+`TypedTestData` raises `ValueError` for a value that does not fit its declared `DataType` (a `bool` in an `INT64` column, an int beyond 2**53 in a `DOUBLE` one). `check_values_fit(columns, types)` from `mloda.testing.value_fit` applies the same rules to plain lists such as hand-written expected columns and returns a `CheckResult`.
 
 A group that reads a credential calls `calculate_feature` inside `credentials_scope` and keeps one Level 3 test with `data_access_collection=` (see [Secrets](11-options.md#secrets)).
 
@@ -165,6 +205,49 @@ def test_empty_source_keeps_schema():
 **Tip**: pass `column_ordering="request_order"` when asserting on column lists; the default order is not guaranteed ([Column Ordering](../01-use-existing-plugin.md#column-ordering)).
 
 **Note**: You can also use `stream_all` for integration tests when testing streaming behavior. See [Streaming Results](23-streaming.md).
+
+## Subclasses That Take Over on an Option
+
+`assert_subclass_scope(Subclass, Parent, selecting)` from `mloda.testing.subclass_scope` checks that the parent resolves without the selecting options, the subclass resolves with them, and another value of a selecting key does not select the subclass (gating on the key's mere presence fails as a steal). With `input_data=` (a `TypedTestData`) it also runs both groups and compares the output columns; a changed column passes only when a divergence record the subclass declares covers it, and a comparison that cannot run fails unless `require_run=False`; details in [core's doc](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/troubleshooting/feature-group-resolution-errors.md#a-loaded-subclass-replaces-its-parent). A pattern-matching parent needs `requests=`. A selecting key that configures the subclass without selecting it also goes in `free=`, which skips its other-value probe.
+
+```python
+from mloda.testing.subclass_scope import assert_subclass_scope
+from mloda.user import Feature, Options
+
+
+class Prices(FeatureGroup):
+    @classmethod
+    def feature_names_supported(cls) -> set[str]:
+        return {"price_eur"}
+
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
+        return {Feature.not_typed("price")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"price_eur": list(data["price"])}
+
+
+class RoundedPrices(Prices):
+    @classmethod
+    def match_feature_group_criteria(
+        cls, feature_name: Any, options: Options, data_access_collection: Any = None
+    ) -> bool:
+        selected = options.get("rounding") == "cents"
+        return selected and super().match_feature_group_criteria(feature_name, options, data_access_collection)
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return {"price_eur": [round(v, 2) for v in data["price"]]}
+
+
+def test_rounded_prices_scope():
+    assert_subclass_scope(RoundedPrices, Prices, Options(group={"rounding": "cents"}))
+```
 
 ## Mocking Feature Dependencies
 
@@ -328,6 +411,8 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 import pytest
 
+from mloda.testing.operation_group_shape import assert_operation_group_shape
+
 VALUES = [1.0, math.nan, 3.0]
 
 EXPECTED = {
@@ -385,7 +470,13 @@ def test_result_differs_from_the_reference_exactly_when_declared(implementation,
     value = list(result.to_pylist() if hasattr(result, "to_pylist") else result)[0]
     differs = not same(value, reference(op, VALUES))
     assert differs == (op in declared(implementation))
+
+
+def test_column_total_shape():
+    assert_operation_group_shape(ColumnTotal)
 ```
+
+`assert_operation_group_shape` (`mloda.testing.operation_group_shape`) checks that the group declares a `CONTRACT_VERSION`, that each Implementation's `supported` and `divergences` stay inside the subtype universe, that every divergence record gives a reason, and that unsupported subtypes are declined; pass `alias_pairs=` to check that two aliased subtypes declare the same divergences and `probe=` for a group that resolves subtypes without an option key. A data-operation family gets the shape check from `OperationGroupTestBase` and the reference comparison from its family test base (see [adding an operation](../data-operation-patterns/10-adding-new-operation.md)).
 
 Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.21.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
 
@@ -499,39 +590,93 @@ def test_consumer_with_link_computes() -> None:
 
 ## Testing What an Import Loads
 
-A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). Probe a fresh interpreter, because the test process has already imported every FeatureGroup:
+A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). `mloda.testing.import_isolation` holds the helpers. All take a `pytest.MonkeyPatch` first and are undone with it:
+
+| Helper | Effect |
+|--------|--------|
+| `block_root(monkeypatch, root)` | every import of `root` raises `ModuleNotFoundError` |
+| `evict_root(monkeypatch, root)` | drops `root` and its submodules, so the next import runs them again |
+| `evict_package(monkeypatch, dotted)` | the same for one package and its `manifest`, and removes what the test imports under it for the first time |
+| `evict_entry_points(monkeypatch, group)` | removes the entry-point modules of `group` that the test loads for the first time |
+
+Evict the helper's package and block `mloda`, then import it: the import fails if the helper needs mloda.
+
+```python
+import importlib
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from mloda.testing.import_isolation import block_root, evict_root
+
+
+@pytest.fixture
+def acme(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Stand-in for your installed package, imported as a real test module would have."""
+    core = tmp_path / "acme" / "core"
+    core.mkdir(parents=True)
+    (core / "parsers.py").write_text("def parse(line):\n    return line.split(',')\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.import_module("acme.core.parsers")
+    yield
+    for name in [m for m in sys.modules if m.split(".")[0] == "acme"]:
+        del sys.modules[name]
+
+
+def test_helper_import_loads_no_mloda(acme: None) -> None:
+    with pytest.MonkeyPatch.context() as patch:
+        evict_root(patch, "acme")  # the import below runs the modules again
+        block_root(patch, "mloda")  # any mloda import now raises ModuleNotFoundError
+        importlib.import_module("acme.core.parsers")
+        loaded = sorted(m for m in sys.modules if m.startswith("acme."))
+    assert loaded == ["acme.core", "acme.core.parsers"]
+```
+
+The `with` block keeps mloda blocked only while the helper imports. `evict_root` restores only modules that were imported before, so a real test imports the helper at module level (the fixture does that for the stand-in). `block_root` does not catch an import the helper guards with `try` / `except ImportError`.
+
+A missing optional backend must make the loader skip that manifest. This example runs against your installed package and its entry point. Block the backend and load the entry points cold:
+
+```py
+from mloda.testing.import_isolation import block_root, evict_entry_points, evict_package
+from mloda.user import PluginLoader
+
+
+def test_loader_skips_the_rdf_manifest_without_rdflib(monkeypatch: pytest.MonkeyPatch) -> None:
+    block_root(monkeypatch, "rdflib")
+    evict_package(monkeypatch, "acme.feature_groups.rdf")  # the package of the optional manifest and its groups
+    evict_entry_points(monkeypatch, "mloda.feature_groups")
+    keys = PluginLoader().load_entry_points(group="mloda.feature_groups")
+    assert not any(key.startswith("acme.feature_groups.rdf.") for key in keys)
+```
+
+Evict only the package of the optional manifest, since a cold import of a module whose FeatureGroups are already loaded defines them a second time.
+
+Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time.
 
 ```py
 import json
 import subprocess
 import sys
-from typing import Any
 
 _PROBE = """
-import json, sys
+import json
 import {module}
-report = {{"mloda": "mloda" in sys.modules, "modules": sorted(m for m in sys.modules if m.startswith("acme."))}}
 from mloda.provider import FeatureGroup, get_all_subclasses
-report["groups"] = sorted(fg.__name__ for fg in get_all_subclasses(FeatureGroup) if fg.__module__.startswith("acme."))
-print(json.dumps(report))
+groups = sorted(fg.__name__ for fg in get_all_subclasses(FeatureGroup) if fg.__module__.startswith("acme."))
+print(json.dumps(groups))
 """
 
 
-def _import_report(module: str) -> dict[str, Any]:
+def _groups_loaded_by(module: str) -> list[str]:
     probe = [sys.executable, "-c", _PROBE.format(module=module)]
     return json.loads(subprocess.run(probe, check=True, capture_output=True, text=True).stdout)
 
 
-def test_helper_import_loads_no_mloda() -> None:
-    assert _import_report("acme.core.parsers") == {
-        "mloda": False,
-        "modules": ["acme.core", "acme.core.parsers"],
-        "groups": [],
-    }
-
-
-def test_plugin_import_loads_only_its_groups() -> None:
-    assert _import_report("acme.feature_groups.my_plugin")["groups"] == ["MyFeatureGroup"]
+def test_imports_load_only_their_groups() -> None:
+    assert _groups_loaded_by("acme.core.parsers") == []
+    assert _groups_loaded_by("acme.feature_groups.my_plugin") == ["MyFeatureGroup"]
 ```
 
 `get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
@@ -540,7 +685,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 
 | Pattern | Level 1 Focus | Level 2 Focus |
 |---------|---------------|---------------|
-| Root | `feature_names_supported()` (a source group: its claim routes and `find_sources`) | Data loading works |
+| Root | `feature_names_supported()` (a source group: `SourceFeatureGroupTestMixin`, its claim routes and `find_sources`) | Data loading works |
 | Derived | `input_features()` correct | Transformation logic |
 | Chained | Pattern regex matching | Suffix extraction |
 | Multi-input | `&` parsing | Multiple inputs combined |
@@ -548,7 +693,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 | Artifact | `artifact()` returns class | Save/load cycle |
 | Index | `index_columns()` correct | Ordering respected |
 | Framework | `compute_framework_rule()` | Framework-specific ops |
-| Operation group | Implementations load; `supported` / `accepts` | Conformance to the reference contract |
+| Operation group | `assert_operation_group_shape` | Conformance to the reference contract |
 | Model-backed | Every `KEEP_CLEAR` word has a corpus case | Corpus on the fake in the gate (Level 3); the real model in a release job |
 
 ## Real Test Examples

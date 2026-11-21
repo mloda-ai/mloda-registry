@@ -572,6 +572,26 @@ Record the context's `data_access_identity`, not `args[0]`: a host that records 
 
 `RecordingTransport`, `LockHoldingTransport`, `FileTransport` (writes emitted event types to a marker file, for `make_real_worker_extender_and_marker`) and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 
+### Optional dependency packages
+
+An extender package whose runtime dependency is optional (as `mloda-community-otel` on `opentelemetry`) hosts `OptionalDependencyPackageTestMixin` from `mloda.testing.optional_dependency`. It expects this package shape: `<package>.manifest` lists the extenders in `EXTENDERS` and imports them without a `try`; the package `__init__` re-exports them lazily through `__getattr__` and lists them in `__all__` only when the dependency imports; the package has an `mloda.extenders` entry point. It pins that shape with and without the dependency: the manifest lists the extenders when installed and raises when the dependency is missing, the package imports and hides the extenders without it (also when only `api_module` is blocked, a partial install of the dependency's namespace), importing the package does not import the extender module until the first attribute access, and `PluginLoader` re-raises unrelated import errors.
+
+The host runs against your installed package and its `mloda.extenders` entry point:
+
+```py
+from mloda.testing.optional_dependency import OptionalDependencyPackageTestMixin
+
+
+class TestMyExtenderManifest(OptionalDependencyPackageTestMixin):
+    package = "acme.extenders.my_extender"
+    root = "my_lib"  # import root of the optional dependency
+    extender_name = "MyExtender"
+    extender_module = "my_extender"  # module under package that defines it
+    api_module = "my_lib.api"  # the submodule the extender imports
+```
+
+`additional_extenders` maps further extender names to their modules. It is a plain mixin, not a `ConformanceSuite`. The real host is [test_manifest.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/tests/test_manifest.py). Any other package simulates a missing dependency with `block_root` and `evict_package` directly (see [Testing What an Import Loads](feature-group-patterns/10-testing-guide.md#testing-what-an-import-loads)).
+
 ### Asserting on warnings
 
 Count only the WARNING records of the logger that emits the warning under test, never every record in `caplog.records`. Core logs some warnings once per process (for example "not registered in the plugin registry" under `MLODA_PLUGIN_REGISTRY_STRICT=warn`), so under pytest-xdist such a record appears only if no earlier test in the worker triggered it. For your extender's own warnings, filter by its module's logger:

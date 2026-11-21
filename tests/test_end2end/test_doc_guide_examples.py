@@ -76,6 +76,16 @@ CREDENTIAL_EXAMPLE = (
     REPO_ROOT / "mloda" / "community" / "feature_groups" / "example" / "credential_example_feature_group.py"
 )
 CONFORMANCE_HEADING = "## Operation Groups: Conformance to the Reference Contract"
+EXTENDER_GUIDE = REPO_ROOT / "docs" / "guides" / "11-create-extender.md"
+KIT_MAP_HEADING = "## Start from the Shipped Kit"
+KIT_MAP_LINKS = (
+    "27-input-data-readers.md",
+    "../data-operation-patterns/10-adding-new-operation.md",
+    "29-binary-backed-features.md",
+    "../11-create-extender.md",
+    "../compute-framework-patterns/09-testing-guide.md",
+)
+IMPORT_HEADING = "## Testing What an Import Loads"
 
 _FENCE_RE = re.compile(r"```(json|python|py)\n(.*?)```", re.DOTALL)
 _CONFIG_STRING_RE = re.compile(r'config\s*=\s*"""(.*?)"""', re.DOTALL)
@@ -508,8 +518,90 @@ def test_conformance_section_test_passes_against_the_operation_group_example(tmp
     started = run_md_files_isolated([doc], cwd=tmp_path)
     name = "test_result_differs_from_the_reference_exactly_when_declared"
     assert started == [
-        f"{name}[{op}-{impl}]" for op in ("sum", "max") for impl in ("PandasColumnTotal", "PyArrowColumnTotal")
-    ]
+        *(f"{name}[{op}-{impl}]" for op in ("sum", "max") for impl in ("PandasColumnTotal", "PyArrowColumnTotal")),
+        "test_column_total_shape",
+    ], "the Conformance section must run the kit's operation group shape check after the reference cases"
+
+
+@pytest.mark.parametrize(
+    ("guide", "module", "names"),
+    [
+        (TESTING_GUIDE, "mloda.testing.base", ("FeatureGroupTestBase",)),
+        (TESTING_GUIDE, "mloda.testing.feature_group_shape", ("assert_feature_group_shape",)),
+        (TESTING_GUIDE, "mloda.testing.operation_group_shape", ("assert_operation_group_shape",)),
+        (TESTING_GUIDE, "mloda.testing.subclass_scope", ("assert_subclass_scope",)),
+        (TESTING_GUIDE, "mloda.testing.value_fit", ("check_values_fit",)),
+        (
+            TESTING_GUIDE,
+            "mloda.testing.import_isolation",
+            ("block_root", "evict_root", "evict_package", "evict_entry_points"),
+        ),
+        (
+            INPUT_DATA_READERS_GUIDE,
+            "mloda.testing.source.column_discovery_suite",
+            ("ColumnDiscoveryContractTestMixin",),
+        ),
+        (
+            INPUT_DATA_READERS_GUIDE,
+            "mloda.testing.source.loads_into_framework_suite",
+            (
+                "FileLoadsIntoFrameworkTestMixin",
+                "FileLoaderNameTestMixin",
+                "DatabaseLoadsIntoFrameworkTestMixin",
+                "DocumentLoadsIntoFrameworkTestMixin",
+            ),
+        ),
+        (EXTENDER_GUIDE, "mloda.testing.optional_dependency", ("OptionalDependencyPackageTestMixin",)),
+    ],
+    ids=[
+        "testing-base",
+        "testing-feature-group-shape",
+        "testing-operation-group-shape",
+        "testing-subclass-scope",
+        "testing-value-fit",
+        "testing-import-isolation",
+        "readers-column-discovery",
+        "readers-loads-into-framework",
+        "extender-optional-dependency",
+    ],
+)
+def test_guide_names_the_shipped_kit_piece(guide: Path, module: str, names: tuple[str, ...]) -> None:
+    text = guide.read_text(encoding="utf-8")
+    assert module in text, f"{guide.name} no longer names the module {module}"
+    for name in names:
+        assert name in text, f"{guide.name} no longer names {name}"
+        assert hasattr(importlib.import_module(module), name), f"{module} has no {name}"
+
+
+def test_testing_guide_opens_with_the_kit_map() -> None:
+    text = TESTING_GUIDE.read_text(encoding="utf-8")
+    assert KIT_MAP_HEADING in text, f"the testing guide no longer has the {KIT_MAP_HEADING!r} section"
+    assert "\n## Testing Levels" in text, "the testing guide no longer has the Testing Levels section"
+    assert text.index(KIT_MAP_HEADING) < text.index("\n## Testing Levels"), (
+        "the kit map must come before the Testing Levels section"
+    )
+    section = _section(text, KIT_MAP_HEADING, ("\n## ",))
+    for target in KIT_MAP_LINKS:
+        assert target in section, f"the kit map no longer links {target}"
+
+
+def test_import_section_check_fails_when_the_helper_imports_mloda(tmp_path: Path) -> None:
+    fences = _python_fences(IMPORT_HEADING, TESTING_GUIDE)
+    assert fences, "the Testing What an Import Loads section of the testing guide no longer has a python block"
+    fence = fences[0]
+    live = tmp_path / "live.md"
+    live.write_text(f"```python\n{fence}```\n", encoding="utf-8")
+    started = run_md_files_isolated([live], cwd=tmp_path)
+    assert "test_helper_import_loads_no_mloda" in started, started
+    mutated = fence.replace("def parse(", "import mloda.user\\ndef parse(")
+    assert mutated != fence, "the import check block no longer writes a stand-in helper containing def parse("
+    broken = tmp_path / "broken.md"
+    broken.write_text(f"```python\n{mutated}```\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([broken], cwd=tmp_path)
+    first = str(excinfo.value).splitlines()[0]
+    assert "test_helper_import_loads_no_mloda failed" in first, first
+    assert "ModuleNotFoundError" in str(excinfo.value), "the mutated run must fail because mloda is blocked"
 
 
 def test_secrets_section_shows_the_credential_example_module_source() -> None:
