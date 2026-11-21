@@ -33,6 +33,10 @@ BINNING_RULES: Mapping[str, str] = MappingProxyType(
         ),
         "gaps": "With more bins than rows some bins stay empty: bin = rank * n // count skips them.",
         "infinity": "qbin accepts infinite values and integers beyond 2**53; they sort like any other value.",
+        "exact_int": (
+            "bin accepts integers up to 2**53 in magnitude and floats of any size; "
+            "a larger integer raises, since float64 would round it."
+        ),
         "dtype": "bin and qbin give int64.",
         "row_order": "Output rows keep the input order.",
     }
@@ -97,6 +101,8 @@ BINNING_PINNING = PinningTable(
         _row("infinity", "x__qbin_3", [(_INF, 2), (1.0, 1), (-_INF, 0)], _D),
         _row("infinity", "x__qbin_3", [(2**53 + 1, 2), (1, 0), (2**53, 1)]),
         _row("infinity", "x__qbin_2", [(2**63 - 1, 1), (-(2**63), 0)]),
+        _row("exact_int", "x__bin_2", [(2**53, 1), (-(2**53), 0)]),
+        _row("exact_int", "x__bin_2", [(2.0**60, 1), (0.0, 0)], _D),
         _row("dtype", "x__bin_2", [(1, 0), (2, 1)]),
         _row("dtype", "x__qbin_2", [(1, 0), (2, 1)]),
         _row("row_order", "x__bin_3", [(9, 2), (0, 0), (5, 1)]),

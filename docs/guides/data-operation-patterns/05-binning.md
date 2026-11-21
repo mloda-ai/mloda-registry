@@ -21,6 +21,12 @@ Binning maps a numeric column onto integer bucket indices `0..n-1`. Two variants
 
 ---
 
+## Source column
+
+A non-numeric or boolean source raises `ValueError` (SQLite booleans excepted, see [known divergences](known-divergences.md)). `bin` also raises for an integer beyond 2**53, which float64 would round; `qbin` accepts it.
+
+---
+
 ## SQL qbin is not NTILE
 
 `NTILE(N)` is not equivalent to `r * N // n`: it spreads the remainder over the first buckets (6 rows into 4 bins gives `[0,0,1,1,2,3]`, the formula gives `[0,0,1,2,2,3]`) and leaves no gaps when there are more bins than rows. The SQL backends therefore compute `(ROW_NUMBER() - 1) * N // COUNT` over the non-null rows instead, so every backend resolves to the same labels. `bin` computes the width and offsets in float64 on every backend.

@@ -6,9 +6,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("polars")
-
-from mloda.user import DataType
+pl = pytest.importorskip("polars")
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.polars_lazy_binning import (
     PolarsLazyBinning,
@@ -18,7 +16,6 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import Polar
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,
 )
-from mloda.testing.typed_data import TypedTestData
 
 
 class TestPolarsLazyBinning(PolarsLazyTestMixin, BinningTestBase):
@@ -28,11 +25,10 @@ class TestPolarsLazyBinning(PolarsLazyTestMixin, BinningTestBase):
     def implementation_class(cls) -> Any:
         return PolarsLazyBinning
 
-    @pytest.mark.parametrize(
-        "data_type, values",
-        [(DataType.BOOLEAN, [True, False, True]), (DataType.STRING, ["1", "2", "10"])],
-    )
-    def test_non_numeric_source_rejected(self, data_type: DataType, values: list[Any]) -> None:
-        data = self.create_test_data(TypedTestData({"x": (data_type, values)}))
-        with pytest.raises(ValueError, match="integer or floating"):
-            calculate_with(self.implementation_class(), data, make_feature_set("x__bin_3"))
+    def test_bin_uint128_beyond_2_53_rejected(self) -> None:
+        """A UInt128 bin source beyond 2**53 raises ValueError."""
+        if not hasattr(pl, "UInt128"):
+            pytest.skip("polars has no UInt128")
+        data = pl.LazyFrame({"x": pl.Series([2**53 + 1, 0], dtype=pl.UInt128)})
+        with pytest.raises(ValueError, match=r"within 2\*\*53"):
+            calculate_with(self.implementation_class(), data, make_feature_set("x__bin_2"))

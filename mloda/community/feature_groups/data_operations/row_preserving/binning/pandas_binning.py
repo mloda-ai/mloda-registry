@@ -9,6 +9,9 @@ import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pandas_numeric_source import (
+    pandas_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -22,7 +25,23 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
     def calculate(
         cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
+        return group.assign_bins(
+            data,
+            features,
+            compute_binning=cls._compute_binning,
+            non_numeric=pandas_non_numeric_descriptor,
+            integer_bounds=cls._integer_bounds,
+        )
+
+    @classmethod
+    def _integer_bounds(cls, data: pd.DataFrame, source_col: str) -> tuple[int, int] | None:
+        col = data[source_col]
+        if not pd.api.types.is_integer_dtype(col.dtype) or pd.api.types.is_bool_dtype(col.dtype):
+            return None
+        present = col.dropna()
+        if present.empty:
+            return None
+        return int(present.min()), int(present.max())
 
     @classmethod
     def _compute_binning(
@@ -35,8 +54,6 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
     ) -> pd.DataFrame:
         data = data.copy()
         col = data[source_col]
-        if not pd.api.types.is_numeric_dtype(col.dtype) or pd.api.types.is_bool_dtype(col.dtype):
-            raise ValueError(f"Binning needs an integer or floating source column, but {source_col!r} is {col.dtype}")
         non_null_mask = col.notna()
 
         if non_null_mask.sum() == 0:
