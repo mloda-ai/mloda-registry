@@ -973,10 +973,9 @@ class TestLogging:
             f"secret leaked into logs: {messages!r}"
         )
 
-    @pytest.mark.parametrize("model", [StubModel], ids=["valid_token"])
-    def test_successful_run_logs_no_warning(self, caplog: pytest.LogCaptureFixture, model: type[StubModel]) -> None:
+    def test_successful_run_logs_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
-            model.run_binary_model(pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"})
+            StubModel.run_binary_model(pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
     def test_stderr_of_a_successful_run_is_logged_at_warning(self, caplog: pytest.LogCaptureFixture) -> None:

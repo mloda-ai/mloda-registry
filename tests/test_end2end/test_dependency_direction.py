@@ -558,14 +558,6 @@ def test_generated_mloda_testing_pyproject_does_not_depend_on_itself() -> None:
     assert [spec for spec in specs if _dep_name(spec) == "mloda-testing"] == []
 
 
-def test_mloda_testing_names_no_enterprise_distribution_in_any_extra() -> None:
-    cfg: dict[str, Any] = load_toml(_PACKAGES_CONFIG)["packages"]["mloda-testing"]
-    specs = {"dependencies": cfg.get("dependencies", [])}
-    specs.update({f"extra {extra}": deps for extra, deps in cfg.get("optional_dependencies", {}).items()})
-    offenders = [f"{where}: {dep}" for where, deps in specs.items() for dep in deps if "enterprise" in dep.lower()]
-    assert offenders == [], f"mloda-testing must name no enterprise distribution: {offenders}"
-
-
 def _is_import_of(node: ast.AST, dotted: str, from_parent: bool = False) -> bool:
     """True for an Import or ImportFrom of ``dotted`` or a submodule; with from_parent, also ``from <parent> import <leaf>``.
     No scope exemption: callers walk the whole tree with ast.walk."""

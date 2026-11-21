@@ -48,13 +48,11 @@ from mloda.testing.binary_model.simulated_binary import (
     check_simulated_license,
     simulated_license,
 )
+from mloda.testing.tests._license_channel import LICENSE_FILE, LICENSE_KEY, license_text_that_reached_the_binary
 from mloda.testing.tests._module_probe import run_module_probe
 from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_OPERATION
 from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_OUTPUT_KEY
 from mloda.testing.tests._second_fake_binary import PLUGIN_ID as SECOND_PLUGIN_ID
-
-_LICENSE_KEY = "MLODA_LICENSE_KEY"
-_LICENSE_FILE = "MLODA_LICENSE_FILE"
 
 # One distinct marker per hook, so a check that reads the wrong hook is caught too.
 _VALID_MARKER = "marker-valid-license-text"
@@ -144,29 +142,20 @@ class _OverriddenLicenseVectors(BinaryModelConformanceBase):
         return _IN_GRACE_MARKER
 
 
-def _license_text_that_reached_the_binary(env: dict[str, str], channel: str) -> str:
-    """The license text a check handed to the binary via ``channel``: ``MLODA_LICENSE_KEY`` carries it
-    inline, ``MLODA_LICENSE_FILE`` names a file holding it. The other channel must be unset."""
-    assert {_LICENSE_KEY, _LICENSE_FILE} & env.keys() == {channel}, f"unexpected license channels in env: {env!r}"
-    if channel == _LICENSE_FILE:
-        return Path(env[_LICENSE_FILE]).read_text(encoding="utf-8")
-    return env[_LICENSE_KEY]
-
-
 @pytest.mark.parametrize(
     ("check_name", "extra_args", "channel", "marker"),
     [
-        pytest.param("test_license_accepted_via_license_key_inline", (), _LICENSE_KEY, _VALID_MARKER, id="valid"),
-        pytest.param("test_license_expired_is_invalid", (), _LICENSE_FILE, _EXPIRED_MARKER, id="expired"),
-        pytest.param("test_license_wrong_plugin_is_invalid", (), _LICENSE_KEY, _WRONG_PLUGIN_MARKER, id="wrong_plugin"),
+        pytest.param("test_license_accepted_via_license_key_inline", (), LICENSE_KEY, _VALID_MARKER, id="valid"),
+        pytest.param("test_license_expired_is_invalid", (), LICENSE_FILE, _EXPIRED_MARKER, id="expired"),
+        pytest.param("test_license_wrong_plugin_is_invalid", (), LICENSE_KEY, _WRONG_PLUGIN_MARKER, id="wrong_plugin"),
         pytest.param(
             "test_license_tampered_is_invalid",
             ("tampered_unparseable_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _UNPARSEABLE_MARKER,
             id="unparseable_text",
         ),
-        pytest.param("test_license_in_grace_is_accepted", (), _LICENSE_KEY, _IN_GRACE_MARKER, id="in_grace"),
+        pytest.param("test_license_in_grace_is_accepted", (), LICENSE_KEY, _IN_GRACE_MARKER, id="in_grace"),
     ],
 )
 def test_overriding_license_vectors_retargets_the_check(
@@ -186,10 +175,10 @@ def test_overriding_license_vectors_retargets_the_check(
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", fake)
     conformance = _OverriddenLicenseVectors()
     config_path = tmp_path / "config.json"
-    leading_args = (config_path, tmp_path) if channel == _LICENSE_FILE else (config_path,)
+    leading_args = (config_path, tmp_path) if channel == LICENSE_FILE else (config_path,)
     with pytest.raises(RuntimeError, match="stop-after-capture"):
         getattr(conformance, check_name)(*leading_args, *extra_args)
-    assert _license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
+    assert license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
 
 
 @pytest.mark.parametrize(
@@ -1037,7 +1026,7 @@ def test_marker_success_check_passes_for_an_int64_only_binary_against_the_simula
     """The int64 marker run succeeds end to end against the simulated binary, which advertises int64."""
     conformance = _kit(_INT64, pa.int64())
     license_file = write_text(tmp_path / "license.txt", simulated_license("example_binary"))
-    env = conformance.platform_env({_LICENSE_FILE: str(license_file)})
+    env = conformance.platform_env({LICENSE_FILE: str(license_file)})
     conformance.test_diagnostics_never_leak_marked_cell_value_on_success(env, tmp_path)
 
 
