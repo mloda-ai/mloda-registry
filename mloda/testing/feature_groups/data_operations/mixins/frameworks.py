@@ -82,14 +82,12 @@ def _maybe_parse_iso_datetime(value: Any) -> Any:
 
 
 def _is_arrow_string(arrow_type: pa.DataType) -> bool:
-    """True for Arrow string and large_string types."""
     import pyarrow as pa
 
     return bool(pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type))
 
 
 def _series_of(values: list[Any], dtype: Any) -> Any:
-    """A pandas Series of ``values`` held as ``dtype``."""
     import pandas as pd
 
     return pd.Series(values, dtype=dtype)

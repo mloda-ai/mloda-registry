@@ -86,7 +86,8 @@ expected set from each manifest, reads core's extras from its installed metadata
 build on drift. A leaf may raise its `polars` floor above core's only through
 `_POLARS_FLOOR_OVERRIDES` in that same test (today `mloda-community-frame-aggregate`, `>=1.38`,
 because its time window's `rolling_*_by` rejects null values on older polars).
-A leaf's `pandas` extra may also carry `pyarrow` only through `_PANDAS_EXTRA_DEPS` in that same test (today `mloda-community-string`, for pyarrow-backed case mapping).
+A leaf's `pandas` extra may also carry `pyarrow` only through `_PANDAS_EXTRA_DEPS` in that same
+test (today `mloda-community-string`).
 
 A marker declares its whole subtree typed, including third-party distributions installed into it: on a namespace portion (`mloda/community`, `mloda/enterprise`) that is the entire namespace, on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) it is everything published from below that base. mypy returns at the first `py.typed` on the module path, so those leaf packages need no flag of their own. The sibling dependency floor below already keeps the leaf at or above the release that first shipped the marker.
 
