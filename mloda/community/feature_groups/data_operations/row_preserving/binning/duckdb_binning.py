@@ -9,10 +9,16 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import with_input_position
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, with_input_position
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_numeric_source import (
+    duckdb_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
+
+# Integer types whose values can exceed 2**53.
+_WIDE_INTEGER_TYPES = ("BIGINT", "UBIGINT", "HUGEINT", "UHUGEINT")
 
 
 class DuckdbBinning(Implementation[BinningFeatureGroup]):
@@ -23,7 +29,22 @@ class DuckdbBinning(Implementation[BinningFeatureGroup]):
     def calculate(
         cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
+        return group.assign_bins(
+            data,
+            features,
+            compute_binning=cls._compute_binning,
+            non_numeric=duckdb_non_numeric_descriptor,
+            integer_bounds=cls._integer_bounds,
+        )
+
+    @classmethod
+    def _integer_bounds(cls, data: Any, source_col: str) -> tuple[int, int] | None:
+        if column_types(data).get(source_col, "").upper() not in _WIDE_INTEGER_TYPES:
+            return None
+        q = quote_ident(source_col)
+        row = data.aggregate(f"MIN({q}), MAX({q})").to_arrow_table().to_pylist()[0]
+        lo, hi = list(row.values())
+        return None if lo is None else (int(lo), int(hi))
 
     @classmethod
     def _compute_binning(

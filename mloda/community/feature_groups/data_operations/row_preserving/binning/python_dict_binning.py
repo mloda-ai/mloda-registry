@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
     PythonDictFramework,
 )
 
-from mloda.community.feature_groups.data_operations.python_dict_helpers import is_nan
+from mloda.community.feature_groups.data_operations.python_dict_helpers import is_nan, non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -24,7 +24,18 @@ class PythonDictBinning(Implementation[BinningFeatureGroup]):
     def calculate(
         cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
+        return group.assign_bins(
+            data,
+            features,
+            compute_binning=cls._compute_binning,
+            non_numeric=non_numeric_descriptor,
+            integer_bounds=cls._integer_bounds,
+        )
+
+    @classmethod
+    def _integer_bounds(cls, data: dict[str, list[Any]], source_col: str) -> tuple[int, int] | None:
+        ints = [v for v in data[source_col] if isinstance(v, int)]
+        return (min(ints), max(ints)) if ints else None
 
     @classmethod
     def _compute_binning(

@@ -9,6 +9,9 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import p
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_numeric_source import (
+    sqlite_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -22,7 +25,21 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
     def calculate(
         cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
+        return group.assign_bins(
+            data,
+            features,
+            compute_binning=cls._compute_binning,
+            non_numeric=sqlite_non_numeric_descriptor,
+            integer_bounds=cls._integer_bounds,
+        )
+
+    @classmethod
+    def _integer_bounds(cls, data: SqliteRelation, source_col: str) -> tuple[int, int] | None:
+        q = quote_ident(source_col)
+        # Safety: identifiers are quote_ident()-quoted.
+        sql = f"SELECT MIN({q}), MAX({q}) FROM {quote_ident(data.table_name)} WHERE typeof({q}) = 'integer'"  # nosec
+        lo, hi = data.connection.execute(sql).fetchone()
+        return None if lo is None else (lo, hi)
 
     @classmethod
     def _compute_binning(

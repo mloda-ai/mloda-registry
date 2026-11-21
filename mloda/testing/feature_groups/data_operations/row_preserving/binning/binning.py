@@ -418,6 +418,52 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert result_col == [0, None, 0, 1, 2]
 
+    # -- Source-column contract ------------------------------------------------
+
+    @classmethod
+    def detects_non_numeric_source(cls) -> set[str]:
+        """Types of non-numeric source columns the backend can reject.
+
+        Default is ``{"string", "boolean"}``. Backends override when a dtype
+        cannot be distinguished from numeric at the relation level (e.g.
+        SQLite collapses booleans to INTEGER affinity through ``from_arrow``).
+        """
+        return {"string", "boolean"}
+
+    @pytest.mark.parametrize("op", ["bin", "qbin"])
+    @pytest.mark.parametrize(("column", "kind"), [("name", "string"), ("is_active", "boolean")])
+    def test_non_numeric_source_rejected(self, column: str, kind: str, op: str) -> None:
+        """A string or boolean source raises ValueError naming the quoted column."""
+        self._skip_if_unsupported(op)
+        if kind not in self.detects_non_numeric_source():
+            pytest.skip(f"Backend cannot distinguish {kind} source columns at relation level")
+        fs = make_feature_set(f"{column}__{op}_3")
+        with pytest.raises(ValueError, match="integer or floating") as exc_info:
+            calculate_with(self.implementation_class(), self.test_data, fs)
+        assert f"'{column}'" in str(exc_info.value)
+
+    def test_boolean_source_binned_when_undetected(self) -> None:
+        """A backend that cannot detect a boolean source bins it as 0/1."""
+        if "boolean" in self.detects_non_numeric_source():
+            pytest.skip("Backend rejects boolean source columns")
+        flags = self._source.to_python_dict()["is_active"]
+        expected = [None if f is None else 2 * int(f) for f in flags]
+        result = calculate_with(self.implementation_class(), self.test_data, make_feature_set("is_active__bin_3"))
+        assert self.extract_column(result, "is_active__bin_3") == expected
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            pytest.param([2**53 + 1, 0], id="above"),
+            pytest.param([-(2**53) - 1, 0], id="below"),
+        ],
+    )
+    def test_bin_integer_beyond_2_53_rejected(self, values: list[int]) -> None:
+        """bin raises for an integer beyond 2**53, which float64 would round."""
+        data = self.create_test_data(TypedTestData({"x": (DataType.INT64, values)}))
+        with pytest.raises(ValueError, match=r"within 2\*\*53"):
+            calculate_with(self.implementation_class(), data, make_feature_set("x__bin_2"))
+
     # -- Option-based config tests -------------------------------------------
 
     def test_option_based_bin_3(self) -> None:

@@ -8,6 +8,9 @@ import polars as pl
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.polars_numeric_source import (
+    polars_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -21,7 +24,20 @@ class PolarsLazyBinning(Implementation[BinningFeatureGroup]):
     def calculate(
         cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
+        return group.assign_bins(
+            data,
+            features,
+            compute_binning=cls._compute_binning,
+            non_numeric=polars_non_numeric_descriptor,
+            integer_bounds=cls._integer_bounds,
+        )
+
+    @classmethod
+    def _integer_bounds(cls, data: pl.LazyFrame, source_col: str) -> tuple[int, int] | None:
+        if data.collect_schema()[source_col] not in (pl.Int64, pl.UInt64, pl.Int128):
+            return None
+        row = data.select(pl.col(source_col).min().alias("lo"), pl.col(source_col).max().alias("hi")).collect().row(0)
+        return None if row[0] is None else (int(row[0]), int(row[1]))
 
     @classmethod
     def _compute_binning(
@@ -32,10 +48,6 @@ class PolarsLazyBinning(Implementation[BinningFeatureGroup]):
         op: str,
         n_bins: int,
     ) -> pl.LazyFrame:
-        dtype = data.collect_schema()[source_col]
-        if not dtype.is_numeric():
-            raise ValueError(f"Binning needs an integer or floating source column, but {source_col!r} is {dtype}")
-
         if op == "bin":
             expr = cls._build_bin_expr(source_col, n_bins)
         elif op == "qbin":

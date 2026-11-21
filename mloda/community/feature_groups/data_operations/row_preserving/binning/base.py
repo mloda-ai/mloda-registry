@@ -30,6 +30,9 @@ BINNING_OPS = {
     "qbin": "Quantile-based binning (rows divided into n roughly equal groups by rank)",
 }
 
+# Largest integer magnitude float64 holds exactly.
+MAX_EXACT_INT = 2**53
+
 
 class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise binning operations that preserve row count.
@@ -40,7 +43,8 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     ------------------
 
     Null input gives null output; the pure Python reference in the testing kit pins the values. Row count and order are
-    preserved. ``bin`` and ``qbin`` declare INT64. Each implementation passes ``compute_binning(table,
+    preserved. A non-numeric or boolean source raises; ``bin`` raises for an integer beyond 2**53, ``qbin`` accepts
+    it. ``bin`` and ``qbin`` declare INT64. Each implementation passes ``compute_binning(table,
     feature_name, source_col, op, n_bins)`` to the group; it returns the input with the new column appended.
     """
 
@@ -123,8 +127,10 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
         features: FeatureSet,
         *,
         compute_binning: Callable[[Any, str, str, str, int], Any],
+        non_numeric: Callable[[Any, str], object | None] | None = None,
+        integer_bounds: Callable[[Any, str], tuple[int, int] | None] | None = None,
     ) -> Any:
-        """Shared loop: extract params from each feature, delegate to ``compute_binning``."""
+        """Shared loop: validate the source, extract params from each feature, delegate to ``compute_binning``."""
         table = data
 
         for feature in features.features:
@@ -133,6 +139,22 @@ class BinningFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
             source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             op, n_bins = cls._extract_binning_params(feature)
+
+            if non_numeric is not None:
+                descriptor = non_numeric(data, source_col)
+                if descriptor is not None:
+                    raise ValueError(
+                        f"Binning needs an integer or floating source column, but {source_col!r} is {descriptor}"
+                    )
+            if op == "bin" and integer_bounds is not None:
+                bounds = integer_bounds(data, source_col)
+                if bounds is not None:
+                    for v in bounds:
+                        if abs(v) > MAX_EXACT_INT:
+                            raise ValueError(
+                                f"bin needs integers within 2**53 to stay exact in float64, got {v}; "
+                                "cast the column to float64 or use qbin"
+                            )
 
             table = compute_binning(table, feature_name, source_col, op, n_bins)
 

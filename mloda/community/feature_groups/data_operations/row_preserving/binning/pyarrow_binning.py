@@ -9,6 +9,9 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pyarrow_numeric_source import (
+    pyarrow_non_numeric_descriptor,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -22,7 +25,22 @@ class PyArrowBinning(Implementation[BinningFeatureGroup]):
     def calculate(
         cls, group: type[BinningFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.assign_bins(data, features, compute_binning=cls._compute_binning)
+        return group.assign_bins(
+            data,
+            features,
+            compute_binning=cls._compute_binning,
+            non_numeric=pyarrow_non_numeric_descriptor,
+            integer_bounds=cls._integer_bounds,
+        )
+
+    @classmethod
+    def _integer_bounds(cls, table: pa.Table, source_col: str) -> tuple[int, int] | None:
+        col = table.column(source_col)
+        if not pa.types.is_integer(col.type):
+            return None
+        bounds = pc.min_max(col)
+        lo, hi = bounds["min"].as_py(), bounds["max"].as_py()
+        return None if lo is None else (lo, hi)
 
     @classmethod
     def _compute_binning(

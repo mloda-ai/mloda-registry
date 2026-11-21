@@ -118,10 +118,10 @@ regression_test:
 - **Regression signal**: `TestDivideByZeroPerRow.test_sqlite_divide_by_zero_per_row` in `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py` pins the SQLite-specific `NULL` expectation; its PyArrow, Pandas, Polars lazy and DuckDB tests pin `inf`/`-inf`/`nan` per the truth table. If a future SQLite implementation begins returning a different non-NULL value, the assertion fails.
 - **Scope note**: `scalar_arithmetic` does not appear here because its divisor is a validated `Options` constant; `divide_by_zero` is rejected up front before dispatch reaches any backend, so the per-row divergence cannot arise there.
 
-### SQLite arithmetic cannot reject a boolean source column
+### SQLite arithmetic and binning cannot reject a boolean source column
 
 <!-- machine-checked
-operation: point_arithmetic, scalar_arithmetic
+operation: point_arithmetic, scalar_arithmetic, binning
 framework: sqlite
 condition: a boolean source column is stored with INTEGER affinity, so SQLite computes it as 0/1 instead of raising the non-numeric ValueError
 mitigation_location:
@@ -129,14 +129,15 @@ mitigation_location:
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_boolean_source_column_computed_when_undetected
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_boolean_source_column_computed_when_undetected
+- mloda/community/feature_groups/data_operations/row_preserving/binning/tests/test_sqlite.py::TestSqliteBinning::test_boolean_source_binned_when_undetected
 -->
 
-- **Operations**: `point_arithmetic` and `scalar_arithmetic` (every op shares the same source check; the tests pin `add`).
+- **Operations**: `point_arithmetic`, `scalar_arithmetic` and `binning` (all share the same source check; the arithmetic tests pin `add`, the binning test pins `bin`).
 - **Reference behavior**: A boolean source column raises `ValueError` naming the column as non-numeric.
 - **Native SQLite behavior**: `SqliteRelation.from_arrow` stores booleans with `INTEGER` affinity, so `sqlite_non_numeric_descriptor` sees an int column and SQLite computes `True`/`False` as 1/0. String sources keep `TEXT` affinity and are still rejected.
 - **Mitigation kind**: Accepted divergence. The boolean type is lost on ingest, before any op runs.
-- **How**: Both SQLite test classes override `detects_non_numeric_source()` to `{"string"}`, so the boolean rejection tests skip and `test_boolean_source_column_computed_when_undetected` pins the 0/1 result. Not declared in `divergences`: a `value` record would rank SQLite last for all arithmetic, and an unscoped `gap` record would excuse every type failure of SQLite arithmetic in the shape check ([When to add](#when-to-add-to-this-page)); the pinning test guards the 0/1 result.
-- **Regression signal**: If SQLite starts rejecting booleans, the pinning test fails; remove both `detects_non_numeric_source` overrides and delete this entry.
+- **How**: All three SQLite test classes override `detects_non_numeric_source()` to `{"string"}`, so the boolean rejection tests skip and `test_boolean_source_column_computed_when_undetected` pins the 0/1 result (binning: `test_boolean_source_binned_when_undetected`). Not declared in `divergences`: a `value` record would rank SQLite last for all arithmetic and binning, and an unscoped `gap` record would excuse every type failure of SQLite arithmetic in the shape check ([When to add](#when-to-add-to-this-page)); the pinning test guards the 0/1 result.
+- **Regression signal**: If SQLite starts rejecting booleans, the pinning test fails; remove all three `detects_non_numeric_source` overrides and delete this entry.
 
 ### SQLite arithmetic loses the sign of a zero result
 
