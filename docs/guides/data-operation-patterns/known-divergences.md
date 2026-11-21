@@ -27,6 +27,26 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ## Entries
 
+### DuckDB resample uses UTC day boundaries for fixed-offset timestamps
+
+<!-- machine-checked
+operation: resample
+framework: duckdb
+condition: a tz-aware fixed-offset column arrives as UTC, so resample groups by UTC boundaries instead of its source wall clock
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_changing/resample/duckdb_resample.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_duckdb.py::TestDuckdbResampleFixedOffset::test_pinned_fixed_offset_row
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_duckdb.py::TestDuckdbResampleFixedOffset::test_divergent_flags_are_declared
+-->
+
+- **Operation**: `resample`.
+- **Reference behavior**: PyArrow floors the timestamp on its original fixed-offset wall clock and retains the `+05:30` offset.
+- **Native DuckDB behavior**: the timezone-aware Arrow column arrives as UTC, so rows near midnight can fall into different UTC-day buckets.
+- **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
+- **Regression signal**: the pinned two-row fixture asserts one PyArrow bucket at `2024-01-01 00:00+05:30` with count 2, versus two DuckDB UTC buckets with count 1 each; a separate test checks the declaration.
+
+
 ### Polars `sum()` on an all-null group returns `0`
 
 <!-- machine-checked
@@ -908,6 +928,7 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 |---|---|---|---|---|---|
 | Pandas | variant | `nan_as_null` | backend | `max`, `mean`, `min`, `sum` | skips NaN; null for an all-NaN bucket |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| DuckDB | gap |  | backend | (all) | a tz-aware fixed-offset column arrives as UTC, so resample groups by UTC boundaries instead of its source wall clock ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-uses-utc-day-boundaries-for-fixed-offset-timestamps)) |
 
 <!-- END GENERATED: declared-divergences -->
 
