@@ -1,7 +1,8 @@
 """Dependency-direction guard: community and enterprise plugin packages must never depend on
 ``mloda-testing`` or on a binary wheel (see ``docs/guides/feature-group-patterns/29-binary-backed-
 features.md``), and no runtime module under ``mloda/community/`` or ``mloda/enterprise/`` may import
-``mloda.testing`` at any depth (only ``mloda/enterprise/licensing/testing/`` is exempt). The kit imports
+``mloda.testing`` or ``mloda.enterprise.licensing.testing`` at any depth (only
+``mloda/enterprise/licensing/testing/`` is exempt). The kit imports
 no ``mloda.enterprise`` module anywhere and ``mloda-testing`` names no enterprise distribution in any
 extra. Enterprise code may use ``mloda.community.extenders.shared`` only
 through public names (no private imports, subclassing, or private attributes). Binary wheel floors must
@@ -778,10 +779,19 @@ def test_enterprise_runtime_code_uses_extenders_shared_only_through_public_names
 _MLODA_TESTING_EXEMPT_DIR = Path("mloda/enterprise/licensing/testing")
 
 
-def _mloda_testing_importers_outside_exempt_dir(root_name: str, root_dir: Path) -> list[str]:
-    """Repo-relative paths of the files under root_dir importing mloda.testing, except those in the one exempt directory."""
-    paths = (Path("mloda") / root_name / path for path in _files_importing_mloda_testing(root_dir))
+def _importers_outside_exempt_dir(root_name: str, root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[str]:
+    """Repo-relative paths of the files under root_dir with a node matching predicate, except those in the one exempt directory."""
+    paths = (Path("mloda") / root_name / path for path in _files_with_import(root_dir, predicate))
     return [path.as_posix() for path in paths if _MLODA_TESTING_EXEMPT_DIR not in path.parents]
+
+
+def _mloda_testing_importers_outside_exempt_dir(root_name: str, root_dir: Path) -> list[str]:
+    return _importers_outside_exempt_dir(root_name, root_dir, _is_mloda_testing_import)
+
+
+def _is_licensing_testing_import(node: ast.AST) -> bool:
+    """True for an import of ``mloda.enterprise.licensing.testing`` or a submodule, at any depth."""
+    return _is_import_of(node, "mloda.enterprise.licensing.testing", from_parent=True)
 
 
 def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None:
@@ -791,6 +801,41 @@ def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None
         assert root_dir.is_dir(), f"expected {root_dir} to exist"
         offenders.extend(_mloda_testing_importers_outside_exempt_dir(root_name, root_dir))
     assert not offenders, f"mloda.testing imported outside tests/: {offenders}"
+
+
+def test_no_community_or_enterprise_runtime_file_imports_the_licensing_test_tooling() -> None:
+    """It holds a published test key and pulls pytest into runtime."""
+    offenders: list[str] = []
+    for root_name in ("community", "enterprise"):
+        root_dir = _REPO_ROOT / "mloda" / root_name
+        assert root_dir.is_dir(), f"expected {root_dir} to exist"
+        offenders.extend(_importers_outside_exempt_dir(root_name, root_dir, _is_licensing_testing_import))
+    assert not offenders, f"mloda.enterprise.licensing.testing imported outside tests/: {offenders}"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("from mloda.enterprise.licensing.testing import license_vectors\n", id="from-package-import"),
+        pytest.param("import mloda.enterprise.licensing.testing.licensed_binary\n", id="plain-submodule-import"),
+        pytest.param("from mloda.enterprise.licensing import testing\n", id="from-parent-import"),
+    ],
+)
+def test_licensing_test_tooling_rule_flags_a_runtime_importer(tmp_path: Path, body: str) -> None:
+    _write(tmp_path / "feature_groups" / "x" / "manifest.py", body)
+    assert _importers_outside_exempt_dir("enterprise", tmp_path, _is_licensing_testing_import) == [
+        "mloda/enterprise/feature_groups/x/manifest.py"
+    ]
+
+
+def test_licensing_test_tooling_rule_ignores_the_exempt_directory_and_tests(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "licensing" / "testing" / "a.py", "from mloda.enterprise.licensing.testing import license_vectors\n"
+    )
+    _write(
+        tmp_path / "feature_groups" / "x" / "tests" / "test_m.py", "from mloda.enterprise.licensing import testing\n"
+    )
+    assert _importers_outside_exempt_dir("enterprise", tmp_path, _is_licensing_testing_import) == []
 
 
 def _is_core_testing_import(node: ast.AST) -> bool:

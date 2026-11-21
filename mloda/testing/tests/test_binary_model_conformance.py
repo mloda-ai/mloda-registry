@@ -674,6 +674,39 @@ def test_main_calls_with_different_binaries_do_not_affect_each_other(
         assert json.loads(default[0])["column_types"] == sorted(COLUMN_TYPES)
 
 
+def _shout_operation(validate: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    """A custom `FakeOperation` that upper-cases the first input column into the `result` output."""
+    from mloda.testing.binary_model import simulated_binary
+
+    def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
+        name = config["output_columns"]["result"]
+        values = [v.upper() for v in table.column(config["input_columns"][0]).to_pylist()]
+        return pa.schema([pa.field(name, pa.string())]), [pa.array(values, type=pa.string())]
+
+    return simulated_binary.FakeOperation("shout", ("result",), compute, validate)
+
+
+def _write_shout_run_inputs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Write the shout config and input, point `sys.argv` at a `run`, and return the output path."""
+    config_path = write_json(
+        tmp_path / "config.json",
+        {
+            "input_columns": ["col_a"],
+            "operation": "shout",
+            "parameters": {},
+            "output_columns": {"result": "out"},
+        },
+    )
+    input_path = tmp_path / "input.arrows"
+    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
+    output_path = tmp_path / "output.arrows"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)],
+    )
+    return output_path
+
+
 @pytest.mark.parametrize(
     ("validate_error", "dummy_first"),
     [
@@ -693,37 +726,17 @@ def test_main_runs_a_custom_fake_operation(
     """A custom `FakeOperation` computes; `validate` raising `FakeUsageError` exits 1, anything else exits 6 unleaked."""
     from mloda.testing.binary_model import simulated_binary
 
-    def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
-        name = config["output_columns"]["result"]
-        values = [v.upper() for v in table.column(config["input_columns"][0]).to_pylist()]
-        return pa.schema([pa.field(name, pa.string())]), [pa.array(values, type=pa.string())]
-
     def validate(config: dict[str, Any]) -> None:
         if validate_error == "usage":
             raise simulated_binary.FakeUsageError("shout refuses this config")
         raise ValueError("secret-value")
 
-    op = simulated_binary.FakeOperation("shout", ("result",), compute, validate if validate_error else None)
+    op = _shout_operation(validate if validate_error else None)
     dummy = simulated_binary.FakeOperation("dummy", ("result",), lambda table, config: (pa.schema([]), []))
     binary = simulated_binary.FakeBinary("shout_binary", (dummy, op) if dummy_first else (op,))
-    config_path = write_json(
-        tmp_path / "config.json",
-        {
-            "input_columns": ["col_a"],
-            "operation": "shout",
-            "parameters": {},
-            "output_columns": {"result": "out"},
-        },
-    )
-    input_path = tmp_path / "input.arrows"
-    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
-    output_path = tmp_path / "output.arrows"
+    output_path = _write_shout_run_inputs(monkeypatch, tmp_path)
     monkeypatch.setenv("MLODA_LICENSE_KEY", simulated_license("shout_binary"))
     monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
-    monkeypatch.setattr(
-        "sys.argv",
-        ["prog", "run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)],
-    )
 
     code = simulated_binary.main(binary)
 
@@ -765,8 +778,6 @@ def test_check_simulated_license_states_and_fixed_reasons(text: str, plugin_id: 
     with pytest.raises(FakeLicenseError) as exc_info:
         check_simulated_license(text, plugin_id)
     assert str(exc_info.value) == expected
-    if text and expected == "not a simulated license":
-        assert text not in str(exc_info.value)
 
 
 @pytest.mark.parametrize("outcome", ["accepts", "grace", "rejects", "crashes"])
@@ -787,31 +798,11 @@ def test_main_calls_the_custom_license_check_and_reports_its_outcome(
             raise RuntimeError("secret-value")
         return outcome == "grace"
 
-    def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
-        name = config["output_columns"]["result"]
-        values = [v.upper() for v in table.column(config["input_columns"][0]).to_pylist()]
-        return pa.schema([pa.field(name, pa.string())]), [pa.array(values, type=pa.string())]
-
-    op = simulated_binary.FakeOperation("shout", ("result",), compute)
+    op = _shout_operation()
     binary = simulated_binary.FakeBinary("shout_binary", (op,), check_license=check)
-    config_path = write_json(
-        tmp_path / "config.json",
-        {
-            "input_columns": ["col_a"],
-            "operation": "shout",
-            "parameters": {},
-            "output_columns": {"result": "out"},
-        },
-    )
-    input_path = tmp_path / "input.arrows"
-    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
-    output_path = tmp_path / "output.arrows"
+    _write_shout_run_inputs(monkeypatch, tmp_path)
     monkeypatch.setenv("MLODA_LICENSE_KEY", "  padded-text \n")
     monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
-    monkeypatch.setattr(
-        "sys.argv",
-        ["prog", "run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)],
-    )
 
     code = simulated_binary.main(binary)
 

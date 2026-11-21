@@ -1,5 +1,6 @@
 """Tests for ``probe_classification.py``: the exit-code classification, tested with synthetic
-``subprocess.CompletedProcess`` results, and the probe itself, run against the simulated binary.
+``subprocess.CompletedProcess`` results, and the probe itself, run against the token-verifying simulated
+binary (``licensed_binary``).
 ``test_real_wheel.py`` is ``pytest.importorskip("example_binary")``-gated, so this module must
 never import from it, or the import would propagate that module-level skip here.
 """
@@ -63,7 +64,7 @@ def test_probe_accepts_test_key_true_for_accepting_binary() -> None:
 
 def test_probe_accepts_test_key_raises_for_a_binary_that_rejects_signed_tokens() -> None:
     """The plain simulated binary rejects a signed token with a reason that is not the unknown-key-id message."""
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="unexpected LICENSE_INVALID rejection unrelated to an unknown test key"):
         probe_accepts_test_key(PLAIN_SIMULATED_CMD)
 
 

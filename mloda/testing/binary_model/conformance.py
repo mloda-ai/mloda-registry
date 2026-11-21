@@ -652,10 +652,7 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
 
     def test_license_expired_is_invalid(self, valid_config_path: Path, tmp_path: Path) -> None:
         """An expired license: exit 3, license invalid (contract: License)."""
-        license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
-        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = self._kit_run_with_config(valid_config_path, env)
-        assert_error_response(result, LICENSE_INVALID)
+        self._kit_assert_license_file_rejected(valid_config_path, tmp_path, self.expired_license_text)
 
     def test_mixin_reports_the_license_source_and_a_reason_for_an_expired_license_file(
         self, tmp_path: Path, valid_config_path: Path
