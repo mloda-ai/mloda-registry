@@ -21,13 +21,10 @@ module mirrors the AGGREGATION test base: it builds a result map keyed by
 and separately asserts the output row count equals the number of non-empty
 buckets (the row-CHANGING assertion).
 
-Expected-value literals were computed offline from PyArrow as the oracle
-(``pyarrow.compute.floor_temporal`` then ``pa.TableGroupBy.aggregate``) and
-pasted in. PyArrow is the live reference (``PyArrowResample``); pinning to the
-PyArrow oracle (NOT raw pandas) matters because the two diverge on the all-null
-``sum`` bucket: pandas returns ``0.0`` there, PyArrow returns ``None`` -- and the
-cross-framework test compares every backend, including PyArrow, against
-``PyArrowResample``, so the pinned literal must equal the oracle's.
+Expected-value literals are hand-computed and pasted in; the kit reference
+(``reference_resample``) is checked against them in ``test_reference_pinning.py``, and the
+cross-framework test compares every backend against it. Raw pandas would differ on the
+all-null ``sum`` bucket: pandas returns ``0.0`` there, the reference returns ``None``.
 
 Fixture row layout (``id`` is a witness column; 12 rows, 2 interleaved
 partitions ``region`` A / B)::
@@ -56,8 +53,9 @@ partitions ``region`` A / B)::
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
 from mloda.provider import FeatureSet
@@ -77,6 +75,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.typed_data import TypedTestData
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 _U = timezone.utc
 
@@ -141,12 +142,10 @@ def _h(hour: int, minute: int = 0) -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# Expected values (offline-computed from PyArrow oracle; keyed (region, bucket))
+# Expected values (hand-computed; keyed (region, bucket))
 # ---------------------------------------------------------------------------
-# pyarrow.compute.floor_temporal(ts, multiple=n, unit=unit) then
-# pa.Table.group_by([*partition, bucket]).aggregate([("value", <agg>)]).
 # The B hour09 bucket is non-empty (rows 5 & 7) but all-null: sum/mean=None,
-# count=0. pandas would report sum=0.0 there; we pin the PyArrow value None.
+# count=0. pandas would report sum=0.0 there; we pin None.
 
 EXPECTED_1_HOUR_MEAN: dict[tuple[Any, ...], Any] = {
     ("A", _h(8)): 7.0,  # [10.0, None, 4.0] -> 14/2
@@ -162,7 +161,7 @@ EXPECTED_1_HOUR_SUM: dict[tuple[Any, ...], Any] = {
     ("A", _h(9)): 50.0,
     ("A", _h(10)): 100.0,
     ("B", _h(8)): 16.0,
-    ("B", _h(9)): None,  # PyArrow: all-null sum is None (pandas would say 0.0)
+    ("B", _h(9)): None,  # all-null sum is None (pandas would say 0.0)
     ("B", _h(10)): 50.0,
 }
 
@@ -282,7 +281,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     classmethod returning the framework-specific feature group.
 
     The expected base feature-group class is ``ResampleFeatureGroup`` and the
-    backends are ``PyArrowResample`` (the reference oracle), ``PandasResample``,
+    backends are ``PyArrowResample``, ``PandasResample``,
     ``PolarsLazyResample`` and ``DuckdbResample``. SQLite is deferred to a
     later version and is intentionally not tested here.
     """
@@ -297,16 +296,11 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         return len(EXPECTED_1_HOUR_MEAN)
 
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        # Lazy import so this testing module imports cleanly even before the
-        # production code exists (Red phase). The per-backend test files import
-        # their implementation classes at module top level; that is where Red
-        # fails with ModuleNotFoundError.
-        from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
-            PyArrowResample,
-        )
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the kit reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_changing.resample.reference import reference_resample
 
-        return PyArrowResample
+        return reference_resample(cls.feature_group_class(), table, features)
 
     # -- Setup: use the dedicated 12-row resample fixture -------------------
 
@@ -349,7 +343,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
         ``column`` extracts a named column as a Python list; defaults to
         ``self.extract_column`` so existing call sites are unaffected. Pass
-        ``helpers.extract_column`` to build a map from a reference (PyArrow) result.
+        ``helpers.extract_column`` to build a map from a reference result.
         """
         column = column or self.extract_column
         bucket_col = [self._normalize_bucket_key(v) for v in column(result, time_column)]
@@ -652,7 +646,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
             calculate_with(self.implementation_class(), self.test_data, fs)
         assert "run_all" in str(exc_info.value)
 
-    # -- Cross-framework comparison (map-based vs PyArrow oracle) ------------
+    # -- Cross-framework comparison (map-based vs the kit reference) ------------
 
     def _compare_resample_with_reference(
         self,
@@ -661,20 +655,13 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         *,
         use_approx: bool = False,
     ) -> None:
-        """Run the feature on this framework and the PyArrow reference; assert maps equal."""
+        """Run the feature on this framework and the kit reference; assert maps equal."""
         fs = self._resample_fs(feature_name, partition_by)
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         ref = self.reference_calculate(self._arrow_table, fs)
 
         result_map = self._build_resample_map(result, feature_name, "ts", partition_by)
-        # Reference is a PyArrow table; build its map with the standalone helper.
-        ref_bucket = [self._normalize_bucket_key(v) for v in _extract_column(ref, "ts")]
-        ref_agg = _extract_column(ref, feature_name)
-        ref_partition = [_extract_column(ref, p) for p in partition_by]
-        ref_map: dict[tuple[Any, ...], Any] = {}
-        for i in range(len(ref_bucket)):
-            key = tuple(ref_partition[j][i] for j in range(len(partition_by))) + (ref_bucket[i],)
-            ref_map[key] = ref_agg[i]
+        ref_map = self._build_resample_map(ref, feature_name, "ts", partition_by, _extract_column)
 
         self._assert_map_equals(result_map, ref_map, use_approx=use_approx)
 
@@ -690,7 +677,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         ],
     )
     def test_cross_framework(self, feature_name: str, partition_by: list[str], use_approx: bool) -> None:
-        """Every resample spec must agree with the PyArrow reference."""
+        """Every resample spec must agree with the kit reference."""
         self._compare_resample_with_reference(feature_name, partition_by, use_approx=use_approx)
 
     @pytest.mark.parametrize("partition_by", [["region"], []], ids=["partitioned", "whole_table"])
@@ -700,6 +687,31 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         fs = self._resample_fs("value__resample_1_hour_mean", partition_by)
         calculate_with(self.implementation_class(), self.test_data, fs)
         self._assert_snapshot_unchanged(before, self.test_data)
+
+    def test_signed_zero_partition_keys(self) -> None:
+        """Partition keys 0.0 and -0.0: the reference and most backends merge them into one group."""
+        ts = datetime(2023, 1, 1, 8, 5, tzinfo=timezone.utc)
+        table = TypedTestData(
+            {
+                "k": (DataType.DOUBLE, [0.0, -0.0, -0.0]),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, [ts, ts, ts]),
+                "v": (DataType.INT64, [1, 2, 3]),
+            }
+        )
+        feature_name = "v__resample_1_hour_count"
+        fs = make_feature_set(feature_name, partition_by=["k"], time_column="ts")
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        result_counts = sorted(self.extract_column(result, feature_name))
+        row_count = self.get_row_count(result)
+        if self.merges_signed_zero_keys():
+            assert row_count == 1, f"expected one merged group, got {row_count} rows"
+            assert result_counts == [3]
+        else:
+            assert row_count == 2, f"expected two split groups, got {row_count} rows"
+            assert result_counts == [1, 2]
+            signs = sorted(math.copysign(1, v) for v in self.extract_column(result, "k"))
+            assert signs == [-1.0, 1.0]
 
     # -- Error / validation --------------------------------------------------
 

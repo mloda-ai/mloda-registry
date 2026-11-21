@@ -135,7 +135,7 @@ class TestPythonDictMinMaxSkipsNan:
     """min/max must skip a NaN value within a bucket, not propagate it.
 
     ``reduce_agg`` skips NaN for ``min``/``max``, matching PyArrow's ``group_by().aggregate()``
-    (the reference oracle ``PyArrowResample`` also uses) and every other min/max-skips-NaN
+    (``PyArrowResample`` also uses it) and every other min/max-skips-NaN
     aggregation in this codebase.
     """
 

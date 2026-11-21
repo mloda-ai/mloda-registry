@@ -10,7 +10,7 @@ one of the ORDER-INDEPENDENT aggregations ``mean / sum / count / min / max``.
 This operation CHANGES the row count: the output has exactly one row per
 NON-EMPTY ``(partition, bucket)`` pair. Empty gap buckets are NOT emitted. A
 bucket that has rows but whose source values are ALL null still emits a row,
-with ``count = 0`` and ``mean / sum / min / max = None`` (PyArrow oracle).
+with ``count = 0`` and ``mean / sum / min / max = None`` (the reference contract).
 
 Pattern: ``{src}__resample_{n}_{unit}_{agg}``
 
@@ -30,7 +30,7 @@ Output columns are the ``partition_by`` columns, the bucketed ``time_column``
 (SAME NAME, bucket-start value) and one aggregate column per feature named exactly
 ``{src}__resample_{n}_{unit}_{agg}``. Output row order is not guaranteed.
 
-PyArrow is the cross-framework reference. Features sharing one bucket grid are aggregated
+Features sharing one bucket grid are aggregated
 together; a different grid needs a separate run_all call or its own Options(group=...).
 Each backend is an ``Implementation`` supplying the floor + group + aggregate to ``resample``;
 presence guards are shared via ``assert_source_columns_present``.

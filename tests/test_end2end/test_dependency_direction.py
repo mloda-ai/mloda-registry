@@ -651,52 +651,17 @@ def _walk_with_scope(
             yield from _walk_with_scope(child, inside, skip_type_checking, type_checking_alias)
 
 
-def _kit_plugin_import_sites(root_dir: Path) -> set[tuple[str, str, bool]]:
-    """(posix path relative to root_dir, imported module, inside a function body) for every
-    mloda.community / mloda.enterprise import outside tests/ and the top-level binary_model/ directory."""
-    found: set[tuple[str, str, bool]] = set()
-    for rel_path, tree in _runtime_modules(root_dir):
-        if rel_path.parts[0] == "binary_model":
-            continue
-        for node, fn in _walk_with_scope(tree):
-            found.update((rel_path.as_posix(), module, fn is not None) for module in _plugin_modules_imported_by(node))
-    return found
-
-
 def _kit_plugin_imports(root_dir: Path) -> set[tuple[str, str]]:
     """(posix path relative to root_dir, imported module) for every mloda.community / mloda.enterprise
     import outside tests/ and the top-level binary_model/ directory. A dynamic import_module
     argument cannot be checked."""
-    return {(path, module) for path, module, _lazy in _kit_plugin_import_sites(root_dir)}
-
-
-_DATA_OPS = "feature_groups/data_operations"
-_COMMUNITY_DATA_OPS = "mloda.community.feature_groups.data_operations"
-
-# Kit fixtures that exercise the community PyArrow implementation as the reference. A pair nothing
-# imports fails the guard.
-_KIT_PYARROW_REFERENCE_IMPORTS: set[tuple[str, str]] = {
-    (
-        f"{_DATA_OPS}/row_changing/resample/resample.py",
-        f"{_COMMUNITY_DATA_OPS}.row_changing.resample.pyarrow_resample",
-    ),
-}
-
-
-def _unallowed_kit_plugin_imports(
-    root_dir: Path, allowlist: set[tuple[str, str]] = _KIT_PYARROW_REFERENCE_IMPORTS
-) -> list[tuple[str, str]]:
-    """Imports outside the allowlist, plus allowlisted pairs imported anywhere but inside a function body."""
-    return sorted(
-        {(path, module) for path, module, in_function in _kit_plugin_import_sites(root_dir) if not in_function}
-        | (_kit_plugin_imports(root_dir) - allowlist)
-    )
-
-
-def _stale_kit_allowlist_entries(
-    root_dir: Path, allowlist: set[tuple[str, str]] = _KIT_PYARROW_REFERENCE_IMPORTS
-) -> list[tuple[str, str]]:
-    return sorted(allowlist - _kit_plugin_imports(root_dir))
+    found: set[tuple[str, str]] = set()
+    for rel_path, tree in _runtime_modules(root_dir):
+        if rel_path.parts[0] == "binary_model":
+            continue
+        for node, _fn in _walk_with_scope(tree):
+            found.update((rel_path.as_posix(), module) for module in _plugin_modules_imported_by(node))
+    return found
 
 
 def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
@@ -905,17 +870,12 @@ def test_extenders_shared_private_use_predicate(tmp_path: Path, body: str, flagg
 _KIT_ROOT = _REPO_ROOT / "mloda" / "testing"
 
 
-def test_kit_imports_no_community_or_enterprise_outside_the_pyarrow_reference_allowlist() -> None:
+def test_kit_imports_no_community_or_enterprise() -> None:
     assert _KIT_ROOT.is_dir(), f"expected {_KIT_ROOT} to exist"
-    offenders = _unallowed_kit_plugin_imports(_KIT_ROOT)
-    assert not offenders, (
-        f"mloda/testing imports mloda.community or mloda.enterprise outside the allowlist: {offenders}"
+    offenders = sorted(_kit_plugin_imports(_KIT_ROOT))
+    assert offenders == [], (
+        f"mloda/testing must not import mloda.community or mloda.enterprise at any depth: {offenders}"
     )
-
-
-def test_kit_pyarrow_reference_allowlist_has_no_stale_entries() -> None:
-    stale = _stale_kit_allowlist_entries(_KIT_ROOT)
-    assert stale == [], f"allowlist entries nothing under mloda/testing imports: {stale}"
 
 
 @pytest.mark.parametrize(
@@ -982,42 +942,6 @@ def test_kit_plugin_import_collector_skips_tests_and_top_level_binary_model(tmp_
 def test_kit_plugin_import_collector_scans_a_nested_binary_model_directory(tmp_path: Path) -> None:
     _write(tmp_path / "pkg" / "binary_model" / "m.py", "from mloda.community.x import y\n")
     assert _kit_plugin_imports(tmp_path) == {("pkg/binary_model/m.py", "mloda.community.x")}
-
-
-def test_kit_allowlist_split_reports_unallowed_and_stale_entries(tmp_path: Path) -> None:
-    _write(tmp_path / "a.py", "def f() -> None:\n    import mloda.community.a\n")
-    _write(tmp_path / "b.py", "import mloda.community.b\n")
-    allowlist = {("a.py", "mloda.community.a"), ("c.py", "mloda.community.c")}
-    assert _unallowed_kit_plugin_imports(tmp_path, allowlist) == [("b.py", "mloda.community.b")]
-    assert _stale_kit_allowlist_entries(tmp_path, allowlist) == [("c.py", "mloda.community.c")]
-
-
-_LAZY = "def f() -> None:\n    from mloda.community.a import y\n"
-_MODULE_LEVEL = "from mloda.community.a import y\n"
-
-
-@pytest.mark.parametrize(
-    ("body", "offends"),
-    [
-        pytest.param(_LAZY, False, id="function-level"),
-        pytest.param(_MODULE_LEVEL, True, id="module-level"),
-        pytest.param(_LAZY + _MODULE_LEVEL, True, id="lazy-and-module-level"),
-        pytest.param("class C:\n    from mloda.community.a import y\n", True, id="class-body"),
-        pytest.param(
-            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from mloda.community.a import y\n",
-            True,
-            id="type-checking-at-module-level",
-        ),
-        pytest.param(
-            'import importlib\nimportlib.import_module("mloda.community.a")\n', True, id="module-level-import-module"
-        ),
-    ],
-)
-def test_kit_allowlisted_import_must_sit_inside_a_function(tmp_path: Path, body: str, offends: bool) -> None:
-    pair = ("a.py", "mloda.community.a")
-    _write(tmp_path / "a.py", body)
-    assert _unallowed_kit_plugin_imports(tmp_path, {pair}) == ([pair] if offends else [])
-    assert _stale_kit_allowlist_entries(tmp_path, {pair}) == []
 
 
 kit_map = load_script("kit_modules", _REPO_ROOT / "scripts" / "kit_modules.py")

@@ -12,7 +12,7 @@ Resample collapses an irregular event stream onto a regular time grid: it floors
 
 ## A new category: `row_changing`
 
-Resample is the first member of the `row_changing/` category. Existing categories either preserve the row count (`row_preserving/`, `string/`) or reduce to one row per group (`aggregation/`). Resample is neither: it collapses events onto a regular grid, producing one row per occupied time bucket per partition. The standard row-by-row cross-framework comparison does not apply; resample is verified with a result-map comparison (keyed by partition + bucket) against the PyArrow reference, mirroring how `aggregation` is tested.
+Resample is the first member of the `row_changing/` category. Existing categories either preserve the row count (`row_preserving/`, `string/`) or reduce to one row per group (`aggregation/`). Resample is neither: it collapses events onto a regular grid, producing one row per occupied time bucket per partition. The standard row-by-row cross-framework comparison does not apply; resample is verified with a result-map comparison (keyed by partition + bucket) against the kit reference (`reference_resample`), mirroring how `aggregation` is tested.
 
 ---
 
@@ -46,9 +46,11 @@ value__resample_1_day_count
 - **One row per non-empty bucket.** Empty (gap) buckets are not emitted. The pandas backend groups by the floored timestamp rather than using `.resample()`, which would otherwise materialize gap rows that the group-by backends omit.
 - **Output columns.** The `partition_by` columns, the bucketed `time_column` (same name, holding the bucket start), and the aggregated column named exactly `{col}__resample_{n}_{unit}_{agg}`. Output row order is not guaranteed.
 - **Several features in one request.** Resample features sharing `partition_by`, `time_column` and bucket size are aggregated together (one output column each). Mixed bucket grids raise a `ValueError`; request them in separate `run_all` calls. Alternatively set the differing option in `Options(group=...)` so they compute separately. Different features that differ only in `data_type` or allowed frameworks batch into one step when one framework serves them all. The same name requested with two data types splits into two steps, and each reads the unreduced input.
-- **Null handling (pinned to the PyArrow oracle).** `mean` / `sum` / `min` / `max` skip nulls; `count` counts non-null values. A bucket that has rows but whose values are all null still emits, with `count = 0` and `mean` / `sum = None`. NaN, unlike null, propagates into `mean` / `sum` and counts toward `count`. `min` / `max` skip NaN (a mixed bucket ignores it), but an all-NaN bucket keeps NaN for `min` / `max` / `sum` / `mean`. Pandas cannot tell NaN from null and diverges here as the `nan_as_null` variant (opt in with `allow_variants: "nan_as_null"`); see [known divergences](known-divergences.md).
+- **Null handling (the reference contract).** `mean` / `sum` / `min` / `max` skip nulls; `count` counts non-null values. A bucket that has rows but whose values are all null still emits, with `count = 0` and `mean` / `sum = None`. NaN, unlike null, propagates into `mean` / `sum` and counts toward `count`. `min` / `max` skip NaN (a mixed bucket ignores it), but an all-NaN bucket keeps NaN for `min` / `max` / `sum` / `mean`. Pandas cannot tell NaN from null and diverges here as the `nan_as_null` variant (opt in with `allow_variants: "nan_as_null"`); see [known divergences](known-divergences.md).
 
-The all-null `sum` cell is the one place backends disagree by default (pandas → `0.0`, PyArrow → `None`); the implementation forces every backend to the PyArrow `None` (pandas `min_count=1`, polars `when(count > 0)` guard, DuckDB/SQL `SUM` returns `NULL` natively).
+The all-null `sum` cell is the one place backends disagree by default (pandas → `0.0`, PyArrow → `None`); the implementation forces every backend to the reference `None` (pandas `min_count=1`, polars `when(count > 0)` guard, DuckDB/SQL `SUM` returns `NULL` natively).
+
+The reference takes ms and us timestamps with no zone or UTC; other zones and ns are not judged.
 
 ---
 
@@ -56,7 +58,7 @@ The all-null `sum` cell is the one place backends disagree by default (pandas �
 
 | Backend | Mechanism |
 |---|---|
-| PyArrow (reference) | `floor_temporal` → `group_by([*partition, bucket]).aggregate(...)`. |
+| PyArrow | `floor_temporal` → `group_by([*partition, bucket]).aggregate(...)`. |
 | Pandas | `dt.floor` → `groupby([*partition, bucket], dropna=False).agg(...)` (`sum` with `min_count=1`). |
 | Polars (lazy) | floor via `dt.truncate` → `group_by(maintain_order=True)` with an all-null `sum` guard. |
 | DuckDB | epoch-anchored floor (not the native `time_bucket` 2000-01-03 anchor) → `GROUP BY`. |
@@ -105,4 +107,4 @@ See [Context Propagation](../feature-group-patterns/11-options.md#context-propag
 
 - [Time bucketization](11-time-bucketization.md) - The row-preserving floor that resample reuses for bucket alignment.
 - [Adding a new data operation](10-adding-new-operation.md) - Step 1 covers choosing a top-level category for a row-count-changing op.
-- [Reference implementation pattern](03-reference-implementation.md) - PyArrow is the resample oracle.
+- [Reference implementation pattern](03-reference-implementation.md) - Where the resample reference lives.

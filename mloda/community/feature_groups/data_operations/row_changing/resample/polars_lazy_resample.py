@@ -3,7 +3,7 @@
 Floors the time column with ``dt.truncate`` (the same shared duration-token
 helper used for bucketization), groups by ``(*partition_by, bucket)`` and
 aggregates. Polars ``sum()`` returns ``0`` for an all-null group, so the sum
-path coerces all-null buckets to ``None`` to match the PyArrow oracle.
+path coerces all-null buckets to ``None`` to match the reference.
 """
 
 from __future__ import annotations

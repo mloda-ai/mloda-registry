@@ -3,9 +3,9 @@
 Floors the time column with the shared ``floor_expr`` epoch-anchored
 expression (``DATE_TRUNC`` for n=1, ``time_bucket`` with a
 ``DATE '1970-01-01'`` origin for n>1 -- NOT the native 2000-01-03 anchor) so
-buckets align with the PyArrow oracle. SQL ``SUM`` / ``AVG`` ignore nulls and
+buckets align with the reference. SQL ``SUM`` / ``AVG`` ignore nulls and
 return NULL for all-null groups, and ``COUNT(col)`` counts non-null values, so
-the null semantics already match the oracle. Float ``max`` also skips NaN,
+the null semantics already match the reference. Float ``max`` also skips NaN,
 matching PyArrow's ``pc.max``.
 """
 

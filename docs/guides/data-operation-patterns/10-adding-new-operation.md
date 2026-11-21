@@ -107,7 +107,7 @@ Existing groups to crib from: `row_preserving/binning/base.py` (simple), `row_pr
 
 ## Step 3: Write the PyArrow Implementation first
 
-PyArrow is the reference. Write it first; it defines correctness for everything else.
+PyArrow is the first backend. Write it first; the kit reference (Step 4) defines correctness.
 
 File: `{category}/{your_op}/pyarrow_{your_op}.py`.
 
@@ -159,12 +159,10 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 
 class YourOpTestBase(DataOpsTestBase):
     @classmethod
-    def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.{category}.{your_op}.pyarrow_{your_op} import (
-            PyArrowYourOp,
-        )
+    def reference_calculate(cls, table: Any, features: Any) -> Any:
+        from mloda.testing.feature_groups.data_operations.{category}.{your_op}.reference import reference_your_op
 
-        return PyArrowYourOp
+        return reference_your_op(cls.feature_group_class(), table, features)
 
     @classmethod
     def supported_ops(cls) -> set[str]:
@@ -184,7 +182,7 @@ class YourOpTestBase(DataOpsTestBase):
 
 The test method calls `_compare_with_reference`, which runs both the Implementation under test and the reference and asserts they match. Every framework's concrete test class inherits it.
 
-Shipped modules under `mloda/testing/` may not import `mloda.community` or `mloda.enterprise` (a guard in `tests/test_end2end/test_dependency_direction.py` enforces it and allowlists only the existing lazy PyArrow reference imports). A new operation therefore ships a kit-owned reference function `(group, table, features)` and overrides `reference_calculate` as aggregation, rank and offset do (see [How the comparison works](03-reference-implementation.md#how-the-comparison-works)). The reference also ships a `pinning_rows.py` of hand-computed rows and one entry in the `PINNED` list of the pinning runner (runner: `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py`).
+Shipped modules under `mloda/testing/` may not import `mloda.community` or `mloda.enterprise` (a guard in `tests/test_end2end/test_dependency_direction.py` enforces it). A new operation therefore ships a kit-owned reference function `(group, table, features)` and overrides `reference_calculate` as aggregation, rank and offset do. `reference_implementation_class` is gone: a base that still defines it must override `reference_calculate` (see [How the comparison works](03-reference-implementation.md#how-the-comparison-works)). The reference also ships a `pinning_rows.py` of hand-computed rows and one entry in the `PINNED` list of the pinning runner (runner: `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py`).
 
 One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 
@@ -343,6 +341,6 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 
 - [Overview](01-overview.md) - Where this op fits in the category taxonomy.
 - [Row-preserving contract](02-row-preserving-contract.md) - The invariant row-preserving ops must honor.
-- [Reference implementation pattern](03-reference-implementation.md) - Why PyArrow goes first.
+- [Reference implementation pattern](03-reference-implementation.md) - Where the reference lives.
 - [Supported ops per framework](04-supported-ops.md) - How an Implementation's `supported` is read by the test bases.
 - [Framework-Specific](../feature-group-patterns/09-framework-specific.md) - `OperationFeatureGroup`, `Implementation`, `supported` and `divergences`.

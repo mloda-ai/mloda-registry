@@ -240,7 +240,7 @@ regression_test:
 -->
 
 - **Operations**: `row_preserving/frame_aggregate`, `.../offset`, `.../percentile`, `.../rank`.
-- **Reference behavior**: PyArrow is the reference *for correctness semantics* of the operations that keep a PyArrow-based reference, but it does not provide native rolling/expanding, LAG/LEAD, percentile, or rank. Frame aggregate has a pure Python reference. The reference functions for rank, offset and percentile (`reference_rank`, `reference_offset`, `reference_percentile`) live in pure Python over PyArrow arrays, and rank, offset and percentile have no PyArrow Implementation (requesting them on PyArrowTable alone is a resolution error).
+- **Reference behavior**: PyArrow does not provide native rolling/expanding, LAG/LEAD, percentile, or rank. Frame aggregate has a pure Python reference. The reference functions for rank, offset and percentile (`reference_rank`, `reference_offset`, `reference_percentile`) live in pure Python over PyArrow arrays, and rank, offset and percentile have no PyArrow Implementation (requesting them on PyArrowTable alone is a resolution error).
 - **Mitigation kind**: Excluded op (from the test suite and from routing, since no PyArrow Implementation exists).
 - **How**: Frame aggregate, offset, percentile and rank have no PyArrow test class, so the suite never compares against an implementation that does not exist. Aggregation and window aggregation do ship PyArrow Implementations but declare a reduced capability (`PyArrowAggregation.supported`, `PyArrowWindowAggregation.supported`), so `median` and `mode` are not offered there; their PyArrow test classes read it from the Implementation. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
 - **Regression signal**: Restoring the op on PyArrow requires both providing a native implementation and re-expanding the supported set; no silent skip is possible.
@@ -262,7 +262,7 @@ regression_test:
 
 - **Operations**: every row-preserving op that tags rows with an internal helper column, for example `frame_aggregate`, `offset`, `rank`, `window_aggregation`, plus the mode helpers shared by `aggregation` / `scalar_aggregate` / `window_aggregation`, and the SQL `binning` paths.
 - **Where it lives**: the non-SQL backends use `unique_helper_name(base, taken)` in `mloda/community/feature_groups/data_operations/helper_columns.py`; the SQL backends (DuckDB, SQLite) use `pick_helper_column_name(taken=...)` from `mloda_plugins` `sql_utils`.
-- **Reference behavior**: PyArrow's reference implementation does not need helper columns and is silent about column names starting with `__mloda_`.
+- **Reference behavior**: The PyArrow implementation does not need helper columns and is silent about column names starting with `__mloda_`.
 - **Native framework behavior**: An implementation that adds an internal helper column (for example to record original row order before a reordering window function) under a hardcoded name would overwrite user data or be dropped silently if the input already carried a column with that name.
 - **Mitigation kind**: Collision-free naming.
 - **How**: Before adding a helper, each backend requests a name that is provably absent from the current frame. `unique_helper_name(base, taken)` returns `base` if absent, else the lowest `base_N` (N>=1) not in `taken`; `pick_helper_column_name(taken=set(data.columns) | {feature_name})` does the equivalent for the SQL relations. There is no reserved namespace, so user columns of any name (including `__mloda_`-prefixed) are accepted by every backend.
@@ -398,11 +398,11 @@ regression_test:
 
 - **Operations**: `percentile`, `rank`, `offset`, `ffill`, `ema`, `sessionization`, `resample`, `aggregation`, `window_aggregation` (every PythonDict backend that partitions rows or reduces a value list).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`, `is_nan`, `nulls_last_sort_key`, `values_equal`, `reduce_agg`), consumed by every PythonDict backend under `row_preserving/` and `row_changing/resample/`.
-- **Reference behavior**: the aggregation and window_aggregation references merge all NaN keys of a column into a single group, distinct from the null/None group, as PyArrow's `Table.group_by()` does for the other operations. `pc.min`/`pc.max`/`pc.quantile` skip NaN like a missing value; an all-NaN (non-empty) group still returns NaN, not null.
+- **Reference behavior**: the aggregation and window_aggregation references merge all NaN keys of a column into a single group, distinct from the null/None group, as every other framework's grouping does. `pc.min`/`pc.max`/`pc.quantile` skip NaN like a missing value; an all-NaN (non-empty) group still returns NaN, not null.
 - **Native PythonDict behavior (unmitigated)**: `float('nan')` never equals another NaN, so a raw `tuple(col[i] for col in partition_cols)` group key splits every NaN-valued row into its own singleton group. Python's builtin `min()`/`max()`, `statistics.median`, and `sorted()`-based percentile interpolation propagate NaN instead of skipping it.
 - **Mitigation kind**: Implementation fix.
 - **How**: Most PythonDict backends build their group key through `group_key_value`, which substitutes a shared sentinel for any NaN component so NaN-keyed rows land in one group; `reduce_agg`'s `min`/`max`/`median` branches and `_percentile_of` filter NaN out of the reduced value list before reducing, matching PyArrow's skip-NaN semantics, and `min`/`max` return NaN (not null) when every non-null value in the group is NaN. `python_dict_sessionization.py` is the exception: it never calls `group_key_value`. Instead it sorts raw partition-key values through `partition_sort_key` (which gives NaN and None each their own contiguous sort tier) and compares adjacent sorted rows with `values_equal` (NaN-safe equality), so two NaN-keyed rows still land in one contiguous, un-poisoned session without ever building a normalized key.
-- **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow-oracle comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it. `test_median_skips_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `1.0`. `test_min_all_nan_returns_nan`/`test_max_all_nan_returns_nan` pin an all-NaN group to NaN, not null.
+- **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it. `test_median_skips_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `1.0`. `test_min_all_nan_returns_nan`/`test_max_all_nan_returns_nan` pin an all-NaN group to NaN, not null.
 
 ### Pandas and SQLite cannot tell NaN from null
 
@@ -531,47 +531,28 @@ regression_test:
 - **How**: Declared as a `gap` record on the Implementation. The column is treated as untyped and yields all nulls; in-range uint64 values serve int keys.
 - **Regression signal**: `test_typed_all_null_source_checks_key_family` pins the all-null output and `test_in_range_uint64_values_serve_int_keys` the uint64 case.
 
-### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
-
-<!-- machine-checked
-operation: resample
-framework: python_dict
-condition: group_key_value passes 0.0 and -0.0 through unchanged, and Python's float equality/hash merge them as dict keys
-mitigation_location:
-- mloda/community/feature_groups/data_operations/python_dict_helpers.py
-regression_test:
-- mloda/community/feature_groups/data_operations/tests/test_python_dict_helpers.py::TestGroupKeyValueMergesSignedZeroDocumentedDivergence::test_positive_and_negative_zero_collide_into_one_group
--->
-
-- **Operations**: `resample` (a PythonDict backend that groups rows by a float-valued partition column). The aggregating operations and the ordered rank, sessionization and percentile have a pure Python reference that merges the keys too, so they do not diverge.
-- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`).
-- **Reference behavior**: PyArrow's `Table.group_by()` hashes a float key bitwise, so `0.0` and `-0.0` (distinct bit patterns) land in two separate groups (verified directly: grouping `[0.0, -0.0]` produces 2 groups).
-- **Cross-framework check**: verified directly against each engine: Pandas' `.groupby()`, Polars' `.group_by()` and DuckDB's `GROUP BY` all merge `0.0` and `-0.0` into a single group too, the same as PythonDict. PyArrow is the only one of the four that treats them as distinct, so PythonDict's raw-dict-key grouping matches the majority. This operation is verified only informally, not by a per-operation test.
-- **Native PythonDict behavior**: `group_key_value` only special-cases NaN; `0.0` and `-0.0` pass through unchanged. Python's `float.__eq__` and `float.__hash__` both treat `0.0 == -0.0` as `True` with equal hashes, so a plain `dict`/`set` keyed by the raw value merges them into one group regardless of what `group_key_value` does.
-- **Mitigation kind**: Accepted divergence (no mitigation attempted), as the outlier rule of the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier) prescribes.
-- **How**: A `group_key_value`-only fix would not even be internally consistent: `values_equal` (used by the sort-based sessionization grouping path) and `partition_sort_key` both treat `0.0 == -0.0` on purpose (see `test_negative_zero_equals_zero`, `test_negative_zero_and_zero_sort_together`), so PythonDict's own sort-keyed sessionization backend would keep merging them while its dict-keyed backends stopped, a new internal inconsistency. A real fix needs all three functions to become sign-aware (`(value, math.copysign(1.0, value))` instead of the raw value on every hot grouping path), and would only trade PythonDict's current agreement with Pandas/Polars/DuckDB for agreement with PyArrow alone, a lateral move in total cross-framework divergence for a sign-of-zero edge case that is exceedingly rare in real partition columns. The divergence is documented instead of mitigated.
-- **Regression signal**: `test_positive_and_negative_zero_collide_into_one_group` pins that a `group_key_value`-keyed dict merges `0.0` and `-0.0` into a single group; a future change that makes `group_key_value` sign-aware would flip this assertion.
-
 ### PyArrow splits `0.0` and `-0.0`
 
 <!-- machine-checked
-operation: aggregation, window_aggregation
+operation: aggregation, window_aggregation, resample
 framework: pyarrow
 condition: PyArrow's Table.group_by() and count_distinct treat 0.0 and -0.0 as distinct, unlike the reference and the other frameworks
 mitigation_location:
 - mloda/community/feature_groups/data_operations/aggregation/pyarrow_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pyarrow_window_aggregation.py
+- mloda/community/feature_groups/data_operations/row_changing/resample/pyarrow_resample.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_signed_zero_partition_keys
 - mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_signed_zero_nunique_values
 - mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_signed_zero_partition_keys
 - mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_signed_zero_nunique_values
+- mloda/testing/feature_groups/data_operations/row_changing/resample/resample.py::ResampleTestBase::test_signed_zero_partition_keys
 -->
 
-- **Operations**: `aggregation` and `window_aggregation` (partition keys and `nunique` values).
+- **Operations**: `aggregation` and `window_aggregation` (partition keys and `nunique` values) and `resample` (partition keys).
 - **Native behavior**: PyArrow hashes a float bitwise, so `0.0` and `-0.0` land in two groups and count as two distinct values. The reference, Pandas, Polars, DuckDB, SQLite and PythonDict merge them.
 - **Mitigation kind**: Accepted divergence. A branch on the hot grouping path for a sign-of-zero edge case the canonical fixture does not exercise is not worth it. It is not a `divergences` record: a `value` record would penalize every PyArrow aggregation, and this key and value level edge case stays an entry ([When to add](#when-to-add-to-this-page)).
-- **Regression signal**: the reference's merge is pinned by rows in `aggregation_pinning_rows.py`; `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) pin each backend through `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation` and `TestPyArrowWindowAggregation` override to `False`).
+- **Regression signal**: the reference's merge is pinned by rows in `aggregation_pinning_rows.py`; `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) and `ResampleTestBase.test_signed_zero_partition_keys` pin each backend through `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation`, `TestPyArrowWindowAggregation` and `TestPyArrowResample` override to `False`).
 
 ### Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
 

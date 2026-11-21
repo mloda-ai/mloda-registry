@@ -19,3 +19,8 @@ class TestPyArrowResample(PyArrowTestMixin, ResampleTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PyArrowResample
+
+    @classmethod
+    def merges_signed_zero_keys(cls) -> bool:
+        """PyArrow's own Table.group_by() splits 0.0/-0.0 partition keys."""
+        return False

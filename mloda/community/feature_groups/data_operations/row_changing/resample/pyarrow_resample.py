@@ -1,7 +1,6 @@
-"""PyArrow implementation of resample (production AND reference oracle).
+"""PyArrow implementation of resample (a first backend).
 
-The cross-framework spec is pinned to this implementation: epoch-anchored
-``pyarrow.compute.floor_temporal`` floor, then ``Table.group_by`` /
+Epoch-anchored ``pyarrow.compute.floor_temporal`` floor, then ``Table.group_by`` /
 ``aggregate``. PyArrow's ``sum`` / ``mean`` over an all-null bucket return
 ``None`` and ``count`` returns the non-null count (0) -- that is the behaviour
 every other backend must match.
@@ -34,7 +33,7 @@ _PA_AGG_FUNCS: dict[str, str] = {
 
 
 class PyArrowResample(Implementation[ResampleFeatureGroup]):
-    """PyArrow backend; also the cross-framework reference implementation."""
+    """PyArrow backend."""
 
     feature_group = ResampleFeatureGroup
     compute_framework = PyArrowTable

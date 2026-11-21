@@ -13,6 +13,7 @@ from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
+from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
@@ -59,11 +60,14 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
     make_feature_set,
+    make_multi_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.pinning import (
     PinningRow,
     PinningTable,
 )
+from mloda.testing.feature_groups.data_operations.row_changing.resample.pinning_rows import RESAMPLE_PINNING
+from mloda.testing.feature_groups.data_operations.row_changing.resample.reference import reference_resample
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_rows import (
     POINT_ARITHMETIC_OVERFLOW,
     POINT_ARITHMETIC_PINNING,
@@ -136,6 +140,7 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (FfillFeatureGroup, reference_ffill, FFILL_PINNING),
     (SessionizationFeatureGroup, reference_sessionization, SESSIONIZATION_PINNING),
     (EmaFeatureGroup, reference_ema, EMA_PINNING),
+    (ResampleFeatureGroup, reference_resample, RESAMPLE_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -278,6 +283,10 @@ _STRING = (reference_string, StringFeatureGroup)
 _DATETIME = (reference_datetime, DateTimeFeatureGroup)
 _BINNING = (reference_binning, BinningFeatureGroup)
 _BUCKET = (reference_time_bucketization, TimeBucketizationFeatureGroup)
+_RESAMPLE = (reference_resample, ResampleFeatureGroup)
+_RESAMPLE_CTX: dict[str, Any] = {"time_column": "ts"}
+_RESAMPLE_MEAN = "v__resample_1_hour_mean"
+_RESAMPLE_TS = datetime(2024, 1, 1, 8, 5, tzinfo=timezone.utc)
 
 _REJECTION_PARAMS = [
     pytest.param(
@@ -600,6 +609,70 @@ _REJECTION_PARAMS = [
         "string",
         id="offset-diff-string-source",
     ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.int64(), [1]), "v": (pa.int64(), [1])},
+        "timestamp",
+        id="resample-int-time-column",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.string(), ["2024-01-01"]), "v": (pa.int64(), [1])},
+        "timestamp",
+        id="resample-string-time-column",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.date32(), [date(2024, 1, 1)]), "v": (pa.int64(), [1])},
+        "timestamp",
+        id="resample-date-time-column",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.timestamp("ns", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.int64(), [1])},
+        None,
+        id="resample-ns-time-column",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.timestamp("us", tz="+05:00"), [_RESAMPLE_TS]), "v": (pa.int64(), [1])},
+        None,
+        id="resample-fixed-offset-time-column",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.timestamp("us", tz="Europe/Berlin"), [_RESAMPLE_TS]), "v": (pa.int64(), [1])},
+        None,
+        id="resample-named-zone-time-column",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.timestamp("us", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.string(), ["x"])},
+        None,
+        id="resample-mean-string-source",
+    ),
+    pytest.param(
+        *_RESAMPLE,
+        "v__resample_1_hour_sum",
+        _RESAMPLE_CTX,
+        {"ts": (pa.timestamp("us", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.string(), ["x"])},
+        None,
+        id="resample-sum-string-source",
+    ),
 ]
 
 
@@ -697,3 +770,23 @@ class TestOffsetDiffTimestamp:
         assert column.type == pa.duration(unit)
         # 00:01:30 - 00:00:00 is 90 seconds
         assert column.to_pylist() == [None, timedelta(seconds=90)]
+
+
+class TestResampleReference:
+    def test_two_features_on_one_grid_give_one_row_per_bucket(self) -> None:
+        def at(hour: int, minute: int) -> datetime:
+            return datetime(2024, 1, 1, hour, minute, tzinfo=timezone.utc)
+
+        table = _typed_table(
+            ts=(pa.timestamp("us", tz="UTC"), [at(8, 5), at(8, 50), at(9, 10)]),
+            v=(pa.int64(), [1, 4, 6]),
+        )
+        features = make_multi_feature_set(
+            [("v__resample_1_hour_mean", _RESAMPLE_CTX), ("v__resample_1_hour_count", _RESAMPLE_CTX)]
+        )
+        result = reference_resample(ResampleFeatureGroup, table, features)
+        assert result.column_names == ["ts", "v__resample_1_hour_count", "v__resample_1_hour_mean"]
+        assert result.column("ts").to_pylist() == [at(8, 0), at(9, 0)]
+        # 08:00 holds 1 and 4, 09:00 holds 6
+        assert result.column("v__resample_1_hour_mean").to_pylist() == [2.5, 6.0]
+        assert result.column("v__resample_1_hour_count").to_pylist() == [2, 1]

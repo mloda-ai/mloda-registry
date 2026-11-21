@@ -4,7 +4,7 @@ Floors the time column with ``Series.dt.floor`` (the same shared fixed-freq
 aliases used for bucketization), groups by ``(*partition_by, bucket)`` with
 ``dropna=False`` and aggregates via the shared pandas helpers. ``sum`` uses
 ``min_count=1`` so an all-null bucket yields NaN (then coerced to ``None``),
-matching the PyArrow oracle rather than pandas' default ``0.0``.
+matching the reference rather than pandas' default ``0.0``.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
 
             if spec.agg != "count":
                 # NaN (all-null sum / mean) must surface as real None to match the
-                # PyArrow oracle (the harness asserts identity ``is None``).
+                # reference (the harness asserts identity ``is None``).
                 part[spec.feature_name] = (
                     part[spec.feature_name].astype(object).where(part[spec.feature_name].notna(), None)
                 )

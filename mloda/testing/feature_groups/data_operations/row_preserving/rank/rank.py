@@ -150,7 +150,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     def ranks_none_and_nan_apart(cls) -> bool:
         """Whether a None/NaN mix in order_by ranks as two tiers or one tie.
 
-        PyArrow >= 25 (the reference), DuckDB and Polars rank NaN and None as two
+        The reference, PyArrow >= 25, DuckDB and Polars rank NaN and None as two
         nulls-last tiers (NaN before None). An implementation that ties them into one
         run declares ``rank``, ``dense_rank`` or ``percent_rank`` in its ``divergences``.
         """
@@ -394,7 +394,7 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
 
     # -- None/NaN order_by per-backend semantics -----------------------------
     # Not in the canonical cross-framework fixture because backends genuinely
-    # disagree. The reference assertion pins the oracle ("apart"); the
+    # disagree. The reference assertion pins "apart"; the
     # ``ranks_none_and_nan_apart`` hook pins each backend's own choice.
 
     def test_none_and_nan_order_by_rank(self) -> None:
