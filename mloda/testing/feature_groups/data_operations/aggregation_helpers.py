@@ -1,4 +1,4 @@
-"""Pure Python kernel shared by the aggregation, window, frame, ordered and scalar references.
+"""Pure Python kernel shared by the aggregation, window, frame, ordered, scalar and resample references.
 
 Aggregates run over plain Python lists, independent of PyArrow compute and of the
 production PythonDict helpers. The contract is in docs/guides/data-operation-patterns/03-reference-implementation.md.
@@ -8,11 +8,29 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
+
+from mloda.testing.feature_groups.data_operations.helpers import masked_column
 
 if TYPE_CHECKING:
     import pyarrow as pa
+
+
+class AggregationSpec(Protocol):
+    """One aggregation as the group's loop hands it to the compute."""
+
+    @property
+    def feature_name(self) -> str: ...
+
+    @property
+    def source_col(self) -> str: ...
+
+    @property
+    def agg_type(self) -> str: ...
+
+    @property
+    def mask_spec(self) -> list[tuple[str, str, Any]] | None: ...
 
 
 # Sentinel key for NaN in mode, nunique and group keys: values come from to_pylist(), so every NaN
@@ -194,15 +212,13 @@ def declared_type(agg_type: str, source_type: pa.DataType) -> pa.DataType:
     raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES)
 
 
-def compute_groups(table: pa.Table, specs: list[Any], keys: list[str]) -> pa.Table:
+def compute_groups(table: pa.Table, specs: Sequence[AggregationSpec], keys: list[str]) -> pa.Table:
     """One row per ``keys`` group (first-occurrence order): the key columns, then one column per spec.
 
     Key columns keep the source type and the first row's value of each group. A spec carries
     ``feature_name``, ``source_col``, ``agg_type`` and ``mask_spec`` (``None`` for no mask).
     """
     import pyarrow as pa
-
-    from mloda.testing.feature_groups.data_operations.helpers import masked_column
 
     for spec in specs:
         if spec.agg_type not in SUPPORTED_AGG_TYPES:

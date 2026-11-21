@@ -23,7 +23,9 @@ def bucket_index(offset: int | float, width: int | float) -> int:
     return math.floor(offset / width)
 
 
-def assert_timestamp(table: pa.Table, column: str, operation: str = "time bucketization") -> None:
+def assert_timestamp(
+    table: pa.Table, column: str, operation: str = "time bucketization", *, allow_fixed_offset: bool = True
+) -> None:
     """Reject a column that is not a ms or us timestamp with no zone, UTC or a fixed offset."""
     import pyarrow as pa
 
@@ -33,6 +35,8 @@ def assert_timestamp(table: pa.Table, column: str, operation: str = "time bucket
     if arrow_type.unit not in ("ms", "us"):
         raise ValueError(f"Source column {column!r} has unit {arrow_type.unit!r}; the reference takes ms or us.")
     tz = arrow_type.tz
+    if tz is not None and tz != "UTC" and not allow_fixed_offset:
+        raise ValueError(f"Source column {column!r} has timezone {tz!r}; the reference takes no zone or UTC.")
     if tz is not None and tz != "UTC" and not _FIXED_OFFSET.match(tz):
         raise ValueError(f"Source column {column!r} has timezone {tz!r}; the reference takes UTC or a fixed offset.")
 

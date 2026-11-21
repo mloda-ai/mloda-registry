@@ -30,10 +30,7 @@ def _compute(
 ) -> pa.Table:
     import pyarrow as pa
 
-    assert_timestamp(table, time_column, "resample")
-    tz = table.schema.field(time_column).type.tz
-    if tz is not None and tz != "UTC":
-        raise ValueError(f"Time column {time_column!r} has timezone {tz!r}; the reference takes no zone or UTC.")
+    assert_timestamp(table, time_column, "resample", allow_fixed_offset=False)
     column = table.column(time_column)
     floored = [None if v is None else bucket_timestamp(v, "floor", n, unit) for v in column.to_pylist()]
     bucketed = table.set_column(

@@ -2,8 +2,7 @@
 
 Epoch-anchored ``pyarrow.compute.floor_temporal`` floor, then ``Table.group_by`` /
 ``aggregate``. PyArrow's ``sum`` / ``mean`` over an all-null bucket return
-``None`` and ``count`` returns the non-null count (0) -- that is the behaviour
-every other backend must match.
+``None`` and ``count`` returns the non-null count (0), which matches the reference.
 """
 
 from __future__ import annotations

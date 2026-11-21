@@ -99,6 +99,62 @@ RESAMPLE_PINNING = PinningTable(
             },
         ),
         _row(
+            "bucket",
+            "v__resample_1_hour_sum",
+            {
+                "p": (_S, ("a",) * 3),
+                "ts": (
+                    DataType.TIMESTAMP_MILLIS,
+                    (datetime(2023, 1, 1, 8, 10), datetime(2023, 1, 1, 8, 50), datetime(2023, 1, 1, 9, 0)),
+                ),
+                "v": (_I, (1, 2, 4)),
+            },
+            # a millisecond naive time column keeps its type: 08:10 and 08:50 floor to 08:00 (1 + 2), 09:00 is on the boundary
+            {
+                "p": (_S, ("a", "a")),
+                "ts": (DataType.TIMESTAMP_MILLIS, (datetime(2023, 1, 1, 8), datetime(2023, 1, 1, 9))),
+                "v__resample_1_hour_sum": (_I, (3, 4)),
+            },
+        ),
+        _row(
+            "bucket",
+            "v__resample_2_day_sum",
+            {
+                "p": (_S, _A4),
+                "ts": (
+                    _TS,
+                    (
+                        datetime(1969, 12, 30, 12, tzinfo=timezone.utc),
+                        datetime(1969, 12, 31, 12, tzinfo=timezone.utc),
+                        datetime(1970, 1, 1, 12, tzinfo=timezone.utc),
+                        datetime(1970, 1, 2, 12, tzinfo=timezone.utc),
+                    ),
+                ),
+                "v": (_I, (1, 2, 4, 8)),
+            },
+            # 2-day buckets count from the epoch (day 0 = 1970-01-01): days -2 and -1 floor to day -2 (1969-12-30), days 0 and 1 to day 0
+            {
+                "p": (_S, ("a", "a")),
+                "ts": (_TS, (datetime(1969, 12, 30, tzinfo=timezone.utc), datetime(1970, 1, 1, tzinfo=timezone.utc))),
+                "v__resample_2_day_sum": (_I, (3, 12)),
+            },
+        ),
+        _row(
+            "bucket",
+            "v__resample_7_minute_sum",
+            {
+                "p": (_S, _A4),
+                "ts": (_TS, (_t(8, 1), _t(8, 2), _t(8, 8), _t(8, 9))),
+                "v": (_I, (1, 2, 4, 8)),
+            },
+            # 2023-01-01 is day 19358 = 27875520 minutes, and 27875520 % 7 = 1, so boundaries fall at 07:55, 08:02, 08:09 (08:00 is not one)
+            {
+                "p": (_S, ("a", "a", "a")),
+                "ts": (_TS, (_t(7, 55), _t(8, 2), _t(8, 9))),
+                "v__resample_7_minute_sum": (_I, (1, 6, 8)),
+            },
+        ),
+        _row(
             "rows",
             "v__resample_1_hour_sum",
             {

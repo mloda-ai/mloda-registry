@@ -659,7 +659,7 @@ def _kit_plugin_imports(root_dir: Path) -> set[tuple[str, str]]:
     for rel_path, tree in _runtime_modules(root_dir):
         if rel_path.parts[0] == "binary_model":
             continue
-        for node, _fn in _walk_with_scope(tree):
+        for node in ast.walk(tree):
             found.update((rel_path.as_posix(), module) for module in _plugin_modules_imported_by(node))
     return found
 
@@ -890,6 +890,7 @@ def test_kit_imports_no_community_or_enterprise() -> None:
             "mloda.community.x",
             id="type-checking",
         ),
+        pytest.param("class C:\n    from mloda.community.x import y\n", "mloda.community.x", id="class-body"),
         pytest.param("import mloda.enterprise.x\n", "mloda.enterprise.x", id="plain-import"),
         pytest.param("from mloda import community\n", "mloda.community", id="from-mloda-import-community"),
         pytest.param("from mloda import enterprise\n", "mloda.enterprise", id="from-mloda-import-enterprise"),

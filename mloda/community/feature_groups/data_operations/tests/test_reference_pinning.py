@@ -638,7 +638,7 @@ _REJECTION_PARAMS = [
         _RESAMPLE_MEAN,
         _RESAMPLE_CTX,
         {"ts": (pa.timestamp("ns", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.int64(), [1])},
-        None,
+        "unit",
         id="resample-ns-time-column",
     ),
     pytest.param(
@@ -646,7 +646,7 @@ _REJECTION_PARAMS = [
         _RESAMPLE_MEAN,
         _RESAMPLE_CTX,
         {"ts": (pa.timestamp("us", tz="+05:00"), [_RESAMPLE_TS]), "v": (pa.int64(), [1])},
-        None,
+        "timezone",
         id="resample-fixed-offset-time-column",
     ),
     pytest.param(
@@ -654,7 +654,7 @@ _REJECTION_PARAMS = [
         _RESAMPLE_MEAN,
         _RESAMPLE_CTX,
         {"ts": (pa.timestamp("us", tz="Europe/Berlin"), [_RESAMPLE_TS]), "v": (pa.int64(), [1])},
-        None,
+        "timezone",
         id="resample-named-zone-time-column",
     ),
     pytest.param(
@@ -662,7 +662,7 @@ _REJECTION_PARAMS = [
         _RESAMPLE_MEAN,
         _RESAMPLE_CTX,
         {"ts": (pa.timestamp("us", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.string(), ["x"])},
-        None,
+        "not defined",
         id="resample-mean-string-source",
     ),
     pytest.param(
@@ -670,7 +670,7 @@ _REJECTION_PARAMS = [
         "v__resample_1_hour_sum",
         _RESAMPLE_CTX,
         {"ts": (pa.timestamp("us", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.string(), ["x"])},
-        None,
+        "not defined",
         id="resample-sum-string-source",
     ),
 ]

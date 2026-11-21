@@ -21,9 +21,9 @@ module mirrors the AGGREGATION test base: it builds a result map keyed by
 and separately asserts the output row count equals the number of non-empty
 buckets (the row-CHANGING assertion).
 
-Expected-value literals are hand-computed and pasted in; the kit reference
-(``reference_resample``) is checked against them in ``test_reference_pinning.py``, and the
-cross-framework test compares every backend against it. Raw pandas would differ on the
+Expected-value literals are hand-computed and pasted in and judge each backend. The kit
+reference (``reference_resample``) is pinned by its own rows in ``pinning_rows.py`` (run by
+``test_reference_pinning.py``), and the cross-framework test compares every backend against it. Raw pandas would differ on the
 all-null ``sum`` bucket: pandas returns ``0.0`` there, the reference returns ``None``.
 
 Fixture row layout (``id`` is a witness column; 12 rows, 2 interleaved

@@ -139,12 +139,12 @@ class DataOpsTestBase(ABC):
         """Run the kit reference on the canonical PyArrow table; every family overrides this."""
         raise NotImplementedError(
             "Subclass must override reference_calculate with a kit reference function, "
-            "e.g. `return calculate_with(MyImplementation, table, features)`"
+            "e.g. `return reference_my_op(cls.feature_group_class(), table, features)`"
         )
 
     @classmethod
     def merges_signed_zero_keys(cls) -> bool:
-        """Whether this framework merges 0.0 and -0.0 partition keys like the reference."""
+        """Whether this framework merges 0.0 and -0.0 (partition keys and nunique values) like the reference."""
         return True
 
     @classmethod
