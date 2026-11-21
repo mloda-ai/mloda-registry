@@ -186,7 +186,22 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
 
 
 def _is_test_module(module_name: str) -> bool:
-    return ".tests" in module_name
+    """True under a ``tests`` or ``testing`` package segment (test tooling imports pytest and the conformance suites)."""
+    return any(segment in ("tests", "testing") for segment in module_name.split(".")[1:])
+
+
+@pytest.mark.parametrize(
+    ("module_name", "expected"),
+    [
+        ("a.tests.b", True),
+        ("a.testing.b", True),
+        ("a.testing", True),
+        ("a.testing_utils.b", False),
+        ("a.b", False),
+    ],
+)
+def test_is_test_module_matches_tests_and_testing_segments(module_name: str, expected: bool) -> None:
+    assert _is_test_module(module_name) is expected
 
 
 def test_every_operation_group_declares_a_contract_version() -> None:

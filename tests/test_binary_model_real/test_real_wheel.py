@@ -37,11 +37,11 @@ from mloda.community.feature_groups.binary_model.contract import CONTRACT_VERSIO
 from mloda.community.feature_groups.binary_model.errors import LicenseInvalidError, LicenseMissingError
 from mloda.enterprise.feature_groups.anonymizer.anonymizer_feature_group import AnonymizerFeatureGroup
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
+from mloda.enterprise.licensing.testing.license_vectors import valid_license_token
 from mloda.testing.binary_model import VERSION_PATTERN
 from mloda.testing.binary_model.conformance import run_binary
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.hmac_sha256_reference import KNOWN_ANSWER_KEY, compute_expected_hmac_sha256_column
-from mloda.testing.binary_model.license_vectors import valid_license_token
 from tests.test_binary_model_real.probe_classification import (
     UNKNOWN_TEST_KEY_MESSAGE,
     probe_accepts_test_key,
