@@ -108,3 +108,65 @@ class TestDuckdbResampleNonUtcSession:
                 assert got is None, f"bucket {k!r}: expected None got {got!r}"
             else:
                 assert got == pytest.approx(exp, rel=1e-6), f"bucket {k!r}: {got!r} != {exp!r}"
+
+
+
+class TestDuckdbResampleFixedOffset:
+    """Pins the accepted DuckDB divergence for fixed-offset timestamp columns."""
+
+    def test_pinned_fixed_offset_row(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        import pyarrow as pa
+
+        from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
+            PyArrowResample,
+        )
+        from mloda.testing.feature_groups.data_operations.mixins.frameworks import pin_connection_utc_via_core
+
+        fixed_offset = timezone(timedelta(hours=5, minutes=30))
+        table = pa.table(
+            {
+                "ts": pa.array(
+                    [
+                        datetime(2024, 1, 1, 2, 0, tzinfo=fixed_offset),
+                        datetime(2024, 1, 1, 7, 0, tzinfo=fixed_offset),
+                    ],
+                    type=pa.timestamp("us", tz="+05:30"),
+                ),
+                "value": pa.array([10, 20], type=pa.int64()),
+            }
+        )
+        con = duckdb.connect()
+        pin_connection_utc_via_core(con)
+        relation = DuckdbRelation.from_arrow(con, table)
+        feature_name = "value__resample_1_day_count"
+        fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
+
+        actual_result = calculate_with(DuckdbResample, relation, fs).to_arrow_table()
+        reference_result = calculate_with(PyArrowResample, table, fs)
+
+        actual_buckets = list(actual_result.column("ts").to_pylist())
+        actual_counts = list(actual_result.column(feature_name).to_pylist())
+        reference_buckets = list(reference_result.column("ts").to_pylist())
+        reference_counts = list(reference_result.column(feature_name).to_pylist())
+
+        actual = {
+            bucket.isoformat(): count
+            for bucket, count in zip(actual_buckets, actual_counts)
+        }
+        reference = {
+            bucket.isoformat(): count
+            for bucket, count in zip(reference_buckets, reference_counts)
+        }
+
+        assert actual == {
+            "2023-12-31T00:00:00+00:00": 1,
+            "2024-01-01T00:00:00+00:00": 1,
+        }
+        assert reference == {"2024-01-01T00:00:00+05:30": 2}
+
+    def test_divergent_flags_are_declared(self) -> None:
+        from mloda.provider import DivergenceKind
+
+        assert any(record.kind is DivergenceKind.GAP for record in DuckdbResample.divergences)
