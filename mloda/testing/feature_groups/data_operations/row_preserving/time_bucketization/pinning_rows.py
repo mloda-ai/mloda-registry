@@ -131,6 +131,55 @@ TIME_BUCKETIZATION_PINNING = PinningTable(
         _row("wall_clock", "floor_1_hour", [(_m(2024, 1, 1, 2, 45), _m(2024, 1, 1, 2))], _AWARE),
         _row("wall_clock", "ceil_1_hour", [(_m(2024, 1, 1, 2, 45), _m(2024, 1, 1, 3))], _AWARE),
         _row("wall_clock", "round_1_minute", [(_m(2024, 1, 1, 2, 45, 30), _m(2024, 1, 1, 2, 46))], _AWARE),
+        # Month and year round on a fixed offset: tie up at the local midpoint, never shifted by the offset.
+        _row(
+            "wall_clock",
+            "round_1_month",
+            [
+                (_p(2024, 1, 16, 7), _p(2024, 1, 1)),
+                (_p(2024, 1, 16, 11, 59, 59), _p(2024, 1, 1)),
+                (_p(2024, 1, 16, 12), _p(2024, 2, 1)),
+            ],
+            _AWARE,
+        ),
+        _row(
+            "wall_clock",
+            "round_1_month",
+            [
+                (_f(2024, 1, 16, 11, 59, 59), _f(2024, 1, 1)),
+                (_f(2024, 1, 16, 12), _f(2024, 2, 1)),
+                (_f(2024, 1, 16, 16, 59, 59), _f(2024, 2, 1)),
+            ],
+            _AWARE,
+        ),
+        _row(
+            "wall_clock",
+            "round_1_month",
+            [(_m(2024, 1, 16, 11, 59, 59), _m(2024, 1, 1)), (_m(2024, 1, 16, 12), _m(2024, 2, 1))],
+            _AWARE,
+        ),
+        _row(
+            "wall_clock",
+            "round_1_year",
+            [
+                (_p(2023, 7, 2, 7), _p(2023, 1, 1)),
+                (_p(2023, 7, 2, 11, 59, 59), _p(2023, 1, 1)),
+                (_p(2023, 7, 2, 12), _p(2024, 1, 1)),
+            ],
+            _AWARE,
+        ),
+        _row(
+            "wall_clock",
+            "round_1_year",
+            [(_f(2023, 7, 2, 11, 59, 59), _f(2023, 1, 1)), (_f(2023, 7, 2, 12), _f(2024, 1, 1))],
+            _AWARE,
+        ),
+        _row(
+            "wall_clock",
+            "round_1_year",
+            [(_m(2023, 7, 2, 11, 59, 59), _m(2023, 1, 1)), (_m(2023, 7, 2, 12), _m(2024, 1, 1))],
+            _AWARE,
+        ),
         # the unit and the zone survive
         _row(
             "unit_kept",

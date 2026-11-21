@@ -48,7 +48,7 @@ Pandas' default `Period` alias for "week starting Monday" is `W-SUN` (week *endi
 
 ## Round tie-breaking: half-up
 
-Every midpoint rolls toward the *next* (higher) bucket. This matches PyArrow's `round_temporal`; Polars, Pandas, DuckDB and SQLite implement an explicit midpoint comparison (`2 * (value - floor) >= bucket length`) to match, because their native rounding differs or does not exist.
+Every midpoint rolls toward the *next* (higher) bucket. On naive, UTC and fixed-offset columns the midpoint lies on the column's own wall clock. PyArrow uses `round_temporal` except for month and year, where `round_temporal` moves the midpoint by the UTC offset, so it composes the result from floor and next boundary. Polars, Pandas, DuckDB and SQLite implement an explicit midpoint comparison (`2 * (value - floor) >= bucket length`), because their native rounding differs or does not exist. The reference does not judge named zones.
 
 | Input | Bucket | Output |
 |---|---|---|

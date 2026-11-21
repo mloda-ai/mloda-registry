@@ -693,6 +693,25 @@ regression_test:
 - **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
 - **Regression signal**: `tz_aware_source_reads_utc()` pins the UTC fields.
 
+### PyArrow `round_temporal` shifts the month and year midpoint by the UTC offset
+
+<!-- machine-checked
+operation: time_bucketization
+framework: pyarrow
+condition: round_temporal to month or year on a non-UTC zone moves the midpoint by the column's UTC offset
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/pyarrow_time_bucketization.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_pinned_row
+-->
+
+- **Operations**: `time_bucketization` (`round` to `month` or `year`).
+- **Reference behavior**: The midpoint lies on the column's own wall clock: January rounds up from the 16th at 12:00 on every fixed offset.
+- **Native PyArrow behavior**: `pc.round_temporal` moves that midpoint by the UTC offset: at `+05:00` it rounds up from 07:00, at `-05:00` 12:00 still rounds down.
+- **Mitigation kind**: Implementation fix.
+- **How**: For month and year the implementation composes the result from the floor, the next boundary and a native comparison instead of calling `round_temporal`.
+- **Regression signal**: The fixed-offset `wall_clock` rows of `round_1_month` and `round_1_year` in `test_pinned_row` fail if `round_temporal` comes back.
+
 ### DuckDB time bucketization buckets a non-UTC zone on the UTC wall clock
 
 <!-- machine-checked

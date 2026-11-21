@@ -11,10 +11,10 @@ duration since 1970-01-01), matching PyArrow's ``floor_temporal`` -- see
 computed from *wall-clock* fields rather than the true UTC instant. Week is
 ISO-Monday; month/year use a calendar ``.replace(...)`` floor. ``ceil``
 derives from floor plus one bucket, matching PyArrow's ``ceil_temporal``
-convention; ``round`` is half-up, matching PyArrow's ``round_temporal``
-default, with the floor-to-midpoint distance measured in true elapsed
-seconds (see ``_elapsed_seconds``) so a DST-shortened/lengthened day is not
-silently treated as exactly 24 hours.
+convention; ``round`` is half-up, the distance to the midpoint measured in true
+elapsed seconds (see ``_elapsed_seconds``; on a fixed offset that is the wall-clock
+midpoint), so a DST-shortened/lengthened day is not silently treated as exactly 24
+hours.
 """
 
 from __future__ import annotations
@@ -43,16 +43,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 # input (matches PyArrow's ``ceil_temporal`` quirk for ``week`` / ``month`` /
 # ``year``; fixed-freq units are idempotent on aligned input).
 _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
-
-# Units whose floor/ceil boundaries come from a `.replace()`-based civil-calendar
-# reset (month/year; unlike week, which derives from a day/epoch-anchored floor).
-# PyArrow's `round_temporal` midpoint comparison for these two units behaves as though
-# the timestamp's own UTC offset were added to its elapsed-time-from-floor a second
-# time, so a tz-aware round_1_month/round_1_year result can disagree with a naive or
-# UTC one for the same wall-clock date. PyArrow is this codebase's cross-framework
-# reference oracle, so this reproduces its behavior rather than the tz-invariant
-# midpoint a pure elapsed-seconds comparison would give.
-_ROUND_MIDPOINT_UTC_OFFSET_QUIRK_UNITS: frozenset[str] = frozenset({"month", "year"})
 
 
 def _elapsed_seconds(later: datetime, earlier: datetime) -> float:
@@ -146,10 +136,6 @@ def _round_dt(dt: datetime, n: int, unit: str) -> datetime:
     floored = _floor_dt(dt, n, unit)
     next_boundary = _next_boundary(floored, n, unit)
     offset = _elapsed_seconds(dt, floored)
-    if unit in _ROUND_MIDPOINT_UTC_OFFSET_QUIRK_UNITS and dt.tzinfo is not None:
-        utcoffset = dt.utcoffset()
-        if utcoffset is not None:
-            offset += utcoffset.total_seconds()
     length = _elapsed_seconds(next_boundary, floored)
     if offset * 2 >= length:
         return next_boundary

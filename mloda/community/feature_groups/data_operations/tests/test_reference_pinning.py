@@ -564,22 +564,6 @@ _REJECTION_PARAMS = [
         None,
         id="bucket-named-zone-source",
     ),
-    pytest.param(
-        *_BUCKET,
-        "x__round_1_month",
-        {},
-        {"x": (pa.timestamp("us", tz="+05:00"), [datetime(2024, 1, 16, 12, tzinfo=timezone.utc)])},
-        None,
-        id="bucket-round-month-non-utc-zone",
-    ),
-    pytest.param(
-        *_BUCKET,
-        "x__round_1_year",
-        {},
-        {"x": (pa.timestamp("us", tz="+05:00"), [datetime(2024, 1, 16, 12, tzinfo=timezone.utc)])},
-        None,
-        id="bucket-round-year-non-utc-zone",
-    ),
     pytest.param(*_BUCKET, "x__floor_1_day", {}, {"x": (pa.int64(), [1])}, None, id="bucket-int-source"),
     pytest.param(*_BUCKET, "x__floor_1_day", {}, {"x": (pa.string(), ["2024-01-01"])}, None, id="bucket-string-source"),
     pytest.param(
