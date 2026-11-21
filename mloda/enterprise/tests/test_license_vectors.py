@@ -1,4 +1,4 @@
-"""Tests for the signed license-token vectors in ``mloda.testing.binary_model.license_vectors``:
+"""Tests for the signed license-token vectors in ``mloda.enterprise.licensing.testing.license_vectors``:
 the deliberately public test keypair (``test-2026-01``), the per-state builders, and the literal
 tokens pinning every time-stable state the conformance kit distinguishes (spec: Test vectors;
 spec: Keys, kid, rotation)."""
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from mloda.enterprise.licensing.license_token import LicenseVerificationError, verify_license_token
-from mloda.testing.binary_model.license_vectors import (
+from mloda.enterprise.licensing.testing.license_vectors import (
     COMPACT_TIMESTAMP_TOKEN,
     EXPIRED_TOKEN,
     FLOAT_SCHEMA_VERSION_TOKEN,

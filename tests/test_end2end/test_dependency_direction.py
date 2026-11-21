@@ -752,12 +752,21 @@ def test_enterprise_runtime_code_uses_extenders_shared_only_through_public_names
     )
 
 
+_MLODA_TESTING_EXEMPT_DIR = Path("mloda/enterprise/licensing/testing")
+
+
+def _mloda_testing_importers_outside_exempt_dir(root_name: str, root_dir: Path) -> list[str]:
+    """Repo-relative paths of the files under root_dir importing mloda.testing, except those in the one exempt directory."""
+    paths = (Path("mloda") / root_name / path for path in _files_importing_mloda_testing(root_dir))
+    return [path.as_posix() for path in paths if _MLODA_TESTING_EXEMPT_DIR not in path.parents]
+
+
 def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None:
     offenders: list[str] = []
     for root_name in ("community", "enterprise"):
         root_dir = _REPO_ROOT / "mloda" / root_name
         assert root_dir.is_dir(), f"expected {root_dir} to exist"
-        offenders.extend(f"mloda/{root_name}/{path.as_posix()}" for path in _files_importing_mloda_testing(root_dir))
+        offenders.extend(_mloda_testing_importers_outside_exempt_dir(root_name, root_dir))
     assert not offenders, f"mloda.testing imported outside tests/: {offenders}"
 
 
@@ -782,6 +791,17 @@ def test_no_plugin_file_imports_core_testing_directly() -> None:
 def _write(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body)
+
+
+def test_mloda_testing_rule_exempts_only_the_enterprise_licensing_testing_directory(tmp_path: Path) -> None:
+    body = "from mloda.testing.base import FeatureGroupTestBase\n"
+    for rel in ("licensing/testing/a.py", "licensing/other.py", "licensing/testing_extra/b.py", "other/c.py"):
+        _write(tmp_path / rel, body)
+    assert _mloda_testing_importers_outside_exempt_dir("enterprise", tmp_path) == [
+        "mloda/enterprise/licensing/other.py",
+        "mloda/enterprise/licensing/testing_extra/b.py",
+        "mloda/enterprise/other/c.py",
+    ]
 
 
 def test_walker_catches_function_level_import(tmp_path: Path) -> None:
