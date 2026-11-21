@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -45,6 +45,14 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
 
     feature_group = ResampleFeatureGroup
     compute_framework = DuckDBFramework
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="a tz-aware fixed-offset column arrives as UTC, so resample groups by UTC boundaries instead of its source wall clock",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-uses-utc-day-boundaries-for-fixed-offset-timestamps",
+        ),
+    )
 
     @classmethod
     def calculate(
