@@ -21,6 +21,8 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     Uses ``pyarrow.compute.{floor,ceil,round}_temporal`` with
     ``week_starts_monday=True`` (ISO). Ceil is idempotent on aligned minute/hour/day;
     week advances an aligned value. Round ties go up, as pinned for all backends.
+    ``round_temporal`` serves every unit except month and year, which are composed from
+    floor and the next boundary because it moves their midpoint by the UTC offset.
     """
 
     feature_group = TimeBucketizationFeatureGroup
@@ -57,18 +59,30 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         column = data.column(source_col)
 
         if op == "floor":
-            result = pc.floor_temporal(column, multiple=n, unit=unit, week_starts_monday=True)
+            result = cls._floor(column, n, unit)
         elif op == "ceil":
-            result = pc.ceil_temporal(
-                column,
-                multiple=n,
-                unit=unit,
-                week_starts_monday=True,
-                ceil_is_strictly_greater=unit == "week",
-            )
+            result = cls._ceil(column, n, unit)
+        elif op == "round" and unit in ("month", "year"):
+            floor = cls._floor(column, n, unit)
+            upper = cls._ceil(column, n, unit)
+            result = pc.if_else(pc.greater_equal(pc.subtract(column, floor), pc.subtract(upper, column)), upper, floor)
         elif op == "round":
             result = pc.round_temporal(column, multiple=n, unit=unit, week_starts_monday=True)
         else:
             raise ValueError(f"Unsupported bucket op {op!r} for PyArrow; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         return data.append_column(feature_name, result)
+
+    @staticmethod
+    def _floor(column: Any, n: int, unit: str) -> Any:
+        return pc.floor_temporal(column, multiple=n, unit=unit, week_starts_monday=True)
+
+    @staticmethod
+    def _ceil(column: Any, n: int, unit: str) -> Any:
+        return pc.ceil_temporal(
+            column,
+            multiple=n,
+            unit=unit,
+            week_starts_monday=True,
+            ceil_is_strictly_greater=unit == "week",
+        )

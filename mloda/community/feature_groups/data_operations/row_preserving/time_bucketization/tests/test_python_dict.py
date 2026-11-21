@@ -253,20 +253,15 @@ class TestPythonDictRoundDstCrossing:
 
 
 class TestPythonDictRoundCalendarUnitVariableLength:
-    """``round_1_month`` / ``round_1_year`` must reproduce PyArrow's midpoint quirk for
-    tz-aware inputs, not just a tz-invariant true-elapsed-seconds comparison.
+    """``round_1_month`` / ``round_1_year`` on a named zone agree with PyArrow.
 
-    A pure elapsed-seconds midpoint (correct for fixed-freq units) diverges from
-    PyArrow's own ``round_temporal`` oracle for the calendar units, whose civil-calendar
-    floor/ceil boundaries are timezone-dependent: PyArrow's midpoint comparison behaves
-    as though the UTC offset were applied twice, so a tz-aware timestamp rounds
-    differently than a UTC/naive one on the identical wall-clock date. Sharpest near a
-    31-day month's midpoint. Compared against the live PyArrow oracle, mirroring
-    TestPythonDictNonUtcTimezoneSupported / TestPythonDictRoundDstCrossing above.
+    The reference does not judge named zones. The pinned values are ones that both a
+    wall-clock and an elapsed-time rule give, checked against the live PyArrow oracle.
     """
 
     def test_round_1_month_variable_length_month_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime
+        from zoneinfo import ZoneInfo
 
         pa = pytest.importorskip("pyarrow")
 
@@ -275,9 +270,8 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         )
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        # naive UTC 2025-05-16 00:00 is local 2025-05-16 10:00 in Sydney (+10:00). A pure
-        # elapsed-seconds midpoint puts that before May's true midpoint (2025-05-16 12:00
-        # local) and floors it; the live PyArrow oracle ceils it.
+        # naive UTC 2025-05-16 00:00 is local 2025-05-16 10:00 in Sydney (+10:00), before May's
+        # midpoint (the 16th at 12:00 local), so both rules floor it to the start of May.
         arrow_table = pa.table(
             {
                 "timestamp": pa.array(
@@ -295,9 +289,11 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         actual = result["timestamp__round_1_month"][0]
         expected = oracle.column("timestamp__round_1_month").to_pylist()[0]
         assert actual == expected, f"{actual!r} != oracle {expected!r}"
+        assert actual == datetime(2025, 5, 1, tzinfo=ZoneInfo("Australia/Sydney"))
 
     def test_round_1_year_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime
+        from zoneinfo import ZoneInfo
 
         pa = pytest.importorskip("pyarrow")
 
@@ -306,9 +302,8 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         )
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        # naive UTC 2025-07-01 16:00 is local 2025-07-02 02:00 in Sydney (+10:00), just past
-        # the true (tz-invariant) year midpoint of July 2 noon; a pure elapsed-seconds
-        # midpoint floors this to 2025-01-01, but the live PyArrow oracle ceils to 2026-01-01.
+        # naive UTC 2025-07-01 16:00 is local 2025-07-02 02:00 in Sydney (+10:00), hours before the
+        # year midpoint (July 2 at 12:00 local), so both rules floor it to the start of 2025.
         arrow_table = pa.table(
             {
                 "timestamp": pa.array(
@@ -326,3 +321,4 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         actual = result["timestamp__round_1_year"][0]
         expected = oracle.column("timestamp__round_1_year").to_pylist()[0]
         assert actual == expected, f"{actual!r} != oracle {expected!r}"
+        assert actual == datetime(2025, 1, 1, tzinfo=ZoneInfo("Australia/Sydney"))
