@@ -53,7 +53,7 @@ All siblings share one feature name. A discriminator option picks the sibling; e
 ```python
 from typing import Any, ClassVar
 
-from mloda.provider import DataCreatorFeatureGroup, FeatureSet, property_spec
+from mloda.provider import CoreDeclineCode, DataCreatorFeatureGroup, FeatureSet, property_spec, record_match_rejection
 from mloda.user import DataAccessCollection, Feature, FeatureName, Options
 
 
@@ -80,7 +80,18 @@ class BaseRetriever(DataCreatorFeatureGroup):
     ) -> bool:
         if str(feature_name) != cls.ROOT_FEATURE_NAME:
             return False
-        return options.get(cls.BACKEND) in cls.BACKENDS
+        backend = options.get(cls.BACKEND)
+        if backend in cls.BACKENDS:
+            return True
+        if cls.BACKENDS:  # the inert base stays silent
+            if backend is None:
+                reason = f"{cls.BACKEND} is required, one of: {', '.join(cls.BACKENDS)}"
+                code = CoreDeclineCode.REQUIRED_OPTION_ABSENT
+            else:
+                reason = f"{cls.BACKEND} {backend!r} not one of: {', '.join(cls.BACKENDS)}"
+                code = CoreDeclineCode.OPTION_VALUE_REJECTED
+            record_match_rejection(cls.__name__, reason, code=code)
+        return False
 
 
 class Bm25Retriever(BaseRetriever):
@@ -104,23 +115,15 @@ Feature("retrieved_passages", options=Options(group={"retrieve_backend": "faiss"
 Rules:
 
 - **Keep the value sets disjoint.** Two siblings claiming `"faiss"` fail with `Multiple feature groups found`. Pin this with a test that enables every sibling at once.
-- **Only the discriminator stays required.** Since mloda 0.15.0 a key without a default must be present for a sibling to match, through the overridden matcher too: omitting it matches no sibling, and the error names the absent key. Declare every other key with `default=None` ([Options](11-options.md#validation-and-conditional-requirements)).
-- **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): here `retrieve_backend="fiass"` ends in a bare `No feature groups found`. Required presence, defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
-- **Record why a sibling declined.** End the matcher like this so the error lists each sibling's reason (a matching sibling hides them). `NAME_STAGE` and `record_match_rejection` come from `mloda.provider`:
-
-```py
-backend = options.get(cls.BACKEND)
-if backend in cls.BACKENDS:
-    return True
-if cls.BACKENDS:  # the inert base stays silent
-    reason = f"{cls.BACKEND} {backend!r} not one of: {', '.join(cls.BACKENDS)}"
-    record_match_rejection(cls.__name__, reason, stage=NAME_STAGE)
-return False
-```
+- **Only the discriminator stays required.** Core's presence guard keeps an override's `False` and records nothing, so the matcher above records the absent key itself; that is why the error names it. Declare every other key with `default=None` ([Options](11-options.md#validation-and-conditional-requirements)).
+- **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): no declaration here validates `retrieve_backend`, so only the matcher's own record reports `"fiass"`. Required presence applies only when the override returns `True`; defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
+- **Record why a sibling declined.** The matcher above ends this way, so the error lists each sibling's reason (a matching sibling hides them):
 
 ```text
-  - Bm25Retriever (feature name): retrieve_backend 'fiass' not one of: bm25
-  - FaissRetriever (feature name): retrieve_backend 'fiass' not one of: faiss
+# no retrieve_backend
+  - Bm25Retriever (option value): retrieve_backend is required, one of: bm25 [code: required_option_absent]
+# retrieve_backend="fiass"
+  - Bm25Retriever (option value): retrieve_backend 'fiass' not one of: bm25 [code: option_value_rejected]
 ```
 
 - **Declare the discriminator as group** (`context=False`) and pass it in `group`: it changes which group computes the feature, so it is part of the feature's identity ([Options](11-options.md)).
@@ -237,7 +240,7 @@ A member that consumes another family's feature (graph RAG over a `knowledge_gra
 ## Test
 
 - Enable every sibling at once and resolve each value: exactly one match per value.
-- An unknown value or slot resolves to nothing.
+- An absent or unknown value, or an unknown slot, resolves to nothing.
 - Way 3: enable only your leaves with `PluginCollector.enabled_feature_groups`, so stock source groups such as `CsvFG` do not claim the same request.
 
 Resolve each value with `resolve_feature` instead of running it ([Debugging Matching](14-feature-matching.md#debugging-matching)). For the way 2 siblings:
@@ -259,6 +262,19 @@ def test_faiss_resolves_to_exactly_one_sibling() -> None:
 ```
 
 Pass both arguments: the pinned `plugin_collector` keeps other loaded plugins out of the result, and `compute_frameworks` keeps it independent of which compute framework plugins the process has imported (with none loaded, every matching sibling is reported as eliminated: `none of its compute frameworks are enabled for this run`).
+
+```python
+from mloda.testing.feature_group_shape import assert_feature_group_shape
+
+
+def test_siblings_keep_the_shape_contract() -> None:
+    for sibling, backend in ((Bm25Retriever, "bm25"), (FaissRetriever, "faiss")):
+        assert_feature_group_shape(
+            sibling, Options(group={"retrieve_backend": backend}), requests=["retrieved_passages"]
+        )
+```
+
+The options supply the required discriminator and `requests=` limits the probe to the served name (the class name is not one).
 
 ## Combines With
 
