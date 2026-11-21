@@ -32,6 +32,7 @@ import signal
 import subprocess  # nosec
 import sys
 import tempfile
+import textwrap
 from collections.abc import Callable, Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -973,6 +974,45 @@ def test_doc_python_blocks_do_not_write_to_fixed_tmp_paths() -> None:
         if m.group(1) in ("python", "py") and _FIXED_TMP in m.group(2)
     ]
     assert offenders == [], f"use a temp directory instead of a /tmp/ literal in: {sorted(set(offenders))}"
+
+
+def _duplicate_test_names(markdown: str) -> list[str]:
+    """Top-level ``test_*`` functions and ``Test*`` classes defined more than once across a doc's python fences.
+
+    The doc runner joins all ``python`` fences of a guide into one module, so a later definition
+    silently replaces an earlier one and the earlier test never runs.
+    """
+    # dedent: a fence inside a list item is indented.
+    source = "\n".join(textwrap.dedent(m.group(2)) for m in _FENCE_RE.finditer(markdown) if m.group(1) == "python")
+    names = [
+        node.name
+        for node in ast.parse(source).body
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"))
+        or (isinstance(node, ast.ClassDef) and node.name.startswith("Test"))
+    ]
+    return sorted({name for name in names if names.count(name) > 1})
+
+
+def test_doc_python_blocks_do_not_redefine_a_test() -> None:
+    duplicates: dict[str, list[str]] = {}
+    for doc in DISCOVERED_DOCS:
+        try:
+            dupes = _duplicate_test_names((REPO_ROOT / doc).read_text(encoding="utf-8"))
+        except SyntaxError as exc:
+            pytest.fail(f"{doc}: its python fences do not parse as one module: {exc}")
+        if dupes:
+            duplicates[doc] = dupes
+    assert duplicates == {}, f"rename the later definition, it hides the earlier test: {duplicates}"
+
+
+def test_duplicate_test_names_finds_a_redefined_function_and_class() -> None:
+    markdown = (
+        "```python\ndef test_shape():\n    pass\n\nclass TestHost:\n    pass\n```\n\n"
+        "```py\ndef test_shape():\n    pass\n```\n\n"
+        "```python\ndef test_shape():\n    pass\n\nclass TestHost:\n    pass\n\ndef helper():\n    pass\n```\n"
+    )
+    assert _duplicate_test_names(markdown) == ["TestHost", "test_shape"]
+    assert _duplicate_test_names("```python\ndef test_one():\n    pass\n```\n") == []
 
 
 @pytest.fixture(params=[True, False], ids=["fork", "subprocess"])
