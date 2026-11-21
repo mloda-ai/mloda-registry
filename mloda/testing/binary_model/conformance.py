@@ -16,8 +16,7 @@ pytest fixture, so subclassing with different attributes retargets the whole kit
 
 Re-exports the lower-level mechanics these classes build on: Arrow IPC stream mechanics
 (``arrow.py``), the "hash" and "hmac_sha256" reference algorithms (``hash_reference.py``,
-``hmac_sha256_reference.py``), and the signed
-license-token vectors and builders (``license_vectors.py``).
+``hmac_sha256_reference.py``).
 """
 
 from __future__ import annotations
@@ -57,7 +56,6 @@ from mloda.testing.binary_model import (
     USAGE_ERROR,
     hash_reference,
     hmac_sha256_reference,
-    license_vectors,
 )
 
 # Re-exported via __all__ below for external consumers, unused in this module's own logic now that
@@ -76,6 +74,7 @@ from mloda.testing.binary_model.arrow import (
     enumerate_ipc_message_types,
     read_arrow_stream,
 )
+from mloda.testing.binary_model.simulated_binary import simulated_license
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -281,9 +280,9 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
     Deliberately not a ``unittest.TestCase``: pytest collects ``test_*`` methods on any subclass
     named ``Test*``; this class itself isn't, so it's never collected standalone.
 
-    The default license fixtures are signed with the published test key
-    (``license_vectors.TEST_KID``); a binary built with only production keys must override these
-    fixture attributes/properties with real licenses (spec: Keys, kid, rotation).
+    The default license fixtures are the simulated binary's own; a host for a real binary overrides
+    these fixture attributes/properties with licenses it accepts, or mixes in a suite for its license
+    format.
     """
 
     # -- Class attributes a subclass overrides to point this kit at a different binary/contract --
@@ -316,52 +315,22 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
     # overriding ``plugin_id`` alone gets consistent fixtures automatically.
     @property
     def valid_license_text(self) -> str:
-        return license_vectors.valid_license_token([self.plugin_id])
+        return simulated_license(self.plugin_id)
 
     @property
     def expired_license_text(self) -> str:
-        return license_vectors.expired_license_token([self.plugin_id])
+        return simulated_license(self.plugin_id, "expired")
 
     @property
     def wrong_plugin_license_text(self) -> str:
-        return license_vectors.valid_license_token([self.wrong_plugin_id])
+        return simulated_license(self.wrong_plugin_id)
 
-    tampered_unparseable_text: ClassVar[str] = license_vectors.TAMPERED_UNPARSEABLE_TEXT
+    tampered_unparseable_text: ClassVar[str] = "{this is not json"
 
-    @property
-    def tampered_signature_text(self) -> str:
-        return license_vectors.tampered_signature_token([self.plugin_id])
-
-    missing_plugins_claim_text: ClassVar[str] = license_vectors.missing_plugins_claim_token()
-
-    @property
-    def timestamp_without_seconds_license_text(self) -> str:
-        return license_vectors.timestamp_without_seconds_license_token([self.plugin_id])
-
-    @property
-    def compact_timestamp_license_text(self) -> str:
-        return license_vectors.compact_timestamp_license_token([self.plugin_id])
-
-    @property
-    def unpadded_max_release_date_license_text(self) -> str:
-        return license_vectors.unpadded_max_release_date_license_token([self.plugin_id])
-
-    @property
-    def float_schema_version_license_text(self) -> str:
-        return license_vectors.float_schema_version_license_token([self.plugin_id])
-
-    # ``in_grace_license_text`` is time-relative: an override must return a token currently inside its grace window.
+    # ``in_grace_license_text`` is time-relative: an override must return a license currently inside its grace window.
     @property
     def in_grace_license_text(self) -> str:
-        return license_vectors.in_grace_license_token([self.plugin_id])
-
-    @property
-    def not_yet_valid_license_text(self) -> str:
-        return license_vectors.not_yet_valid_license_token([self.plugin_id])
-
-    @property
-    def unknown_kid_license_text(self) -> str:
-        return license_vectors.unknown_kid_license_token([self.plugin_id])
+        return simulated_license(self.plugin_id, "in_grace")
 
     # -- Overridable helpers for building a generically-valid config/data case --
 
@@ -431,6 +400,13 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         extra_args: Sequence[str] = (),
     ) -> subprocess.CompletedProcess[bytes]:
         return self._kit_run(["run", "--config", str(config_path), *extra_args], env, input_bytes)
+
+    def _kit_assert_license_file_rejected(self, valid_config_path: Path, tmp_path: Path, text: str) -> None:
+        """``text`` in a ``MLODA_LICENSE_FILE`` is rejected with ``LICENSE_INVALID``."""
+        license_path = write_text(tmp_path / "license.txt", text)
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
+        result = self._kit_run_with_config(valid_config_path, env)
+        assert_error_response(result, LICENSE_INVALID)
 
     def _kit_assert_success_table(
         self, result: subprocess.CompletedProcess[bytes], output_columns: dict[str, str], expected_rows: int
@@ -733,45 +709,19 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         "attr_name",
         [
             pytest.param("tampered_unparseable_text", id="unparseable_text"),
-            pytest.param("tampered_signature_text", id="tampered_signature"),
-            pytest.param("missing_plugins_claim_text", id="missing_plugins_claim"),
-            pytest.param("timestamp_without_seconds_license_text", id="timestamp_without_seconds"),
-            pytest.param("compact_timestamp_license_text", id="compact_timestamp"),
-            pytest.param("unpadded_max_release_date_license_text", id="unpadded_max_release_date"),
-            pytest.param("float_schema_version_license_text", id="float_schema_version"),
         ],
     )
     def test_license_tampered_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A rejected token body (text that is not a token at all, a broken signature, a
-        well-signed payload missing the required ``plugins`` claim, or a well-signed token with a
-        malformed claim format): exit 3 (spec: Verification steps 2, 4, 5; contract: License). Parametrized by attribute name, looked up via
-        ``getattr`` at test-run time, since the fixtures are instance attributes, not module
-        constants."""
-        tampered_text = getattr(self, attr_name)
-        license_path = write_text(tmp_path / "license.txt", tampered_text)
-        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = self._kit_run_with_config(valid_config_path, env)
-        assert_error_response(result, LICENSE_INVALID)
+        """A rejected license body (text that is not a license at all): exit 3 (contract: License).
+        Parametrized by attribute name, looked up via ``getattr`` at test-run time, since the fixtures
+        are instance attributes, not module constants."""
+        self._kit_assert_license_file_rejected(valid_config_path, tmp_path, getattr(self, attr_name))
 
     def test_license_in_grace_is_accepted(self, valid_config_path: Path) -> None:
         """An in-grace token (past ``exp``, inside ``grace_days``) is accepted and the run succeeds
         with contract-conforming output (spec: Verification step 6; contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.in_grace_license_text})
         self._kit_assert_licensed_run_succeeds(valid_config_path, env)
-
-    def test_license_not_yet_valid_is_invalid(self, valid_config_path: Path) -> None:
-        """A token whose ``nbf`` lies in the future: exit 3, not yet valid (spec: Verification
-        step 6; contract: License)."""
-        env = self.platform_env({"MLODA_LICENSE_KEY": self.not_yet_valid_license_text})
-        result = self._kit_run_with_config(valid_config_path, env)
-        assert_error_response(result, LICENSE_INVALID)
-
-    def test_license_unknown_kid_is_invalid(self, valid_config_path: Path) -> None:
-        """A well-signed token under a ``kid`` the verifier's key map does not contain: exit 3
-        (spec: Verification step 3; contract: License)."""
-        env = self.platform_env({"MLODA_LICENSE_KEY": self.unknown_kid_license_text})
-        result = self._kit_run_with_config(valid_config_path, env)
-        assert_error_response(result, LICENSE_INVALID)
 
     def test_license_checked_before_config_valid_license_broken_config(
         self, valid_license_file: Path, tmp_path: Path

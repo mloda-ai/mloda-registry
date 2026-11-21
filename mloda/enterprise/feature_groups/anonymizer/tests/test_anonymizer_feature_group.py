@@ -55,7 +55,7 @@ from mloda.testing.binary_model.hmac_sha256_reference import (
     KNOWN_ANSWER_VALUE,
     compute_expected_hmac_sha256_column,
 )
-from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.binary_model.simulated_binary import simulated_license
 
 STUB_CMD = [
     sys.executable,
@@ -64,7 +64,7 @@ STUB_CMD = [
     "--plugin-id",
     AnonymizerFeatureGroup.BINARY_PLUGIN_ID,
 ]
-VALID_LICENSE_KEY = valid_license_token([AnonymizerFeatureGroup.BINARY_PLUGIN_ID])
+VALID_LICENSE_KEY = simulated_license(AnonymizerFeatureGroup.BINARY_PLUGIN_ID)
 LIST_UTF8_ROWS: list[list[str | None] | None] = [["alpha", "beta"], None, [], ["gamma", None]]
 KEY_HANDLE = "anonymizer-test-pii-key"
 LEFTOVER_ENV_VALUE = "LEFTOVER_PII_KEY_ENV_VALUE"
@@ -385,7 +385,7 @@ class TestCalculateFeatureRejections:
 
     def test_license_for_another_plugin_id_raises_license_invalid(self, key_handle: str) -> None:
         class _WrongLicenseAnonymizer(StubAnonymizer):
-            LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
+            LICENSE_KEY_OVERRIDE = simulated_license("example_binary")
 
         table = pa.table({"email": ["alpha"]})
         with pytest.raises(LicenseInvalidError):

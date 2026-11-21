@@ -1,4 +1,4 @@
-"""Fake ``hmac_sha256`` binary for tests only; accepts test-signed licenses only.
+"""Fake ``hmac_sha256`` binary for tests only; accepts the simulated license.
 
 Run: ``python -m mloda.testing.binary_model.hmac_fake_binary [--plugin-id <id>]``. The id is argv because the mixin
 passes a minimal environment."""
@@ -6,6 +6,7 @@ passes a minimal environment."""
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from mloda.testing.binary_model import simulated_binary
@@ -14,7 +15,12 @@ from mloda.testing.binary_model.hmac_sha256_reference import (
     compute_expected_hmac_sha256_column,
     parse_hmac_key,
 )
-from mloda.testing.binary_model.simulated_binary import FakeBinary, FakeOperation, FakeUsageError
+from mloda.testing.binary_model.simulated_binary import (
+    FakeBinary,
+    FakeOperation,
+    FakeUsageError,
+    check_simulated_license,
+)
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -53,12 +59,12 @@ def _compute_hmac_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
 HMAC_OPERATION = FakeOperation(OPERATION, (OUTPUT_KEY,), _compute_hmac_output, _validate_hmac_config)
 
 
-def main() -> int:
+def main(check_license: Callable[[str, str], bool] = check_simulated_license) -> int:
     plugin_id = PLUGIN_ID
     if len(sys.argv) >= 3 and sys.argv[1] == "--plugin-id":
         plugin_id = sys.argv[2]
         del sys.argv[1:3]
-    return simulated_binary.main(FakeBinary(plugin_id, (HMAC_OPERATION,), COLUMN_TYPES))
+    return simulated_binary.main(FakeBinary(plugin_id, (HMAC_OPERATION,), COLUMN_TYPES, check_license=check_license))
 
 
 if __name__ == "__main__":

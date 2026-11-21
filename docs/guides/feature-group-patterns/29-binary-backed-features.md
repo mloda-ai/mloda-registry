@@ -146,22 +146,22 @@ The license never influences matching. A binary-backed FeatureGroup matches on i
 
 ## Test
 
-Point the class at the simulated binary from `mloda-testing[binary-model]` and give it a signed test license (the vectors are signed with the published test key):
+Point the class at the simulated binary from `mloda-testing[binary-model]` and give it the simulated license:
 
 ```python
 import sys
 
-from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.binary_model.simulated_binary import simulated_license
 
 
 class StubExample(BinaryExampleFeatureGroup):
     BINARY_COMMAND_OVERRIDE = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
-    LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
+    LICENSE_KEY_OVERRIDE = simulated_license("example_binary")
 ```
 
 A subclass that matches the same features takes over its parent wherever its module is imported ([matching process](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/feature-group-matching.md#matching-process)); an entry point imports it in every environment that installs the package. Keep stubs in test modules and name the class a test means with `PluginCollector.enabled_feature_groups`. This also matters because the kit's `binary-model` extra installs the `mloda-enterprise` bundle, whose entry points make its FeatureGroups discoverable: a copy of the Complete Example would otherwise match alongside the real group (`Multiple feature groups found`).
 
-Other license states come from the same module: `expired_license_token`, `in_grace_license_token` and `expiring_license_token(plugins, left=timedelta(hours=6))`, which signs `exp = now + left` for testing a pre-expiry notice.
+Other license states come from the same function: `simulated_license(plugin_id, "expired")` and `simulated_license(plugin_id, "in_grace")`.
 
 These vectors are signed with throwaway test keys. Real issuance signs and verifies with `mloda.enterprise.licensing.license_token`, behind `mloda-enterprise[ed25519]`, and the private signing key stays out of every repo and CI.
 
@@ -173,7 +173,7 @@ For `AnonymizerFeatureGroup` subclasses, `mloda-testing[binary-model]` also ship
 import sys
 
 from mloda.enterprise.feature_groups.anonymizer.anonymizer_feature_group import AnonymizerFeatureGroup
-from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.binary_model.simulated_binary import simulated_license
 
 
 class StubAnonymizer(AnonymizerFeatureGroup):
@@ -184,10 +184,10 @@ class StubAnonymizer(AnonymizerFeatureGroup):
         "--plugin-id",
         "anonymizer_binary",
     ]
-    LICENSE_KEY_OVERRIDE = valid_license_token(["anonymizer_binary"])
+    LICENSE_KEY_OVERRIDE = simulated_license("anonymizer_binary")
 ```
 
-Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts test-signed licenses only.
+Expected values come from `mloda.testing.binary_model.hmac_sha256_reference.compute_expected_hmac_sha256_column`. It accepts the simulated license.
 
 To fake a binary with another operation, build a `FakeBinary` of `FakeOperation`s and call `simulated_binary.main(binary)` from your own module's `__main__`. A `validate` raises `FakeUsageError` for a usage error, and its message goes to stderr as-is, so it must not carry parameter values; `hmac_fake_binary` is the worked example.
 
@@ -202,7 +202,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.binary_model.simulated_binary import simulated_license
 
 
 def write_fake_wheel(root: Path) -> None:
@@ -218,7 +218,7 @@ def write_fake_wheel(root: Path) -> None:
 
 
 def child_environment(root: Path) -> dict[str, str]:
-    env = {**os.environ, "MLODA_LICENSE_KEY": valid_license_token(["example_binary"])}
+    env = {**os.environ, "MLODA_LICENSE_KEY": simulated_license("example_binary")}
     env.pop("MLODA_LICENSE_FILE", None)  # the binary reads the file first
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(root), env.get("PYTHONPATH")]))
     return env

@@ -43,7 +43,11 @@ from mloda.testing.binary_model.conformance import (
     write_json,
     write_text,
 )
-from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.binary_model.simulated_binary import (
+    FakeLicenseError,
+    check_simulated_license,
+    simulated_license,
+)
 from mloda.testing.tests._module_probe import run_module_probe
 from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_OPERATION
 from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_OUTPUT_KEY
@@ -57,15 +61,7 @@ _VALID_MARKER = "marker-valid-license-text"
 _EXPIRED_MARKER = "marker-expired-license-text"
 _WRONG_PLUGIN_MARKER = "marker-wrong-plugin-license-text"
 _UNPARSEABLE_MARKER = "marker-tampered-unparseable-text"
-_TAMPERED_SIGNATURE_MARKER = "marker-tampered-signature-text"
-_MISSING_PLUGINS_CLAIM_MARKER = "marker-missing-plugins-claim-text"
 _IN_GRACE_MARKER = "marker-in-grace-license-text"
-_NOT_YET_VALID_MARKER = "marker-not-yet-valid-license-text"
-_UNKNOWN_KID_MARKER = "marker-unknown-kid-license-text"
-_TIMESTAMP_WITHOUT_SECONDS_MARKER = "marker-timestamp-without-seconds-license-text"
-_COMPACT_TIMESTAMP_MARKER = "marker-compact-timestamp-license-text"
-_UNPADDED_MAX_RELEASE_DATE_MARKER = "marker-unpadded-max-release-date-license-text"
-_FLOAT_SCHEMA_VERSION_MARKER = "marker-float-schema-version-license-text"
 
 
 class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConformanceBase):
@@ -144,38 +140,8 @@ class _OverriddenLicenseVectors(BinaryModelConformanceBase):
     tampered_unparseable_text: ClassVar[str] = _UNPARSEABLE_MARKER
 
     @property
-    def tampered_signature_text(self) -> str:
-        return _TAMPERED_SIGNATURE_MARKER
-
-    missing_plugins_claim_text: ClassVar[str] = _MISSING_PLUGINS_CLAIM_MARKER
-
-    @property
     def in_grace_license_text(self) -> str:
         return _IN_GRACE_MARKER
-
-    @property
-    def not_yet_valid_license_text(self) -> str:
-        return _NOT_YET_VALID_MARKER
-
-    @property
-    def unknown_kid_license_text(self) -> str:
-        return _UNKNOWN_KID_MARKER
-
-    @property
-    def timestamp_without_seconds_license_text(self) -> str:
-        return _TIMESTAMP_WITHOUT_SECONDS_MARKER
-
-    @property
-    def compact_timestamp_license_text(self) -> str:
-        return _COMPACT_TIMESTAMP_MARKER
-
-    @property
-    def unpadded_max_release_date_license_text(self) -> str:
-        return _UNPADDED_MAX_RELEASE_DATE_MARKER
-
-    @property
-    def float_schema_version_license_text(self) -> str:
-        return _FLOAT_SCHEMA_VERSION_MARKER
 
 
 def _license_text_that_reached_the_binary(env: dict[str, str], channel: str) -> str:
@@ -200,53 +166,7 @@ def _license_text_that_reached_the_binary(env: dict[str, str], channel: str) -> 
             _UNPARSEABLE_MARKER,
             id="unparseable_text",
         ),
-        pytest.param(
-            "test_license_tampered_is_invalid",
-            ("tampered_signature_text",),
-            _LICENSE_FILE,
-            _TAMPERED_SIGNATURE_MARKER,
-            id="tampered_signature",
-        ),
-        pytest.param(
-            "test_license_tampered_is_invalid",
-            ("missing_plugins_claim_text",),
-            _LICENSE_FILE,
-            _MISSING_PLUGINS_CLAIM_MARKER,
-            id="missing_plugins_claim",
-        ),
-        pytest.param(
-            "test_license_tampered_is_invalid",
-            ("timestamp_without_seconds_license_text",),
-            _LICENSE_FILE,
-            _TIMESTAMP_WITHOUT_SECONDS_MARKER,
-            id="timestamp_without_seconds",
-        ),
-        pytest.param(
-            "test_license_tampered_is_invalid",
-            ("compact_timestamp_license_text",),
-            _LICENSE_FILE,
-            _COMPACT_TIMESTAMP_MARKER,
-            id="compact_timestamp",
-        ),
-        pytest.param(
-            "test_license_tampered_is_invalid",
-            ("unpadded_max_release_date_license_text",),
-            _LICENSE_FILE,
-            _UNPADDED_MAX_RELEASE_DATE_MARKER,
-            id="unpadded_max_release_date",
-        ),
-        pytest.param(
-            "test_license_tampered_is_invalid",
-            ("float_schema_version_license_text",),
-            _LICENSE_FILE,
-            _FLOAT_SCHEMA_VERSION_MARKER,
-            id="float_schema_version",
-        ),
         pytest.param("test_license_in_grace_is_accepted", (), _LICENSE_KEY, _IN_GRACE_MARKER, id="in_grace"),
-        pytest.param(
-            "test_license_not_yet_valid_is_invalid", (), _LICENSE_KEY, _NOT_YET_VALID_MARKER, id="not_yet_valid"
-        ),
-        pytest.param("test_license_unknown_kid_is_invalid", (), _LICENSE_KEY, _UNKNOWN_KID_MARKER, id="unknown_kid"),
     ],
 )
 def test_overriding_license_vectors_retargets_the_check(
@@ -809,7 +729,7 @@ def test_main_runs_a_custom_fake_operation(
     input_path = tmp_path / "input.arrows"
     input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
     output_path = tmp_path / "output.arrows"
-    monkeypatch.setenv("MLODA_LICENSE_KEY", valid_license_token(["shout_binary"]))
+    monkeypatch.setenv("MLODA_LICENSE_KEY", simulated_license("shout_binary"))
     monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
     monkeypatch.setattr(
         "sys.argv",
@@ -829,6 +749,100 @@ def test_main_runs_a_custom_fake_operation(
     else:
         assert code == 0, err
         assert read_arrow_stream(output_path.read_bytes()).to_pydict() == {"out": ["X", "Y"]}
+
+
+@pytest.mark.parametrize(
+    ("text", "plugin_id", "expected"),
+    [
+        pytest.param("simulated-license:p:valid", "p", False, id="valid"),
+        pytest.param("simulated-license:p:in_grace", "p", True, id="in_grace"),
+        pytest.param("simulated-license:p:expired", "p", "license expired", id="expired"),
+        pytest.param("simulated-license:q:valid", "p", "license does not cover this plugin", id="other_valid"),
+        pytest.param("simulated-license:q:in_grace", "p", "license does not cover this plugin", id="other_in_grace"),
+        pytest.param("simulated-license:q:expired", "p", "license does not cover this plugin", id="other_expired"),
+        pytest.param("", "p", "not a simulated license", id="empty"),
+        pytest.param("other-prefix:p:valid", "p", "not a simulated license", id="wrong_prefix"),
+        pytest.param("simulated-license:p", "p", "not a simulated license", id="two_fields"),
+        pytest.param("simulated-license:p:valid:x", "p", "not a simulated license", id="four_fields"),
+        pytest.param("simulated-license:p:bogus", "p", "not a simulated license", id="unknown_state"),
+    ],
+)
+def test_check_simulated_license_states_and_fixed_reasons(text: str, plugin_id: str, expected: bool | str) -> None:
+    """Accepts its own simulated license (True inside grace); every rejection is one of three fixed
+    reasons that never echo the input text."""
+    if isinstance(expected, bool):
+        assert check_simulated_license(text, plugin_id) is expected
+        return
+    with pytest.raises(FakeLicenseError) as exc_info:
+        check_simulated_license(text, plugin_id)
+    assert str(exc_info.value) == expected
+    if text and expected == "not a simulated license":
+        assert text not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("outcome", ["accepts", "grace", "rejects", "crashes"])
+def test_main_calls_the_custom_license_check_and_reports_its_outcome(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, outcome: str
+) -> None:
+    """A custom `FakeBinary.check_license` gets the stripped text and plugin id; `FakeLicenseError` exits 3 with
+    its reason, True logs the grace line, False is silent, any other exception exits 6."""
+    from mloda.testing.binary_model import simulated_binary
+
+    calls: list[tuple[str, str]] = []
+
+    def check(text: str, plugin_id: str) -> bool:
+        calls.append((text, plugin_id))
+        if outcome == "rejects":
+            raise FakeLicenseError("x")
+        if outcome == "crashes":
+            raise RuntimeError("secret-value")
+        return outcome == "grace"
+
+    def compute(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
+        name = config["output_columns"]["result"]
+        values = [v.upper() for v in table.column(config["input_columns"][0]).to_pylist()]
+        return pa.schema([pa.field(name, pa.string())]), [pa.array(values, type=pa.string())]
+
+    op = simulated_binary.FakeOperation("shout", ("result",), compute)
+    binary = simulated_binary.FakeBinary("shout_binary", (op,), check_license=check)
+    config_path = write_json(
+        tmp_path / "config.json",
+        {
+            "input_columns": ["col_a"],
+            "operation": "shout",
+            "parameters": {},
+            "output_columns": {"result": "out"},
+        },
+    )
+    input_path = tmp_path / "input.arrows"
+    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
+    output_path = tmp_path / "output.arrows"
+    monkeypatch.setenv("MLODA_LICENSE_KEY", "  padded-text \n")
+    monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)],
+    )
+
+    code = simulated_binary.main(binary)
+
+    err = capsys.readouterr().err
+    assert calls == [("padded-text", "shout_binary")]
+    if outcome == "rejects":
+        assert code == 3
+        error = json.loads(err.strip().splitlines()[-1])
+        assert error["code"] == 3
+        assert error["message"] == "MLODA_LICENSE_KEY: x"
+        assert error["reason"] == "x"
+    elif outcome == "crashes":
+        assert code == 6
+        assert "secret-value" not in err
+    else:
+        assert code == 0, err
+        grace_line = "MLODA_LICENSE_KEY: license accepted inside its grace window"
+        assert (grace_line in err.splitlines()) == (outcome == "grace")
+        if outcome == "accepts":
+            assert err == ""
 
 
 @pytest.mark.parametrize(
@@ -877,11 +891,12 @@ def test_fake_binary_rejects_invalid_operations(operations: str) -> None:
         ),
     ],
 )
-def test_fake_binary_run_does_not_import_pandas(
+def test_fake_binary_run_does_not_import_pandas_cryptography_or_enterprise(
     tmp_path: Path, module: str, plugin_id: str, operation: str, output_key: str, parameters: dict[str, Any]
 ) -> None:
     """A successful `run` must never import pandas: pyarrow's Python-to-Arrow constructors load it
-    lazily, costing every fake-binary invocation a pandas import it never uses."""
+    lazily, costing every fake-binary invocation a pandas import it never uses. The plain fakes' run
+    path also loads neither `cryptography` nor `mloda.enterprise`."""
     config_path = write_json(
         tmp_path / "config.json",
         {
@@ -895,8 +910,8 @@ def test_fake_binary_run_does_not_import_pandas(
     input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
     output_path = tmp_path / "output.arrows"
     args = ["run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)]
-    env = minimal_environment(inherit_license=False, license_key=valid_license_token([plugin_id]))
-    completed, summary = run_module_probe(module, args, ("pandas",), env)
+    env = minimal_environment(inherit_license=False, license_key=simulated_license(plugin_id))
+    completed, summary = run_module_probe(module, args, ("pandas", "cryptography", "mloda.enterprise"), env)
     assert summary == {"code": 0, "loaded": []}, (summary, completed.stderr)
     assert read_arrow_stream(output_path.read_bytes()).num_rows == 2
 
@@ -1021,7 +1036,7 @@ def test_marker_checks_pick_a_marker_type_and_catch_a_leak(
 def test_marker_success_check_passes_for_an_int64_only_binary_against_the_simulated_binary(tmp_path: Path) -> None:
     """The int64 marker run succeeds end to end against the simulated binary, which advertises int64."""
     conformance = _kit(_INT64, pa.int64())
-    license_file = write_text(tmp_path / "license.txt", valid_license_token(["example_binary"]))
+    license_file = write_text(tmp_path / "license.txt", simulated_license("example_binary"))
     env = conformance.platform_env({_LICENSE_FILE: str(license_file)})
     conformance.test_diagnostics_never_leak_marked_cell_value_on_success(env, tmp_path)
 

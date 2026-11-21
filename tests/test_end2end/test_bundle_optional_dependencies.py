@@ -226,14 +226,16 @@ def test_mloda_enterprise_wheel_packages_include_the_licensing_package() -> None
     """Verification imports mloda.enterprise.licensing only after release; this guards the wheel list before it."""
     _shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
-    expected = "mloda.enterprise.licensing"
+    expected_packages = ("mloda.enterprise.licensing", "mloda.enterprise.licensing.testing")
 
     computed = gen.compute_wheel_packages(packages["mloda-enterprise"], packages)
-    assert expected in computed, f"the generator's mloda-enterprise wheel packages lack {expected!r}: {computed!r}"
+    for expected in expected_packages:
+        assert expected in computed, f"the generator's mloda-enterprise wheel packages lack {expected!r}: {computed!r}"
 
     assert _ENTERPRISE_PYPROJECT.is_file(), f"committed pyproject not found at {_ENTERPRISE_PYPROJECT}"
     committed = load_toml(_ENTERPRISE_PYPROJECT)["tool"]["setuptools"]["packages"]
-    assert expected in committed, f"the committed mloda-enterprise wheel packages lack {expected!r}: {committed!r}"
+    for expected in expected_packages:
+        assert expected in committed, f"the committed mloda-enterprise wheel packages lack {expected!r}: {committed!r}"
 
 
 @pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
