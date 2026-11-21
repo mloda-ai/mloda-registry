@@ -1808,6 +1808,7 @@ duckdb = [
 ]
 pandas = [
     { name = "pandas" },
+    { name = "pyarrow" },
 ]
 polars = [
     { name = "polars" },
@@ -1831,6 +1832,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.21" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=14.0.1" },
+    { name = "pyarrow", marker = "extra == 'pandas'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'sqlite'", specifier = ">=14.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },

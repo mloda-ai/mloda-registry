@@ -199,6 +199,26 @@ regression_test:
 - **Mitigation kind**: Accepted divergence, declared as a `value` record on `upper` and `lower`.
 - **Regression signal**: `test_pinned_row` pins Python's full mapping while the record is declared; removing the record fails the case rows.
 
+### Pandas upper/lower on non-pyarrow string storage use full case mapping
+
+<!-- machine-checked
+operation: string
+framework: pandas
+condition: upper and lower on object or python-storage string columns with a multi-codepoint or context-dependent case mapping
+mitigation_location:
+- mloda/community/feature_groups/data_operations/string/pandas_string.py
+regression_test:
+- mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsObjectString::test_pinned_row
+- mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsPythonString::test_pinned_row
+-->
+
+- **Operations**: `string` (`upper` and `lower` ops).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/string/pandas_string.py`.
+- **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
+- **Native pandas behavior**: On `object` and `string[python]` storage pandas uses Python's full case mapping (`ß` to `SS`, `İ` to `i` plus U+0307, final sigma `ς`); pyarrow-backed storage matches the reference.
+- **Mitigation kind**: Implementation fix: non-pyarrow columns are cast to `string[pyarrow]` before `upper`/`lower`, and the ops raise a `ValueError` when pyarrow is not installed.
+- **Regression signal**: `test_pinned_row` on the object and python-storage classes pins the reference values; the without-pyarrow test pins the rejection.
+
 ### Float accumulation order across SQL engines vs. columnar reductions
 
 <!-- machine-checked

@@ -24,7 +24,7 @@ sqlite = ["pyarrow>=14.0.1"]
 python_dict = []
 duckdb = ["duckdb<3", "pyarrow>=14.0.1"]
 polars = ["polars>=1.21"]
-pandas = ["pandas"]
+pandas = ["pandas", "pyarrow>=14.0.1"]
 all = ["pyarrow>=14.0.1", "polars>=1.21", "pandas", "duckdb<3"]
 
 [project.urls]

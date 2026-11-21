@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from typing import Any
 
 import pandas as pd
@@ -11,6 +12,29 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.string.base import (
     StringFeatureGroup,
 )
+
+
+def _pyarrow_available() -> bool:
+    return importlib.util.find_spec("pyarrow") is not None
+
+
+def _is_pyarrow_backed(col: Any) -> bool:
+    dtype = col.dtype
+    if isinstance(dtype, pd.ArrowDtype):
+        return True
+    return isinstance(dtype, pd.StringDtype) and str(dtype.storage) in ("pyarrow", "pyarrow_numpy")
+
+
+def _pyarrow_backed(col: Any, op: str) -> Any:
+    """Return a pyarrow-backed string column so case mapping matches the reference."""
+    if _is_pyarrow_backed(col):
+        return col
+    if not _pyarrow_available():
+        raise ValueError(
+            f"Pandas {op} on non-pyarrow string storage ({col.dtype}) requires pyarrow for simple case mapping. "
+            "Install mloda-community-string[pandas] or use the PyArrow backend."
+        )
+    return col.astype("string[pyarrow]")
 
 
 class PandasStringOps(Implementation[StringFeatureGroup]):
@@ -35,9 +59,9 @@ class PandasStringOps(Implementation[StringFeatureGroup]):
         col = data[source_col]
 
         if op == "upper":
-            data[feature_name] = col.str.upper()
+            data[feature_name] = _pyarrow_backed(col, op).str.upper()
         elif op == "lower":
-            data[feature_name] = col.str.lower()
+            data[feature_name] = _pyarrow_backed(col, op).str.lower()
         elif op == "trim":
             data[feature_name] = col.str.strip()
         elif op == "length":

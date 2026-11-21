@@ -32,6 +32,10 @@ _CORE_MIRRORED_BACKENDS = {"duckdb", "sqlite"}
 # frame-aggregate: time-window rolling_*_by rejects null values below polars 1.38.
 _POLARS_FLOOR_OVERRIDES: dict[str, str] = {"mloda-community-frame-aggregate": ">=1.38"}
 
+# Extra packages a backend's extra may carry besides the backend itself, per package.
+# string: pandas upper/lower cast non-pyarrow string storage to string[pyarrow] for simple case mapping.
+_PANDAS_EXTRA_DEPS: dict[str, set[str]] = {"mloda-community-string": {"pyarrow"}}
+
 
 def _dep_name(spec: str) -> str:
     """Bare package name from a PEP 508 requirement string, e.g. 'pandas>=2.2' -> 'pandas'."""
@@ -113,9 +117,17 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
     for backend in backends & _PACKAGED_BACKENDS:
         deps = actual[backend]
         assert deps, f"{package_name}: {backend} extra must not be empty"
-        assert {_dep_name(dep) for dep in deps} == {backend}, (
-            f"{package_name}: {backend} extra must depend on the '{backend}' package, got {deps!r}"
+        extra = _PANDAS_EXTRA_DEPS.get(package_name, set()) if backend == "pandas" else set()
+        assert {_dep_name(dep) for dep in deps} == {backend} | extra, (
+            f"{package_name}: {backend} extra must depend on the {sorted({backend} | extra)} package(s), got {deps!r}"
         )
+        for dep in deps:
+            if backend == "pandas" and _dep_name(dep) == "pyarrow":
+                specifier = Requirement(dep).specifier
+                assert specifier == _CORE_PYARROW_REQUIREMENT.specifier, (
+                    f"{package_name}: pandas extra's pyarrow must require {_CORE_PYARROW_REQUIREMENT.specifier} "
+                    f"(mloda core's pyarrow extra floor), got {specifier}"
+                )
         if backend == "polars":
             override = _POLARS_FLOOR_OVERRIDES.get(package_name)
             expected = SpecifierSet(override) if override is not None else _CORE_POLARS_REQUIREMENT.specifier

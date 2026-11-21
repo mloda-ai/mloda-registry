@@ -81,6 +81,20 @@ def _maybe_parse_iso_datetime(value: Any) -> Any:
         return value
 
 
+def _is_arrow_string(arrow_type: pa.DataType) -> bool:
+    """True for Arrow string and large_string types."""
+    import pyarrow as pa
+
+    return bool(pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type))
+
+
+def _series_of(values: list[Any], dtype: Any) -> Any:
+    """A pandas Series of ``values`` held as ``dtype``."""
+    import pandas as pd
+
+    return pd.Series(values, dtype=dtype)
+
+
 class _ProductionPandasAdapter(PandasAdapter):
     """Frames as production builds them: ``to_pandas()`` widens nullable ints to float64 and bools to object."""
 
@@ -93,6 +107,25 @@ class _NullableIntPandasAdapter(PandasAdapter):
 
     def from_arrow(self, table: pa.Table) -> Any:
         return table.to_pandas(types_mapper=_nullable_int_types_mapper)
+
+
+class _ObjectStringPandasAdapter(_ProductionPandasAdapter):
+    """String columns held as ``object`` storage, nulls as ``None``."""
+
+    string_dtype: ClassVar[Any] = object
+
+    def from_arrow(self, table: pa.Table) -> Any:
+        frame = super().from_arrow(table)
+        for i, field in enumerate(table.schema):
+            if _is_arrow_string(field.type):
+                frame[field.name] = _series_of(table.column(i).to_pylist(), self.string_dtype)
+        return frame
+
+
+class _PythonStringPandasAdapter(_ObjectStringPandasAdapter):
+    """String columns held as ``string[python]`` storage, nulls as ``pd.NA``."""
+
+    string_dtype = "string[python]"
 
 
 class _PlainSqliteAdapter(SqliteAdapter):
@@ -217,6 +250,18 @@ class PandasNullableIntTestMixin(PandasTestMixin):
     """Pandas mixin whose fixtures hold integer columns as nullable Int dtypes, keeping nulls exact."""
 
     adapter_class = _NullableIntPandasAdapter
+
+
+class PandasObjectStringTestMixin(PandasTestMixin):
+    """Pandas mixin whose fixtures hold string columns as ``object`` storage."""
+
+    adapter_class = _ObjectStringPandasAdapter
+
+
+class PandasPythonStringTestMixin(PandasTestMixin):
+    """Pandas mixin whose fixtures hold string columns as ``string[python]`` storage."""
+
+    adapter_class = _PythonStringPandasAdapter
 
 
 class DuckdbTestMixin(AdapterTestMixin):

@@ -51,6 +51,8 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 
 Polars `upper`/`lower` use full case mapping (`ß` upper `SS`, `İ` lower keeps a combining dot, final sigma `ς`), a declared divergence: see [known divergences](known-divergences.md#polars-upperlower-use-full-case-mapping).
 
+Pandas runs `upper`/`lower` on pyarrow-backed strings (casting `object` / python storage), so every storage matches the reference; without pyarrow they raise.
+
 SQLite does not offer `upper`, `lower` or `reverse` (`SqliteStringOps.supported` holds only `trim` and `length`, which the suite reads), so another enabled framework serves them or resolution fails; see [Supported ops](04-supported-ops.md#example-sqlite-excludes-upper-lower-and-reverse).
 
 ---
