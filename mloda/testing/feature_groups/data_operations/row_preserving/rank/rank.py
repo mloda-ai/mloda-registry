@@ -156,6 +156,11 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         """
         return not {"rank", "dense_rank", "percent_rank"} & divergent_subtypes(cls.implementation_class())
 
+    @classmethod
+    def merges_none_and_nan_partition_keys(cls) -> bool:
+        """Whether None and NaN partition keys collapse into one group (the reference keeps them apart)."""
+        return False
+
     # -- Reference implementation override --------------------------------------------
 
     @classmethod
@@ -429,6 +434,49 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         assert ref_col == pytest.approx(EXPECTED_NONE_NAN_PERCENT_RANK_APART), (
             f"reference: expected apart, got {ref_col!r}"
         )
+
+    # -- None/NaN partition keys ---------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("rank_type", "subtype", "reference", "merged"),
+        [
+            pytest.param("row_number", "row_number", [1, 1, 2], [1, 2, 3], id="row_number"),
+            pytest.param("rank", "rank", [1, 1, 2], [1, 2, 3], id="rank"),
+            pytest.param("dense_rank", "dense_rank", [1, 1, 2], [1, 2, 3], id="dense_rank"),
+            pytest.param("percent_rank", "percent_rank", [0.0, 0.0, 1.0], [0.0, 0.5, 1.0], id="percent_rank"),
+            pytest.param("ntile_3", "ntile", [1, 1, 2], [1, 2, 3], id="ntile"),
+            pytest.param("top_1", "top", [False, True, True], [False, False, True], id="top"),
+            pytest.param("bottom_1", "bottom", [True, True, False], [True, False, False], id="bottom"),
+        ],
+    )
+    def test_nan_and_none_partition_keys(
+        self, rank_type: str, subtype: str, reference: list[Any], merged: list[Any]
+    ) -> None:
+        """Partition keys [None, NaN, None]: the reference keeps None and NaN apart, some backends merge them."""
+        self._skip_if_unsupported(subtype)
+        table = TypedTestData(
+            {
+                "k": (DataType.DOUBLE, [None, float("nan"), None]),
+                "o": (DataType.INT64, [1, 2, 3]),
+            }
+        )
+        feature_name = f"o__{rank_type}_ranked"
+        fs = make_feature_set(feature_name, ["k"], "o")
+
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        result_col = self.extract_column(result, feature_name)
+        expected = merged if self.merges_none_and_nan_partition_keys() else reference
+        approx = rank_type == "percent_rank"
+        if approx:
+            assert result_col == pytest.approx(expected), f"backend: expected {expected!r}, got {result_col!r}"
+        else:
+            assert result_col == expected, f"backend: expected {expected!r}, got {result_col!r}"
+
+        ref_col = _extract_column(self.reference_calculate(arrow_table_of(table), fs), feature_name)
+        if approx:
+            assert ref_col == pytest.approx(reference), f"reference: expected {reference!r}, got {ref_col!r}"
+        else:
+            assert ref_col == reference, f"reference: expected {reference!r}, got {ref_col!r}"
 
     # -- Option-based config tests -------------------------------------------
 

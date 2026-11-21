@@ -27,12 +27,11 @@ from mloda.testing.feature_groups.data_operations.integration import (
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
+    PYTHON_DICT_FRAMEWORK,
+    SQLITE_DATA_CREATOR,
+    SQLITE_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
-)
-
-PYTHON_DICT_FRAMEWORK = (
-    "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework:PythonDictFramework"
 )
 
 
@@ -139,17 +138,35 @@ class TestFrameAggregateIntegration(
                 f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
                 PYTHON_DICT_FRAMEWORK,
             ),
+            # SQLite-held data without allow_variants is served by the PythonDict Implementation.
+            RoutingCase(
+                "value_int__sum_rolling_3",
+                options,
+                f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
+                PYTHON_DICT_FRAMEWORK,
+                SQLITE_DATA_CREATOR,
+            ),
         ]
 
     @classmethod
-    def variant_required_case(cls) -> RoutingCase | None:
+    def variant_required_cases(cls) -> list[RoutingCase]:
         package = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate"
-        return RoutingCase(
-            "value_int__max_rolling_3",
-            {"partition_by": ["region"], "order_by": "value_int"},
-            f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
-            PANDAS_DATAFRAME,
-        )
+        options = {"partition_by": ["region"], "order_by": "value_int"}
+        return [
+            RoutingCase(
+                "value_int__max_rolling_3",
+                options,
+                f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
+                PANDAS_DATAFRAME,
+            ),
+            RoutingCase(
+                "value_int__max_rolling_3",
+                options,
+                f"{package}.sqlite_frame_aggregate:SqliteFrameAggregate",
+                SQLITE_FRAMEWORK,
+                SQLITE_DATA_CREATOR,
+            ),
+        ]
 
     # -- MaskIntegrationTestMixin configuration --------------------------------
 

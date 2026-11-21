@@ -30,6 +30,8 @@ from mloda.testing.feature_groups.data_operations.integration import DataOpsInte
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
     PYARROW_TABLE,
+    SQLITE_DATA_CREATOR,
+    SQLITE_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
@@ -112,14 +114,33 @@ class TestFfillIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegratio
     def divergent_routing_cases(cls) -> list[RoutingCase]:
         # Pandas data without allow_variants is served by the PyArrow Implementation.
         return [
-            RoutingCase("value_float__ffill", _ROUTING_OPTIONS, f"{_PACKAGE}.pyarrow_ffill:PyArrowFfill", PYARROW_TABLE)
+            RoutingCase(
+                "value_float__ffill", _ROUTING_OPTIONS, f"{_PACKAGE}.pyarrow_ffill:PyArrowFfill", PYARROW_TABLE
+            ),
+            # SQLite-held data without allow_variants is served by the PyArrow Implementation.
+            RoutingCase(
+                "value_float__ffill",
+                _ROUTING_OPTIONS,
+                f"{_PACKAGE}.pyarrow_ffill:PyArrowFfill",
+                PYARROW_TABLE,
+                SQLITE_DATA_CREATOR,
+            ),
         ]
 
     @classmethod
-    def variant_required_case(cls) -> RoutingCase | None:
-        return RoutingCase(
-            "value_float__ffill", _ROUTING_OPTIONS, f"{_PACKAGE}.pandas_ffill:PandasFfill", PANDAS_DATAFRAME
-        )
+    def variant_required_cases(cls) -> list[RoutingCase]:
+        return [
+            RoutingCase(
+                "value_float__ffill", _ROUTING_OPTIONS, f"{_PACKAGE}.pandas_ffill:PandasFfill", PANDAS_DATAFRAME
+            ),
+            RoutingCase(
+                "value_float__ffill",
+                _ROUTING_OPTIONS,
+                f"{_PACKAGE}.sqlite_ffill:SqliteFfill",
+                SQLITE_FRAMEWORK,
+                SQLITE_DATA_CREATOR,
+            ),
+        ]
 
     @pytest.mark.parametrize(
         ("name", "options_context", "match"),
