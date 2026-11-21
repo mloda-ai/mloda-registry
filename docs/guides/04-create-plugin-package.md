@@ -135,6 +135,8 @@ A root may name a namespace subpackage (mloda >= 0.20): `mloda.enterprise` cover
 
 See [Plugin Loader: Entry Points](https://mloda-ai.github.io/mloda/in_depth/plugin-loader/#entry-points) for validation, collision, and skip-logging behavior.
 
+To test the missing backend, simulate it with `block_root` and `evict_package` ([Testing What an Import Loads](feature-group-patterns/10-testing-guide.md#testing-what-an-import-loads)); an extender package inherits these checks from `OptionalDependencyPackageTestMixin` ([Optional dependency packages](11-create-extender.md#optional-dependency-packages)).
+
 ### Artifacts Installed from a URL
 
 Some backends need an artifact published only as a URL, such as a spaCy model wheel from Explosion's GitHub releases. It is never a dependency: PyPI rejects uploads whose metadata carries a direct URL requirement, and installing the same name from an index invites dependency confusion. Declare the backend library as an extra per [Optional Backends](#optional-backends), document the artifact's install command pinned to the backend's version (a 3.8 model for spaCy 3.8), and take its name (or a local path) as configuration:

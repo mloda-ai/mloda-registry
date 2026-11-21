@@ -351,7 +351,7 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-Conformance suites for source groups live in `mloda.testing.source`. Mix in the one that fits the base class: `SourceFeatureGroupTestMixin` (`source_suite`), `ReadFileFGTestMixin` (`read_file_suite`), `ReadDBFGTestMixin` (`read_db_suite`) or `ReadDocumentFGTestMixin` (`read_document_suite`). `loads_into_framework_suite` and `column_discovery_suite` add further checks. A host for `SensorCsvFG` (its `load_neutral` must really parse the file; the sketch above stubs it):
+Conformance suites for source groups live in `mloda.testing.source`. Mix in the one that fits the base class: `SourceFeatureGroupTestMixin` (`source_suite`), `ReadFileFGTestMixin` (`read_file_suite`), `ReadDBFGTestMixin` (`read_db_suite`) or `ReadDocumentFGTestMixin` (`read_document_suite`). A host for `SensorCsvFG` (its `load_neutral` must really parse the file; the sketch above stubs it):
 
 ```py
 from pathlib import Path
@@ -370,6 +370,61 @@ class TestSensorCsvFG(ReadFileFGTestMixin):
         rows = zip(*(columns[name] for name in names))
         lines = ["#sensor-schema " + ",".join(names), *(",".join(str(v) for v in row) for row in rows)]
         path.write_text("\n".join(lines) + "\n")
+```
+
+`loads_into_framework_suite` checks that a group loads into one compute framework: one host per framework, `adapter_class` set to its `FrameworkAdapter` (see [the adapter](../compute-framework-patterns/09-testing-guide.md#the-adapter)).
+
+| Mixin | Hooks | Pins |
+|-------|-------|------|
+| `FileLoadsIntoFrameworkTestMixin` | `feature_group_class`, `write_file(path, columns)` | exactly the requested columns load |
+| `FileLoaderNameTestMixin` (extends the file mixin) | plus `expected_loader` | the `INPUT_DATA_LOAD` hook names that loader (`"neutral"` or the Implementation as `module:Class`) |
+| `DatabaseLoadsIntoFrameworkTestMixin` | `feature_group_class`, `credential_key`, `expected_loader`, `write_database(path, tables)` | requested columns and values load, a global filter returns the matching rows, the hook names the loader |
+| `DocumentLoadsIntoFrameworkTestMixin` | `feature_group_class`, `suffix`, optional `context` and `expected_text` | the three `~` outputs load with their values, and only the requested ones |
+
+A host on the stock `CsvFG`:
+
+```python
+import csv
+from pathlib import Path
+from typing import Any
+
+from mloda.testing.framework_adapter import PythonDictAdapter
+from mloda.testing.source.loads_into_framework_suite import FileLoadsIntoFrameworkTestMixin
+from mloda_plugins.feature_group.input_data.file_formats.csv_fg import CsvFG
+
+
+class TestCsvLoadsIntoPythonDict(FileLoadsIntoFrameworkTestMixin):
+    adapter_class = PythonDictAdapter
+    feature_group_class = CsvFG
+
+    def write_file(self, path: Path, columns: dict[str, list[Any]]) -> None:
+        with open(path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(columns)
+            writer.writerows(zip(*columns.values()))
+```
+
+`ColumnDiscoveryContractTestMixin` (`column_discovery_suite`) pins `column_names`, `describe_columns` and `count_rows` of a pyarrow-backed file group, including the `ImportError` naming `mloda[pyarrow]` when its pyarrow submodule is missing, so it fits only a group that raises core's install hint. Hooks: `group_cls` (not `feature_group_class`), `dependency_module`, and a `data_file` fixture returning a file with the INT64 columns `c1`, `a1`, `b1` (`PHYSICAL_COLUMNS`); optional `expected_row_count` (default 3, `None` when only a read can count) and `row_count_module` (the module blocked in the `count_rows` missing-dependency test, default `dependency_module`). A host on the stock `ParquetFG`:
+
+```python
+import pytest
+
+from mloda.testing.source.column_discovery_suite import PHYSICAL_COLUMNS, ColumnDiscoveryContractTestMixin
+from mloda_plugins.feature_group.input_data.file_formats.parquet_fg import ParquetFG
+
+
+class TestParquetColumnDiscovery(ColumnDiscoveryContractTestMixin):
+    group_cls = ParquetFG
+    dependency_module = "pyarrow.parquet"
+
+    @pytest.fixture
+    def data_file(self, tmp_path: Path) -> str:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        path = str(tmp_path / "columns.parquet")
+        pq.write_table(pa.table({name: [1, 2, 3] for name in PHYSICAL_COLUMNS}), path)
+        return path
 ```
 
 Test end to end: run the feature through `mloda.prepare` or `mloda.run_all` with `PluginCollector.enabled_feature_groups({YourFG})`, so stock groups such as `CsvFG` do not claim the same name:

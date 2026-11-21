@@ -148,7 +148,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 07 | `07-index-features.md` | Ordering, grouping, joining columns |
 | 08 | `08-links-joins.md` | Join data from multiple feature groups |
 | 09 | `09-framework-specific.md` | Restrict to certain frameworks |
-| 10 | `10-testing-guide.md` | Unit, framework, integration testing; plan locks |
+| 10 | `10-testing-guide.md` | Shipped `mloda.testing` kit map; unit, framework, integration testing; plan locks |
 | 11 | `11-options.md` | Group vs context configuration; secrets by credential handle |
 | 12 | `12-calculate-feature.md` | Core computation method |
 | 13 | `13-feature-naming.md` | Define feature names |
