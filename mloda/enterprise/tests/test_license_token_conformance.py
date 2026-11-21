@@ -28,16 +28,16 @@ from mloda.enterprise.licensing.testing.licensed_binary import check_license_tok
 from mloda.testing.binary_model import hmac_sha256_reference
 from mloda.testing.binary_model.conformance import (
     LICENSE_INVALID,
+    BinaryModelConformanceBase,
+    HashOperationConformanceMixin,
     arrow_stream_bytes,
     read_arrow_stream,
     run_binary,
     write_json,
 )
 from mloda.testing.binary_model.simulated_binary import FakeLicenseError, simulated_license
+from mloda.testing.tests._license_channel import LICENSE_FILE, LICENSE_KEY, license_text_that_reached_the_binary
 from mloda.testing.tests._module_probe import run_module_probe
-
-_LICENSE_KEY = "MLODA_LICENSE_KEY"
-_LICENSE_FILE = "MLODA_LICENSE_FILE"
 
 _LICENSED_BINARY_MODULE = "mloda.enterprise.licensing.testing.licensed_binary"
 _LICENSED_HMAC_BINARY_MODULE = "mloda.enterprise.licensing.testing.licensed_hmac_binary"
@@ -53,8 +53,11 @@ _UNPADDED_MAX_RELEASE_DATE_MARKER = "marker-unpadded-max-release-date-license-te
 _FLOAT_SCHEMA_VERSION_MARKER = "marker-float-schema-version-license-text"
 
 
-class TestLicenseTokenConformance(LicenseTokenConformanceMixin):
-    """Every base check with signed fixtures, plus the token-format checks, against the licensed binary."""
+class TestLicenseTokenConformance(
+    HashOperationConformanceMixin, LicenseTokenConformanceMixin, BinaryModelConformanceBase
+):
+    """The documented composition for a token-verifying hash binary: the hash checks, the token-format checks
+    and every base check with signed fixtures, against the licensed binary."""
 
     binary_cmd: ClassVar[list[str]] = [sys.executable, "-m", _LICENSED_BINARY_MODULE]
 
@@ -94,64 +97,55 @@ class _OverriddenTokenVectors(LicenseTokenConformanceMixin):
         return _UNKNOWN_KID_MARKER
 
 
-def _license_text_that_reached_the_binary(env: dict[str, str], channel: str) -> str:
-    """The license text a check handed to the binary via ``channel``: ``MLODA_LICENSE_KEY`` carries it
-    inline, ``MLODA_LICENSE_FILE`` names a file holding it. The other channel must be unset."""
-    assert {_LICENSE_KEY, _LICENSE_FILE} & env.keys() == {channel}, f"unexpected license channels in env: {env!r}"
-    if channel == _LICENSE_FILE:
-        return Path(env[_LICENSE_FILE]).read_text(encoding="utf-8")
-    return env[_LICENSE_KEY]
-
-
 @pytest.mark.parametrize(
     ("check_name", "extra_args", "channel", "marker"),
     [
         pytest.param(
             "test_license_token_tampered_is_invalid",
             ("tampered_signature_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _TAMPERED_SIGNATURE_MARKER,
             id="tampered_signature",
         ),
         pytest.param(
             "test_license_token_tampered_is_invalid",
             ("missing_plugins_claim_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _MISSING_PLUGINS_CLAIM_MARKER,
             id="missing_plugins_claim",
         ),
         pytest.param(
             "test_license_token_tampered_is_invalid",
             ("timestamp_without_seconds_license_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _TIMESTAMP_WITHOUT_SECONDS_MARKER,
             id="timestamp_without_seconds",
         ),
         pytest.param(
             "test_license_token_tampered_is_invalid",
             ("compact_timestamp_license_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _COMPACT_TIMESTAMP_MARKER,
             id="compact_timestamp",
         ),
         pytest.param(
             "test_license_token_tampered_is_invalid",
             ("unpadded_max_release_date_license_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _UNPADDED_MAX_RELEASE_DATE_MARKER,
             id="unpadded_max_release_date",
         ),
         pytest.param(
             "test_license_token_tampered_is_invalid",
             ("float_schema_version_license_text",),
-            _LICENSE_FILE,
+            LICENSE_FILE,
             _FLOAT_SCHEMA_VERSION_MARKER,
             id="float_schema_version",
         ),
         pytest.param(
-            "test_license_not_yet_valid_is_invalid", (), _LICENSE_KEY, _NOT_YET_VALID_MARKER, id="not_yet_valid"
+            "test_license_not_yet_valid_is_invalid", (), LICENSE_KEY, _NOT_YET_VALID_MARKER, id="not_yet_valid"
         ),
-        pytest.param("test_license_unknown_kid_is_invalid", (), _LICENSE_KEY, _UNKNOWN_KID_MARKER, id="unknown_kid"),
+        pytest.param("test_license_unknown_kid_is_invalid", (), LICENSE_KEY, _UNKNOWN_KID_MARKER, id="unknown_kid"),
     ],
 )
 def test_overriding_token_hooks_retargets_the_check(
@@ -169,10 +163,10 @@ def test_overriding_token_hooks_retargets_the_check(
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", fake)
     conformance = _OverriddenTokenVectors()
     config_path = tmp_path / "config.json"
-    leading_args = (config_path, tmp_path) if channel == _LICENSE_FILE else (config_path,)
+    leading_args = (config_path, tmp_path) if channel == LICENSE_FILE else (config_path,)
     with pytest.raises(RuntimeError, match="stop-after-capture"):
         getattr(conformance, check_name)(*leading_args, *extra_args)
-    assert _license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
+    assert license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
 
 
 @pytest.mark.parametrize(
