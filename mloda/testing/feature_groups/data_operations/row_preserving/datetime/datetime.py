@@ -31,10 +31,10 @@ a few abstract methods.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import DataType
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
@@ -51,6 +51,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -118,6 +119,17 @@ def _create_varied_times_data() -> TypedTestData:
 
 class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for datetime extraction framework tests."""
+
+    _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
+
+    @classmethod
+    def tz_aware_source_reads_utc(cls) -> bool:
+        """True when a tz-aware source column gives UTC fields instead of its own zone's (a declared GAP)."""
+        return False
+
+    @classmethod
+    def pinned_row_cases(cls) -> dict[str, Any]:
+        return {f"{i}-{row.case}-{row.feature}": row for i, row in enumerate(DATETIME_PINNING.rows)}
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
@@ -282,6 +294,34 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         result = calculate_with(self.implementation_class(), self._varied_test_data, fs)
         result_col = self.extract_column(result, "timestamp__month")
         assert result_col == VARIED_EXPECTED_MONTH
+
+    # -- Pinned rows ---------------------------------------------------------
+
+    def test_pinned_row(self, pinned_row_case: str) -> None:
+        """Hand-computed rows; a UTC-reading backend is pinned to the reference on UTC instants."""
+        row = self.pinned_row_cases()[pinned_row_case]
+        expected = row.expected[row.feature][1]
+        column = next(iter(row.inputs))
+        data_type, values = row.inputs[column]
+        if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
+            utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
+            ref_inputs = {column: (data_type, utc_values)}
+            fs = make_feature_set(row.feature, **row.context)
+            ref = self.reference_calculate(arrow_table_of(TypedTestData(ref_inputs)), fs)
+            expected = extract_column(ref, row.feature)
+        result = calculate_with(
+            self.implementation_class(),
+            self.create_test_data(TypedTestData(row.inputs)),
+            make_feature_set(row.feature, **row.context),
+        )
+        assert self.extract_column(result, row.feature) == list(expected)
+
+    def test_divergent_flags_are_declared(self) -> None:
+        impl = self.implementation_class()
+        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
+            pytest.skip("implementation under test is not an Implementation class")
+        if self.tz_aware_source_reads_utc():
+            assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
 
     # -- Null handling tests -------------------------------------------------
 

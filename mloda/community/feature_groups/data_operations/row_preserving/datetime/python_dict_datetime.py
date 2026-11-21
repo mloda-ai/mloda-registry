@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
+from typing import Any, cast
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
@@ -11,6 +11,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
 
@@ -36,33 +37,29 @@ class PythonDictDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         data = dict(data)
         col = data[source_col]
 
-        cls._assert_source_column_is_datetime(col, source_col)
+        cls._assert_source_column_is_datetime(col, source_col, op)
 
         data[feature_name] = [cls._extract(value, op) for value in col]
         return data
 
     @staticmethod
-    def _assert_source_column_is_datetime(col: list[Any], source_col: str) -> None:
-        """Reject any non-null value that is not a real ``datetime.datetime``.
-
-        A bare ``datetime.date`` (no time component) or a wholly unrelated
-        type (e.g. ``str``) cannot be used to compute any datetime op here:
-        ``datetime.datetime`` is a subclass of ``datetime.date``, so this
-        check accepts real datetimes while rejecting bare dates.
-        """
+    def _assert_source_column_is_datetime(col: list[Any], source_col: str, op: str) -> None:
+        """Reject non-date values, and bare dates for time-of-day ops."""
         for value in col:
             if value is None:
                 continue
-            if not isinstance(value, datetime):
+            if not isinstance(value, date):
                 raise ValueError(
-                    f"Column {source_col!r} must contain datetime.datetime values to extract "
+                    f"Column {source_col!r} must contain datetime.date or datetime.datetime values to extract "
                     f"datetime components; got {type(value).__name__} ({value!r})."
+                )
+            if op in TIME_OF_DAY_OPS and not isinstance(value, datetime):
+                raise ValueError(
+                    f"Column {source_col!r} holds a bare date, but {op!r} needs a time of day (datetime or timestamp)."
                 )
 
     @staticmethod
-    def _extract(value: datetime | None, op: str) -> int | None:
-        # The column-wide guard in _assert_source_column_is_datetime already ran, so
-        # every non-None value here is a real datetime.
+    def _extract(value: date | None, op: str) -> int | None:
         if value is None:
             return None
 
@@ -73,11 +70,11 @@ class PythonDictDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         elif op == "day":
             return value.day
         elif op == "hour":
-            return value.hour
+            return cast(datetime, value).hour
         elif op == "minute":
-            return value.minute
+            return cast(datetime, value).minute
         elif op == "second":
-            return value.second
+            return cast(datetime, value).second
         elif op == "dayofweek":
             return value.weekday()
         elif op == "is_weekend":

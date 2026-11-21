@@ -28,3 +28,18 @@ def first_storage_class_outside(data: "SqliteRelation", column: str, allowed: fr
     )
     row = data.connection.execute(sql, ordered).fetchone()
     return None if row is None else str(row[0])
+
+
+_HAS_OFFSET = "substr({q}, -6, 1) IN ('+', '-') AND substr({q}, -3, 1) = ':'"
+
+
+def wall_clock_expr(quoted: str) -> str:
+    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` offset, leaving the wall clock."""
+    cond = _HAS_OFFSET.format(q=quoted)
+    return f"(CASE WHEN {cond} THEN substr({quoted}, 1, length({quoted}) - 6) ELSE {quoted} END)"
+
+
+def offset_suffix_expr(quoted: str) -> str:
+    """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` offset or ``''``."""
+    cond = _HAS_OFFSET.format(q=quoted)
+    return f"(CASE WHEN {cond} THEN substr({quoted}, -6) ELSE '' END)"

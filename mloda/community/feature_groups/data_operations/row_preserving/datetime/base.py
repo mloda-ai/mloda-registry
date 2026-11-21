@@ -35,6 +35,9 @@ DATETIME_OPS = {
     "quarter": "Quarter of the year (1-4)",
 }
 
+# Ops that need a time of day, so a bare date source is rejected for them.
+TIME_OF_DAY_OPS = frozenset({"hour", "minute", "second"})
+
 
 class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise datetime extraction operations.

@@ -613,6 +613,25 @@ regression_test:
 - **Mitigation kind**: Accepted divergence, declared as `GAP` records so DuckDB is not preferred for every arithmetic step.
 - **Regression signal**: `test_mixin_integer_overflow` fails if a backend starts raising.
 
+### DuckDB datetime extraction reads a non-UTC zone as UTC
+
+<!-- machine-checked
+operation: datetime
+framework: duckdb
+condition: a tz-aware source column in a non-UTC zone yields the UTC fields
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/duckdb_datetime.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_divergent_flags_are_declared
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_pinned_row
+-->
+
+- **Operations**: `datetime` field extraction.
+- **Reference behavior**: Fields come from the column's own zone.
+- **Native DuckDB behavior**: `DuckdbRelation.from_arrow` stores TIMESTAMPTZ and drops the zone, so the column comes back as UTC and the UTC fields are extracted.
+- **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
+- **Regression signal**: `tz_aware_source_reads_utc()` pins the UTC fields.
+
 ---
 
 ## Declared divergence records
@@ -632,6 +651,12 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Pandas | variant | `nan_as_null` | backend | `mode`, `nunique` | does not count NaN as a value |
 | SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
+
+### datetime
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| DuckDB | gap |  | backend | (all) | a tz-aware column arrives as UTC, so a non-UTC zone gives the UTC fields ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-datetime-extraction-reads-a-non-utc-zone-as-utc)) |
 
 ### frame_aggregate
 
