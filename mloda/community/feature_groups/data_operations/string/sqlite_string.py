@@ -10,8 +10,12 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framewor
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.string.base import (
+    TRIM_WHITESPACE,
     StringFeatureGroup,
 )
+
+# TRIM strips the reference's whitespace set, not only spaces.
+_TRIM_CHARS_SQL = ", ".join(map(str, TRIM_WHITESPACE))
 
 # SQLite's native UPPER/LOWER are ASCII-only: UPPER('héllo') returns 'HéLLO'
 # instead of 'HÉLLO'. Rather than emulate unicode-aware semantics in Python
@@ -20,7 +24,7 @@ from mloda.community.feature_groups.data_operations.string.base import (
 # resolver falls back to another framework. The same holds for 'reverse',
 # which SQLite has no native function for.
 _SQLITE_STRING_EXPRS: dict[str, str] = {
-    "trim": "TRIM({col})",
+    "trim": f"TRIM({{col}}, char({_TRIM_CHARS_SQL}))",
     "length": "LENGTH({col})",
 }
 

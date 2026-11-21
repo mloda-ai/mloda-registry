@@ -10,16 +10,19 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.string.base import (
+    TRIM_WHITESPACE,
     StringFeatureGroup,
 )
+
+_TRIM_CHARS_SQL = " || ".join(f"chr({c})" for c in TRIM_WHITESPACE)
 
 # DuckDB native string function expressions.
 _DUCKDB_STRING_EXPRS: dict[str, str] = {
     "upper": "UPPER({col})",
     "lower": "LOWER({col})",
-    "trim": "TRIM({col})",
+    "trim": f"TRIM({{col}}, {_TRIM_CHARS_SQL})",
     "length": "LENGTH({col})",
-    "reverse": "REVERSE({col})",
+    "reverse": "array_to_string(list_reverse(string_split({col}, '')), '')",
 }
 
 

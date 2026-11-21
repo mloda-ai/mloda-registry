@@ -31,6 +31,39 @@ STRING_OPS = {
     "reverse": "Reverse the string",
 }
 
+# Python str.strip() whitespace, which the reference trims.
+TRIM_WHITESPACE: tuple[int, ...] = (
+    0x09,
+    0x0A,
+    0x0B,
+    0x0C,
+    0x0D,
+    0x1C,
+    0x1D,
+    0x1E,
+    0x1F,
+    0x20,
+    0x85,
+    0xA0,
+    0x1680,
+    0x2000,
+    0x2001,
+    0x2002,
+    0x2003,
+    0x2004,
+    0x2005,
+    0x2006,
+    0x2007,
+    0x2008,
+    0x2009,
+    0x200A,
+    0x2028,
+    0x2029,
+    0x202F,
+    0x205F,
+    0x3000,
+)
+
 
 class StringFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     """Base class for element-wise string operations that preserve row count.

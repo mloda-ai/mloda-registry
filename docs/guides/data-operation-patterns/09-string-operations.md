@@ -44,10 +44,12 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 |---|---|
 | PyArrow | `pc.utf8_upper`, `pc.utf8_lower`, `pc.utf8_trim_whitespace`, `pc.utf8_length`, `pc.utf8_reverse` |
 | Pandas | `.str.upper()`, `.str.lower()`, `.str.strip()`, `.str.len()`, `.str[::-1]` (NULL-safe) |
-| Polars lazy | `col.str.to_uppercase()`, `.to_lowercase()`, `.strip_chars()`, `.len_chars()`, `.reverse()` |
-| DuckDB | `UPPER`, `LOWER`, `TRIM`, `LENGTH`, `REVERSE` |
-| SQLite | `TRIM`, `LENGTH` only |
+| Polars lazy | `col.str.to_uppercase()`, `.to_lowercase()`, `.strip_chars(<whitespace set>)`, `.len_chars()`, `.split("").list.reverse().list.join("")` |
+| DuckDB | `UPPER`, `LOWER`, `TRIM(col, <whitespace set>)`, `LENGTH`, `array_to_string(list_reverse(string_split(col, '')), '')` |
+| SQLite | `TRIM(col, char(<whitespace set>))`, `LENGTH` only |
 | Python dict | per-character `.upper()` / `.lower()` with override tables that reproduce PyArrow's simple case mapping, `.strip()`, `len()`, `[::-1]` |
+
+Polars `upper`/`lower` use full case mapping (`ß` upper `SS`, `İ` lower keeps a combining dot, final sigma `ς`), a declared divergence: see [known divergences](known-divergences.md#polars-upperlower-use-full-case-mapping).
 
 SQLite does not offer `upper`, `lower` or `reverse` (`SqliteStringOps.supported` holds only `trim` and `length`, which the suite reads), so another enabled framework serves them or resolution fails; see [Supported ops](04-supported-ops.md#example-sqlite-excludes-upper-lower-and-reverse).
 

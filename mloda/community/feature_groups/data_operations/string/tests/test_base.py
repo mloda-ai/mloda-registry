@@ -29,6 +29,12 @@ class TestStringOpsRegistry:
 
         assert STRING_OP_NAMES == set(STRING_OPS)
 
+    def test_trim_whitespace_matches_python_isspace(self) -> None:
+        """``TRIM_WHITESPACE`` is every codepoint Python's ``str.isspace`` accepts."""
+        from mloda.community.feature_groups.data_operations.string.base import TRIM_WHITESPACE
+
+        assert TRIM_WHITESPACE == tuple(c for c in range(0x110000) if chr(c).isspace())
+
 
 _ENGINE = "mloda_plugins.compute_framework.base_implementations"
 
