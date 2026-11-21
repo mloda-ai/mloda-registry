@@ -25,8 +25,8 @@ Null rules pinned across all backends:
 - A null that follows a non-null gets the carried value.
 - Non-null source values pass through unchanged.
 
-PyArrow is the cross-framework reference. Each backend is an ``Implementation`` supplying the fill
-to ``ffill``; the source-column presence guard is shared (``assert_source_columns_present``).
+The cross-framework reference is the kit's pure Python ``reference_ffill``. Each backend is an
+``Implementation`` supplying the fill to ``ffill``; the source-column presence guard is shared (``assert_source_columns_present``).
 """
 
 from __future__ import annotations
@@ -62,6 +62,7 @@ class FfillFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operation
     """
 
     CONTRACT_VERSION = 1
+    VARIANTS = frozenset({"nan_as_null"})
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 

@@ -27,6 +27,9 @@ PYARROW_TABLE = "mloda_plugins.compute_framework.base_implementations.pyarrow.ta
 PANDAS_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.pandas.dataframe:PandasDataFrame"
 POLARS_LAZY_DATAFRAME = "mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe:PolarsLazyDataFrame"
 SQLITE_FRAMEWORK = "mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework:SqliteFramework"
+PYTHON_DICT_FRAMEWORK = (
+    "mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework:PythonDictFramework"
+)
 
 
 @dataclass(frozen=True)

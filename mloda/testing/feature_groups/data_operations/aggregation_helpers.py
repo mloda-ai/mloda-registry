@@ -1,4 +1,4 @@
-"""Pure Python kernel shared by the aggregation, window, frame and scalar references.
+"""Pure Python kernel shared by the aggregation, window, frame, ordered and scalar references.
 
 Aggregates run over plain Python lists, independent of PyArrow compute and of the
 production PythonDict helpers. The contract is in docs/guides/data-operation-patterns/03-reference-implementation.md.
@@ -121,6 +121,20 @@ def median(values: list[Any]) -> Any:
     return float(s[mid])
 
 
+def quantile(values: list[Any], q: float) -> Any:
+    """Linear-interpolation quantile over non-None, non-NaN values; None when there are none."""
+    s = sorted(v for v in values if v is not None and not _is_nan(v))
+    if not s:
+        return None
+    pos = (len(s) - 1) * q
+    lo = int(pos)
+    if pos == lo:
+        return float(s[lo])
+    if s[lo] == s[lo + 1]:
+        return float(s[lo])
+    return float(s[lo] + (s[lo + 1] - s[lo]) * (pos - lo))
+
+
 def mode(values: list[Any]) -> Any:
     """Mode, counting NaN as one value like pc.mode; ties keep first occurrence."""
     if not values:
@@ -148,6 +162,13 @@ def order_key(value: Any) -> tuple[int, Any]:
     if _is_nan(value):
         return (1, 0)
     return (0, value)
+
+
+def ordered_groups(key_columns: list[list[Any]], order_values: list[Any], num_rows: int) -> list[list[int]]:
+    """Row indices per group (first-occurrence order), each stable-sorted by ``order_key``."""
+    return [
+        sorted(rows, key=lambda i: order_key(order_values[i])) for rows in group_rows(key_columns, num_rows).values()
+    ]
 
 
 def declared_type(agg_type: str, source_type: pa.DataType) -> pa.DataType:

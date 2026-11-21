@@ -121,6 +121,81 @@ class TestOrderKey:
         assert [tag for _, tag in result] == ["a", "c", "b", "d", "e", "f"]
 
 
+class TestOrderedGroups:
+    """ordered_groups is group_rows with each group's indices stable-sorted by order_key."""
+
+    @staticmethod
+    def _ordered(keys: list[list[Any]], order: list[Any], num_rows: int) -> list[list[int]]:
+        from mloda.testing.feature_groups.data_operations.aggregation_helpers import ordered_groups
+
+        return ordered_groups(keys, order, num_rows)
+
+    def test_groups_keep_first_occurrence_order(self) -> None:
+        assert self._ordered([["b", "a", "b", "a"]], [2, 2, 1, 1], 4) == [[2, 0], [3, 1]]
+
+    def test_order_values_then_nan_then_none(self) -> None:
+        assert self._ordered([["a"] * 3], [None, NAN, 1.0], 3) == [[2, 1, 0]]
+
+    def test_ties_keep_input_order(self) -> None:
+        assert self._ordered([["a"] * 5], [1.0, NAN, 1.0, NAN, None], 5) == [[0, 2, 1, 3, 4]]
+
+    def test_nan_keys_merge_and_none_key_is_distinct(self) -> None:
+        assert self._ordered([[NAN, None, float("nan"), None]], [2, 2, 1, 1], 4) == [[2, 0], [3, 1]]
+
+    def test_signed_zero_keys_merge(self) -> None:
+        assert self._ordered([[0.0, -0.0, 0.0]], [3, 2, 1], 3) == [[2, 1, 0]]
+
+    @pytest.mark.parametrize("num_rows", [0, 3])
+    def test_no_keys_gives_one_whole_table_group(self, num_rows: int) -> None:
+        order: list[Any] = [3, 1, 2][:num_rows]
+        expected = [[1, 2, 0]] if num_rows else [[]]
+        assert self._ordered([], order, num_rows) == expected
+
+    def test_all_none_group_keeps_input_order(self) -> None:
+        assert self._ordered([["a", "a", "b"]], [None, None, 1.0], 3) == [[0, 1], [2]]
+
+
+class TestQuantile:
+    """quantile interpolates linearly over the non-None, non-NaN values."""
+
+    @staticmethod
+    def _q(values: list[Any], q: float) -> Any:
+        from mloda.testing.feature_groups.data_operations.aggregation_helpers import quantile
+
+        return quantile(values, q)
+
+    @pytest.mark.parametrize(
+        ("values", "q", "expected"),
+        [
+            ([4.0, 1.0, 3.0, 2.0], 0.5, 2.5),
+            ([4.0, 1.0, 3.0, 2.0], 0.25, 1.75),
+            ([4.0, 1.0, 3.0, 2.0], 0.75, 3.25),
+            ([1, 2, 3], 0.5, 2.0),
+            ([7], 0.3, 7.0),
+            ([1.0, None, NAN, 3.0], 0.5, 2.0),
+        ],
+    )
+    def test_linear_interpolation(self, values: list[Any], q: float, expected: float) -> None:
+        assert self._q(values, q) == expected
+
+    @pytest.mark.parametrize("values", [[], [None, None], [NAN, NAN], [None, NAN]])
+    def test_none_without_usable_values(self, values: list[Any]) -> None:
+        assert self._q(values, 0.5) is None
+
+    @pytest.mark.parametrize(("q", "expected"), [(0.0, -math.inf), (1.0, math.inf), (0.5, 1.0)])
+    def test_integral_position_is_exact_with_infinities(self, q: float, expected: float) -> None:
+        assert self._q([-math.inf, 1.0, math.inf], q) == expected
+
+    @pytest.mark.parametrize(
+        ("values", "expected"), [([math.inf, math.inf], math.inf), ([-math.inf, -math.inf], -math.inf)]
+    )
+    def test_equal_infinite_neighbours_return_that_value(self, values: list[Any], expected: float) -> None:
+        assert self._q(values, 0.5) == expected
+
+    def test_opposite_infinite_neighbours_stay_nan(self) -> None:
+        assert math.isnan(self._q([-math.inf, math.inf], 0.5))
+
+
 class TestDeclaredType:
     """declared_type(agg_type, source_type) is the schema of an aggregate column."""
 

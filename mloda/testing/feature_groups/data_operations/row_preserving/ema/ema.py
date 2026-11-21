@@ -26,12 +26,11 @@ Null rules (pinned and empirically verified):
   prior ema, not a reset.
 - Trailing nulls produce NULL.
 
-NO LIVE REFERENCE ORACLE. Unlike ``ffill``, PyArrow cannot compute an
-exponentially weighted mean, so it can NOT be the cross-framework reference.
-Instead the expected values are PINNED literals computed offline from the
-canonical pandas formula and BOTH compute backends (pandas, polars-lazy) are
-asserted against the SAME literals. The pandas <-> polars span-form agreement
-was verified empirically (elementwise, null-aware, within 1e-9) before pinning.
+A kit reference (``reference_ema``) exists, but the backend value tests assert the BACKEND against
+the PINNED literals (single home: ``ema/pinning_rows.py``), computed offline from the canonical pandas
+formula, so the backend assertion runs before the reference half, which is checked against the same
+literals and skips without pyarrow. The pandas <-> polars span-form agreement was verified empirically
+(elementwise, null-aware, within 1e-9) before pinning.
 
 Backends:
 
@@ -71,7 +70,7 @@ UNIQUE so SQL backends get a deterministic whole-table sort::
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -79,6 +78,7 @@ from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
     make_feature_set,
@@ -89,131 +89,39 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.row_preserving.ema.pinning_rows import (
+    EMA_IDS,
+    EMA_REGIONS,
+    EMA_TIMESTAMPS,
+    EMA_VALUES,
+    EXPECTED_EMA_SPAN2,
+    EXPECTED_EMA_SPAN3,
+    EXPECTED_EMA_WHOLE_SPAN2,
+    EXPECTED_EMA_WHOLE_SPAN3,
+)
 from mloda.testing.typed_data import TypedTestData
 
 _U = timezone.utc
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 # ---------------------------------------------------------------------------
 # Dedicated 12-row fixture (UTC timestamps, two interleaved partitions)
 # ---------------------------------------------------------------------------
 
-_EMA_IDS: list[int] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-
-_EMA_REGIONS: list[str] = ["A", "B", "A", "B", "A", "B", "A", "B", "A", "B", "A", "B"]
-
-# Hour-of-day per row (all globally unique -> deterministic SQL whole-table sort).
-_EMA_TS_HOURS: list[int] = [2, 7, 0, 9, 4, 6, 1, 11, 5, 8, 3, 10]
-
-_EMA_TIMESTAMPS: list[datetime] = [datetime(2023, 1, 1, h, 0, 0, tzinfo=_U) for h in _EMA_TS_HOURS]
-
-_EMA_VALUES: list[float | None] = [
-    2.0,  # 0  A
-    10.0,  # 1  B seed
-    None,  # 2  A leading null
-    None,  # 3  B interior null
-    4.0,  # 4  A
-    None,  # 5  B leading null
-    1.0,  # 6  A seed
-    None,  # 7  B trailing null
-    None,  # 8  A trailing null
-    20.0,  # 9  B
-    None,  # 10 A interior null
-    40.0,  # 11 B
-]
-
 
 def _create_ema_data() -> TypedTestData:
     """Create the typed data used by every EMA test."""
     return TypedTestData(
         {
-            "id": (DataType.INT64, _EMA_IDS),
-            "region": (DataType.STRING, _EMA_REGIONS),
-            "ts": (DataType.TIMESTAMP_MICROS_TZ, _EMA_TIMESTAMPS),
-            "value": (DataType.DOUBLE, _EMA_VALUES),
+            "id": (DataType.INT64, EMA_IDS),
+            "region": (DataType.STRING, EMA_REGIONS),
+            "ts": (DataType.TIMESTAMP_MICROS_TZ, EMA_TIMESTAMPS),
+            "value": (DataType.DOUBLE, EMA_VALUES),
         }
     )
-
-
-# ---------------------------------------------------------------------------
-# Pinned expected values (offline-computed; pandas <-> polars span-form verified)
-# ---------------------------------------------------------------------------
-#
-# Computed via the canonical pandas formula, per the per-partition spec, in
-# ORIGINAL ROW ORDER:
-#
-#   for region, group in df.groupby("region"):
-#       s = group.sort_values("ts")["value"]
-#       ema = s.ewm(span=SPAN, adjust=False, ignore_na=True).mean().mask(s.isna())
-#
-# and the whole-table variant sorts the entire frame by ts (no groupby).
-# Polars span-form ewm_mean(span=SPAN, adjust=False, ignore_nulls=True) agrees
-# elementwise (null-aware, within 1e-9) with all four lists below.
-
-# Per-partition EMA, span=2 (partition_by=["region"], order_by="ts").
-EXPECTED_EMA_SPAN2: list[Any] = [
-    1.6666666666666665,  # 0  A
-    10.0,  # 1  B seed
-    None,  # 2  A leading null
-    None,  # 3  B interior null
-    3.2222222222222223,  # 4  A
-    None,  # 5  B leading null
-    1.0,  # 6  A seed
-    None,  # 7  B trailing null
-    None,  # 8  A trailing null
-    16.666666666666664,  # 9  B
-    None,  # 10 A interior null
-    32.22222222222222,  # 11 B
-]
-
-# Per-partition EMA, span=3.
-EXPECTED_EMA_SPAN3: list[Any] = [
-    1.5,  # 0  A
-    10.0,  # 1  B seed
-    None,  # 2  A leading null
-    None,  # 3  B interior null
-    2.75,  # 4  A
-    None,  # 5  B leading null
-    1.0,  # 6  A seed
-    None,  # 7  B trailing null
-    None,  # 8  A trailing null
-    15.0,  # 9  B
-    None,  # 10 A interior null
-    27.5,  # 11 B
-]
-
-# Whole-table EMA, span=2 (order_by="ts" only, no partition). Differs from the
-# per-partition result at rows 1, 9, 11 (partition bleed guard).
-EXPECTED_EMA_WHOLE_SPAN2: list[Any] = [
-    1.6666666666666665,  # 0
-    7.7407407407407405,  # 1
-    None,  # 2
-    None,  # 3
-    3.2222222222222223,  # 4
-    None,  # 5
-    1.0,  # 6
-    None,  # 7
-    None,  # 8
-    15.913580246913579,  # 9
-    None,  # 10
-    31.971193415637856,  # 11
-]
-
-# Whole-table EMA, span=3.
-EXPECTED_EMA_WHOLE_SPAN3: list[Any] = [
-    1.5,  # 0
-    6.375,  # 1
-    None,  # 2
-    None,  # 3
-    2.75,  # 4
-    None,  # 5
-    1.0,  # 6
-    None,  # 7
-    None,  # 8
-    13.1875,  # 9
-    None,  # 10
-    26.59375,  # 11
-]
 
 
 # ---------------------------------------------------------------------------
@@ -228,11 +136,10 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     ``PolarsLazyTestMixin``) and a one-liner ``implementation_class``
     classmethod returning the framework-specific feature group.
 
-    There is NO live reference oracle (PyArrow cannot compute EMA); every value
-    test asserts against PINNED literals, so this base is used ONLY by backends
-    that actually support EMA. Unsupported backends (pyarrow, duckdb, sqlite)
-    ship no backend at all (absence), so there is no value-test base for them
-    here.
+    Every value test asserts the backend against PINNED literals and then checks the kit reference
+    reproduces them, so this base is used ONLY by backends that actually support EMA. Unsupported
+    backends (pyarrow, duckdb, sqlite) ship no backend at all (absence), so there is no value-test base
+    for them here.
     """
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -254,6 +161,17 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def reserved_columns_helper_names(cls) -> set[str]:
         return {"__mloda_rn__"}
 
+    @classmethod
+    def reference_calculate(cls, table: pa.Table, features: Any) -> Any:
+        """Run the kit reference function on the canonical table."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.ema.reference import reference_ema
+
+        return reference_ema(cls.feature_group_class(), table, features)
+
+    def _assert_reference_reproduces(self, fs: FeatureSet, name: str, expected: list[Any]) -> None:
+        ref = self.reference_calculate(arrow_table_of(self.source_data()), fs)
+        assert_values_with_nulls(ref.column(name).to_pylist(), expected, cast=float, approx=True)
+
     # -- Setup: use the dedicated 12-row EMA fixture ------------------------
 
     @classmethod
@@ -274,6 +192,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         assert isinstance(result, self.get_expected_type())
         col = self.extract_column(result, "value__ema_2")
         assert_values_with_nulls(col, EXPECTED_EMA_SPAN2, cast=float, approx=True)
+        self._assert_reference_reproduces(fs, "value__ema_2", EXPECTED_EMA_SPAN2)
 
     def test_ema_span3_per_partition(self) -> None:
         """Per-partition EMA span=3 matches pinned EXPECTED_EMA_SPAN3."""
@@ -281,6 +200,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_3")
         assert_values_with_nulls(col, EXPECTED_EMA_SPAN3, cast=float, approx=True)
+        self._assert_reference_reproduces(fs, "value__ema_3", EXPECTED_EMA_SPAN3)
 
     def test_ema_whole_table_span2(self) -> None:
         """With order_by only (no partition), EMA treats the whole table as one group."""
@@ -288,6 +208,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         assert_values_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN2, cast=float, approx=True)
+        self._assert_reference_reproduces(fs, "value__ema_2", EXPECTED_EMA_WHOLE_SPAN2)
 
     def test_ema_whole_table_span3(self) -> None:
         """Whole-table EMA span=3 matches pinned EXPECTED_EMA_WHOLE_SPAN3."""
@@ -295,6 +216,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_3")
         assert_values_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN3, cast=float, approx=True)
+        self._assert_reference_reproduces(fs, "value__ema_3", EXPECTED_EMA_WHOLE_SPAN3)
 
     def test_partition_aware_differs_from_whole_table(self) -> None:
         """Partition-aware EMA must NOT equal the whole-table EMA.
@@ -366,7 +288,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         assert float(col[1]) == pytest.approx(10.0), f"B seed row 1 should be 10.0, got {col[1]!r}"
 
     def test_tied_order_keeps_input_order(self) -> None:
-        """Rows tied on order_by keep input order (the tie is deliberate; no reference oracle exists)."""
+        """Rows tied on order_by keep input order (the tie is deliberate; the kit reference ties the same way)."""
         data = TypedTestData(
             {
                 "g": (DataType.STRING, ["a"] * 3),
@@ -382,6 +304,39 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         col = self.extract_column(result, "v__ema_2")
         assert [float(x) for x in col] == pytest.approx([5 / 3, 17 / 9, 3.0])
 
+    # -- NaN in order_by and in the source -----------------------------------
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.DOUBLE, [None, float("nan"), 1.0]),
+                "v": (DataType.DOUBLE, [10.0, 20.0, 30.0]),
+            }
+        )
+        fs = make_feature_set("v__ema_2", ["g"], "o")
+        reference = [130 / 9, 70 / 3, 30.0]
+        tied = [50 / 3, 170 / 9, 30.0]
+
+        self._assert_nan_case(table, fs, "v__ema_2", reference, tied, approx=True)
+
+    def test_nan_source_value_propagates(self) -> None:
+        """The reference lets a NaN input poison the state; a backend declaring nan_as_null treats it as null."""
+        nan = float("nan")
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 5),
+                "o": (DataType.INT64, [1, 2, 3, 4, 5]),
+                "v": (DataType.DOUBLE, [10.0, nan, 30.0, None, 50.0]),
+            }
+        )
+        fs = make_feature_set("v__ema_2", ["g"], "o")
+        reference = [10.0, nan, nan, None, nan]
+        as_null = [10.0, None, 70 / 3, None, 370 / 9]
+
+        self._assert_nan_case(table, fs, "v__ema_2", reference, as_null, approx=True)
+
     # -- Row-preserving semantics -------------------------------------------
 
     def test_original_row_order_preserved(self) -> None:
@@ -389,14 +344,14 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         fs = self._ema_feature_set(2)
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         ids = self.extract_column(result, "id")
-        assert [int(v) for v in ids] == _EMA_IDS, f"row order changed: {ids!r}"
+        assert [int(v) for v in ids] == EMA_IDS, f"row order changed: {ids!r}"
 
     def test_source_column_unchanged(self) -> None:
         """The source ``value`` column must pass through unchanged."""
         fs = self._ema_feature_set(2)
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         src = self.extract_column(result, "value")
-        assert_values_with_nulls(src, _EMA_VALUES, cast=float, approx=True)
+        assert_values_with_nulls(src, EMA_VALUES, cast=float, approx=True)
 
     # -- Option-based configuration -----------------------------------------
 
@@ -417,6 +372,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
         result = calculate_with(self.implementation_class(), self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
         assert_values_with_nulls(col, EXPECTED_EMA_SPAN2, cast=float, approx=True)
+        self._assert_reference_reproduces(fs, "value__ema_2", EXPECTED_EMA_SPAN2)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
@@ -424,9 +380,9 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
     def input_validation_cases(cls) -> dict[str, Any]:
         missing_value_data = TypedTestData(
             {
-                "id": (DataType.INT64, _EMA_IDS),
-                "region": (DataType.STRING, _EMA_REGIONS),
-                "ts": (DataType.TIMESTAMP_MICROS_TZ, _EMA_TIMESTAMPS),
+                "id": (DataType.INT64, EMA_IDS),
+                "region": (DataType.STRING, EMA_REGIONS),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, EMA_TIMESTAMPS),
             }
         )
         return {

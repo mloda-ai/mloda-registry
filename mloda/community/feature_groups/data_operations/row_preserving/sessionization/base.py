@@ -39,8 +39,8 @@ a config-only feature (source given via ``in_features`` instead of the name)
 is not matched.
 
 Every backend (pandas, polars-lazy, PyArrow, DuckDB, SQLite) computes
-sessionization NATIVELY; there is no rejection of supported inputs. PyArrow is
-the cross-framework reference oracle. Each backend is an
+sessionization NATIVELY; there is no rejection of supported inputs. The kit's
+pure Python ``reference_sessionization`` is the cross-framework reference. Each backend is an
 ``Implementation`` supplying the gap-and-cumsum to ``sessionize``; the partition_by and
 order_by presence guard is shared (``assert_key_columns_present``).
 """

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.aggregation_helpers import ordered_groups
+
 if TYPE_CHECKING:
     import pyarrow as pa
 
@@ -26,47 +28,46 @@ def _compute_offset(
 
     num_rows = table.num_rows
 
-    # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
-    partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
+    keys = [table.column(col).to_pylist() for col in partition_by]
     order_vals = table.column(order_by).to_pylist()
     source_vals = table.column(source_col).to_pylist()
 
-    # Build group keys from extracted Python lists (no PyArrow calls in loop)
-    groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
-    for i in range(num_rows):
-        key = tuple(partition_lists[col][i] for col in partition_by)
-        if key not in groups:
-            groups[key] = []
-        groups[key].append((i, order_vals[i], source_vals[i]))
-
-    # Sort each group by order_by (nulls last)
-    for key in groups:
-        groups[key].sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else 0))
+    source_type = table.schema.field(source_col).type
+    diff_type: pa.DataType | None = None
+    if offset_type.startswith("diff_"):
+        if pa.types.is_integer(source_type):
+            diff_type = pa.int64()
+        elif pa.types.is_floating(source_type):
+            diff_type = pa.float64()
+        elif pa.types.is_timestamp(source_type):
+            diff_type = pa.duration(source_type.unit)
+        else:
+            raise ValueError(f"Offset 'diff' is not defined for source type {source_type}")
 
     result_values: list[Any] = [None] * num_rows
 
-    for key, sorted_rows in groups.items():
-        n = len(sorted_rows)
-        vals = [row[2] for row in sorted_rows]
+    for rows in ordered_groups(keys, order_vals, num_rows):
+        n = len(rows)
+        vals = [source_vals[i] for i in rows]
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
             for pos in range(n):
-                idx = sorted_rows[pos][0]
+                idx = rows[pos]
                 if pos >= offset_n:
                     result_values[idx] = vals[pos - offset_n]
 
         elif offset_type.startswith("lead_"):
             offset_n = int(offset_type[len("lead_") :])
             for pos in range(n):
-                idx = sorted_rows[pos][0]
+                idx = rows[pos]
                 if pos + offset_n < n:
                     result_values[idx] = vals[pos + offset_n]
 
         elif offset_type.startswith("diff_"):
             offset_n = int(offset_type[len("diff_") :])
             for pos in range(n):
-                idx = sorted_rows[pos][0]
+                idx = rows[pos]
                 curr = vals[pos]
                 if pos >= offset_n and curr is not None and vals[pos - offset_n] is not None:
                     result_values[idx] = curr - vals[pos - offset_n]
@@ -74,7 +75,7 @@ def _compute_offset(
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
             for pos in range(n):
-                idx = sorted_rows[pos][0]
+                idx = rows[pos]
                 curr = vals[pos]
                 prev = vals[pos - offset_n] if pos >= offset_n else None
                 if curr is not None and prev is not None and prev != 0:
@@ -83,18 +84,18 @@ def _compute_offset(
         elif offset_type == "first_value":
             first = next((v for v in vals if v is not None), None)
             for pos in range(n):
-                result_values[sorted_rows[pos][0]] = first
+                result_values[rows[pos]] = first
 
         elif offset_type == "last_value":
             last = next((v for v in reversed(vals) if v is not None), None)
             for pos in range(n):
-                result_values[sorted_rows[pos][0]] = last
+                result_values[rows[pos]] = last
 
         else:
             raise ValueError(f"Unsupported offset type: {offset_type}")
 
-    new_col = pa.array(result_values)
-    return table.append_column(feature_name, new_col)
+    declared = pa.float64() if offset_type.startswith("pct_change_") else diff_type or source_type
+    return table.append_column(feature_name, pa.array(result_values, type=declared))
 
 
 def reference_offset(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:

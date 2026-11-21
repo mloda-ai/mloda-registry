@@ -28,8 +28,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.base im
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PANDAS_DATAFRAME,
+    PYARROW_TABLE,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
 )
+
+_PACKAGE = "mloda.community.feature_groups.data_operations.row_preserving.ffill"
+_ROUTING_OPTIONS = {"order_by": "timestamp", "partition_by": ["region"]}
 
 # Forward-fill of ``value_float`` within each ``region`` partition, in timestamp
 # order. Region A: [1.5, 2.5, None->2.5, 0.0]; B: [-3.14, 5.5, 6.5, 7.5];
@@ -101,6 +107,19 @@ class TestFfillIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegratio
     @classmethod
     def match_options(cls) -> Options:
         return Options(context={"order_by": "timestamp", "partition_by": ["region"]})
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        # Pandas data without allow_variants is served by the PyArrow Implementation.
+        return [
+            RoutingCase("value_float__ffill", _ROUTING_OPTIONS, f"{_PACKAGE}.pyarrow_ffill:PyArrowFfill", PYARROW_TABLE)
+        ]
+
+    @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        return RoutingCase(
+            "value_float__ffill", _ROUTING_OPTIONS, f"{_PACKAGE}.pandas_ffill:PandasFfill", PANDAS_DATAFRAME
+        )
 
     @pytest.mark.parametrize(
         ("name", "options_context", "match"),

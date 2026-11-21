@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
@@ -15,6 +15,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.base im
 class PandasFfill(Implementation[FfillFeatureGroup]):
     feature_group = FfillFeatureGroup
     compute_framework = PandasDataFrame
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.VARIANT,
+            variant="nan_as_null",
+            cause=Cause.BACKEND,
+            reason="float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null",
+        ),
+    )
 
     @classmethod
     def calculate(

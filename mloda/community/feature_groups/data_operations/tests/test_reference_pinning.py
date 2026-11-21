@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -15,6 +15,8 @@ from mloda.community.feature_groups.data_operations.aggregation.base import Aggr
 from mloda.community.feature_groups.data_operations.catalog import DataOperationsCatalog
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DateTimeFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -22,14 +24,20 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     LookupFeatureGroup,
     build_unmatched_error,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
+from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import PercentileFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
+    SessionizationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TimeBucketizationFeatureGroup,
@@ -70,14 +78,30 @@ from mloda.testing.feature_groups.data_operations.row_preserving.binning.pinning
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.reference import reference_binning
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.reference import reference_datetime
+from mloda.testing.feature_groups.data_operations.row_preserving.ema.pinning_rows import EMA_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.ema.reference import reference_ema
+from mloda.testing.feature_groups.data_operations.row_preserving.ffill.pinning_rows import FFILL_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.ffill.reference import reference_ffill
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
     reference_frame_aggregate,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import HOOK_REASONS, NutsMappingHook
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.reference import reference_lookup
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.pinning_rows import OFFSET_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import reference_offset
+from mloda.testing.feature_groups.data_operations.row_preserving.percentile.pinning_rows import PERCENTILE_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import reference_percentile
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.pinning_rows import RANK_PINNING
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import reference_rank
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
     reference_scalar_aggregate,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.pinning_rows import (
+    SESSIONIZATION_PINNING,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.reference import (
+    reference_sessionization,
 )
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
@@ -105,6 +129,12 @@ PINNED: list[tuple[type, Callable[..., Any], PinningTable]] = [
     (WindowAggregationFeatureGroup, reference_window_aggregation, WINDOW_AGGREGATION_PINNING),
     (FrameAggregateFeatureGroup, reference_frame_aggregate, FRAME_AGGREGATE_PINNING),
     (ScalarAggregateFeatureGroup, reference_scalar_aggregate, SCALAR_AGGREGATE_PINNING),
+    (RankFeatureGroup, reference_rank, RANK_PINNING),
+    (OffsetFeatureGroup, reference_offset, OFFSET_PINNING),
+    (PercentileFeatureGroup, reference_percentile, PERCENTILE_PINNING),
+    (FfillFeatureGroup, reference_ffill, FFILL_PINNING),
+    (SessionizationFeatureGroup, reference_sessionization, SESSIONIZATION_PINNING),
+    (EmaFeatureGroup, reference_ema, EMA_PINNING),
 ]
 
 ROW_PARAMS = [
@@ -207,6 +237,9 @@ class _HookLookup(NutsMappingHook, LookupFeatureGroup):
 
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
 _SCALAR = (reference_scalar_arithmetic, ScalarArithmeticFeatureGroup)
+_SESSION = (reference_sessionization, SessionizationFeatureGroup)
+_OFFSET = (reference_offset, OffsetFeatureGroup)
+_OFFSET_CTX: dict[str, Any] = {"partition_by": ["p"], "order_by": "o"}
 _LOOKUP = (reference_lookup, LookupFeatureGroup)
 _STR_MAP = {"a": "A"}
 _INT_MAP = {1: 10}
@@ -530,6 +563,30 @@ _REJECTION_PARAMS = [
     pytest.param(
         *_BUCKET, "x__floor_1_day", {}, {"x": (pa.date32(), [date(2024, 1, 1)])}, None, id="bucket-date-source"
     ),
+    pytest.param(
+        *_SESSION,
+        "ts__sessionize_30_minute",
+        {"order_by": "ts"},
+        {"ts": (pa.int64(), [1, 2])},
+        "must be a timestamp",
+        id="sessionization-non-timestamp-order",
+    ),
+    pytest.param(
+        *_OFFSET,
+        "v__diff_1_offset",
+        _OFFSET_CTX,
+        {"p": (pa.string(), ["a", "a"]), "o": (pa.int64(), [1, 2]), "v": (pa.bool_(), [True, False])},
+        "bool",
+        id="offset-diff-bool-source",
+    ),
+    pytest.param(
+        *_OFFSET,
+        "v__diff_1_offset",
+        _OFFSET_CTX,
+        {"p": (pa.string(), ["a", "a"]), "o": (pa.int64(), [1, 2]), "v": (pa.string(), ["x", "y"])},
+        "string",
+        id="offset-diff-string-source",
+    ),
 ]
 
 
@@ -603,3 +660,22 @@ class TestLookupReference:
         result = reference_lookup(LookupFeatureGroup, table, features)
         assert result.column("x__lookup").to_pylist() == [None, None]
         assert result.schema.field("x__lookup").type == value_type
+
+
+class TestOffsetDiffTimestamp:
+    """diff of a timestamp source is a duration in the source's unit (no DataType expresses a duration)."""
+
+    @pytest.mark.parametrize("unit", ["s", "ms", "us"])
+    def test_diff_is_duration_in_source_unit(self, unit: str) -> None:
+        t0 = datetime(2024, 1, 1, 0, 0, 0)
+        t1 = datetime(2024, 1, 1, 0, 1, 30)
+        table = _typed_table(
+            p=(pa.string(), ["a", "a"]),
+            o=(pa.int64(), [1, 2]),
+            v=(pa.timestamp(unit, tz="UTC"), [t0, t1]),
+        )
+        result = reference_offset(OffsetFeatureGroup, table, make_feature_set("v__diff_1_offset", **_OFFSET_CTX))
+        column = result.column("v__diff_1_offset")
+        assert column.type == pa.duration(unit)
+        # 00:01:30 - 00:00:00 is 90 seconds
+        assert column.to_pylist() == [None, timedelta(seconds=90)]

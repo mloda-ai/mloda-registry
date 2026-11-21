@@ -69,6 +69,21 @@ def divergent_subtypes(implementation: Any, *, named_only: bool = False) -> froz
     return frozenset(covered)
 
 
+def declares_nan_as_null(implementation: Any, subtypes: frozenset[str] = frozenset()) -> bool:
+    """Whether a ``nan_as_null`` VARIANT record is scopeless and outputless, or names one of ``subtypes``.
+
+    False for anything that is not an ``Implementation`` subclass (a stub declares nothing).
+    """
+    if not (isinstance(implementation, type) and issubclass(implementation, Implementation)):
+        return False
+    return any(
+        r.kind is DivergenceKind.VARIANT
+        and r.variant == "nan_as_null"
+        and ((subtypes & set(r.subtypes)) or (not r.subtypes and not r.outputs))
+        for r in implementation.divergences
+    )
+
+
 class DataOpsTestBase(ABC):
     """Abstract base class shared by all data-operations test suites.
 
@@ -277,6 +292,35 @@ class DataOpsTestBase(ABC):
             universe = set(impl.feature_group.subtype_universe())
             return universe or default
         return default
+
+    @classmethod
+    def orders_nan_before_none(cls) -> bool:
+        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
+        return not declares_nan_as_null(cls.implementation_class())
+
+    def _assert_nan_case(
+        self,
+        table: TypedTestData,
+        fs: Any,
+        feature_name: str,
+        reference: list[Any],
+        tied: list[Any],
+        approx: bool = False,
+    ) -> None:
+        """Backend column equals ``reference`` (or ``tied`` for nan_as_null), then the reference column equals ``reference``."""
+        result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
+        col = self.extract_column(result, feature_name)
+        expected = reference if self.orders_nan_before_none() else tied
+        if approx:
+            assert [None if x is None else float(x) for x in col] == pytest.approx(expected, nan_ok=True)
+        else:
+            assert col == expected
+
+        ref_col = _extract_column(self.reference_calculate(helpers.arrow_table_of(table), fs), feature_name)
+        if approx:
+            assert ref_col == pytest.approx(reference, nan_ok=True)
+        else:
+            assert ref_col == reference
 
     # -- Cross-framework comparison --------------------------------------------
 

@@ -1,6 +1,6 @@
-"""PyArrow implementation of gap-threshold sessionization (production AND reference).
+"""PyArrow implementation of gap-threshold sessionization.
 
-PyArrow is the cross-framework reference oracle for sessionization. The
+The cross-framework reference is the kit's pure Python ``reference_sessionization``. The
 computation is fully native (Arrow compute kernels, no per-row Python loop):
 rows are sorted by ``[*partition_by, order_col]`` ascending (null timestamps
 last), the gap to the previous row and the partition boundary are derived with

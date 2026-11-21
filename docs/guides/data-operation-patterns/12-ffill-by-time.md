@@ -22,6 +22,8 @@ value__ffill
 | `partition_by` | no (default `[]`) | Columns that scope the fill. With no partition the whole table is one group. |
 | `in_features` | no | Must name the source in the `{col}__ffill` name when given. |
 
+Pandas and SQLite serve ffill only with `allow_variants: "nan_as_null"` in the group options (they tie NaN and null in `order_by` and treat a NaN value as null), see [known divergences](known-divergences.md).
+
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
@@ -30,7 +32,10 @@ PluginLoader.all()
 data = {"ts": [1, 2, 3, 4], "symbol": ["A", "A", "B", "B"], "price": [1.0, None, None, 2.0]}
 
 features = [
-    Feature("price__ffill", Options(context={"order_by": "ts", "partition_by": ["symbol"]})),
+    Feature(
+        "price__ffill",
+        Options(group={"allow_variants": "nan_as_null"}, context={"order_by": "ts", "partition_by": ["symbol"]}),
+    ),
 ]
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```
@@ -50,7 +55,7 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_dat
 
 | Backend | Mechanism |
 |---|---|
-| PyArrow (reference) | `pc.fill_null_forward` applied **per partition slice** after a stable sort. Raw `fill_null_forward` ignores partition boundaries, so the reference fills each group independently and scatters back to original positions. |
+| PyArrow | (a backend, not the reference) `pc.fill_null_forward` applied **per partition slice** after a stable sort. Raw `fill_null_forward` ignores partition boundaries, so the reference fills each group independently and scatters back to original positions. |
 | Pandas | sort within partition, `groupby(partition_by, dropna=False)[col].ffill()`, then restore original order via a row-index tag. |
 | Polars (lazy) | `pl.col(col).forward_fill().over(partition_by)` after ordering; original order restored from a row index. |
 | DuckDB | `LAST_VALUE(col IGNORE NULLS)` over a `partition_by` / `order_by` window (unbounded preceding → current row), via the typed window helper. |
@@ -81,5 +86,5 @@ See [Context Propagation](../feature-group-patterns/11-options.md#context-propag
 ## Related
 
 - [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input.
-- [Reference implementation pattern](03-reference-implementation.md) - PyArrow's per-partition `fill_null_forward` is the reference.
+- [Reference implementation pattern](03-reference-implementation.md) - The reference is the kit's pure Python `reference_ffill`.
 - [EMA](13-ema.md) - The other ordered, partitioned row-preserving time-series op.

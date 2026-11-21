@@ -15,7 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_utils import row_count
 
-from mloda.community.feature_groups.data_operations.python_dict_helpers import group_key_value, nulls_last_sort_key
+from mloda.community.feature_groups.data_operations.python_dict_helpers import group_key_value, partition_sort_key
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -54,7 +54,7 @@ class PythonDictOffset(Implementation[OffsetFeatureGroup]):
             groups.setdefault(key, []).append((i, order_vals[i], source_vals[i]))
 
         for rows in groups.values():
-            rows.sort(key=lambda t: nulls_last_sort_key(t[1]))
+            rows.sort(key=lambda t: partition_sort_key(t[1]))
 
         result_values: list[Any] = [None] * num_rows
 

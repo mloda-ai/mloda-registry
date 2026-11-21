@@ -494,7 +494,7 @@ regression_test:
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 
 <!-- machine-checked
-operation: resample, rank, sessionization, percentile
+operation: resample
 framework: python_dict
 condition: group_key_value passes 0.0 and -0.0 through unchanged, and Python's float equality/hash merge them as dict keys
 mitigation_location:
@@ -503,10 +503,10 @@ regression_test:
 - mloda/community/feature_groups/data_operations/tests/test_python_dict_helpers.py::TestGroupKeyValueMergesSignedZeroDocumentedDivergence::test_positive_and_negative_zero_collide_into_one_group
 -->
 
-- **Operations**: `resample`, `rank`, `sessionization`, `percentile` (every PythonDict backend that groups rows by a float-valued partition column). The aggregating operations have a pure Python reference that merges the keys too, so they do not diverge.
+- **Operations**: `resample` (a PythonDict backend that groups rows by a float-valued partition column). The aggregating operations and the ordered rank, sessionization and percentile have a pure Python reference that merges the keys too, so they do not diverge.
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`).
 - **Reference behavior**: PyArrow's `Table.group_by()` hashes a float key bitwise, so `0.0` and `-0.0` (distinct bit patterns) land in two separate groups (verified directly: grouping `[0.0, -0.0]` produces 2 groups).
-- **Cross-framework check**: verified directly against each engine: Pandas' `.groupby()`, Polars' `.group_by()` and DuckDB's `GROUP BY` all merge `0.0` and `-0.0` into a single group too, the same as PythonDict. PyArrow is the only one of the four that treats them as distinct, so PythonDict's raw-dict-key grouping matches the majority. These four operations are verified only informally, not by a per-operation test.
+- **Cross-framework check**: verified directly against each engine: Pandas' `.groupby()`, Polars' `.group_by()` and DuckDB's `GROUP BY` all merge `0.0` and `-0.0` into a single group too, the same as PythonDict. PyArrow is the only one of the four that treats them as distinct, so PythonDict's raw-dict-key grouping matches the majority. This operation is verified only informally, not by a per-operation test.
 - **Native PythonDict behavior**: `group_key_value` only special-cases NaN; `0.0` and `-0.0` pass through unchanged. Python's `float.__eq__` and `float.__hash__` both treat `0.0 == -0.0` as `True` with equal hashes, so a plain `dict`/`set` keyed by the raw value merges them into one group regardless of what `group_key_value` does.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted), as the outlier rule of the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier) prescribes.
 - **How**: A `group_key_value`-only fix would not even be internally consistent: `values_equal` (used by the sort-based sessionization grouping path) and `partition_sort_key` both treat `0.0 == -0.0` on purpose (see `test_negative_zero_equals_zero`, `test_negative_zero_and_zero_sort_together`), so PythonDict's own sort-keyed sessionization backend would keep merging them while its dict-keyed backends stopped, a new internal inconsistency. A real fix needs all three functions to become sign-aware (`(value, math.copysign(1.0, value))` instead of the raw value on every hot grouping path), and would only trade PythonDict's current agreement with Pandas/Polars/DuckDB for agreement with PyArrow alone, a lateral move in total cross-framework divergence for a sign-of-zero edge case that is exceedingly rare in real partition columns. The divergence is documented instead of mitigated.
@@ -536,22 +536,30 @@ regression_test:
 ### Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
 
 <!-- machine-checked
-operation: window_aggregation, frame_aggregate
+operation: window_aggregation, frame_aggregate, offset, ffill, ema
 framework: pandas, sqlite
-condition: window first/last and frame aggregates tie NaN and None order keys, while the reference orders real values, then NaN, then None
+condition: window first/last, frame aggregates, offset, ffill and ema tie NaN and None order keys, while the reference orders real values, then NaN, then None; a NaN source value counts as null for offset, ffill and ema
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pandas_window_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/offset/pandas_offset.py
+- mloda/community/feature_groups/data_operations/row_preserving/offset/sqlite_offset.py
+- mloda/community/feature_groups/data_operations/row_preserving/ffill/pandas_ffill.py
+- mloda/community/feature_groups/data_operations/row_preserving/ffill/sqlite_ffill.py
+- mloda/community/feature_groups/data_operations/row_preserving/ema/pandas_ema.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_nan_orders_before_none
 - mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_nan_orders_before_none
+- mloda/testing/feature_groups/data_operations/row_preserving/offset/offset.py::OffsetTestBase::test_nan_orders_before_none
+- mloda/testing/feature_groups/data_operations/row_preserving/ffill/ffill.py::FfillTestBase::test_nan_orders_before_none
+- mloda/testing/feature_groups/data_operations/row_preserving/ema/ema.py::EmaTestBase::test_nan_orders_before_none
 -->
 
-- **Operations**: `window_aggregation` (`first`, `last`, Pandas only) and `frame_aggregate` (every frame type, Pandas and SQLite).
-- **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`. Pandas (window and frame) and SQLite (frame) tie NaN and None, giving window `last` `[20, 20, 20]` and frame `cumsum` `[40, 60, 30]`, because both store NaN as null. PythonDict orders like the reference.
+- **Operations**: `window_aggregation` (`first`, `last`, Pandas only), `frame_aggregate` (every frame type, Pandas and SQLite), `offset` and `ffill` (Pandas and SQLite), `ema` (Pandas only).
+- **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`. Pandas (window and frame) and SQLite (frame) tie NaN and None, giving window `last` `[20, 20, 20]` and frame `cumsum` `[40, 60, 30]`, because both store NaN as null. Offset, ffill and ema tie them the same way on those backends, and they also treat a NaN source value as null there. PythonDict orders like the reference.
 - **Mitigation kind**: Accepted divergence, declared as `nan_as_null` variant records on the Implementations (see [Declared divergence records](#declared-divergence-records)).
-- **Regression signal**: the reference value is pinned by rows in `aggregation_pinning_rows.py`; `test_nan_orders_before_none` in both test bases asserts the backend value through `orders_nan_before_none()`, which reads the records.
+- **Regression signal**: the reference value is pinned by rows in `aggregation_pinning_rows.py` and in the offset, ffill and ema `pinning_rows.py`; `test_nan_orders_before_none` in each test base asserts the backend value through `orders_nan_before_none()`, which reads the records.
 
 ### PythonDict, Pandas and SQLite rank tie None and NaN in order-value runs; PyArrow >= 25, DuckDB, and Polars rank them apart
 
@@ -570,7 +578,7 @@ regression_test:
 -->
 
 - **Operations**: `rank` (`rank`, `dense_rank`, `percent_rank`; the same tiering also reaches `row_number`/`ntile_N`/`top_N`/`bottom_N`, but only these three collapse ties into one shared output value).
-- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`is_null_like`, `nulls_last_sort_key`, `order_values_equal`), consumed by `PythonDictRank`. `reference_rank` uses its own local NaN-safe tiering, not PythonDict's helpers, so it stays an independent oracle.
+- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`is_null_like`, `nulls_last_sort_key`, `order_values_equal`), consumed by `PythonDictRank`. `reference_rank` orders through the kit kernel's `order_key`, not PythonDict's helpers.
 - **Reference behavior**: PyArrow >= 25.0's `pc.rank` ranks NaN as a distinct value ahead of null under any `null_placement` (PyArrow < 25.0 tied them); DuckDB's `RANK()` and Polars' `.rank()` do the same. On `order_by = [None, nan, None, 1.0]` all three, and `reference_rank`, give `[3, 2, 3, 1]`.
 - **Cross-framework check**: PythonDict, pandas and SQLite give `[2, 2, 2, 1]` (None and NaN tied). Pandas ties because a float64 column cannot distinguish NaN from null; SQLite ties because the sqlite3 driver coerces NaN to NULL on ingest, so `RANK()` never sees a NaN. PythonDict is the only backend that can represent both and chooses to tie them. The three Implementations declare this as `nan_as_null` variant records, see [Declared divergence records](#declared-divergence-records); they run only for a feature whose group options set `allow_variants: "nan_as_null"`, otherwise another framework serves the step, or resolution fails naming the option.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted).
@@ -636,6 +644,13 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
 | SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL, so they tie in order_by |
 
+### offset
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
+| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null |
+
 ### rank
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
@@ -678,6 +693,13 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | SQLite | value |  | backend | `divide` | returns NULL on divide by zero |
 | Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
 
+### ffill
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
+| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null |
+
 ### lookup
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
@@ -686,6 +708,12 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Pandas | gap |  | backend | (all) | an all-null float64 or object column is untyped and skips the key check ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pandas-treats-a-typed-all-null-int-source-as-untyped)) |
 | DuckDB | gap |  | backend | (all) | on DuckDB < 2 a null-typed source arrives as INTEGER ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-1x-reads-a-null-typed-lookup-source-as-integer)) |
 | Python dict | gap |  | backend | (all) | rows carry no dtype: a typed all-null column is untyped and skips the key check, in-range uint64 values serve int keys ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped)) |
+
+### ema
+
+| Framework | Kind | Variant | Cause | Applies to | Reason |
+|---|---|---|---|---|---|
+| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
 
 ### window_aggregation
 

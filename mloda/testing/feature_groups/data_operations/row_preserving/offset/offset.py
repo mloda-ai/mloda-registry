@@ -343,6 +343,43 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
         else:
             assert result_col == ref_col
 
+    # -- NaN in order_by and in the source -----------------------------------
+
+    def test_nan_orders_before_none(self) -> None:
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        self._skip_if_unsupported("lag")
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.DOUBLE, [None, float("nan"), 1.0]),
+                "v": (DataType.INT64, [10, 20, 30]),
+            }
+        )
+        fs = make_feature_set("v__lag_1_offset", ["g"], "o")
+        self._assert_nan_case(table, fs, "v__lag_1_offset", [20, 30, None], [30, 10, None])
+
+    @pytest.mark.parametrize(
+        "op,values,reference,as_null",
+        [
+            pytest.param("first_value", [float("nan"), 1.0, 2.0], [float("nan")] * 3, [1.0] * 3, id="first_value"),
+            pytest.param("last_value", [1.0, 2.0, float("nan")], [float("nan")] * 3, [2.0] * 3, id="last_value"),
+        ],
+    )
+    def test_nan_source_value(self, op: str, values: list[float], reference: list[float], as_null: list[float]) -> None:
+        """The reference keeps a NaN first/last value; a backend declaring nan_as_null skips it like a null."""
+        self._skip_if_unsupported(op)
+        table = TypedTestData(
+            {
+                "g": (DataType.STRING, ["g"] * 3),
+                "o": (DataType.INT64, [1, 2, 3]),
+                "v": (DataType.DOUBLE, values),
+            }
+        )
+        feature_name = f"v__{op}_offset"
+        fs = make_feature_set(feature_name, ["g"], "o")
+
+        self._assert_nan_case(table, fs, feature_name, reference, as_null, approx=True)
+
     # -- All-null column tests -----------------------------------------------
 
     def test_all_null_column_lag(self) -> None:

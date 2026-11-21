@@ -12,6 +12,9 @@ from typing import Any
 import pytest
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import (
+    PythonDictFramework,
+)
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
@@ -22,7 +25,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.manife
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
+    PANDAS_DATAFRAME,
+    PYTHON_DICT_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
+    RoutingCase,
 )
 
 
@@ -48,6 +54,38 @@ class TestOffsetIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrati
     @classmethod
     def compute_framework_class(cls) -> type:
         return PandasDataFrame
+
+    @classmethod
+    def group_options(cls) -> dict[str, Any]:
+        # Pandas ties NaN and null in order_by and treats a NaN source as null: it serves only with this variant.
+        return {"allow_variants": "nan_as_null"}
+
+    @classmethod
+    def routing_frameworks(cls) -> list[type[Any]]:
+        # Pandas data without the option is served by the PythonDict Implementation.
+        return [PythonDictFramework]
+
+    @classmethod
+    def divergent_routing_cases(cls) -> list[RoutingCase]:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.offset"
+        return [
+            RoutingCase(
+                "value_int__lag_1_offset",
+                {"partition_by": ["region"], "order_by": "value_int"},
+                f"{package}.python_dict_offset:PythonDictOffset",
+                PYTHON_DICT_FRAMEWORK,
+            )
+        ]
+
+    @classmethod
+    def variant_required_case(cls) -> RoutingCase | None:
+        package = "mloda.community.feature_groups.data_operations.row_preserving.offset"
+        return RoutingCase(
+            "value_int__lag_1_offset",
+            {"partition_by": ["region"], "order_by": "value_int"},
+            f"{package}.pandas_offset:PandasOffset",
+            PANDAS_DATAFRAME,
+        )
 
     @classmethod
     def several_frameworks(cls) -> list[type[Any]]:

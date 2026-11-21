@@ -677,15 +677,6 @@ _COMMUNITY_DATA_OPS = "mloda.community.feature_groups.data_operations"
 # imports fails the guard.
 _KIT_PYARROW_REFERENCE_IMPORTS: set[tuple[str, str]] = {
     (
-        f"{_DATA_OPS}/row_preserving/{op}/{op}.py",
-        f"{_COMMUNITY_DATA_OPS}.row_preserving.{op}.pyarrow_{op}",
-    )
-    for op in (
-        "ffill",
-        "sessionization",
-    )
-} | {
-    (
         f"{_DATA_OPS}/row_changing/resample/resample.py",
         f"{_COMMUNITY_DATA_OPS}.row_changing.resample.pyarrow_resample",
     ),

@@ -10,41 +10,10 @@ from typing import TYPE_CHECKING, Any
 
 from mloda.provider import FeatureSet
 
+from mloda.testing.feature_groups.data_operations.aggregation_helpers import order_key, ordered_groups
+
 if TYPE_CHECKING:
     import pyarrow as pa
-
-
-def _is_nan(value: Any) -> bool:
-    """True for a NaN float value.
-
-    Deliberately local (not imported from python_dict_helpers): the reference is the
-    cross-framework oracle PythonDict's tests compare against, so it must not reuse
-    PythonDict's own NaN/tie-choice logic or it stops being an independent check.
-    """
-    return isinstance(value, float) and value != value
-
-
-def _order_value_tier(value: Any) -> tuple[int, Any]:
-    """Nulls-last order key: real values first, then NaN, then None as separate tiers.
-
-    Matches PyArrow >= 25's own pc.rank semantics (this reference runs on PyArrowTable),
-    unlike PythonDict/pandas/SQLite, which tie None and NaN into one tier.
-    """
-    if value is None:
-        return (2, 0)
-    if _is_nan(value):
-        return (1, 0)
-    return (0, value)
-
-
-def _order_values_equal(a: Any, b: Any) -> bool:
-    """NaN-safe, tier-consistent equality for tie-run detection."""
-    if a is None or b is None:
-        return a is None and b is None
-    a_nan, b_nan = _is_nan(a), _is_nan(b)
-    if a_nan or b_nan:
-        return a_nan and b_nan
-    return bool(a == b)
 
 
 def _compute_rank(
@@ -57,113 +26,71 @@ def _compute_rank(
     import pyarrow as pa
 
     num_rows = table.num_rows
-
-    # Convert columns to Python lists once (O(n) per column) instead of
-    # extracting individual elements via .as_py() which is O(n) calls
-    # crossing the Python/C++ boundary.
-    partition_cols = {col: table.column(col).to_pylist() for col in partition_by}
+    keys = [table.column(col).to_pylist() for col in partition_by]
     order_vals = table.column(order_by).to_pylist()
 
-    # Build group keys per row
-    keys: list[tuple[Any, ...]] = []
-    for i in range(num_rows):
-        key = tuple(partition_cols[col][i] for col in partition_by)
-        keys.append(key)
+    def run_starts(rows: list[int]) -> list[int]:
+        """Position of the first row of each tie run, repeated for every row in the run."""
+        starts: list[int] = []
+        for pos, idx in enumerate(rows):
+            if pos > 0 and order_key(order_vals[idx]) == order_key(order_vals[rows[pos - 1]]):
+                starts.append(starts[-1])
+            else:
+                starts.append(pos)
+        return starts
 
-    # Collect (index, order_value) per group
-    groups: dict[tuple[Any, ...], list[tuple[int, Any]]] = {}
-    for i in range(num_rows):
-        key = keys[i]
-        val = order_vals[i]
-        if key not in groups:
-            groups[key] = []
-        groups[key].append((i, val))
+    result_values: list[Any] = [None] * num_rows
+    declared = pa.int64()
+    if rank_type == "percent_rank":
+        declared = pa.float64()
+    elif rank_type.startswith(("top_", "bottom_")):
+        declared = pa.bool_()
 
-    # Sort each group by order_by value (nulls last)
-    for key in groups:
-        groups[key].sort(key=lambda x: _order_value_tier(x[1]))
-
-    # Compute rank values
-    result_values: list[Any] = [0] * num_rows
-
-    for key, sorted_rows in groups.items():
-        n = len(sorted_rows)
+    for rows in ordered_groups(keys, order_vals, num_rows):
+        n = len(rows)
 
         if rank_type == "row_number":
-            for pos, (idx, _) in enumerate(sorted_rows):
+            for pos, idx in enumerate(rows):
                 result_values[idx] = pos + 1
 
         elif rank_type == "rank":
-            pos = 0
-            while pos < n:
-                # Find run of equal values
-                run_start = pos
-                pos += 1
-                while pos < n and _order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
-                    pos += 1
-                rank_val = run_start + 1
-                for j in range(run_start, pos):
-                    result_values[sorted_rows[j][0]] = rank_val
+            for start, idx in zip(run_starts(rows), rows):
+                result_values[idx] = start + 1
 
         elif rank_type == "dense_rank":
-            dense = 1
-            pos = 0
-            while pos < n:
-                run_start = pos
-                pos += 1
-                while pos < n and _order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
-                    pos += 1
-                for j in range(run_start, pos):
-                    result_values[sorted_rows[j][0]] = dense
-                dense += 1
+            dense = 0
+            prev = -1
+            for start, idx in zip(run_starts(rows), rows):
+                if start != prev:
+                    dense += 1
+                    prev = start
+                result_values[idx] = dense
 
         elif rank_type == "percent_rank":
-            # First compute standard rank
-            ranks: list[int] = [0] * n
-            pos = 0
-            while pos < n:
-                run_start = pos
-                pos += 1
-                while pos < n and _order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
-                    pos += 1
-                rank_val = run_start + 1
-                for j in range(run_start, pos):
-                    ranks[j] = rank_val
-            # percent_rank = (rank - 1) / (n - 1), or 0.0 if n == 1
-            for j in range(n):
-                idx = sorted_rows[j][0]
-                if n == 1:
-                    result_values[idx] = 0.0
-                else:
-                    result_values[idx] = (ranks[j] - 1) / (n - 1)
+            for start, idx in zip(run_starts(rows), rows):
+                result_values[idx] = 0.0 if n == 1 else start / (n - 1)
 
         elif rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
-            for pos, (idx, _) in enumerate(sorted_rows):
-                # Standard ntile: bucket = ceil((pos+1) * ntile_n / n)
-                bucket = (pos * ntile_n) // n + 1
-                result_values[idx] = bucket
+            for pos, idx in enumerate(rows):
+                result_values[idx] = (pos * ntile_n) // n + 1
 
         elif rank_type.startswith("top_"):
             top_n = int(rank_type[len("top_") :])
-            # Reverse the ASC-sorted non-null rows to get DESC; keep nulls last
-            non_null = [(idx, val) for idx, val in sorted_rows if not (val is None or _is_nan(val))]
-            nulls = [(idx, val) for idx, val in sorted_rows if val is None or _is_nan(val)]
-            desc_rows = non_null[::-1] + nulls
-            for pos, (idx, _) in enumerate(desc_rows):
+            real = [i for i in rows if order_key(order_vals[i])[0] == 0]
+            others = [i for i in rows if order_key(order_vals[i])[0] != 0]
+            for pos, idx in enumerate(real[::-1] + others):
                 result_values[idx] = pos + 1 <= top_n
 
         elif rank_type.startswith("bottom_"):
             bottom_n = int(rank_type[len("bottom_") :])
-            # Already sorted ASC for bottom-N
-            for pos, (idx, _) in enumerate(sorted_rows):
+            for pos, idx in enumerate(rows):
                 result_values[idx] = pos + 1 <= bottom_n
 
         else:
             raise ValueError(f"Unsupported rank type: {rank_type}")
 
-    new_col = pa.array(result_values)
-    return table.append_column(feature_name, new_col)
+    return table.append_column(feature_name, pa.array(result_values, type=declared))
 
 
 def reference_rank(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
