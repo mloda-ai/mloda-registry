@@ -6,6 +6,7 @@ Needs ``mloda-testing[binary-model]`` and ``mloda-enterprise[ed25519]``."""
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -15,6 +16,8 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 
+from mloda.community.feature_groups.binary_model import binary
+from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.enterprise.licensing.testing.conformance import LicenseTokenConformanceMixin
 from mloda.enterprise.licensing.testing.license_vectors import (
@@ -183,34 +186,46 @@ def test_check_license_token_accepts(text: str, expected: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "reason_prefix"),
     [
-        pytest.param(expired_license_token(["example_binary"]), id="expired"),
-        pytest.param(valid_license_token(["some_other_plugin"]), id="other_plugin"),
-        pytest.param(unknown_kid_license_token(["example_binary"]), id="unknown_kid"),
-        pytest.param(simulated_license("example_binary"), id="simulated_license"),
+        pytest.param(expired_license_token(["example_binary"]), "license expired: exp was ", id="expired"),
+        pytest.param(
+            valid_license_token(["some_other_plugin"]),
+            "license does not entitle plugin 'example_binary'",
+            id="other_plugin",
+        ),
+        pytest.param(
+            unknown_kid_license_token(["example_binary"]),
+            "unknown license key id (kid) 'test-unknown'",
+            id="unknown_kid",
+        ),
+        pytest.param(
+            simulated_license("example_binary"), "license token is not a PASETO v4.public token", id="simulated_license"
+        ),
     ],
 )
-def test_check_license_token_rejects_with_a_reason(text: str) -> None:
+def test_check_license_token_rejects_with_a_reason(text: str, reason_prefix: str) -> None:
+    """Each rejection carries the verifier's own reason, never the token text."""
     with pytest.raises(FakeLicenseError) as exc_info:
         check_license_token(text, "example_binary")
-    assert str(exc_info.value)
+    reason = str(exc_info.value)
+    assert reason.startswith(reason_prefix), reason
+    assert text not in reason
 
 
 @pytest.mark.parametrize("module", [_LICENSED_BINARY_MODULE, _LICENSED_HMAC_BINARY_MODULE])
 @pytest.mark.parametrize(
     "flag", [pytest.param("--version", id="version"), pytest.param("--capabilities", id="capabilities")]
 )
-def test_licensed_binary_light_flags_do_not_import_pyarrow_or_cryptography(module: str, flag: str) -> None:
-    """`--version` and `--capabilities` load neither pyarrow nor cryptography; those load only when needed."""
-    completed, summary = run_module_probe(module, [flag], ("pyarrow", "cryptography"))
+def test_licensed_binary_light_flags_do_not_import_pyarrow_numpy_or_cryptography(module: str, flag: str) -> None:
+    """`--version` and `--capabilities` load none of pyarrow, numpy and cryptography; those load only when needed."""
+    completed, summary = run_module_probe(module, [flag], ("pyarrow", "numpy", "cryptography"))
     assert completed.stdout.splitlines()[0]
     assert summary == {"code": 0, "loaded": []}, summary
 
 
 _HMAC_PLUGIN_ID = "anonymizer_binary"
 _HMAC_CMD = [sys.executable, "-m", _LICENSED_HMAC_BINARY_MODULE, "--plugin-id", _HMAC_PLUGIN_ID]
-_HMAC_KEY = "42" * 32
 _HMAC_ROWS: list[str | None] = ["alice", None, "", "über"]
 
 
@@ -218,7 +233,7 @@ def _run_licensed_hmac(tmp_path: Path, license_text: str) -> tuple[int, bytes, b
     config = {
         "input_columns": ["col_a"],
         "operation": "hmac_sha256",
-        "parameters": {hmac_sha256_reference.KEY_PARAMETER: _HMAC_KEY},
+        "parameters": {hmac_sha256_reference.KEY_PARAMETER: hmac_sha256_reference.KNOWN_ANSWER_KEY},
         "output_columns": {"result": "col_a_token"},
     }
     config_path = write_json(tmp_path / "config.json", config)
@@ -232,7 +247,9 @@ def test_licensed_hmac_binary_accepts_a_signed_token_and_matches_the_reference(t
     code, stdout, stderr = _run_licensed_hmac(tmp_path, valid_license_token([_HMAC_PLUGIN_ID]))
     assert code == 0, stderr
     actual = read_arrow_stream(stdout).column("col_a_token").to_pylist()
-    assert actual == hmac_sha256_reference.compute_expected_hmac_sha256_column(_HMAC_ROWS, _HMAC_KEY)
+    assert actual == hmac_sha256_reference.compute_expected_hmac_sha256_column(
+        _HMAC_ROWS, hmac_sha256_reference.KNOWN_ANSWER_KEY
+    )
 
 
 def test_licensed_hmac_binary_rejects_the_simulated_license(tmp_path: Path) -> None:
@@ -241,3 +258,24 @@ def test_licensed_hmac_binary_rejects_the_simulated_license(tmp_path: Path) -> N
     error = json.loads(stderr.strip().splitlines()[-1])
     assert error["code"] == LICENSE_INVALID
     assert stdout == b""
+
+
+@pytest.fixture(autouse=True)
+def _clear_capability_cache_before_each_test() -> None:
+    binary.clear_capability_cache()
+
+
+class _LicensedStubModel(BinaryModelMixin):
+    BINARY_PLUGIN_ID = "example_binary"
+    BINARY_COMMAND_OVERRIDE = [sys.executable, "-m", _LICENSED_BINARY_MODULE]
+    LICENSE_KEY_OVERRIDE = expiring_license_token(["example_binary"], left=timedelta(hours=6))
+
+
+def test_mixin_run_with_a_signed_token_logs_no_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """A soon-expiring but still valid signed token runs through the mixin silently, no grace warning."""
+    with caplog.at_level(logging.DEBUG, logger="mloda.community.feature_groups.binary_model"):
+        result = _LicensedStubModel.run_binary_model(
+            pa.table({"col_a": ["alpha"]}), ["col_a"], "hash", {}, {"result": "col_a_hash"}
+        )
+    assert result.column("col_a_hash").to_pylist()
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []

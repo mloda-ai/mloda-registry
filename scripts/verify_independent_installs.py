@@ -86,15 +86,16 @@ def kit_jobs(version: str) -> list[tuple[str, str]]:
     def absent(*packages: str) -> str:
         return "".join(f'assert find_spec("{package}") is None, "{package} must be absent"\n' for package in packages)
 
-    header = "from importlib.util import find_spec\n" + absent("mloda.community", "mloda.enterprise")
+    import_line = "from importlib.util import find_spec\n"
+    header = import_line + absent("mloda.community", "mloda.enterprise")
+    # The binary-model extra legitimately ships mloda.community but never mloda.enterprise.
+    binary_model_header = import_line + absent("mloda.enterprise")
     bare = header + "\n".join(f"import {m}" for m in by_gate.get(None, []))
     jobs = [(f"mloda-testing=={version}", bare)]
     for gate in sorted(g for g in by_gate if g is not None):
         imports = "\n".join(f"import {m}" for m in by_gate[gate])
-        # The binary-model extra legitimately ships mloda.community but never mloda.enterprise.
-        gate_header = "from importlib.util import find_spec\n" + absent("mloda.enterprise")
         jobs.append(
-            (f"mloda-testing[{gate}]=={version}", (gate_header if gate == "binary-model" else header) + imports)
+            (f"mloda-testing[{gate}]=={version}", (binary_model_header if gate == "binary-model" else header) + imports)
         )
     return jobs
 

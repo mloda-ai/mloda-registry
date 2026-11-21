@@ -36,7 +36,7 @@ py_typed = true
 # The contract rules (constants, line/stream parsing) live in the mixin's own
 # mloda.community.feature_groups.binary_model.contract; mloda-testing[binary-model] takes them from the
 # mixin package and nothing from enterprise. mloda/enterprise/licensing/testing/ (the signed license token
-# test kit) is the one directory under mloda/enterprise that imports mloda.testing; it is test tooling
+# test kit) is the one shipped (non-test) directory under mloda/enterprise that imports mloda.testing; it is test tooling
 # nothing imports at runtime.
 
 [packages.mloda-community-binary-model]
