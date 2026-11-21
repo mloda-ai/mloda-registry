@@ -565,6 +565,7 @@ def _marker_line(kind: str, text: str) -> str:
 
 _DOC_CHECK_BODY = """\
 import os
+import shutil
 import sys
 import tempfile
 import types
@@ -600,8 +601,8 @@ class _DocPlugin:
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_pycollect_makeitem(self, collector, name, obj):
-        # imported test functions stay uncollected
-        if getattr(obj, "__module__", None) != "__main__":
+        # module-level imported tests stay uncollected; inherited methods of doc classes are kept
+        if isinstance(collector, pytest.Module) and getattr(obj, "__module__", None) != "__main__":
             return []
         return None
 
@@ -616,7 +617,8 @@ class _DocPlugin:
     def pytest_collectreport(self, report):
         if report.failed:
             self.failed = True
-            self._mark("FAILED", str(report.longrepr).strip().splitlines()[-1])
+            part = report.nodeid.partition("::")[2]
+            self._mark("FAILED", part or str(report.longrepr).strip().splitlines()[-1])
 
 
 def _run_python(source):
@@ -627,16 +629,22 @@ def _run_python(source):
     Path(ini).write_text("", encoding="utf-8")
     module = types.ModuleType("__main__")
     module.__file__ = path
+    # inspect.getsource on classes with __init__ looks the module up via sys.modules["__main__"]
+    sys.modules["__main__"] = module
     exec(compile(source, path, "exec", dont_inherit=True), module.__dict__)
     os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     os.environ.pop("PYTEST_ADDOPTS", None)
     os.environ.pop("PYTEST_PLUGINS", None)
     plugin = _DocPlugin(module)
     args = [path, "-q", "-s", "-x", "-p", "no:cacheprovider", "--rootdir", work, "-c", ini]
-    code = int(pytest.main([*args, f"--basetemp={work}/basetemp"], plugins=[plugin]))
+    args += ["-W", "error::pytest.PytestCollectionWarning"]
+    try:
+        code = int(pytest.main([*args, f"--basetemp={work}/basetemp"], plugins=[plugin]))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     if code not in (0, 5):
         if not plugin.failed:
-            print(_marker_line("FAILED", f"pytest exited {code}"), flush=True)
+            plugin._mark("FAILED", f"pytest exited with code {code}")
         sys.exit(1)
 
 
@@ -898,28 +906,39 @@ def test_failing_python_block_names_the_file(tmp_path: Path, fork: bool) -> None
 
 
 @pytest.mark.parametrize(
-    ("source", "head"),
+    ("source", "head", "helper"),
     [
         (
             "def test_ok():\n    assert True\n\ndef test_broken():\n    raise RuntimeError('boom')\n",
             "test_broken failed",
+            None,
         ),
         (
             "import pytest\n\n@pytest.mark.parametrize('x', ['a', 'b'])\ndef test_p(x):\n    assert x == 'a', 'boom'\n",
             "test_p[b] failed",
+            None,
         ),
         (
             "class TestThing:\n    def test_method(self):\n        raise RuntimeError('boom')\n",
             "TestThing::test_method failed",
+            None,
         ),
         (
             "class Base:\n    def test_method(self):\n        raise RuntimeError('boom')\n\n"
             "class TestFromMixin(Base):\n    pass\n",
             "TestFromMixin::test_method failed",
+            None,
+        ),
+        (
+            "import sys\nsys.path.insert(0, '.')\nfrom helper import Base\n\nclass TestFromImportedBase(Base):\n    pass\n",
+            "TestFromImportedBase::test_m failed",
+            "class Base:\n    def test_m(self):\n        raise RuntimeError('boom')\n",
         ),
     ],
 )
-def test_doc_test_functions_are_called(tmp_path: Path, fork: bool, source: str, head: str) -> None:
+def test_doc_test_functions_are_called(tmp_path: Path, fork: bool, source: str, head: str, helper: str | None) -> None:
+    if helper is not None:
+        (tmp_path / "helper.py").write_text(helper, encoding="utf-8")
     doc = tmp_path / "broken_test.md"
     doc.write_text(f"```python\n{source}```\n", encoding="utf-8")
     with pytest.raises(AssertionError) as excinfo:
@@ -950,6 +969,12 @@ def test_doc_test_functions_are_called(tmp_path: Path, fork: bool, source: str, 
             "abc",
         ),
         (
+            "import pytest\n\n@pytest.mark.skipif(False, reason='x')\n"
+            "def test_runs():\n    open('order.log', 'a').write('r')\n",
+            ["test_runs"],
+            "r",
+        ),
+        (
             "def test_tmp(tmp_path):\n    (tmp_path / 'f').write_text('x')\n    assert (tmp_path / 'f').exists()\n",
             ["test_tmp"],
             None,
@@ -967,12 +992,39 @@ def test_doc_test_marks_and_fixtures_are_honored(
         assert (tmp_path / "order.log").read_text(encoding="utf-8") == log
 
 
-def test_doc_runner_scrubs_pytest_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_doc_runner_scrubs_pytest_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fork: bool) -> None:
     monkeypatch.setenv("PYTEST_ADDOPTS", "--no-such-flag")
     monkeypatch.setenv("PYTEST_PLUGINS", "no_such_plugin_module")
     doc = tmp_path / "env.md"
     doc.write_text("```python\ndef test_ok():\n    assert True\n```\n", encoding="utf-8")
-    run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=False)
+    if False in _FORK_SERVERS:
+        _FORK_SERVERS[False]._kill()  # a warm server must start after the setenv
+    try:
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
+    finally:
+        if False in _FORK_SERVERS:
+            _FORK_SERVERS[False]._kill()  # do not leak the polluted env into later tests
+
+
+def test_doc_runner_leaves_no_entries_in_the_cwd(tmp_path: Path, fork: bool) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    doc = tmp_path / "clean.md"
+    doc.write_text("```python\ndef test_ok():\n    assert True\n```\n", encoding="utf-8")
+    run_md_files_isolated([doc], cwd=cwd, load_plugins=False, fork=fork)
+    assert os.listdir(cwd) == []
+
+
+def test_pytest_exit_without_a_failing_report_names_the_reason(tmp_path: Path, fork: bool) -> None:
+    doc = tmp_path / "exit.md"
+    doc.write_text(
+        "```python\nimport pytest\n\ndef test_stop():\n    pytest.exit('stop', returncode=3)\n```\n", encoding="utf-8"
+    )
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
+    first = str(excinfo.value).splitlines()[0]
+    assert first.startswith(f"{doc}: "), first
+    assert "pytest exited with code 3" in first, first
 
 
 def test_imported_test_functions_are_not_called(tmp_path: Path, fork: bool) -> None:
@@ -991,6 +1043,7 @@ def test_imported_test_functions_are_not_called(tmp_path: Path, fork: bool) -> N
         ("def test_needs_arg(x):\n    pass\n", "test_needs_arg"),
         ("async def test_async():\n    pass\n", "test_async"),
         ("def test_gen():\n    yield\n", "test_gen"),
+        ("class TestInit:\n    def __init__(self):\n        pass\n\n    def test_m(self):\n        pass\n", "TestInit"),
     ],
 )
 def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, fork: bool, source: str, name: str) -> None:
@@ -1001,6 +1054,7 @@ def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, fork: bool, source: st
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: "), message
     assert name in message.splitlines()[0], message
+    assert message.splitlines()[0].endswith("failed"), message
 
 
 def test_doc_output_cannot_fake_a_marker(tmp_path: Path, fork: bool) -> None:

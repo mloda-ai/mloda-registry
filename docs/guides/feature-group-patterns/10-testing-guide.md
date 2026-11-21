@@ -310,7 +310,7 @@ def test_corpus(kind: str) -> None:
 
 
 def test_every_keep_clear_word_has_a_case() -> None:
-    tagged = {word for case in CORPUS for word, _ in case.tagged}
+    tagged = {word for case in CORPUS for word, label in case.tagged if label == "PERSON"}
     assert KEEP_CLEAR <= tagged, "the fake never produces these, so the gate proves nothing"
 ```
 
