@@ -422,12 +422,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     @classmethod
     def detects_non_numeric_source(cls) -> set[str]:
-        """Types of non-numeric source columns the backend can reject.
-
-        Default is ``{"string", "boolean"}``. Backends override when a dtype
-        cannot be distinguished from numeric at the relation level (e.g.
-        SQLite collapses booleans to INTEGER affinity through ``from_arrow``).
-        """
+        """Non-numeric source types the backend can reject (SQLite cannot tell booleans from integers)."""
         return {"string", "boolean"}
 
     @pytest.mark.parametrize("op", ["bin", "qbin"])
@@ -459,7 +454,7 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         ],
     )
     def test_bin_integer_beyond_2_53_rejected(self, values: list[int]) -> None:
-        """bin raises for an integer beyond 2**53, which float64 would round."""
+        """bin raises for an integer beyond 2**53."""
         data = self.create_test_data(TypedTestData({"x": (DataType.INT64, values)}))
         with pytest.raises(ValueError, match=r"within 2\*\*53"):
             calculate_with(self.implementation_class(), data, make_feature_set("x__bin_2"))
