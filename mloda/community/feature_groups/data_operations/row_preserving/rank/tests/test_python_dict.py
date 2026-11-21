@@ -82,9 +82,8 @@ class TestPythonDictRankNanPartitionKeyGrouping:
     """
 
     def test_nan_partition_rows_share_one_group_continues_numbering(self) -> None:
-        import math
-
         from mloda.testing.feature_groups.data_operations.helpers import (
+            assert_pyarrow_groups_rows_together,
             calculate_with,
             extract_column,
             make_feature_set,
@@ -108,17 +107,7 @@ class TestPythonDictRankNanPartitionKeyGrouping:
             "the NaN rows into separate one-row groups)"
         )
 
-        pa = pytest.importorskip("pyarrow")
-        arrow_table = pa.table({"grp": pa.array(data["grp"], type=pa.float64())})
-        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
-        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
-        idx_lists = grouped.column("__idx___list").to_pylist()
-        keys = grouped.column("grp").to_pylist()
-        nan_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is not None and math.isnan(key))
-        assert nan_group_rows == [0, 1], (
-            f"expected PyArrow's live group_by() to place both NaN-keyed rows (0, 1) in one "
-            f"group, got {nan_group_rows!r}"
-        )
+        assert_pyarrow_groups_rows_together(data["grp"])
 
 
 class TestPythonDictRankTopNTreatsNanAsNullNotMaximum:
