@@ -26,9 +26,10 @@ def sqlite_non_numeric_descriptor(data: Any, source_col: str) -> str | None:
     Caveat: ``SqliteRelation.from_arrow`` maps arrow booleans to SQLite
     ``INTEGER`` affinity (see ``mloda_plugins`` ``_arrow_type_to_sqlite``), so a
     boolean source column is indistinguishable from ``int64`` at the relation
-    level. The shared boolean-source tests (binning's too) are therefore skipped for SQLite
-    (``detects_non_numeric_source`` override); the 0/1 result is instead pinned by
-    ``test_boolean_source_column_computed_when_undetected`` (binning: ``test_boolean_source_binned_when_undetected``) and documented in
+    level. The shared boolean-source tests (binning's too) are therefore skipped for
+    SQLite (``detects_non_numeric_source`` override); the 0/1 result is instead pinned by
+    ``test_boolean_source_column_computed_when_undetected`` (binning:
+    ``test_boolean_source_binned_when_undetected``) and documented in
     ``docs/guides/data-operation-patterns/known-divergences.md``.
     """
     affinity = column_affinities(data).get(source_col)

@@ -23,7 +23,8 @@ class TestSqliteBinning(ReservedColumnsTestMixin, SqliteTestMixin, BinningTestBa
 
     @classmethod
     def detects_non_numeric_source(cls) -> set[str]:
-        # from_arrow stores booleans with INTEGER affinity, so a boolean column looks like int64.
+        # from_arrow stores booleans with INTEGER affinity, so a boolean column looks like int64;
+        # sqlite3 also rejects a Decimal binding.
         return {"string"}
 
     @classmethod

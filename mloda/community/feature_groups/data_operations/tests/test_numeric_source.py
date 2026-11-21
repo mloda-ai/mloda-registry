@@ -2,8 +2,8 @@
 
 Each framework's numeric check lives in one module,
 ``row_preserving/arithmetic/<framework>_numeric_source.py``, whose
-``<framework>_non_numeric_descriptor(data, source_col)`` the point, scalar and binning
-Implementations pass to ``apply_arithmetic`` and ``assign_bins``; the groups and Implementations define no
+``<framework>_non_numeric_descriptor(data, source_col)`` both the point and scalar
+Implementations pass to ``apply_arithmetic``; the groups and Implementations define no
 numeric-source hook. The SQL operator map exists once as ``base.SQL_ARITHMETIC_OPS``,
 imported by the DuckDB and SQLite Implementations.
 

@@ -20,6 +20,19 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.base 
 # Integer types whose values can exceed 2**53.
 _WIDE_INTEGER_TYPES = ("BIGINT", "UBIGINT", "HUGEINT", "UHUGEINT")
 
+_DECIMAL_PREFIXES = ("DECIMAL", "NUMERIC", "BIGNUM")
+
+
+def _non_numeric_descriptor(data: Any, source_col: str) -> str | None:
+    """Binning also rejects DECIMAL/NUMERIC/BIGNUM, which arithmetic accepts."""
+    described = duckdb_non_numeric_descriptor(data, source_col)
+    if described is not None:
+        return described
+    dtype_str = column_types(data).get(source_col)
+    if dtype_str is not None and dtype_str.upper().startswith(_DECIMAL_PREFIXES):
+        return dtype_str
+    return None
+
 
 class DuckdbBinning(Implementation[BinningFeatureGroup]):
     feature_group = BinningFeatureGroup
@@ -33,7 +46,7 @@ class DuckdbBinning(Implementation[BinningFeatureGroup]):
             data,
             features,
             compute_binning=cls._compute_binning,
-            non_numeric=duckdb_non_numeric_descriptor,
+            non_numeric=_non_numeric_descriptor,
             integer_bounds=cls._integer_bounds,
         )
 

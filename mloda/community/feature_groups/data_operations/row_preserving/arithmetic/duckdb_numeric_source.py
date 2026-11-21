@@ -1,6 +1,6 @@
 """DuckDB "what counts as numeric" source-column check for arithmetic.
 
-Shared by the point-arithmetic, scalar-arithmetic and binning families so all reject
+Shared by the point-arithmetic and scalar-arithmetic families (binning wraps it) so all reject
 the same set of non-numeric DuckDB source columns up-front.
 """
 

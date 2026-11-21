@@ -12,6 +12,7 @@ framework implementation inherits by subclassing and implementing
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, ClassVar
 
 import pytest
@@ -422,8 +423,8 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     @classmethod
     def detects_non_numeric_source(cls) -> set[str]:
-        """Non-numeric source types the backend can reject (SQLite cannot tell booleans from integers)."""
-        return {"string", "boolean"}
+        """Non-numeric source types the backend can ingest and reject (SQLite: no booleans, no decimals)."""
+        return {"string", "boolean", "decimal"}
 
     @pytest.mark.parametrize("op", ["bin", "qbin"])
     @pytest.mark.parametrize(("column", "kind"), [("name", "string"), ("is_active", "boolean")])
@@ -436,6 +437,21 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
         with pytest.raises(ValueError, match="integer or floating") as exc_info:
             calculate_with(self.implementation_class(), self.test_data, fs)
         assert f"'{column}'" in str(exc_info.value)
+
+    @pytest.mark.parametrize("op", ["bin", "qbin"])
+    def test_decimal_source_rejected(self, op: str) -> None:
+        """A DECIMAL source raises ValueError naming the quoted column."""
+        self._skip_if_unsupported(op)
+        if "decimal" not in self.detects_non_numeric_source():
+            pytest.skip("Backend cannot ingest decimal source columns")
+        pa = pytest.importorskip("pyarrow")
+        data = self.create_test_data(
+            TypedTestData({"x": (DataType.DECIMAL, [Decimal("1.00"), Decimal("2.00"), None])}),
+            {"x": pa.decimal128(10, 2)},
+        )
+        with pytest.raises(ValueError, match="integer or floating") as exc_info:
+            calculate_with(self.implementation_class(), data, make_feature_set(f"x__{op}_3"))
+        assert "'x'" in str(exc_info.value)
 
     def test_boolean_source_binned_when_undetected(self) -> None:
         """A backend that cannot detect a boolean source bins it as 0/1."""
