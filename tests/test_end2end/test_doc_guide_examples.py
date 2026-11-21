@@ -14,7 +14,7 @@ small, named, importable helpers so the regression tests below can feed the two 
 variants through the exact same validation logic used against the real guide, instead of
 re-implementing the check inline.
 
-It also runs every discovered doc's python blocks in its own process and calls its ``test_*`` functions,
+It also runs every discovered doc's python blocks in its own process, with their tests under pytest,
 except the docs in ``SKIPPED_DOCS``.
 """
 
@@ -498,37 +498,18 @@ def test_operation_group_unknown_pin_raises() -> None:
         _column_total_step(Feature("price__sum_total", implementation="Nope"))
 
 
-def _parametrized_calls(fn: Any) -> list[dict[str, Any]]:
-    """Every keyword combination of the ``pytest.mark.parametrize`` marks on *fn*."""
-    calls: list[dict[str, Any]] = [{}]
-    for mark in getattr(fn, "pytestmark", []):
-        if mark.name != "parametrize":
-            continue
-        names = [n.strip() for n in mark.args[0].split(",")] if isinstance(mark.args[0], str) else list(mark.args[0])
-        rows = [
-            tuple(row.values) if isinstance(row, type(pytest.param())) else row if len(names) > 1 else (row,)
-            for row in mark.args[1]
-        ]
-        calls = [{**call, **dict(zip(names, row, strict=True))} for call in calls for row in rows]
-    return calls
-
-
-def test_conformance_section_test_passes_against_the_operation_group_example() -> None:
-    # The block is a py fence: it needs guide 09's classes, so the per-doc runner cannot run it alone.
+def test_conformance_section_test_passes_against_the_operation_group_example(tmp_path: Path) -> None:
+    # The block is a py fence: it needs guide 09's classes, so the two fences run together in one doc.
     fences = _python_fences(CONFORMANCE_HEADING, TESTING_GUIDE, tags=("python", "py"))
     assert fences, "the Conformance section of the testing guide no longer has a python block"
-    tests = _exec_section_tests(
-        fences[0],
-        f"{TESTING_GUIDE.name} Conformance",
-        _load_namespace(REFERENCE_CONTRACT_HEADING, REFERENCE_CONTRACT_MODULE, FRAMEWORK_SPECIFIC_GUIDE),
-        "Conformance section",
-    )
-    calls = 0
-    for conformance_test in tests:
-        for kwargs in _parametrized_calls(conformance_test):
-            conformance_test(**kwargs)
-            calls += 1
-    assert calls > 0, "the Conformance section test was never called"
+    contract = _python_fences(REFERENCE_CONTRACT_HEADING, FRAMEWORK_SPECIFIC_GUIDE)[0]
+    doc = tmp_path / "conformance.md"
+    doc.write_text(f"```python\n{contract}```\n\n```python\n{fences[0]}```\n", encoding="utf-8")
+    started = run_md_files_isolated([doc], cwd=tmp_path)
+    name = "test_result_differs_from_the_reference_exactly_when_declared"
+    assert started == [
+        f"{name}[{op}-{impl}]" for op in ("sum", "max") for impl in ("PandasColumnTotal", "PyArrowColumnTotal")
+    ]
 
 
 def test_secrets_section_shows_the_credential_example_module_source() -> None:
@@ -583,10 +564,14 @@ def _marker_line(kind: str, text: str) -> str:
 
 
 _DOC_CHECK_BODY = """\
-import inspect
+import os
+import shutil
 import sys
+import tempfile
+import types
 from pathlib import Path
 import mktestdocs
+import pytest
 
 _MARKER_PREFIX = __MARKER_PREFIX__
 
@@ -595,31 +580,72 @@ def _marker_line(kind, text):
     return f"{_MARKER_PREFIX}{kind} {text}"
 
 
+class _DocPlugin:
+    def __init__(self, module):
+        self.module = module
+        self.failed = False
+
+    def _mark(self, kind, text):
+        # leading newline: the terminal reporter may have left a partial line
+        print("\\n" + _marker_line(kind, text), flush=True)
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_pycollect_makemodule(self, module_path, parent):
+        module = self.module
+
+        class DocModule(pytest.Module):
+            def _getobj(self):
+                return module
+
+        return DocModule.from_parent(parent, path=module_path)
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_pycollect_makeitem(self, collector, name, obj):
+        # module-level imported tests stay uncollected; inherited methods of doc classes are kept
+        if isinstance(collector, pytest.Module) and getattr(obj, "__module__", None) != "__main__":
+            return []
+        return None
+
+    def pytest_runtest_logstart(self, nodeid, location):
+        self._mark("CALLING", nodeid.partition("::")[2])
+
+    def pytest_runtest_logreport(self, report):
+        if report.failed:
+            self.failed = True
+            self._mark("FAILED", report.nodeid.partition("::")[2])
+
+    def pytest_collectreport(self, report):
+        if report.failed:
+            self.failed = True
+            part = report.nodeid.partition("::")[2]
+            self._mark("FAILED", part or str(report.longrepr).strip().splitlines()[-1])
+
+
 def _run_python(source):
-    namespace = {"__name__": "__main__"}
-    exec(source, namespace)
-    tests = []
-    for name, obj in namespace.items():
-        if getattr(obj, "__module__", None) != "__main__":
-            continue
-        if isinstance(obj, type) and name.startswith("Test"):
-            if any(m.startswith("test_") for m in dir(obj)):
-                _reject(f"{name} is a test class the doc runner cannot call; use test_* functions")
-        elif name.startswith("test_") and callable(obj):
-            if inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj) or inspect.isgeneratorfunction(obj):
-                _reject(f"{name} is async or a generator, so the doc runner cannot call it")
-            params = inspect.signature(obj).parameters.values()
-            if any(p.default is p.empty and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in params):
-                _reject(f"{name} needs arguments, so the doc runner cannot call it")
-            tests.append((name, obj))
-    for name, func in tests:
-        print(_marker_line("CALLING", name), flush=True)
-        func()
-
-
-def _reject(message):
-    print(_marker_line("REJECTED", message), flush=True)
-    sys.exit(1)
+    work = tempfile.mkdtemp(dir=os.getcwd())
+    path = os.path.join(work, "doc.py")
+    ini = os.path.join(work, "pytest.ini")
+    Path(path).write_text(source, encoding="utf-8")
+    Path(ini).write_text("", encoding="utf-8")
+    module = types.ModuleType("__main__")
+    module.__file__ = path
+    # inspect.getsource on classes with __init__ looks the module up via sys.modules["__main__"]
+    sys.modules["__main__"] = module
+    exec(compile(source, path, "exec", dont_inherit=True), module.__dict__)
+    os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    os.environ.pop("PYTEST_ADDOPTS", None)
+    os.environ.pop("PYTEST_PLUGINS", None)
+    plugin = _DocPlugin(module)
+    args = [path, "-q", "-s", "-x", "-p", "no:cacheprovider", "--rootdir", work, "-c", ini]
+    args += ["-W", "error::pytest.PytestCollectionWarning"]
+    try:
+        code = int(pytest.main([*args, f"--basetemp={work}/basetemp"], plugins=[plugin]))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    if code not in (0, 5):
+        if not plugin.failed:
+            plugin._mark("FAILED", f"pytest exited with code {code}")
+        sys.exit(1)
 
 
 mktestdocs.register_executor("python", _run_python)
@@ -699,20 +725,22 @@ def _display_path(path: str) -> str:
     return path
 
 
-def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool]:
-    """Return the last marker kind and text, the last checked file (display form) and whether the run finished."""
+def _parse_stdout(stdout: str | bytes | None) -> tuple[str, str, str, bool, list[str]]:
+    """Return the last marker, the last checked file, whether the run finished and the started test ids."""
     if isinstance(stdout, bytes):
         stdout = stdout.decode(errors="replace")
-    kind, text, checked, done = "CHECKING", "", "<before the first file>", False
+    kind, text, checked, done, started = "CHECKING", "", "<before the first file>", False, []
     for line in (stdout or "").splitlines():
         if not line.startswith(_MARKER_PREFIX):
             continue
         kind, _, text = line.removeprefix(_MARKER_PREFIX).partition(" ")
         if kind == "CHECKING":
             checked = _display_path(text)
+        elif kind == "CALLING":
+            started.append(text)
         elif kind == "DONE":
             done = True
-    return kind, text, checked, done
+    return kind, text, checked, done, started
 
 
 def _read_text(path: Path) -> str:
@@ -796,8 +824,8 @@ def _fork_server(load_plugins: bool) -> _ForkServer:
 
 def run_md_files_isolated(
     paths: Sequence[Path], cwd: Path, *, load_plugins: bool = True, fork: bool | None = None, timeout: int = 300
-) -> None:
-    """Run the python blocks of *paths* in a fresh process (forked from a warm server unless fork is False)."""
+) -> list[str]:
+    """Run the python blocks of *paths* in a fresh process (forked unless fork is False); return the started test ids."""
     if fork is None:
         fork = _FORK_SUPPORTED and os.environ.get("MLODA_DOC_RUNNER") != "subprocess"
     try:
@@ -807,17 +835,15 @@ def run_md_files_isolated(
             cmd = [sys.executable, "-c", _DOC_CHECK_DRIVER, "1" if load_plugins else "0", *map(str, paths)]
             result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)  # nosec
     except subprocess.TimeoutExpired as exc:
-        kind, text, where, _ = _parse_stdout(exc.stdout)
+        kind, text, where, *_ = _parse_stdout(exc.stdout)
         who = f"{text} " if kind == "CALLING" else ""
         raise AssertionError(f"{where}: {who}timed out after {exc.timeout}s") from exc
-    kind, text, where, done = _parse_stdout(result.stdout)
+    kind, text, where, done, started = _parse_stdout(result.stdout)
     if result.returncode == 0:
         if done:
-            return
+            return started
         head = f"{where}: exited before the doc runner finished"
-    elif kind == "REJECTED":
-        head = f"{where}: {text}"
-    elif kind == "CALLING":
+    elif kind in ("CALLING", "FAILED"):
         head = f"{where}: {text} failed"
     else:
         head = f"{where}: python block failed"
@@ -879,17 +905,126 @@ def test_failing_python_block_names_the_file(tmp_path: Path, fork: bool) -> None
     assert "not run" not in message
 
 
-def test_doc_test_functions_are_called(tmp_path: Path, fork: bool) -> None:
+@pytest.mark.parametrize(
+    ("source", "head", "helper"),
+    [
+        (
+            "def test_ok():\n    assert True\n\ndef test_broken():\n    raise RuntimeError('boom')\n",
+            "test_broken failed",
+            None,
+        ),
+        (
+            "import pytest\n\n@pytest.mark.parametrize('x', ['a', 'b'])\ndef test_p(x):\n    assert x == 'a', 'boom'\n",
+            "test_p[b] failed",
+            None,
+        ),
+        (
+            "class TestThing:\n    def test_method(self):\n        raise RuntimeError('boom')\n",
+            "TestThing::test_method failed",
+            None,
+        ),
+        (
+            "class Base:\n    def test_method(self):\n        raise RuntimeError('boom')\n\n"
+            "class TestFromMixin(Base):\n    pass\n",
+            "TestFromMixin::test_method failed",
+            None,
+        ),
+        (
+            "import sys\nsys.path.insert(0, '.')\nfrom helper import Base\n\nclass TestFromImportedBase(Base):\n    pass\n",
+            "TestFromImportedBase::test_m failed",
+            "class Base:\n    def test_m(self):\n        raise RuntimeError('boom')\n",
+        ),
+    ],
+)
+def test_doc_test_functions_are_called(tmp_path: Path, fork: bool, source: str, head: str, helper: str | None) -> None:
+    if helper is not None:
+        (tmp_path / "helper.py").write_text(helper, encoding="utf-8")
     doc = tmp_path / "broken_test.md"
-    doc.write_text(
-        "```python\ndef test_ok():\n    assert True\n\ndef test_broken():\n    raise RuntimeError('boom')\n```\n",
-        encoding="utf-8",
-    )
+    doc.write_text(f"```python\n{source}```\n", encoding="utf-8")
     with pytest.raises(AssertionError) as excinfo:
         run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
     message = str(excinfo.value)
-    assert message.startswith(f"{doc}: test_broken failed"), message
+    assert message.startswith(f"{doc}: {head}"), message
     assert "boom" in message
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_ids", "log"),
+    [
+        (
+            "import pytest\n\n@pytest.mark.skipif(True, reason='x')\ndef test_skipped():\n    raise RuntimeError('no')\n",
+            ["test_skipped"],
+            None,
+        ),
+        (
+            "import pytest\n\n@pytest.mark.parametrize('x', ['a', pytest.param('b', marks=pytest.mark.skipif(True, reason='x'))])\n"
+            "def test_p(x):\n    assert x == 'a'\n",
+            ["test_p[a]", "test_p[b]"],
+            None,
+        ),
+        (
+            "import pytest\n\n@pytest.mark.parametrize('x', ['a', 'b', 'c'])\n"
+            "def test_p(x):\n    open('order.log', 'a').write(x)\n",
+            ["test_p[a]", "test_p[b]", "test_p[c]"],
+            "abc",
+        ),
+        (
+            "import pytest\n\n@pytest.mark.skipif(False, reason='x')\n"
+            "def test_runs():\n    open('order.log', 'a').write('r')\n",
+            ["test_runs"],
+            "r",
+        ),
+        (
+            "def test_tmp(tmp_path):\n    (tmp_path / 'f').write_text('x')\n    assert (tmp_path / 'f').exists()\n",
+            ["test_tmp"],
+            None,
+        ),
+    ],
+)
+def test_doc_test_marks_and_fixtures_are_honored(
+    tmp_path: Path, fork: bool, source: str, expected_ids: list[str], log: str | None
+) -> None:
+    doc = tmp_path / "marks.md"
+    doc.write_text(f"```python\n{source}```\n", encoding="utf-8")
+    started = run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
+    assert started == expected_ids
+    if log is not None:
+        assert (tmp_path / "order.log").read_text(encoding="utf-8") == log
+
+
+def test_doc_runner_scrubs_pytest_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fork: bool) -> None:
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--no-such-flag")
+    monkeypatch.setenv("PYTEST_PLUGINS", "no_such_plugin_module")
+    doc = tmp_path / "env.md"
+    doc.write_text("```python\ndef test_ok():\n    assert True\n```\n", encoding="utf-8")
+    if False in _FORK_SERVERS:
+        _FORK_SERVERS[False]._kill()  # a warm server must start after the setenv
+    try:
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
+    finally:
+        if False in _FORK_SERVERS:
+            _FORK_SERVERS[False]._kill()  # do not leak the polluted env into later tests
+
+
+def test_doc_runner_leaves_no_entries_in_the_cwd(tmp_path: Path, fork: bool) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    doc = tmp_path / "clean.md"
+    doc.write_text("```python\ndef test_ok():\n    assert True\n```\n", encoding="utf-8")
+    run_md_files_isolated([doc], cwd=cwd, load_plugins=False, fork=fork)
+    assert os.listdir(cwd) == []
+
+
+def test_pytest_exit_without_a_failing_report_names_the_reason(tmp_path: Path, fork: bool) -> None:
+    doc = tmp_path / "exit.md"
+    doc.write_text(
+        "```python\nimport pytest\n\ndef test_stop():\n    pytest.exit('stop', returncode=3)\n```\n", encoding="utf-8"
+    )
+    with pytest.raises(AssertionError) as excinfo:
+        run_md_files_isolated([doc], cwd=tmp_path, load_plugins=False, fork=fork)
+    first = str(excinfo.value).splitlines()[0]
+    assert first.startswith(f"{doc}: "), first
+    assert "pytest exited with code 3" in first, first
 
 
 def test_imported_test_functions_are_not_called(tmp_path: Path, fork: bool) -> None:
@@ -906,13 +1041,9 @@ def test_imported_test_functions_are_not_called(tmp_path: Path, fork: bool) -> N
     ("source", "name"),
     [
         ("def test_needs_arg(x):\n    pass\n", "test_needs_arg"),
-        ("class TestThing:\n    def test_method(self):\n        pass\n", "TestThing"),
-        (
-            "class Base:\n    def test_method(self):\n        pass\n\nclass TestFromMixin(Base):\n    pass\n",
-            "TestFromMixin",
-        ),
         ("async def test_async():\n    pass\n", "test_async"),
         ("def test_gen():\n    yield\n", "test_gen"),
+        ("class TestInit:\n    def __init__(self):\n        pass\n\n    def test_m(self):\n        pass\n", "TestInit"),
     ],
 )
 def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, fork: bool, source: str, name: str) -> None:
@@ -923,6 +1054,7 @@ def test_uncallable_doc_tests_fail_loudly(tmp_path: Path, fork: bool, source: st
     message = str(excinfo.value)
     assert message.startswith(f"{doc}: "), message
     assert name in message.splitlines()[0], message
+    assert message.splitlines()[0].endswith("failed"), message
 
 
 def test_doc_output_cannot_fake_a_marker(tmp_path: Path, fork: bool) -> None:

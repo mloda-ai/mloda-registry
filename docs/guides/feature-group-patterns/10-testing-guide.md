@@ -215,6 +215,105 @@ def test_derived_feature_isolated():
 
 Use when upstream features are slow (API calls, ML inference) or you need controlled test data.
 
+## Groups That Wrap a Model the Gate Cannot Install
+
+Some groups get their result from a model too large or slow for CI (for example an NER model). Test them in three parts:
+
+- One corpus of texts with the result each must give, read by every check.
+- A fake model built from that corpus, so the gate proves the group's own mechanism on every OS. For spaCy, use a blank pipeline with an entity ruler; the example uses a plain callable so it needs no model.
+- The same `test_corpus` run on the real model, skipped where it is not installed and run in a release job (as in [Against the real wheel](29-binary-backed-features.md#against-the-real-wheel)).
+
+Record `tagged` from the real model rather than guessing it; the real run's tagged assert keeps the fake honest. Run the fake only through `enabled_feature_groups`, since it matches the same names as the real group. A last test fails when the group's rules outgrow the corpus: every `KEEP_CLEAR` word needs a case the model tags, or the fake never produces it.
+
+```python
+from functools import cache
+from importlib.util import find_spec
+from typing import Any, NamedTuple
+
+import pytest
+
+from mloda.provider import ApiDataFG, FeatureGroup, FeatureSet
+from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
+
+KEEP_CLEAR = {"Claude"}  # a word the model misreads as a name; the group drops it
+
+
+class Case(NamedTuple):
+    text: str
+    tagged: tuple[tuple[str, str], ...]  # (text, label) the model tags, misreads included
+    names: tuple[str, ...]  # what the group must return
+
+
+CORPUS = [
+    Case("Anna Schmidt works at Google.", (("Anna Schmidt", "PERSON"), ("Google", "ORG")), ("Anna Schmidt",)),
+    Case("Ask Claude to run the tests.", (("Claude", "PERSON"),), ()),
+    Case("The build finished.", (), ()),
+]
+
+
+class PersonNames(FeatureGroup):
+    @classmethod
+    def match_feature_group_criteria(
+        cls, feature_name: Any, options: Options, data_access_collection: Any = None
+    ) -> bool:
+        return str(feature_name) == "person_names"
+
+    def input_features(self, options: Options, feature_name: Any) -> set[Feature] | None:
+        return {Feature.not_typed("text")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> Any:
+        return {PythonDictFramework}
+
+    @staticmethod
+    @cache
+    def load_model() -> Any:
+        import spacy  # imported here so the gate never needs the model
+
+        nlp = spacy.load("en_core_web_md")
+        return lambda text: [(e.text, e.label_) for e in nlp(text).ents]
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        model = cls.load_model()
+        names = [[n for n, label in model(t) if label == "PERSON" and n not in KEEP_CLEAR] for t in data["text"]]
+        return {"person_names": names}
+
+
+def fake_model() -> Any:
+    tagged = {case.text: list(case.tagged) for case in CORPUS}
+    return lambda text: tagged[text]
+
+
+class FakePersonNames(PersonNames):
+    load_model = staticmethod(fake_model)
+
+
+GROUPS = {"fake": FakePersonNames, "real": PersonNames}
+MISSING = find_spec("en_core_web_md") is None
+REAL = pytest.mark.skipif(MISSING, reason="real model not installed")
+
+
+@pytest.mark.parametrize("kind", ["fake", pytest.param("real", marks=REAL)])
+def test_corpus(kind: str) -> None:
+    model = GROUPS[kind].load_model()
+    for case in CORPUS:
+        assert tuple(tuple(pair) for pair in model(case.text)) == case.tagged, case.text  # keeps the fake honest
+    result = mloda.run_all(
+        [Feature.not_typed("person_names")],
+        compute_frameworks=[PythonDictFramework],
+        api_data={"CorpusData": {"text": [case.text for case in CORPUS]}},
+        plugin_collector=PluginCollector.enabled_feature_groups({GROUPS[kind], ApiDataFG}),
+    )
+    assert result[0]["person_names"] == [list(case.names) for case in CORPUS]
+
+
+def test_every_keep_clear_word_has_a_case() -> None:
+    tagged = {word for case in CORPUS for word, label in case.tagged if label == "PERSON"}
+    assert KEEP_CLEAR <= tagged, "the fake never produces these, so the gate proves nothing"
+```
+
 ## Operation Groups: Conformance to the Reference Contract
 
 Test that each result differs from the reference exactly where `divergences` declares it. The example uses the `ColumnTotal` classes from [09](09-framework-specific.md#reference-contract-and-divergence) (in the same namespace, not imported again).
@@ -450,6 +549,7 @@ def test_plugin_import_loads_only_its_groups() -> None:
 | Index | `index_columns()` correct | Ordering respected |
 | Framework | `compute_framework_rule()` | Framework-specific ops |
 | Operation group | Implementations load; `supported` / `accepts` | Conformance to the reference contract |
+| Model-backed | Every `KEEP_CLEAR` word has a corpus case | Corpus on the fake in the gate (Level 3); the real model in a release job |
 
 ## Real Test Examples
 
