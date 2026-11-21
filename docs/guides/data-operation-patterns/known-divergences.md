@@ -613,8 +613,8 @@ operation: rank
 framework: pandas, sqlite
 condition: a float partition column holding None and NaN collapses both into one group on Pandas and SQLite; the reference, PythonDict, DuckDB and Polars keep None as its own group and merge NaN keys with each other
 mitigation_location:
-- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_pandas.py
-- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_sqlite.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/sqlite_rank.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_nan_and_none_partition_keys
 -->

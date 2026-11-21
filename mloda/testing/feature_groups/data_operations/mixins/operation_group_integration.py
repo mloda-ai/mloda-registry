@@ -92,7 +92,7 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
 
     @classmethod
     def variant_required_case(cls) -> RoutingCase | None:
-        """The case for ``test_variant_only_framework_needs_the_option``. Default: none (the test skips)."""
+        """The variant-required case (``variant_required_cases()`` is the list form). Default: none (the test skips)."""
         return None
 
     @classmethod
@@ -221,6 +221,7 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
 
         group = self.feature_group_class()
         for case in cases:
+            label = f"{case.feature_name} on {case.compute_framework}"
             creator = self._case_creator(case)
             frameworks = list(dict.fromkeys([creator.compute_framework, *self.routing_frameworks()]))
             collector = enabled_with_implementations({creator, group})
@@ -228,9 +229,9 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
             feature = Feature(case.feature_name, options=Options(context=case.options))
             plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
             steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
-            assert len(steps) == 1, case.feature_name
-            assert steps[0].implementation is _resolve(case.implementation), case.feature_name
-            assert steps[0].compute_framework is _resolve(case.compute_framework), case.feature_name
+            assert len(steps) == 1, label
+            assert steps[0].implementation is _resolve(case.implementation), label
+            assert steps[0].compute_framework is _resolve(case.compute_framework), label
 
     def test_variant_only_framework_needs_the_option(self) -> None:
         """On the variant framework alone, resolution needs allow_variants and then plans that Implementation."""
@@ -240,6 +241,7 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
 
         group = self.feature_group_class()
         for case in cases:
+            label = f"{case.feature_name} on {case.compute_framework}"
             creator = self._case_creator(case)
             collector = enabled_with_implementations({creator, group})
             # No group_options here: allowing a variant would readmit the Implementation that must be refused.
@@ -258,9 +260,9 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
                 [allowed], compute_frameworks=[_resolve(case.compute_framework)], plugin_collector=collector
             )
             steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
-            assert len(steps) == 1, case.feature_name
-            assert steps[0].implementation is implementation, case.feature_name
-            assert steps[0].compute_framework is _resolve(case.compute_framework), case.feature_name
+            assert len(steps) == 1, label
+            assert steps[0].implementation is implementation, label
+            assert steps[0].compute_framework is _resolve(case.compute_framework), label
 
     def test_unsupported_input_is_rejected_at_resolve_time(self) -> None:
         """An input the framework's Implementation does not support is dropped at match time, not at compute time."""
