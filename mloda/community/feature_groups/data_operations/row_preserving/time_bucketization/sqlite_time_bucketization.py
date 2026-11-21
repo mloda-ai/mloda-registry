@@ -184,7 +184,8 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         3. No row may carry a non-UTC offset suffix. SQLite's TEXT storage
            keeps the numeric ``+HH:MM`` but loses the IANA zone, which is
            insufficient for DST-correct bucketization. UTC (``+00:00``)
-           and naive (no suffix) are accepted.
+           and naive (no suffix) are accepted. A date-only value has no
+           offset and is read as midnight.
         """
         affinity = column_affinities(data)[source_col]
         descriptor = f"SQLite affinity {affinity!r}"
@@ -234,8 +235,7 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             f"SELECT {quoted_source} "  # nosec
             f"FROM {quoted_table} "
             f"WHERE {quoted_source} IS NOT NULL "
-            f"AND substr({quoted_source}, -6, 1) IN ('+', '-') "
-            f"AND substr({quoted_source}, -6) != '+00:00' "
+            f"AND {offset_suffix_expr(quoted_source)} NOT IN ('', '+00:00') "
             f"LIMIT 1"
         )
         cursor = data.connection.execute(tz_probe_sql)
