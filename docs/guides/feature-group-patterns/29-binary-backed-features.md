@@ -163,7 +163,7 @@ A subclass that matches the same features takes over its parent wherever its mod
 
 Other license states come from the same module: `expired_license_token`, `in_grace_license_token` and `expiring_license_token(plugins, left=timedelta(hours=6))`, which signs `exp = now + left` for testing a pre-expiry notice.
 
-These vectors are signed with throwaway test keys. Real issuance signs and verifies with `mloda.enterprise.licensing.license_token`, behind `mloda-enterprise[ed25519]`, and the private signing key stays out of every repo and CI. `mloda.testing.binary_model.license_token` is a re-export kept for existing issuance scripts and will be removed; do not adopt it.
+These vectors are signed with throwaway test keys. Real issuance signs and verifies with `mloda.enterprise.licensing.license_token`, behind `mloda-enterprise[ed25519]`, and the private signing key stays out of every repo and CI.
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks=[PyArrowTable]` and `PluginCollector.enabled_feature_groups({StubExample, ApiDataFG})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryNotInstalledError`, and a run without a license `LicenseMissingError`.
 
