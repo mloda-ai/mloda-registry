@@ -116,11 +116,13 @@ Rules:
 
 - **Keep the value sets disjoint.** Two siblings claiming `"faiss"` fail with `Multiple feature groups found`. Pin this with a test that enables every sibling at once.
 - **Only the discriminator stays required.** Core's presence guard keeps an override's `False` and records nothing, so the matcher above records the absent key itself; that is why the error names it. Declare every other key with `default=None` ([Options](11-options.md#validation-and-conditional-requirements)).
-- **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): here `strict` / `allowed_values` never see `retrieve_backend="fiass"`, only the matcher's own record reports it. Required presence, defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
-- **Record why a sibling declined.** The matcher above ends this way, so the error lists each sibling's reason (a matching sibling hides them). `record_match_rejection` and `CoreDeclineCode` come from `mloda.provider`:
+- **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): no declaration here validates `retrieve_backend`, so only the matcher's own record reports `"fiass"`. Required presence applies only when the override returns `True`; defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
+- **Record why a sibling declined.** The matcher above ends this way, so the error lists each sibling's reason (a matching sibling hides them):
 
 ```text
+# no retrieve_backend
   - Bm25Retriever (option value): retrieve_backend is required, one of: bm25 [code: required_option_absent]
+# retrieve_backend="fiass"
   - Bm25Retriever (option value): retrieve_backend 'fiass' not one of: bm25 [code: option_value_rejected]
 ```
 
@@ -238,7 +240,7 @@ A member that consumes another family's feature (graph RAG over a `knowledge_gra
 ## Test
 
 - Enable every sibling at once and resolve each value: exactly one match per value.
-- An unknown value or slot resolves to nothing.
+- An absent or unknown value, or an unknown slot, resolves to nothing.
 - Way 3: enable only your leaves with `PluginCollector.enabled_feature_groups`, so stock source groups such as `CsvFG` do not claim the same request.
 
 Resolve each value with `resolve_feature` instead of running it ([Debugging Matching](14-feature-matching.md#debugging-matching)). For the way 2 siblings:
