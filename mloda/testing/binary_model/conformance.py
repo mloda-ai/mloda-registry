@@ -457,7 +457,7 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
 
     @pytest.fixture
     def valid_license_env(self, valid_license_file: Path) -> dict[str, str]:
-        """``MLODA_LICENSE_FILE`` pointed at a valid token; used by config-validation tests to
+        """``MLODA_LICENSE_FILE`` pointed at a valid license; used by config-validation tests to
         isolate config behaviour from the license gate."""
         return self.platform_env({"MLODA_LICENSE_FILE": str(valid_license_file)})
 
@@ -632,12 +632,12 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
     def test_license_accepted_via_license_file(
         self, valid_config_path: Path, valid_license_env: dict[str, str]
     ) -> None:
-        """A valid token via `MLODA_LICENSE_FILE` is accepted and the run succeeds with
+        """A valid license via `MLODA_LICENSE_FILE` is accepted and the run succeeds with
         contract-conforming output (contract: License)."""
         self._kit_assert_licensed_run_succeeds(valid_config_path, valid_license_env)
 
     def test_license_accepted_via_license_key_inline(self, valid_config_path: Path) -> None:
-        """A valid token via `MLODA_LICENSE_KEY` (inline) is accepted the same as a file and the run
+        """A valid license via `MLODA_LICENSE_KEY` (inline) is accepted the same as a file and the run
         succeeds (contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text})
         self._kit_assert_licensed_run_succeeds(valid_config_path, env)
@@ -651,7 +651,7 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         self._kit_assert_licensed_run_succeeds(valid_config_path, env)
 
     def test_license_expired_is_invalid(self, valid_config_path: Path, tmp_path: Path) -> None:
-        """An expired token: exit 3, license invalid (contract: License)."""
+        """An expired license: exit 3, license invalid (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = self._kit_run_with_config(valid_config_path, env)
@@ -698,7 +698,7 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
             assert excinfo.value.message.endswith(excinfo.value.reason)
 
     def test_license_wrong_plugin_is_invalid(self, valid_config_path: Path) -> None:
-        """A token whose `plugins` entitlement list omits this `plugin_id`: exit 3. The message also
+        """A license whose `plugins` entitlement list omits this `plugin_id`: exit 3. The message also
         names the source (contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.wrong_plugin_license_text})
         result = self._kit_run_with_config(valid_config_path, env)
@@ -718,8 +718,8 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
         self._kit_assert_license_file_rejected(valid_config_path, tmp_path, getattr(self, attr_name))
 
     def test_license_in_grace_is_accepted(self, valid_config_path: Path) -> None:
-        """An in-grace token (past ``exp``, inside ``grace_days``) is accepted and the run succeeds
-        with contract-conforming output (spec: Verification step 6; contract: License)."""
+        """An in-grace license (past ``exp``, inside ``grace_days``) is accepted and the run succeeds
+        with contract-conforming output (contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.in_grace_license_text})
         self._kit_assert_licensed_run_succeeds(valid_config_path, env)
 
@@ -1578,7 +1578,7 @@ class BinaryModelConformanceBase(ConformanceSuite, suite_base=True):
     def test_license_file_invalid_utf8_bytes_is_license_invalid(self, valid_config_path: Path, tmp_path: Path) -> None:
         """A file named by `MLODA_LICENSE_FILE` containing bytes that are not valid UTF-8 is code 3,
         not code 2 and not code 6: the source is set and the file exists, but its content cannot be
-        read as the license token (contract: License)."""
+        read as the license (contract: License)."""
         license_path = tmp_path / "license.txt"
         license_path.write_bytes(b"\xff\xfe\x00invalid-utf8-license")
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})

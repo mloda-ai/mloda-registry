@@ -1,7 +1,9 @@
 """Dependency-direction guard: community and enterprise plugin packages must never depend on
 ``mloda-testing`` or on a binary wheel (see ``docs/guides/feature-group-patterns/29-binary-backed-
 features.md``), and no runtime module under ``mloda/community/`` or ``mloda/enterprise/`` may import
-``mloda.testing`` at any depth. Enterprise code may use ``mloda.community.extenders.shared`` only
+``mloda.testing`` at any depth (only ``mloda/enterprise/licensing/testing/`` is exempt). The kit imports
+no ``mloda.enterprise`` module anywhere and ``mloda-testing`` names no enterprise distribution in any
+extra. Enterprise code may use ``mloda.community.extenders.shared`` only
 through public names (no private imports, subclassing, or private attributes). Binary wheel floors must
 also exclude releases that trust no production key. Mirrors the resolution
 and TOML-loading style of ``tests/test_end2end/test_dev_dependencies.py`` and
@@ -456,28 +458,29 @@ def test_no_configured_package_names_the_community_bundle_outside_dev() -> None:
 
 
 def _mloda_testing_plugin_distribution_violations(packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Community or enterprise distributions that mloda-testing names outside its binary-model extra."""
+    """Enterprise distributions that mloda-testing names anywhere, and community distributions outside its
+    binary-model extra."""
     cfg = packages.get("mloda-testing", {})
     specs = {"dependencies": cfg.get("dependencies", [])}
     for extra, extra_deps in cfg.get("optional_dependencies", {}).items():
-        if extra != "binary-model":
-            specs[f"extra {extra}"] = extra_deps
+        specs[f"extra {extra}"] = extra_deps
     return [
         f"mloda-testing ({where}): {dep}"
         for where, deps in specs.items()
         for dep in deps
-        if _dep_name(dep).startswith(("mloda-community", "mloda-enterprise"))
+        if _dep_name(dep).startswith("mloda-enterprise")
+        or (_dep_name(dep).startswith("mloda-community") and where != "extra binary-model")
     ]
 
 
-def test_mloda_testing_names_no_community_or_enterprise_distribution_outside_binary_model_extra() -> None:
+def test_mloda_testing_names_no_enterprise_distribution_and_community_only_in_binary_model_extra() -> None:
     packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     assert "mloda-testing" in packages, "mloda-testing missing from config/packages.toml"
     violations = _mloda_testing_plugin_distribution_violations(packages)
-    assert violations == [], f"the test kit must not depend on community or enterprise code: {violations}"
+    assert violations == [], f"the test kit must not depend on enterprise code: {violations}"
 
 
-def test_mloda_testing_plugin_distribution_violations_are_detected_outside_binary_model_extra() -> None:
+def test_mloda_testing_plugin_distribution_violations_are_detected() -> None:
     hard = {"mloda-testing": {"dependencies": ["mloda_community_aggregation>=1"]}}
     assert _mloda_testing_plugin_distribution_violations(hard) == [
         "mloda-testing (dependencies): mloda_community_aggregation>=1"
@@ -489,10 +492,26 @@ def test_mloda_testing_plugin_distribution_violations_are_detected_outside_binar
     allowed = {
         "mloda-testing": {
             "dependencies": ["pyarrow"],
-            "optional_dependencies": {"binary-model": ["mloda-community-binary-model>=1", "mloda-enterprise>=1"]},
+            "optional_dependencies": {"binary-model": ["pyarrow>=25", "mloda-community-binary-model>=1"]},
         }
     }
     assert _mloda_testing_plugin_distribution_violations(allowed) == []
+    enterprise_in_binary_model = {
+        "mloda-testing": {"optional_dependencies": {"binary-model": ["mloda-enterprise[ed25519]>=1"]}}
+    }
+    assert _mloda_testing_plugin_distribution_violations(enterprise_in_binary_model) == [
+        "mloda-testing (extra binary-model): mloda-enterprise[ed25519]>=1"
+    ]
+    bare_enterprise_in_binary_model = {
+        "mloda-testing": {"optional_dependencies": {"binary-model": ["mloda-enterprise>=1"]}}
+    }
+    assert _mloda_testing_plugin_distribution_violations(bare_enterprise_in_binary_model) == [
+        "mloda-testing (extra binary-model): mloda-enterprise>=1"
+    ]
+    community_elsewhere = {"mloda-testing": {"optional_dependencies": {"otel": ["mloda-community-binary-model>=1"]}}}
+    assert _mloda_testing_plugin_distribution_violations(community_elsewhere) == [
+        "mloda-testing (extra otel): mloda-community-binary-model>=1"
+    ]
 
 
 def test_consumers_name_the_binary_model_package_instead_of_the_bundle() -> None:
@@ -539,12 +558,12 @@ def test_generated_mloda_testing_pyproject_does_not_depend_on_itself() -> None:
     assert [spec for spec in specs if _dep_name(spec) == "mloda-testing"] == []
 
 
-def test_mloda_testing_binary_model_extra_pins_the_enterprise_license_token_extra() -> None:
-    """The raw spec is compared: ``_dep_name`` strips extras and would miss a dropped ``[ed25519]``."""
-    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
-    extra = packages["mloda-testing"].get("optional_dependencies", {}).get("binary-model", [])
-    spec = "mloda-enterprise[ed25519]>={version}"
-    assert spec in extra, f"mloda-testing: the binary-model extra must contain {spec!r}, got {extra!r}"
+def test_mloda_testing_names_no_enterprise_distribution_in_any_extra() -> None:
+    cfg: dict[str, Any] = load_toml(_PACKAGES_CONFIG)["packages"]["mloda-testing"]
+    specs = {"dependencies": cfg.get("dependencies", [])}
+    specs.update({f"extra {extra}": deps for extra, deps in cfg.get("optional_dependencies", {}).items()})
+    offenders = [f"{where}: {dep}" for where, deps in specs.items() for dep in deps if "enterprise" in dep.lower()]
+    assert offenders == [], f"mloda-testing must name no enterprise distribution: {offenders}"
 
 
 def _is_import_of(node: ast.AST, dotted: str, from_parent: bool = False) -> bool:
@@ -662,6 +681,18 @@ def _kit_plugin_imports(root_dir: Path) -> set[tuple[str, str]]:
         for node in ast.walk(tree):
             found.update((rel_path.as_posix(), module) for module in _plugin_modules_imported_by(node))
     return found
+
+
+def _kit_enterprise_imports(root_dir: Path) -> set[tuple[str, str]]:
+    """(posix path relative to root_dir, imported module) for every mloda.enterprise import outside tests/,
+    with no directory exemption."""
+    return {
+        (rel_path.as_posix(), module)
+        for rel_path, tree in _runtime_modules(root_dir)
+        for node in ast.walk(tree)
+        for module in _plugin_modules_imported_by(node)
+        if _plugin_package_of(module) == "mloda.enterprise"
+    }
 
 
 def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
@@ -963,6 +994,19 @@ def test_kit_plugin_import_collector_skips_tests_and_top_level_binary_model(tmp_
 def test_kit_plugin_import_collector_scans_a_nested_binary_model_directory(tmp_path: Path) -> None:
     _write(tmp_path / "pkg" / "binary_model" / "m.py", "from mloda.community.x import y\n")
     assert _kit_plugin_imports(tmp_path) == {("pkg/binary_model/m.py", "mloda.community.x")}
+
+
+def test_kit_imports_no_enterprise_module_including_binary_model() -> None:
+    offenders = sorted(_kit_enterprise_imports(_KIT_ROOT))
+    assert offenders == [], f"mloda/testing must not import mloda.enterprise anywhere: {offenders}"
+
+
+def test_kit_enterprise_import_collector_scans_binary_model_and_skips_community_and_tests(tmp_path: Path) -> None:
+    _write(tmp_path / "binary_model" / "m.py", "from mloda.enterprise.x import y\n")
+    _write(tmp_path / "binary_model" / "c.py", "from mloda.community.x import y\n")
+    _write(tmp_path / "binary_model" / "tests" / "test_m.py", "from mloda.enterprise.x import y\n")
+    _write(tmp_path / "tests" / "test_m.py", "from mloda.enterprise.x import y\n")
+    assert _kit_enterprise_imports(tmp_path) == {("binary_model/m.py", "mloda.enterprise.x")}
 
 
 kit_map = load_script("kit_modules", _REPO_ROOT / "scripts" / "kit_modules.py")
