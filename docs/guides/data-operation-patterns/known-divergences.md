@@ -135,7 +135,7 @@ regression_test:
 - **Reference behavior**: A boolean source column raises `ValueError` naming the column as non-numeric.
 - **Native SQLite behavior**: `SqliteRelation.from_arrow` stores booleans with `INTEGER` affinity, so `sqlite_non_numeric_descriptor` sees an int column and SQLite computes `True`/`False` as 1/0. String sources keep `TEXT` affinity and are still rejected.
 - **Mitigation kind**: Accepted divergence. The boolean type is lost on ingest, before any op runs.
-- **How**: Both SQLite test classes override `detects_non_numeric_source()` to `{"string"}`, so the boolean rejection tests skip and `test_boolean_source_column_computed_when_undetected` pins the 0/1 result. Not declared in `divergences`: the gap comes from ingest, not from the op, and declaring every op would rank SQLite last for all arithmetic.
+- **How**: Both SQLite test classes override `detects_non_numeric_source()` to `{"string"}`, so the boolean rejection tests skip and `test_boolean_source_column_computed_when_undetected` pins the 0/1 result. Not declared in `divergences`: a `value` record would rank SQLite last for all arithmetic, and an unscoped `gap` record would excuse every type failure of SQLite arithmetic in the shape check ([When to add](#when-to-add-to-this-page)); the pinning test guards the 0/1 result.
 - **Regression signal**: If SQLite starts rejecting booleans, the pinning test fails; remove both `detects_non_numeric_source` overrides and delete this entry.
 
 ### SQLite `UPPER`/`LOWER` are ASCII-only; no native `REVERSE`
@@ -530,7 +530,7 @@ regression_test:
 
 - **Operations**: `aggregation` and `window_aggregation` (partition keys and `nunique` values).
 - **Native behavior**: PyArrow hashes a float bitwise, so `0.0` and `-0.0` land in two groups and count as two distinct values. The reference, Pandas, Polars, DuckDB, SQLite and PythonDict merge them.
-- **Mitigation kind**: Accepted divergence. A branch on the hot grouping path for a sign-of-zero edge case the canonical fixture does not exercise is not worth it. It is not a `divergences` entry: those records are a routing penalty, and this is a key and value level edge case.
+- **Mitigation kind**: Accepted divergence. A branch on the hot grouping path for a sign-of-zero edge case the canonical fixture does not exercise is not worth it. It is not a `divergences` record: a `value` record would penalize every PyArrow aggregation, and this key and value level edge case stays an entry ([When to add](#when-to-add-to-this-page)).
 - **Regression signal**: the reference's merge is pinned by rows in `aggregation_pinning_rows.py`; `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) pin each backend through `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation` and `TestPyArrowWindowAggregation` override to `False`).
 
 ### Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
@@ -745,7 +745,7 @@ Add a new entry here if and only if all three hold:
 2. That difference cannot be hidden by the cross-framework comparison (i.e. it would require an `expected_*()` override, a `use_approx=True` bump, a `pytest.skip`, or a `supported` exclusion on the Implementation).
 3. The decision (fix vs. document vs. exclude) has been made and landed in code.
 
-A divergence the planner, `explain`, the plan lock and lineage should see is declared as a `Divergence` record on the Implementation, and the generated "Declared divergence records" section is then regenerated (the drift check fails until it is). Divergences deliberately not records (signed zero, float tolerance) stay entries only. An edge-case divergence on an operation without subtypes, where a ranking penalty would move every feature of the operation off the backend, is declared as a `gap` record (shown in explain, the plan lock and lineage, not in ranking); the lookup records are the example.
+A divergence the planner, `explain`, the plan lock and lineage should see is declared as a `Divergence` record on the Implementation, and the generated "Declared divergence records" section is then regenerated (the drift check fails until it is). Divergences deliberately not records (signed zero, float tolerance) stay entries only. An edge case that is not an opt-in `variant` is a `value` record while its ranking penalty stays proportionate (SQLite `divide`, scoped to one subtype). When the penalty would move features that never hit the condition off the backend wholesale (an operation without subtypes, or a condition every subtype shares), it is a `gap` record: shown in explain, the plan lock and lineage, not in ranking. Its reason names the input condition, since records carry no input scope. In the shape check a `gap` record excuses every type failure it covers and, unlike a `type` record, is never reported stale, so an edge case whose `gap` would excuse unrelated failures stays an entry. The lookup and integer-overflow records are examples.
 
 Do not add speculative entries. If an audit only uncovered a hypothetical divergence, add a failing regression test first so the entry corresponds to something the test suite measures.
 
