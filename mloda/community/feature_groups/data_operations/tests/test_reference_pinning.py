@@ -22,6 +22,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
+    LookupUnmatchedError,
     build_unmatched_error,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
@@ -231,8 +232,12 @@ def _typed_table(**columns: tuple[pa.DataType, list[Any]]) -> pa.Table:
     return pa.table({name: pa.array(values, type=arrow_type) for name, (arrow_type, values) in columns.items()})
 
 
-class _HookLookup(NutsMappingHook, LookupFeatureGroup):
+class _NutsUnmatchedError(LookupUnmatchedError):
     pass
+
+
+class _HookLookup(NutsMappingHook, LookupFeatureGroup):
+    UNMATCHED_ERROR = _NutsUnmatchedError
 
 
 _POINT = (reference_point_arithmetic, PointArithmeticFeatureGroup)
@@ -448,6 +453,14 @@ _REJECTION_PARAMS = [
         id="lookup-str-keys-on-typed-all-null-int-column",
     ),
     pytest.param(
+        *_LOOKUP,
+        "x__lookup",
+        {"lookup_mapping": _INT_MAP, "on_unmatched": "null"},
+        {"x": (pa.string(), [None, None])},
+        "source column 'x' has type",
+        id="lookup-int-keys-on-typed-all-null-str-column",
+    ),
+    pytest.param(
         *_STRING,
         "bogus_feature",
         {"string_op": "bogus", "in_features": "x"},
@@ -624,8 +637,11 @@ class TestLookupReference:
         with pytest.raises(_HookLookup.UNMATCHED_ERROR) as excinfo:
             reference_lookup(_HookLookup, table, features)
         err = excinfo.value
+        assert type(err) is _HookLookup.UNMATCHED_ERROR
         assert dict(err.reasons) == HOOK_REASONS
-        expected = build_unmatched_error("x__nuts2024", 3, ["C300", "D400"], HOOK_REASONS)
+        expected = build_unmatched_error(
+            "x__nuts2024", 3, ["C300", "D400"], HOOK_REASONS, error_class=_HookLookup.UNMATCHED_ERROR
+        )
         assert str(err) == str(expected)
 
     def test_unmatched_sample_is_the_first_ten_sorted_keys(self) -> None:
@@ -638,7 +654,9 @@ class TestLookupReference:
         assert err.distinct_keys == 12
         assert err.unmatched_rows == 12
         assert err.sample == tuple(sorted(keys)[:10])
-        assert str(err) == str(build_unmatched_error("x__lookup", 12, sorted(keys), {}))
+        assert str(err) == str(
+            build_unmatched_error("x__lookup", 12, sorted(keys), {}, error_class=LookupUnmatchedError)
+        )
 
     @pytest.mark.parametrize(
         ("policy", "mapping", "value_type"),

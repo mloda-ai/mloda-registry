@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from typing import Any
 
@@ -11,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
+    LookupUnmatchedError,
     assert_key_family,
     build_unmatched_error,
     value_family,
@@ -43,7 +45,11 @@ class PolarsLazyLookup(Implementation[LookupFeatureGroup]):
     def calculate(
         cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
+        return group.lookup(
+            data,
+            features,
+            compute_lookup=functools.partial(cls._compute_lookup, error_class=group.UNMATCHED_ERROR),
+        )
 
     @classmethod
     def _compute_lookup(
@@ -54,6 +60,8 @@ class PolarsLazyLookup(Implementation[LookupFeatureGroup]):
         mapping: Mapping[Any, Any],
         policy: str,
         reasons: Mapping[Any, str],
+        *,
+        error_class: type[LookupUnmatchedError],
     ) -> pl.LazyFrame:
         source_dtype = data.collect_schema()[source_col]
         if source_dtype == pl.Null:
@@ -75,7 +83,9 @@ class PolarsLazyLookup(Implementation[LookupFeatureGroup]):
             if found.height:
                 # pl.len() is the second column, so a source column named like it cannot collide.
                 counts = found.get_column(found.columns[1])
-                raise build_unmatched_error(feature_name, int(counts.sum()), found[source_col].to_list(), reasons)
+                raise build_unmatched_error(
+                    feature_name, int(counts.sum()), found[source_col].to_list(), reasons, error_class=error_class
+                )
         elif policy == "keep":
             mapped = pl.when(unmatched).then(source.cast(values.dtype)).otherwise(mapped)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from typing import Any
 
@@ -12,6 +13,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
+    LookupUnmatchedError,
     assert_key_family,
     build_unmatched_error,
     key_family,
@@ -56,7 +58,11 @@ class PythonDictLookup(Implementation[LookupFeatureGroup]):
     def calculate(
         cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
+        return group.lookup(
+            data,
+            features,
+            compute_lookup=functools.partial(cls._compute_lookup, error_class=group.UNMATCHED_ERROR),
+        )
 
     @classmethod
     def _compute_lookup(
@@ -67,6 +73,8 @@ class PythonDictLookup(Implementation[LookupFeatureGroup]):
         mapping: Mapping[Any, Any],
         policy: str,
         reasons: Mapping[Any, str],
+        *,
+        error_class: type[LookupUnmatchedError],
     ) -> dict[str, list[Any]]:
         source = data[source_col]
         family = _source_family(source)
@@ -77,7 +85,9 @@ class PythonDictLookup(Implementation[LookupFeatureGroup]):
         if policy == "raise":
             unmatched = [v for v in source if v is not None and v not in mapping]
             if unmatched:
-                raise build_unmatched_error(feature_name, len(unmatched), set(unmatched), reasons)
+                raise build_unmatched_error(
+                    feature_name, len(unmatched), set(unmatched), reasons, error_class=error_class
+                )
 
         keep = policy == "keep"
         result = dict(data)

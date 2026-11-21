@@ -41,8 +41,12 @@ from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup i
 )
 
 
-class _HookLookup(NutsMappingHook, LookupFeatureGroup):
+class _NutsUnmatchedError(LookupUnmatchedError):
     pass
+
+
+class _HookLookup(NutsMappingHook, LookupFeatureGroup):
+    UNMATCHED_ERROR = _NutsUnmatchedError
 
 
 class _EmptyMappingHookLookup(EmptyMappingHook, LookupFeatureGroup):
@@ -105,7 +109,7 @@ class TestConstants:
 
     @pytest.mark.parametrize("clone", [lambda e: pickle.loads(pickle.dumps(e)), copy.copy], ids=["pickle", "copy"])  # nosec
     def test_unmatched_error_survives_clone(self, clone: Any) -> None:
-        error = build_unmatched_error("f__lookup", 3, ["x", "y"], {"x": "why"})
+        error = build_unmatched_error("f__lookup", 3, ["x", "y"], {"x": "why"}, error_class=LookupUnmatchedError)
         cloned = clone(error)
         assert type(cloned) is LookupUnmatchedError
         assert str(cloned) == str(error)
@@ -121,7 +125,9 @@ class TestConstants:
         ],
     )
     def test_unmatched_message_pluralization(self, rows: int, keys: list[str], expected: str) -> None:
-        assert str(build_unmatched_error("f", rows, keys, {})).startswith(expected + ".")
+        assert str(build_unmatched_error("f", rows, keys, {}, error_class=LookupUnmatchedError)).startswith(
+            expected + "."
+        )
 
     def test_family_mismatch_names_source_dtype(self) -> None:
         with pytest.raises(ValueError, match="mapping keys are str") as info:
@@ -315,7 +321,13 @@ class TestHooks:
         from mloda.community.feature_groups.data_operations.row_preserving.lookup.pyarrow_lookup import PyArrowLookup
 
         result = PyArrowLookup._compute_lookup(
-            arrow_table_of(create_lookup_data()), "product_code__lookup", "product_code", FULL_STR_MAP, "raise", {}
+            arrow_table_of(create_lookup_data()),
+            "product_code__lookup",
+            "product_code",
+            FULL_STR_MAP,
+            "raise",
+            {},
+            error_class=_NutsUnmatchedError,
         )
         assert result.column("product_code__lookup").to_pylist() == [
             "Alpha",
@@ -326,6 +338,17 @@ class TestHooks:
             "Delta",
             "Gamma",
         ]
+        with pytest.raises(_NutsUnmatchedError) as excinfo:
+            PyArrowLookup._compute_lookup(
+                arrow_table_of(create_lookup_data()),
+                "product_code__lookup",
+                "product_code",
+                PARTIAL_STR_MAP,
+                "raise",
+                {},
+                error_class=_NutsUnmatchedError,
+            )
+        assert type(excinfo.value) is _NutsUnmatchedError
 
 
 class TestReturnDataTypeRule:

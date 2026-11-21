@@ -33,6 +33,10 @@ class TestPythonDictLookup(PythonDictTestMixin, LookupTestBase):
         return True
 
     @classmethod
+    def typed_null_string_becomes_untyped(cls) -> bool:
+        return True
+
+    @classmethod
     def hook_group_class(cls) -> Any:
         return _HookLookup
 

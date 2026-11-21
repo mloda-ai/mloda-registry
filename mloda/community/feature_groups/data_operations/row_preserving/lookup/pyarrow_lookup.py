@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from typing import Any
 
@@ -12,6 +13,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
+    LookupUnmatchedError,
     assert_key_family,
     build_unmatched_error,
     value_family,
@@ -44,7 +46,11 @@ class PyArrowLookup(Implementation[LookupFeatureGroup]):
     def calculate(
         cls, group: type[LookupFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.lookup(data, features, compute_lookup=cls._compute_lookup)
+        return group.lookup(
+            data,
+            features,
+            compute_lookup=functools.partial(cls._compute_lookup, error_class=group.UNMATCHED_ERROR),
+        )
 
     @classmethod
     def _compute_lookup(
@@ -55,6 +61,8 @@ class PyArrowLookup(Implementation[LookupFeatureGroup]):
         mapping: Mapping[Any, Any],
         policy: str,
         reasons: Mapping[Any, str],
+        *,
+        error_class: type[LookupUnmatchedError],
     ) -> pa.Table:
         source = data.column(source_col)
         if pa.types.is_null(source.type):
@@ -73,7 +81,7 @@ class PyArrowLookup(Implementation[LookupFeatureGroup]):
             rows = pc.sum(unmatched).as_py() or 0
             if rows:
                 distinct = pc.unique(pc.filter(source, unmatched)).to_pylist()
-                raise build_unmatched_error(feature_name, rows, distinct, reasons)
+                raise build_unmatched_error(feature_name, rows, distinct, reasons, error_class=error_class)
         elif policy == "keep":
             mapped = pc.if_else(unmatched, source.cast(values.type), mapped)
 
