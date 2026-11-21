@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -86,12 +87,14 @@ class TestSqliteDateOnlySource:
             ("timestamp__ceil_1_week", "2024-01-08 00:00:00"),
         ],
     )
-    def test_date_only_value_bucketed_as_midnight(self, build_source: Any, feature: str, expected: str) -> None:
+    def test_date_only_value_bucketed_as_midnight(
+        self, build_source: Callable[[], SqliteRelation], feature: str, expected: str
+    ) -> None:
         result = calculate_with(SqliteTimeBucketization, build_source(), make_feature_set(feature))
         assert result.to_arrow_table().column(feature).to_pylist() == [expected]
 
     def test_date_only_mixed_with_non_utc_offset_rejected(self) -> None:
         tbl = pa.table({"timestamp": pa.array(["2024-01-01", "2023-01-01 14:00:00+01:00"], type=pa.string())})
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
-        with pytest.raises(ValueError, match="non-UTC"):
+        with pytest.raises(ValueError, match=r"non-UTC.*'2023-01-01 14:00:00\+01:00'"):
             calculate_with(SqliteTimeBucketization, rel, make_feature_set("timestamp__floor_1_day"))
