@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 
 from tests.script_loader import load_script, version_tuple
-from tests.test_end2end.test_dependency_direction import _is_mloda_testing_import
+from tests.test_end2end.test_dependency_direction import _is_import_of
 from tests.test_end2end.test_verify_independent_installs import _FakeCompletedProcess
 from tests.toml_loader import load_toml, loads_toml
 from tests.tox_ini import tox_block
@@ -1281,11 +1281,11 @@ def test_external_verification_jobs_import_the_licensing_modules_only_in_the_ed2
             assert base.with_suffix(".py").is_file() or (base / "__init__.py").is_file(), (
                 f"{module} ({bundle}[{extra}]) resolves to no file in the checkout; was it renamed?"
             )
-            source_file = base.with_suffix(".py")
-            if source_file.is_file():
-                tree = ast.parse(source_file.read_text(encoding="utf-8"))
-                assert not any(_is_mloda_testing_import(node) for node in ast.walk(tree)), (
-                    f"{module} ({bundle}[{extra}]) must not import mloda.testing"
+            source_file = base.with_suffix(".py") if base.with_suffix(".py").is_file() else base / "__init__.py"
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            for banned in ("mloda.testing", "pytest"):
+                assert not any(_is_import_of(node, banned) for node in ast.walk(tree)), (
+                    f"{module} ({bundle}[{extra}]) must not import {banned}"
                 )
 
 

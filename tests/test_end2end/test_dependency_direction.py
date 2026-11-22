@@ -686,10 +686,6 @@ def _kit_enterprise_imports(root_dir: Path) -> set[tuple[str, str]]:
     }
 
 
-def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
-    return _files_with_import(root_dir, _is_mloda_testing_import)
-
-
 _EXTENDERS_SHARED = "mloda.community.extenders.shared"
 
 
@@ -871,7 +867,7 @@ def test_mloda_testing_rule_exempts_only_the_enterprise_licensing_testing_direct
 
 def test_walker_catches_function_level_import(tmp_path: Path) -> None:
     _write(tmp_path / "m.py", "def f() -> None:\n    from mloda.testing.base import FeatureGroupTestBase\n")
-    assert _files_importing_mloda_testing(tmp_path) == [Path("m.py")]
+    assert _files_with_import(tmp_path, _is_mloda_testing_import) == [Path("m.py")]
 
 
 def test_walker_catches_type_checking_import(tmp_path: Path) -> None:
@@ -880,14 +876,14 @@ def test_walker_catches_type_checking_import(tmp_path: Path) -> None:
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from mloda.testing.base import FeatureGroupTestBase\n"
     )
     _write(tmp_path / "m.py", body)
-    assert _files_importing_mloda_testing(tmp_path) == [Path("m.py")]
+    assert _files_with_import(tmp_path, _is_mloda_testing_import) == [Path("m.py")]
 
 
 def test_walker_ignores_import_inside_a_tests_directory(tmp_path: Path) -> None:
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     _write(tests_dir / "test_m.py", "from mloda.testing.base import FeatureGroupTestBase\n")
-    assert _files_importing_mloda_testing(tmp_path) == []
+    assert _files_with_import(tmp_path, _is_mloda_testing_import) == []
 
 
 @pytest.mark.parametrize(

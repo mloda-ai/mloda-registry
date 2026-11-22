@@ -118,7 +118,7 @@ class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConfo
         assert error["message"].endswith(reason)
 
 
-class _OverriddenLicenseVectors(BinaryModelConformanceBase):
+class _OverriddenLicenseHooks(BinaryModelConformanceBase):
     """Overrides every license-state hook with a marker string (not collected: no ``Test`` prefix).
     Each hook is overridden in the form the base declares it (property or ``ClassVar``)."""
 
@@ -157,7 +157,7 @@ class _OverriddenLicenseVectors(BinaryModelConformanceBase):
         pytest.param("test_license_in_grace_is_accepted", (), LICENSE_KEY, _IN_GRACE_MARKER, id="in_grace"),
     ],
 )
-def test_overriding_license_vectors_retargets_the_check(
+def test_overriding_license_hooks_retargets_the_check(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     check_name: str,
@@ -165,14 +165,10 @@ def test_overriding_license_vectors_retargets_the_check(
     channel: str,
     marker: str,
 ) -> None:
-    """An overridden license-state hook's token, not the built-in vector, reaches the binary: inline
-    as ``MLODA_LICENSE_KEY``, or in the file named by ``MLODA_LICENSE_FILE``, whichever channel the
-    check under test uses (contract: License). Checks delivering via a file write it under
-    ``tmp_path`` and so also take it; ``extra_args`` are any trailing arguments (the tampered check's
-    hook attribute name)."""
+    """An overridden license hook's text, not the default, reaches the binary."""
     assert (
         license_text_a_check_hands_to_the_binary(
-            monkeypatch, tmp_path, _OverriddenLicenseVectors(), check_name, extra_args, channel
+            monkeypatch, tmp_path, _OverriddenLicenseHooks(), check_name, extra_args, channel
         )
         == marker
     )
