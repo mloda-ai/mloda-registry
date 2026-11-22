@@ -653,7 +653,7 @@ def test_loader_skips_the_rdf_manifest_without_rdflib(monkeypatch: pytest.Monkey
 
 Evict only the package of the optional manifest, since a cold import of a module whose FeatureGroups are already loaded defines them a second time.
 
-Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time. `fresh_import_report(module, root)` imports `module` in one, on the caller's `sys.path`, and returns an `ImportReport`: the modules and FeatureGroups under `root`, and whether mloda core was loaded.
+Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time. `fresh_import_report(module, root)` imports `module` in a fresh interpreter that uses the caller's `sys.path` and returns an `ImportReport`: the modules and FeatureGroups (qualified names) under `root`, and whether mloda core was loaded. In-process patches such as `block_root` do not reach the child.
 
 ```python
 from mloda.testing.import_isolation import ImportReport, fresh_import_report
@@ -671,8 +671,8 @@ def acme_plugin(acme: None, tmp_path: Path) -> None:
 
 def test_imports_load_only_their_groups(acme_plugin: None) -> None:
     parsers = fresh_import_report("acme.core.parsers", "acme")
-    assert parsers == ImportReport(mloda=False, modules=("acme", "acme.core", "acme.core.parsers"), groups=())
-    assert fresh_import_report("acme.feature_groups.my_plugin", "acme").groups == ("MyFeatureGroup",)
+    assert parsers == ImportReport(mloda_core=False, modules=("acme", "acme.core", "acme.core.parsers"), groups=())
+    assert fresh_import_report("acme.feature_groups.my_plugin", "acme").groups == ("acme.feature_groups.my_plugin.MyFeatureGroup",)
 ```
 
 The report lists abstract bases too, so include them in the expected groups.
