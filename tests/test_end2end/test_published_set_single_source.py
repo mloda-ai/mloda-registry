@@ -1245,7 +1245,7 @@ def _stub_surface(path: str) -> tuple[str, ...]:
 
 
 def test_external_verification_jobs_import_the_licensing_modules_only_in_the_ed25519_job() -> None:
-    """Only the mloda-enterprise[ed25519] job imports the license token and vectors modules, after the bundle surface."""
+    """Only the mloda-enterprise[ed25519] job imports the license token and vectors modules."""
     packages = _packages()
     entries = _external_extra_entries(packages)
     jobs = _external_verification_jobs(entries, packages, "9.9.9", _stub_surface)
@@ -1285,7 +1285,7 @@ def test_external_verification_jobs_import_the_licensing_modules_only_in_the_ed2
             if source_file.is_file():
                 tree = ast.parse(source_file.read_text(encoding="utf-8"))
                 assert not any(_is_mloda_testing_import(node) for node in ast.walk(tree)), (
-                    f"{module} ({bundle}[{extra}]) must not import mloda.testing: it loads from the bundle plus the extra alone"
+                    f"{module} ({bundle}[{extra}]) must not import mloda.testing"
                 )
 
 

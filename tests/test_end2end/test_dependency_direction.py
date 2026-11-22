@@ -778,7 +778,7 @@ _LICENSING_TESTING_DIR = Path("mloda/enterprise/licensing/testing")
 
 
 def _importers_outside_exempt_dir(root_name: str, root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[str]:
-    """Repo-relative paths of the files under root_dir with a node matching predicate, except those in the one exempt directory."""
+    """Repo-relative paths of files under root_dir with a node matching predicate, outside the exempt directory."""
     paths = (Path("mloda") / root_name / path for path in _files_with_import(root_dir, predicate))
     return [path.as_posix() for path in paths if _LICENSING_TESTING_DIR not in path.parents]
 
@@ -794,7 +794,7 @@ def _is_licensing_testing_import(node: ast.AST) -> bool:
         pytest.param(_is_mloda_testing_import, "mloda.testing imported outside tests/", id="mloda_testing"),
         pytest.param(
             _is_licensing_testing_import,
-            "mloda.enterprise.licensing.testing imported outside tests/ (it holds a published test key and pulls pytest into runtime)",
+            "mloda.enterprise.licensing.testing imported outside tests/",
             id="licensing_test_tooling",
         ),
     ],

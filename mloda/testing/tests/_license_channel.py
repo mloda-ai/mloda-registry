@@ -29,7 +29,7 @@ def license_text_a_check_hands_to_the_binary(
     extra_args: tuple[str, ...],
     channel: str,
 ) -> str:
-    """Run ``check_name`` on ``conformance`` with ``run_binary`` stubbed out and return the license text it handed over."""
+    """Run `check_name` with `run_binary` stubbed and return the license text it handed over."""
     fake = MagicMock(side_effect=RuntimeError("stop-after-capture"))
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", fake)
     config_path = tmp_path / "config.json"
