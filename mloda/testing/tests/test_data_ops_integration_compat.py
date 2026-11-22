@@ -223,7 +223,6 @@ class _ToyKeyedIntegration(_ToyIntegration):
         "test_primary_feature_through_pipeline",
         "test_secondary_feature_through_pipeline",
         "test_primary_feature_with_column_selective_source",
-        "test_disabled_feature_group_blocks_execution",
         "test_family_base_is_not_selected_without_an_implementation",
     ],
 )
