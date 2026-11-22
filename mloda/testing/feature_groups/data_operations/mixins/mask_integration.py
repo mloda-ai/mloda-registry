@@ -120,7 +120,7 @@ class MaskIntegrationTestMixin(DataOpsIntegrationTestBase):
         self._assert_masked(self.mask_integration_complex_spec(), self.mask_integration_complex_expected())
 
     def test_masked_and_unmasked_consistent(self) -> None:
-        """Run unmasked and masked in separate pipeline calls: same-type features share a group instance (mask leakage)."""
+        """Run unmasked and masked in separate calls: same-type features share a group instance (mask leakage)."""
         name = self.mask_integration_feature_name()
         unmasked_col = extract_column(self._run_single_feature(name, self.mask_integration_options()), name)
         assert len(unmasked_col) == self.mask_integration_expected_row_count()

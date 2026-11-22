@@ -234,7 +234,7 @@ class TestYourOpOperationGroup(OperationGroupTestBase):
 
 Each `ImplSpec.module` is the module that defines the Implementation. Set `dependency` for an optional backend: a missing dependency skips that spec, while a module that fails to import fails the test.
 
-Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, and, on `DataOpsIntegrationTestBase`, `group_options()`, `data_access_collection()` (the registered credentials a handle in `group_options()` names) and `missing_config_feature_name()` (the name `test_match_rejects_missing_config` expects not to match without config; default `primary_feature_name()`).
+Optional hooks pin more: `universe()` the exact subtype universe (`frozenset()` for a group without `SUBTYPES`, see percentile/tests/test_base.py), `unresolved_probes()` names that resolve to no subtype, `mixins()` the mixins directly after the group, followed by `OperationFeatureGroup` and then `FeatureGroup`, `name_only_match()` the expected `NAME_ONLY_MATCH`, `alias_pairs()`, and, on `DataOpsIntegrationTestBase`, `group_options()`, `data_access_collection()` (credentials a `group_options()` handle names) and `missing_config_feature_name()` (the name `test_match_rejects_missing_config` expects not to match without config; default `primary_feature_name()`).
 
 ---
 

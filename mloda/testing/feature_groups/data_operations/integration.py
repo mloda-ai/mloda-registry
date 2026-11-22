@@ -158,7 +158,7 @@ class DataOpsIntegrationTestBase(ABC):
 
     @classmethod
     def data_access_collection(cls) -> DataAccessCollection | None:
-        """Data access passed to every kit run_all, e.g. credentials a handle in ``group_options()`` names. Default: none."""
+        """Data access for every kit run_all, e.g. credentials named by a ``group_options()`` handle. Default: none."""
         return None
 
     # -- Helpers --------------------------------------------------------------
