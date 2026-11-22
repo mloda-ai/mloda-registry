@@ -209,6 +209,7 @@ def test_fresh_import_report_lists_exactly_the_feature_groups_defined_under_root
 
     assert with_groups.mloda is True
     assert with_groups.groups == ("Base", "Concrete")
+    assert fresh_import_report(f"{package_name}.groups", f"{package_name}.groups").groups == ("Base", "Concrete")
     assert only_twin == ImportReport(mloda=True, modules=(package_name, f"{package_name}.only_twin"), groups=())
 
 
