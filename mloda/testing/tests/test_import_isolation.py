@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
-import subprocess
+import subprocess  # nosec
 import sys
 import uuid
 from pathlib import Path

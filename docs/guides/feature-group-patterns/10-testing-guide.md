@@ -672,7 +672,9 @@ def acme_plugin(acme: None, tmp_path: Path) -> None:
 def test_imports_load_only_their_groups(acme_plugin: None) -> None:
     parsers = fresh_import_report("acme.core.parsers", "acme")
     assert parsers == ImportReport(mloda_core=False, modules=("acme", "acme.core", "acme.core.parsers"), groups=())
-    assert fresh_import_report("acme.feature_groups.my_plugin", "acme").groups == ("acme.feature_groups.my_plugin.MyFeatureGroup",)
+    assert fresh_import_report("acme.feature_groups.my_plugin", "acme").groups == (
+        "acme.feature_groups.my_plugin.MyFeatureGroup",
+    )
 ```
 
 The report lists abstract bases too, so include them in the expected groups.
