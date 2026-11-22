@@ -82,17 +82,21 @@ def verify_distribution(name: str, version: str, modules: list[str]) -> str | No
 def kit_jobs(version: str) -> list[tuple[str, str]]:
     """(requirement, probe source) per kit job: ungated modules from a bare install, gated ones under their extra."""
     by_gate: dict[str | None, list[str]] = _load_sibling("kit_modules").kit_modules()
-    absent = "".join(
-        f'assert find_spec("{package}") is None, "{package} must be absent"\n'
-        for package in ("mloda.community", "mloda.enterprise")
-    )
-    header = "from importlib.util import find_spec\n" + absent
+
+    def absent(*packages: str) -> str:
+        return "".join(f'assert find_spec("{package}") is None, "{package} must be absent"\n' for package in packages)
+
+    import_line = "from importlib.util import find_spec\n"
+    header = import_line + absent("mloda.community", "mloda.enterprise")
+    # The binary-model extra legitimately ships mloda.community but never mloda.enterprise.
+    binary_model_header = import_line + absent("mloda.enterprise")
     bare = header + "\n".join(f"import {m}" for m in by_gate.get(None, []))
     jobs = [(f"mloda-testing=={version}", bare)]
     for gate in sorted(g for g in by_gate if g is not None):
         imports = "\n".join(f"import {m}" for m in by_gate[gate])
-        # The binary-model extra legitimately ships mloda.community, so it skips the absence check.
-        jobs.append((f"mloda-testing[{gate}]=={version}", imports if gate == "binary-model" else header + imports))
+        jobs.append(
+            (f"mloda-testing[{gate}]=={version}", (binary_model_header if gate == "binary-model" else header) + imports)
+        )
     return jobs
 
 

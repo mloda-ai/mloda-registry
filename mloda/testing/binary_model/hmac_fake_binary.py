@@ -1,4 +1,4 @@
-"""Fake ``hmac_sha256`` binary for tests only; accepts test-signed licenses only.
+"""Fake ``hmac_sha256`` binary for tests only; accepts the simulated license.
 
 Run: ``python -m mloda.testing.binary_model.hmac_fake_binary [--plugin-id <id>]``. The id is argv because the mixin
 passes a minimal environment."""
