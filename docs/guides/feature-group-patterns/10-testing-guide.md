@@ -19,7 +19,7 @@
 | Binary-backed group | simulated binary, simulated license, `BinaryModelConformanceBase` (extra `mloda-testing[binary-model]`) | `binary_model` | [Binary-Backed Features: Test](29-binary-backed-features.md#test) |
 | Extender package | `ExtenderContractTestMixin` (extra `mloda-testing[pyarrow]`) | `extenders` | [Create an Extender: Testing](../11-create-extender.md#testing) |
 | Extender package with an optional dependency | `OptionalDependencyPackageTestMixin` | `optional_dependency` | [Create an Extender: Optional dependency packages](../11-create-extender.md#optional-dependency-packages) |
-| Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
+| Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
 | Compute framework | `assert_compute_framework_shape`, the suites, `TypedTestData`, `FrameworkAdapter` | `compute_framework_shape`, `compute_framework`, `typed_data`, `framework_adapter` | [Compute Framework Testing Guide](../compute-framework-patterns/09-testing-guide.md) |
 
 The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases: name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
@@ -590,7 +590,7 @@ def test_consumer_with_link_computes() -> None:
 
 ## Testing What an Import Loads
 
-A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). `mloda.testing.import_isolation` holds the helpers. All take a `pytest.MonkeyPatch` first and are undone with it:
+A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). `mloda.testing.import_isolation` holds the helpers. These four take a `pytest.MonkeyPatch` first and are undone with it:
 
 | Helper | Effect |
 |--------|--------|
@@ -653,33 +653,30 @@ def test_loader_skips_the_rdf_manifest_without_rdflib(monkeypatch: pytest.Monkey
 
 Evict only the package of the optional manifest, since a cold import of a module whose FeatureGroups are already loaded defines them a second time.
 
-Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time.
+Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time. `fresh_import_report(module, root)` imports `module` in a fresh interpreter on the caller's `sys.path` and returns an `ImportReport`: the modules under `root`, the FeatureGroups defined under it, and whether mloda core was loaded.
 
-```py
-import json
-import subprocess
-import sys
-
-_PROBE = """
-import json
-import {module}
-from mloda.provider import FeatureGroup, get_all_subclasses
-groups = sorted(fg.__name__ for fg in get_all_subclasses(FeatureGroup) if fg.__module__.startswith("acme."))
-print(json.dumps(groups))
-"""
+```python
+from mloda.testing.import_isolation import ImportReport, fresh_import_report
 
 
-def _groups_loaded_by(module: str) -> list[str]:
-    probe = [sys.executable, "-c", _PROBE.format(module=module)]
-    return json.loads(subprocess.run(probe, check=True, capture_output=True, text=True).stdout)
+@pytest.fixture
+def acme_plugin(acme: None, tmp_path: Path) -> None:
+    """Add a FeatureGroup package to the stand-in; only the fresh interpreter imports it."""
+    plugin = tmp_path / "acme" / "feature_groups" / "my_plugin"
+    plugin.mkdir(parents=True)
+    (tmp_path / "acme" / "feature_groups" / "__init__.py").write_text("")
+    (plugin / "__init__.py").write_text(
+        "from mloda.provider import FeatureGroup\n\n\nclass MyFeatureGroup(FeatureGroup):\n    pass\n"
+    )
 
 
-def test_imports_load_only_their_groups() -> None:
-    assert _groups_loaded_by("acme.core.parsers") == []
-    assert _groups_loaded_by("acme.feature_groups.my_plugin") == ["MyFeatureGroup"]
+def test_imports_load_only_their_groups(acme_plugin: None) -> None:
+    parsers = fresh_import_report("acme.core.parsers", "acme")
+    assert parsers == ImportReport(mloda=False, modules=("acme", "acme.core", "acme.core.parsers"), groups=())
+    assert fresh_import_report("acme.feature_groups.my_plugin", "acme").groups == ("MyFeatureGroup",)
 ```
 
-`get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
+The report lists abstract bases too, so include them in the expected groups.
 
 ## Testing by Pattern
 

@@ -1,12 +1,16 @@
-"""Test-only helpers for poisoning and evicting sys.modules entries with pytest.MonkeyPatch."""
+"""Test-only helpers for poisoning and evicting sys.modules entries with pytest.MonkeyPatch, and for reporting what an import loads in a fresh interpreter."""
 
 from __future__ import annotations
 
 import importlib
 import importlib.metadata
 import importlib.util
+import json
 import pkgutil
+import subprocess  # nosec
 import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import FrameType
 
 import pytest
@@ -118,3 +122,60 @@ def require_pyarrow() -> None:
         raise ModuleNotFoundError(reason, name="pyarrow") from error
     else:
         return
+
+
+_FRESH_IMPORT_SCRIPT = """
+import importlib
+import json
+import sys
+
+module, root, caller_path = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+sys.path[:] = caller_path
+importlib.import_module(module)
+mloda = "mloda.core" in sys.modules
+modules = sorted(m for m in sys.modules if m == root or m.startswith(root + "."))
+groups = []
+if mloda:
+    from mloda.provider import FeatureGroup, get_all_subclasses
+
+    groups = sorted(
+        g.__name__
+        for g in get_all_subclasses(FeatureGroup)
+        if g.__module__ == root or g.__module__.startswith(root + ".")
+    )
+print("\\n" + json.dumps({"mloda": mloda, "modules": modules, "groups": groups}))
+"""
+
+
+def _run_probe(
+    script: str, args: Sequence[str], env: Mapping[str, str] | None = None
+) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
+    """Run ``script`` with ``args`` in a fresh interpreter and return it with its last stdout line parsed as JSON."""
+    completed = subprocess.run(  # nosec B603
+        [sys.executable, "-c", script, *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=None if env is None else dict(env),
+    )
+    assert completed.returncode == 0, f"probe subprocess failed: {completed.stderr}"
+    summary: dict[str, object] = json.loads(completed.stdout.splitlines()[-1])
+    return completed, summary
+
+
+@dataclass(frozen=True)
+class ImportReport:
+    """What importing a module loaded: whether mloda core, the modules under a root, and the FeatureGroups there."""
+
+    mloda: bool
+    modules: tuple[str, ...]
+    groups: tuple[str, ...]
+
+
+def fresh_import_report(module: str, root: str) -> ImportReport:
+    """Import ``module`` in a fresh interpreter on the caller's sys.path and report what lands under ``root``."""
+    _, summary = _run_probe(_FRESH_IMPORT_SCRIPT, [module, root, json.dumps(sys.path)])
+    modules = summary["modules"]
+    groups = summary["groups"]
+    assert isinstance(modules, list) and isinstance(groups, list)
+    return ImportReport(mloda=bool(summary["mloda"]), modules=tuple(modules), groups=tuple(groups))
