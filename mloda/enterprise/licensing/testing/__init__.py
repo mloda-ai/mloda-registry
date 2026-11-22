@@ -1,1 +1,1 @@
-"""Signed license-token test support: vectors, licensed fake binaries and the token conformance suite."""
+"""Signed license-token test support: vectors, the licensed fake binary and the token conformance suite."""

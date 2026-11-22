@@ -17,7 +17,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 if TYPE_CHECKING:
     # Imported inside the run-path functions so --version and --capabilities skip the pyarrow import.
@@ -182,7 +182,7 @@ class _ReservedConformanceInternalError(Exception):
 SimulatedLicenseState = Literal["valid", "expired", "in_grace"]
 
 _SIMULATED_LICENSE_PREFIX = "simulated-license"
-_SIMULATED_LICENSE_STATES = frozenset({"valid", "expired", "in_grace"})
+_SIMULATED_LICENSE_STATES = frozenset(get_args(SimulatedLicenseState))
 
 
 def simulated_license(plugin_id: str, state: SimulatedLicenseState = "valid") -> str:
@@ -299,7 +299,7 @@ def _parse_run_args(args: list[str]) -> _RunArgs:
 
 
 def _license_source() -> tuple[str, str]:
-    """Return (source_name, token_text), the first of MLODA_LICENSE_FILE / MLODA_LICENSE_KEY set
+    """Return (source_name, license_text), the first of MLODA_LICENSE_FILE / MLODA_LICENSE_KEY set
     to a non-empty value (contract: License). Raises code 2 if neither is usable."""
     file_value = os.environ.get("MLODA_LICENSE_FILE", "")
     if file_value:

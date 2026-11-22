@@ -15,7 +15,6 @@ import subprocess  # nosec
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
-from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
@@ -48,7 +47,7 @@ from mloda.testing.binary_model.simulated_binary import (
     check_simulated_license,
     simulated_license,
 )
-from mloda.testing.tests._license_channel import LICENSE_FILE, LICENSE_KEY, license_text_that_reached_the_binary
+from mloda.testing.tests._license_channel import LICENSE_FILE, LICENSE_KEY, license_text_a_check_hands_to_the_binary
 from mloda.testing.tests._module_probe import run_module_probe
 from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_OPERATION
 from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_OUTPUT_KEY
@@ -171,14 +170,12 @@ def test_overriding_license_vectors_retargets_the_check(
     check under test uses (contract: License). Checks delivering via a file write it under
     ``tmp_path`` and so also take it; ``extra_args`` are any trailing arguments (the tampered check's
     hook attribute name)."""
-    fake = MagicMock(side_effect=RuntimeError("stop-after-capture"))
-    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", fake)
-    conformance = _OverriddenLicenseVectors()
-    config_path = tmp_path / "config.json"
-    leading_args = (config_path, tmp_path) if channel == LICENSE_FILE else (config_path,)
-    with pytest.raises(RuntimeError, match="stop-after-capture"):
-        getattr(conformance, check_name)(*leading_args, *extra_args)
-    assert license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
+    assert (
+        license_text_a_check_hands_to_the_binary(
+            monkeypatch, tmp_path, _OverriddenLicenseVectors(), check_name, extra_args, channel
+        )
+        == marker
+    )
 
 
 @pytest.mark.parametrize(
