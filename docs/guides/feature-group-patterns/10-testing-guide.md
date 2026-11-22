@@ -653,7 +653,7 @@ def test_loader_skips_the_rdf_manifest_without_rdflib(monkeypatch: pytest.Monkey
 
 Evict only the package of the optional manifest, since a cold import of a module whose FeatureGroups are already loaded defines them a second time.
 
-Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time. `fresh_import_report(module, root)` imports `module` in a fresh interpreter on the caller's `sys.path` and returns an `ImportReport`: the modules under `root`, the FeatureGroups defined under it, and whether mloda core was loaded.
+Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time. `fresh_import_report(module, root)` imports `module` in one, on the caller's `sys.path`, and returns an `ImportReport`: the modules and FeatureGroups under `root`, and whether mloda core was loaded.
 
 ```python
 from mloda.testing.import_isolation import ImportReport, fresh_import_report
@@ -661,7 +661,6 @@ from mloda.testing.import_isolation import ImportReport, fresh_import_report
 
 @pytest.fixture
 def acme_plugin(acme: None, tmp_path: Path) -> None:
-    """Add a FeatureGroup package to the stand-in; only the fresh interpreter imports it."""
     plugin = tmp_path / "acme" / "feature_groups" / "my_plugin"
     plugin.mkdir(parents=True)
     (tmp_path / "acme" / "feature_groups" / "__init__.py").write_text("")

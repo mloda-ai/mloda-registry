@@ -1,4 +1,4 @@
-"""Test-only helpers for poisoning and evicting sys.modules entries with pytest.MonkeyPatch, and for reporting what an import loads in a fresh interpreter."""
+"""Test-only helpers to poison and evict sys.modules entries, and to report what an import loads."""
 
 from __future__ import annotations
 
@@ -150,7 +150,7 @@ print("\\n" + json.dumps({"mloda": mloda, "modules": modules, "groups": groups})
 def _run_probe(
     script: str, args: Sequence[str], env: Mapping[str, str] | None = None
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
-    """Run ``script`` with ``args`` in a fresh interpreter and return it with its last stdout line parsed as JSON."""
+    """Run ``script`` in a fresh interpreter; return the result and its last stdout line parsed as JSON."""
     completed = subprocess.run(  # nosec B603
         [sys.executable, "-c", script, *args],
         capture_output=True,

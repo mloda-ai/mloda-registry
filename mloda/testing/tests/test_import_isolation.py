@@ -1,4 +1,4 @@
-"""Direct unit tests for mloda.testing.import_isolation (evict_package, evict_root, evict_entry_points, fresh_import_report)."""
+"""Direct unit tests for mloda.testing.import_isolation."""
 
 from __future__ import annotations
 
@@ -162,8 +162,7 @@ def test_evict_entry_points_removes_cold_loaded_entry_point_modules_and_keeps_al
 def test_fresh_import_report_lists_root_modules_without_mloda_or_the_twin_package(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A plain module is reported in a fresh child on the caller's sys.path: root and loaded submodules only,
-    no mloda, no groups, and a sibling top-level `<root>_twin` package it imports is outside the root."""
+    """Only modules under the root are reported; a sibling `<root>_twin` package is outside it."""
     package_name = f"ii_throwaway_{uuid.uuid4().hex}"
     twin_name = f"{package_name}_twin"
     _write_throwaway_package(tmp_path, package_name)
@@ -186,7 +185,7 @@ def test_fresh_import_report_lists_root_modules_without_mloda_or_the_twin_packag
 def test_fresh_import_report_lists_exactly_the_feature_groups_defined_under_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Groups under root are listed (abstract base included); a twin's group and mloda's own are not."""
+    """Groups under root are listed (abstract base included); a twin's group is not."""
     package_name = f"ii_throwaway_{uuid.uuid4().hex}"
     twin_name = f"{package_name}_twin"
     for name in (package_name, twin_name):
@@ -216,7 +215,7 @@ def test_fresh_import_report_lists_exactly_the_feature_groups_defined_under_root
 def test_fresh_import_report_says_no_mloda_core_for_a_root_in_the_mloda_namespace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`mloda` means mloda core was loaded: a leaf under the `mloda.*` namespace that imports no core is False."""
+    """A leaf under the `mloda.*` namespace that imports no core reports mloda=False."""
     name = f"ii_throwaway_{uuid.uuid4().hex}"
     leaf_dir = tmp_path / "mloda" / name
     leaf_dir.mkdir(parents=True)
@@ -233,7 +232,7 @@ def test_fresh_import_report_says_no_mloda_core_for_a_root_in_the_mloda_namespac
 def test_fresh_import_report_fails_with_the_childs_error_when_the_import_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A module whose import raises fails the report with the child's error text."""
+    """A raising import fails the report with the child's error text."""
     package_name = f"ii_throwaway_{uuid.uuid4().hex}"
     _write_throwaway_package(tmp_path, package_name)
     (tmp_path / package_name / "broken.py").write_text("raise RuntimeError('boom from the child')\n")
