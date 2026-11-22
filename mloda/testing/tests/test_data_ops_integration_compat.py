@@ -1,12 +1,20 @@
-"""Published-base subclasses must still run: a legacy _plugin_collector without a creator, and the family bases."""
+"""Published-base subclasses must still run: a legacy _plugin_collector without a creator, the family bases, a credential."""
 
 from abc import abstractmethod
 from typing import Any
 
 import pyarrow.compute as pc
 import pytest
-from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
-from mloda.user import Options, PluginCollector
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    credential_handle_spec,
+    property_spec,
+    read_credential,
+)
+from mloda.user import Credential, DataAccessCollection, Options, PluginCollector
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.tests import (
@@ -162,3 +170,75 @@ def test_match_rejects_missing_config_probes_the_hook() -> None:
     _NonMatching().test_match_rejects_missing_config()
     with pytest.raises(AssertionError):
         _Matching().test_match_rejects_missing_config()
+
+
+# -- a feature group declaring a credential handle runs the inherited Level 3 tests --
+
+
+class _ToyKeyedBase(_ToyFamilyBase):
+    HANDLE = "toy_key_handle"
+    PREFIX_PATTERN = r".*__toy_keyed$"
+    RECOGNITION_ONLY_PATTERN = True
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+    PROPERTY_MAPPING = {
+        HANDLE: credential_handle_spec("Credential handle with a 'key' field", required_fields=("key",)),
+        DefaultOptionKeys.in_features: property_spec("Column to double"),
+    }
+
+
+class _ToyKeyed(_ToyKeyedBase, _ToyFamily):
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        for feature in features.features:
+            assert read_credential(feature.options.get(cls.HANDLE))["key"] == "not-a-secret"
+        return super().calculate_feature(data, features)
+
+
+class _ToyKeyedIntegration(_ToyIntegration):
+    _group: Any = _ToyKeyed
+    _primary = "value_int__toy_keyed"
+    _doubled = [20, -10, 0, 40, None, 100, 60, 120, 30, 30, 80, -20]
+
+    @classmethod
+    def group_options(cls) -> dict[str, Any]:
+        return {_ToyKeyedBase.HANDLE: "toy-key"}
+
+    @classmethod
+    def data_access_collection(cls) -> DataAccessCollection | None:
+        return DataAccessCollection(credentials={"toy-key": Credential(key="not-a-secret")})
+
+    @classmethod
+    def primary_expected_values(cls) -> list[Any]:
+        return cls._doubled
+
+    @classmethod
+    def secondary_expected_values(cls) -> list[Any]:
+        return cls._doubled
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "test_primary_feature_through_pipeline",
+        "test_secondary_feature_through_pipeline",
+        "test_primary_feature_with_column_selective_source",
+        "test_disabled_feature_group_blocks_execution",
+        "test_family_base_is_not_selected_without_an_implementation",
+    ],
+)
+def test_credential_group_runs_inherited_tests(name: str) -> None:
+    try:
+        getattr(_ToyKeyedIntegration(), name)()
+    except pytest.skip.Exception:
+        pytest.fail(f"{name} skipped for a feature group declaring a credential handle")
+
+
+def test_unregistered_credential_handle_is_rejected() -> None:
+    class _NoCollection(_ToyKeyedIntegration):
+        @classmethod
+        def data_access_collection(cls) -> DataAccessCollection | None:
+            return None
+
+    with pytest.raises(ValueError, match="not a registered credential"):
+        _NoCollection().test_primary_feature_through_pipeline()

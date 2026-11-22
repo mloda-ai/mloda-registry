@@ -131,7 +131,7 @@ def test_scaled_feature_runs():
 
 `TypedTestData` raises `ValueError` for a value that does not fit its declared `DataType` (a `bool` in an `INT64` column, an int beyond 2**53 in a `DOUBLE` one). `check_values_fit(columns, types)` from `mloda.testing.value_fit` applies the same rules to plain lists such as hand-written expected columns and returns a `CheckResult`.
 
-A group that reads a credential calls `calculate_feature` inside `credentials_scope` and keeps one Level 3 test with `data_access_collection=` (see [Secrets](11-options.md#secrets)).
+A group that reads a credential calls `calculate_feature` inside `credentials_scope` and keeps one Level 3 test with `data_access_collection=` (on `DataOpsIntegrationTestBase` the `data_access_collection()` hook next to `group_options()`; see [Secrets](11-options.md#secrets)).
 
 ## Level 3: Integration Test Example
 

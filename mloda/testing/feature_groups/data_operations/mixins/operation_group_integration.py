@@ -148,8 +148,8 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
         )
 
         with pytest.raises(FeatureResolutionError) as excinfo:
-            mloda.run_all(
-                [feature],
+            self._run_all(
+                feature,
                 compute_frameworks=[self.compute_framework_class()],
                 plugin_collector=collector,
             )
@@ -178,7 +178,7 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
             self.primary_feature_options(),
         )
         with pytest.raises(FeatureResolutionError) as excinfo:
-            mloda.run_all([feature], compute_frameworks=[PolarsDataFrame], plugin_collector=plugin_collector)
+            self._run_all(feature, compute_frameworks=[PolarsDataFrame], plugin_collector=plugin_collector)
         message = str(excinfo.value)
         assert group.__name__ in message
         assert "none of its compute frameworks are enabled" in message
@@ -193,14 +193,19 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
             self.primary_feature_options(),
         )
 
-        plan = mloda.explain([feature], compute_frameworks=frameworks, plugin_collector=collector)
+        plan = mloda.explain(
+            [feature],
+            compute_frameworks=frameworks,
+            plugin_collector=collector,
+            data_access_collection=self.data_access_collection(),
+        )
         steps = [step for step in plan if step.step_kind == "compute" and step.feature_group is group]
         assert len(steps) == 1
         assert steps[0].implementation is not None
         assert steps[0].compute_framework is not None
 
-        results = mloda.run_all(
-            [feature],
+        results = self._run_all(
+            feature,
             compute_frameworks=frameworks,
             plugin_collector=collector,
             output_framework=self.compute_framework_class(),
@@ -272,8 +277,8 @@ class OperationGroupIntegrationTestMixin(DataOpsIntegrationTestBase):
         name, options = case
         feature = self._make_feature(name, options)
         with pytest.raises(FeatureResolutionError, match="supports_compute_framework rejected"):
-            mloda.run_all(
-                [feature],
+            self._run_all(
+                feature,
                 compute_frameworks=[self.compute_framework_class()],
                 plugin_collector=self._plugin_collector(),
             )
