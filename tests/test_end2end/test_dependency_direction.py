@@ -663,13 +663,13 @@ def _walk_with_scope(
             yield from _walk_with_scope(child, inside, skip_type_checking, type_checking_alias)
 
 
-def _kit_plugin_imports(root_dir: Path) -> set[tuple[str, str]]:
+def _kit_plugin_imports(root_dir: Path, *, exempt_binary_model: bool = True) -> set[tuple[str, str]]:
     """(posix path relative to root_dir, imported module) for every mloda.community / mloda.enterprise
-    import outside tests/ and the top-level binary_model/ directory. A dynamic import_module
-    argument cannot be checked."""
+    import outside tests/, and outside the top-level binary_model/ directory unless exempt_binary_model is
+    False. A dynamic import_module argument cannot be checked."""
     found: set[tuple[str, str]] = set()
     for rel_path, tree in _runtime_modules(root_dir):
-        if rel_path.parts[0] == "binary_model":
+        if exempt_binary_model and rel_path.parts[0] == "binary_model":
             continue
         for node in ast.walk(tree):
             found.update((rel_path.as_posix(), module) for module in _plugin_modules_imported_by(node))
@@ -680,10 +680,8 @@ def _kit_enterprise_imports(root_dir: Path) -> set[tuple[str, str]]:
     """(posix path relative to root_dir, imported module) for every mloda.enterprise import outside tests/,
     with no directory exemption."""
     return {
-        (rel_path.as_posix(), module)
-        for rel_path, tree in _runtime_modules(root_dir)
-        for node in ast.walk(tree)
-        for module in _plugin_modules_imported_by(node)
+        (path, module)
+        for path, module in _kit_plugin_imports(root_dir, exempt_binary_model=False)
         if _plugin_package_of(module) == "mloda.enterprise"
     }
 
@@ -776,17 +774,13 @@ def test_enterprise_runtime_code_uses_extenders_shared_only_through_public_names
     )
 
 
-_MLODA_TESTING_EXEMPT_DIR = Path("mloda/enterprise/licensing/testing")
+_LICENSING_TESTING_DIR = Path("mloda/enterprise/licensing/testing")
 
 
 def _importers_outside_exempt_dir(root_name: str, root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[str]:
     """Repo-relative paths of the files under root_dir with a node matching predicate, except those in the one exempt directory."""
     paths = (Path("mloda") / root_name / path for path in _files_with_import(root_dir, predicate))
-    return [path.as_posix() for path in paths if _MLODA_TESTING_EXEMPT_DIR not in path.parents]
-
-
-def _mloda_testing_importers_outside_exempt_dir(root_name: str, root_dir: Path) -> list[str]:
-    return _importers_outside_exempt_dir(root_name, root_dir, _is_mloda_testing_import)
+    return [path.as_posix() for path in paths if _LICENSING_TESTING_DIR not in path.parents]
 
 
 def _is_licensing_testing_import(node: ast.AST) -> bool:
@@ -794,23 +788,26 @@ def _is_licensing_testing_import(node: ast.AST) -> bool:
     return _is_import_of(node, "mloda.enterprise.licensing.testing", from_parent=True)
 
 
-def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None:
+@pytest.mark.parametrize(
+    ("predicate", "message"),
+    [
+        pytest.param(_is_mloda_testing_import, "mloda.testing imported outside tests/", id="mloda_testing"),
+        pytest.param(
+            _is_licensing_testing_import,
+            "mloda.enterprise.licensing.testing imported outside tests/ (it holds a published test key and pulls pytest into runtime)",
+            id="licensing_test_tooling",
+        ),
+    ],
+)
+def test_no_community_or_enterprise_runtime_file_imports_the_test_tooling(
+    predicate: Callable[[ast.AST], bool], message: str
+) -> None:
     offenders: list[str] = []
     for root_name in ("community", "enterprise"):
         root_dir = _REPO_ROOT / "mloda" / root_name
         assert root_dir.is_dir(), f"expected {root_dir} to exist"
-        offenders.extend(_mloda_testing_importers_outside_exempt_dir(root_name, root_dir))
-    assert not offenders, f"mloda.testing imported outside tests/: {offenders}"
-
-
-def test_no_community_or_enterprise_runtime_file_imports_the_licensing_test_tooling() -> None:
-    """It holds a published test key and pulls pytest into runtime."""
-    offenders: list[str] = []
-    for root_name in ("community", "enterprise"):
-        root_dir = _REPO_ROOT / "mloda" / root_name
-        assert root_dir.is_dir(), f"expected {root_dir} to exist"
-        offenders.extend(_importers_outside_exempt_dir(root_name, root_dir, _is_licensing_testing_import))
-    assert not offenders, f"mloda.enterprise.licensing.testing imported outside tests/: {offenders}"
+        offenders.extend(_importers_outside_exempt_dir(root_name, root_dir, predicate))
+    assert not offenders, f"{message}: {offenders}"
 
 
 @pytest.mark.parametrize(
@@ -865,7 +862,7 @@ def test_mloda_testing_rule_exempts_only_the_enterprise_licensing_testing_direct
     body = "from mloda.testing.base import FeatureGroupTestBase\n"
     for rel in ("licensing/testing/a.py", "licensing/other.py", "licensing/testing_extra/b.py", "other/c.py"):
         _write(tmp_path / rel, body)
-    assert _mloda_testing_importers_outside_exempt_dir("enterprise", tmp_path) == [
+    assert _importers_outside_exempt_dir("enterprise", tmp_path, _is_mloda_testing_import) == [
         "mloda/enterprise/licensing/other.py",
         "mloda/enterprise/licensing/testing_extra/b.py",
         "mloda/enterprise/other/c.py",
