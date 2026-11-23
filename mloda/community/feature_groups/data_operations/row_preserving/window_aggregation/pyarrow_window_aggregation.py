@@ -170,4 +170,6 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             for idx in indices:
                 result_values[idx] = agg_val
 
-        return original_table.append_column(feature_name, pa.array(result_values))
+        return original_table.append_column(
+            feature_name, pa.array(result_values, type=grouped.schema.field(agg_col).type)
+        )

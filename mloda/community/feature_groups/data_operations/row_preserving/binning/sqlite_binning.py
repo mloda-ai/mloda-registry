@@ -52,35 +52,19 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
     ) -> SqliteRelation:
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        table_name = quote_ident(data.table_name)
 
         if op == "bin":
-            # Equal-width binning uses scalar subqueries (no window function), so this
-            # path stays a fetch+append.
-            # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
+            # Whole-table MIN/MAX OVER () (not subqueries on the table: the type probe runs on placeholder
+            # rows). A "*" projection keeps row order and source type hints; CAST keeps INT64 on zero rows.
             # Safety: all identifiers are quote_ident()-quoted, n_bins is int.
+            lo = f"MIN({quoted_source}) OVER ()"
+            hi = f"MAX({quoted_source}) OVER ()"
             expr = (
                 f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec
-                f"WHEN (SELECT MAX({quoted_source}) FROM {table_name}) = "
-                f"(SELECT MIN({quoted_source}) FROM {table_name}) THEN 0 "
-                f"ELSE MIN(CAST("
-                f"({quoted_source} - (SELECT MIN({quoted_source}) FROM {table_name})) / "
-                f"(((SELECT MAX({quoted_source}) FROM {table_name}) - "
-                f"(SELECT MIN({quoted_source}) FROM {table_name})) / {n_bins}.0)"
-                f" AS INTEGER), {n_bins - 1}) END"
+                f"WHEN {hi} = {lo} THEN 0 "
+                f"ELSE MIN(CAST(({quoted_source} - {lo}) / (({hi} - {lo}) / {n_bins}.0) AS INTEGER), {n_bins - 1}) END"
             )
-            sql = " ".join(
-                [
-                    "SELECT",
-                    f"{expr} AS {quoted_feature}",
-                    "FROM",
-                    table_name,
-                ]
-            )
-            cursor = data.connection.execute(sql)
-            rows = cursor.fetchall()
-            result_values = [row[0] for row in rows]
-            return data.append_column(feature_name, result_values)
+            return data.select(_raw_sql=f"*, CAST({expr} AS INTEGER) AS {quoted_feature}")
 
         if op != "qbin":
             raise ValueError(f"Unsupported binning operation for SQLite: {op}")
@@ -102,5 +86,5 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
             f"CASE WHEN {quoted_source} IS NULL THEN NULL "
             f"ELSE ({quote_ident(rank)} - 1) * {n_bins} / {quote_ident(cnt)} END"
         )
-        proj = ", ".join(quote_ident(c) for c in original_cols) + f", {feat_expr} AS {quoted_feature}"
-        return rel.select(_raw_sql=proj)
+        rel = rel.select(_raw_sql=f"*, CAST({feat_expr} AS INTEGER) AS {quoted_feature}")
+        return rel.select(*original_cols, feature_name)

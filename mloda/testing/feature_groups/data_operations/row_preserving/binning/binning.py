@@ -361,6 +361,9 @@ class BinningTestBase(
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+        assert self.adapter.has_type(result, "value_int__bin_3", DataType.INT64) is not False, (
+            "value_int__bin_3 lost its INT64 type on an all-null source"
+        )
 
     def test_all_null_column_qbin(self) -> None:
         """All-null column should produce all-null qbin assignments."""
@@ -372,6 +375,9 @@ class BinningTestBase(
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+        assert self.adapter.has_type(result, "value_int__qbin_3", DataType.INT64) is not False, (
+            "value_int__qbin_3 lost its INT64 type on an all-null source"
+        )
 
     def test_bin_boundary_precision(self) -> None:
         """Values exactly on bin boundaries should be consistent across frameworks.

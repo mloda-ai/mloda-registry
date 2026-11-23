@@ -25,7 +25,7 @@ _TRIM_CHARS_SQL = ", ".join(map(str, TRIM_WHITESPACE))
 # which SQLite has no native function for.
 _SQLITE_STRING_EXPRS: dict[str, str] = {
     "trim": f"TRIM({{col}}, char({_TRIM_CHARS_SQL}))",
-    "length": "LENGTH({col})",
+    "length": "CAST(LENGTH({col}) AS INTEGER)",
 }
 
 
@@ -56,17 +56,5 @@ class SqliteStringOps(Implementation[StringFeatureGroup]):
         expr = expr_template.format(col=quoted_source)
         quoted_feature = quote_ident(feature_name)
 
-        # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
-        sql = " ".join(
-            [
-                "SELECT",
-                f"{expr} AS {quoted_feature}",
-                "FROM",
-                f"{quote_ident(data.table_name)}",
-            ]
-        )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-
-        result_values = [row[0] for row in rows]
-        return data.append_column(feature_name, result_values)
+        # Raw "*" projection keeps row order and the source type hints; CAST keeps INT64 on zero rows.
+        return data.select(_raw_sql=f"*, {expr} AS {quoted_feature}")

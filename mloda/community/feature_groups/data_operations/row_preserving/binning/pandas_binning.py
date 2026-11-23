@@ -68,7 +68,7 @@ class PandasBinning(Implementation[BinningFeatureGroup]):
         non_null_mask = col.notna()
 
         if non_null_mask.sum() == 0:
-            data[feature_name] = None
+            data[feature_name] = pd.array([pd.NA] * len(data), dtype="Int64")
             return data
 
         if op == "bin":

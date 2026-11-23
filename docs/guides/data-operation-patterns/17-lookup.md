@@ -69,7 +69,7 @@ A `ValueError` subclass raised by policy `raise`; the group exposes the class as
 product_code__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300', 'D400']
 ```
 
-A key with a reason renders as `'C300' (reason text)`.
+A key with a reason renders as `'C300' (reason text)`. The message carries up to ten source key values, so they reach any log that records the error.
 
 ---
 

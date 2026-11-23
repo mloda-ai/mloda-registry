@@ -68,6 +68,12 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             cause=Cause.BACKEND,
             reason="sqlite3 stores NaN as NULL, so they tie in order_by",
         ),
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            subtypes=frozenset({"count"}),
+            reason="a time-frame count over zero rows has no declared type, so it comes back as string",
+        ),
     )
 
     @classmethod
