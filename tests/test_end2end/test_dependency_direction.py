@@ -1242,10 +1242,9 @@ def _followed_import_violations(
     label: str,
     author_backends: frozenset[str],
 ) -> list[str]:
-    """Violations in the in-repo files `kit_file` reaches through module-level first-party imports.
+    """Violations in the files `kit_file` reaches through module-level first-party imports, judged against `declared`.
 
-    Followed files are judged against the importing kit module's declared set. Conservative by design: a followed
-    file's own distribution's hard dependencies do not count, and a module-level guarded import is still flagged."""
+    Conservative: a followed file's own distribution dependencies do not count, and guarded module-level imports flag."""
     violations: list[str] = []
     seen = {kit_file}
     queue = [kit_file]
@@ -1637,7 +1636,6 @@ _TYPE_CHECKING_OL = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    im
 def test_kit_third_party_import_follower(
     tmp_path: Path, kit_rel: str, files: dict[str, str], fragments: tuple[str, ...] | None
 ) -> None:
-    """Module-level first-party imports are followed and judged against the importing kit module's declared set."""
     kit_dir = tmp_path / kit_rel
     for rel, body in files.items():
         _write((kit_dir / rel).resolve(), body)
