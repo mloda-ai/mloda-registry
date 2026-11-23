@@ -1,16 +1,19 @@
 """Reusable result-type test mixin: each typed op's output column has the type its group declares.
 
 Provides ``test_mixin_result_type``: runs core's ``check_feature_group_shape`` per case on source data with
-nulls and asserts the full shape check (type exact on typed frameworks, value fits elsewhere).
+nulls and asserts the full shape check on every group; on a typed group also the declared output type
+(exact on typed frameworks, value fits elsewhere).
 """
 
 from __future__ import annotations
 
+import inspect
 import re
 from typing import ClassVar
 
 import pytest
-from mloda.provider import DivergenceKind, FeatureSet
+from mloda._testing.feature_group_shape import _same
+from mloda.provider import DivergenceKind, FeatureGroup, FeatureSet
 from mloda.user import DataType, FeatureName, Options
 
 from mloda.testing.feature_group_shape import check_feature_group_shape
@@ -20,6 +23,7 @@ from mloda.testing.framework_adapter import to_arrow_table
 from mloda.testing.typed_data import TypedTestData
 
 _ZERO_ROWS_RETYPE = re.compile(r"^zero_rows: column '(.*)' changes type on zero rows$")
+_INPUT_CHANGED = re.compile(r"^outputs: input column '(.*)' was changed$")
 _VALUE_ONLY = "checked by value only"
 
 
@@ -30,12 +34,14 @@ def _blocking(
     readback: bool,
     gap_covers: bool,
     adapter_retypes: frozenset[str] = frozenset(),
+    adapter_rewrites: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """Core messages that fail the test: every failure, except a zero-row retype the adapter itself makes."""
+    """Core messages that fail the test: every failure, except a zero-row retype or a changed input the adapter makes."""
     bad = []
     for f in failures:
         m = _ZERO_ROWS_RETYPE.match(f)
-        if not (m and m.group(1) in adapter_retypes):
+        c = _INPUT_CHANGED.match(f)
+        if not (m and m.group(1) in adapter_retypes) and not (c and c.group(1) in adapter_rewrites):
             bad.append(f)
     for note in notes:
         excused_exact = "declared gap divergence" in note and (
@@ -49,7 +55,7 @@ def _blocking(
 
 
 class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
-    """Mixin asserting the full shape check, including the output type against ``return_data_type_rule``."""
+    """Mixin asserting the full shape check; on a typed group also the output type against ``return_data_type_rule``."""
 
     _case_fixtures: ClassVar[dict[str, str]] = {"result_type_case": "result_type_cases"}
 
@@ -71,7 +77,10 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         name = str(feature.name)
         group = self.feature_group_class()
         impl = self.implementation_class()
-        assert group.return_data_type_rule(feature) is not None, f"{name} has no return_data_type_rule"
+        if inspect.getattr_static(group, "return_data_type_rule") is not inspect.getattr_static(
+            FeatureGroup, "return_data_type_rule"
+        ):
+            assert group.return_data_type_rule(feature) is not None, f"{name} has no return_data_type_rule"
 
         subtype = impl.canonical_subtype(group, name, feature.options)
         subtypes = frozenset({subtype}) if subtype else frozenset()
@@ -115,11 +124,16 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         adapter_retypes = frozenset(
             c for c in data.types if self.adapter.column_type(full_frame, c) != self.adapter.column_type(empty_frame, c)
         )
+        source_values = data.to_python_dict()
+        adapter_rewrites = frozenset(
+            c for c in data.types if not _same(self.adapter.column_values(full_frame, c), source_values[c])
+        )
         bad = _blocking(
             list(result.failures),
             list(result.notes),
             readback=self.adapter.exact_type(probe, "p") is not None,
             gap_covers=gap_covers,
             adapter_retypes=adapter_retypes,
+            adapter_rewrites=adapter_rewrites,
         )
         assert not bad, f"{name}: " + "; ".join(bad)

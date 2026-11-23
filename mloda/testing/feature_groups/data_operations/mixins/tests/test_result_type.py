@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasTestMixin,
     PyArrowTestMixin,
     PythonDictTestMixin,
+    SqliteComputedColumnTestMixin,
     SqliteTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin, _blocking
@@ -39,6 +41,7 @@ _FRAMEWORK_MIXINS: dict[str, type] = {
     "pandas_object_string": PandasObjectStringTestMixin,
     "python_dict": PythonDictTestMixin,
     "sqlite": SqliteTestMixin,
+    "sqlite_computed": SqliteComputedColumnTestMixin,
 }
 
 _CASE = "out_cnt"
@@ -47,6 +50,12 @@ _IMPL_NAME = "_ResultTypeStubImpl"
 
 _NULL_ONLY_IN_PARTITION = TypedTestData(
     {"value_int": (DataType.INT64, [1, 2, 3]), "grp": (DataType.INT64, [1, None, 2])}
+)
+_TIMESTAMP_PASSENGER = TypedTestData(
+    {
+        "value_int": (DataType.INT64, [1, None, 3]),
+        "ts": (DataType.TIMESTAMP_MICROS, [datetime(2024, 1, 1)] * 3),
+    }
 )
 _NO_NULL_INPUT = TypedTestData({"value_int": (DataType.INT64, [1, 2, 3])})
 
@@ -61,6 +70,7 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
     """``data`` plus the output column: ``exact`` int64, ``narrow`` int32, ``text`` strings (object dtype on Pandas).
 
     PyArrow only: ``zero_type`` writes strings on zero rows, ``rewrite`` and ``zero_retype`` alter ``value_int``.
+    SQLite adapters: ``rewrite`` also alters ``value_int``.
     """
     if framework == "pyarrow":
         rows = data.num_rows
@@ -86,6 +96,10 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
         return {**data, _CASE: ["a"] * rows if kind == "text" else [1] * rows}
     if kind == "text":
         return data.append_column(_CASE, ["a"] * len(data))
+    if kind == "rewrite":
+        # SELECT * would repeat value_int, so list the other columns and replace it.
+        others = ", ".join(quote_ident(c) for c in data.columns if c != "value_int")
+        return data.select(_raw_sql=f"{others}, 99 AS value_int, CAST(1 AS INTEGER) AS {quote_ident(_CASE)}")
     # A raw select keeps the integer type on zero rows, unlike append_column.
     return data.select(_raw_sql=f"*, CAST(1 AS INTEGER) AS {quote_ident(_CASE)}")
 
@@ -114,6 +128,7 @@ def _run(
     raises: bool = False,
     writes: bool = True,
     matches_any: bool = False,
+    typed: bool = True,
 ) -> _Outcome:
     """Run ``test_mixin_result_type`` on a stub host over stub plugins, then remove every trace of them."""
     seen: list[Options] = []
@@ -138,9 +153,11 @@ def _run(
         def feature_names_supported(cls) -> set[str]:
             return {"out_cnt", "out_other"}
 
-        @classmethod
-        def return_data_type_rule(cls, feature: Feature) -> DataType | None:
-            return rule
+        if typed:
+
+            @classmethod
+            def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+                return rule
 
         def input_features(self, options: Options, feature_name: Any) -> set[Feature]:
             names = [input_name] if partition_input is None else [input_name, partition_input]
@@ -330,24 +347,80 @@ class TestShapeFailuresBeyondTheType:
         assert outcome.state == "failed"
         assert expected in outcome.message
 
+    def test_untyped_group_fails_on_a_shape_finding(self) -> None:
+        outcome = _run("pyarrow", kind="zero_type", typed=False)
+        assert outcome.state == "failed"
+        assert "zero_rows" in outcome.message
+
     @pytest.mark.parametrize(
-        ("adapter_retypes", "blocks"),
+        ("failure", "keyword", "columns", "blocks"),
         [
-            pytest.param(frozenset({"c"}), False, id="retype_by_the_adapter_is_excused"),
-            pytest.param(frozenset({"other"}), True, id="retype_of_another_column_blocks"),
-            pytest.param(frozenset(), True, id="no_adapter_retype_blocks"),
+            pytest.param(
+                "zero_rows: column 'c' changes type on zero rows",
+                "adapter_retypes",
+                frozenset({"c"}),
+                False,
+                id="retype_by_the_adapter_is_excused",
+            ),
+            pytest.param(
+                "zero_rows: column 'c' changes type on zero rows",
+                "adapter_retypes",
+                frozenset({"other"}),
+                True,
+                id="retype_of_another_column_blocks",
+            ),
+            pytest.param(
+                "zero_rows: column 'c' changes type on zero rows",
+                "adapter_retypes",
+                frozenset(),
+                True,
+                id="no_adapter_retype_blocks",
+            ),
+            pytest.param(
+                "outputs: input column 'c' was changed",
+                "adapter_rewrites",
+                frozenset({"c"}),
+                False,
+                id="rewrite_by_the_adapter_is_excused",
+            ),
+            pytest.param(
+                "outputs: input column 'c' was changed",
+                "adapter_rewrites",
+                frozenset({"other"}),
+                True,
+                id="rewrite_of_another_column_blocks",
+            ),
+            pytest.param(
+                "outputs: input column 'c' was changed",
+                "adapter_rewrites",
+                frozenset(),
+                True,
+                id="no_adapter_rewrite_blocks",
+            ),
         ],
     )
-    def test_zero_row_retype_is_excused_only_for_adapter_retyped_columns(
-        self, adapter_retypes: frozenset[str], blocks: bool
+    def test_failure_is_excused_only_for_columns_the_adapter_alters(
+        self, failure: str, keyword: str, columns: frozenset[str], blocks: bool
     ) -> None:
-        """A zero-row retype blocks unless the adapter itself retypes that column."""
-        failure = "zero_rows: column 'c' changes type on zero rows"
-        bad = _blocking([failure], [], readback=False, gap_covers=False, adapter_retypes=adapter_retypes)
+        """A zero-row retype or a changed input blocks unless the adapter itself alters that column."""
+        excuse: Any = {keyword: columns}
+        bad = _blocking([failure], [], readback=False, gap_covers=False, **excuse)
         assert bad == ([failure] if blocks else [])
+
+    def test_sqlite_computed_adapter_timestamp_readback_is_not_a_changed_input(self) -> None:
+        """The adapter reads a TIMESTAMP passenger column back as ISO text; a clean stub still passes."""
+        assert _run("sqlite_computed", data=_TIMESTAMP_PASSENGER).state == "passed"
+
+    def test_sqlite_computed_adapter_still_fails_a_rewrite_of_a_source_column(self) -> None:
+        outcome = _run("sqlite_computed", kind="rewrite", data=_TIMESTAMP_PASSENGER)
+        assert outcome.state == "failed"
+        assert "input column 'value_int' was changed" in outcome.message
 
 
 class TestHookContract:
+    def test_untyped_group_passes_on_a_clean_run(self) -> None:
+        assert _run("pyarrow", typed=False).state == "passed"
+
     def test_case_without_a_type_rule_fails(self) -> None:
         outcome = _run("pyarrow", rule=None)
         assert outcome.state == "failed"

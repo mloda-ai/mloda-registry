@@ -69,6 +69,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -169,7 +170,9 @@ NAIVE_WHOLE_TABLE_FFILL: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class FfillTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for ffill-by-time framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -185,6 +188,12 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
 
     def output_contract_feature_set(self) -> FeatureSet:
         return self._ffill_feature_set()
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"ffill": make_feature_set("value__ffill", partition_by=["region"], order_by="ts")}
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 

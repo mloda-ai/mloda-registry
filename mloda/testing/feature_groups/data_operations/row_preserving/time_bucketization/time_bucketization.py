@@ -52,6 +52,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
 )
@@ -219,7 +220,9 @@ EXPECTED_ROUND_1_DAY: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class TimeBucketizationTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for time-bucketization framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -262,6 +265,12 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__floor_1_day")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {op: make_feature_set(f"timestamp__{op}_1_day") for op in sorted(cls.ALL_OPS)}
 
     ALL_OPS = {"floor", "ceil", "round"}
 

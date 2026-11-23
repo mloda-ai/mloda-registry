@@ -23,6 +23,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_mixin import (
     ArithmeticPinningTestMixin,
@@ -46,7 +47,11 @@ VALUE_INT: list[int | None] = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
 
 
 class PointArithmeticTestBase(
-    ArithmeticPinningTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase
+    ArithmeticPinningTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for two-column point arithmetic framework tests."""
 
@@ -56,6 +61,12 @@ class PointArithmeticTestBase(
         return make_feature_set("value_int&amount__add_point")
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {op: make_feature_set(f"value_int&amount__{op}_point") for op in sorted(cls.ALL_OPS)}
 
     # -- ArithmeticPinningTestMixin configuration -------------------------------
 

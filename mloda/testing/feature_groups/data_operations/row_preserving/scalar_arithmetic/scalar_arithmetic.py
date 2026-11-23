@@ -22,6 +22,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_mixin import (
     ArithmeticPinningTestMixin,
@@ -41,7 +42,11 @@ if TYPE_CHECKING:
 
 
 class ScalarArithmeticTestBase(
-    ArithmeticPinningTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase
+    ArithmeticPinningTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for scalar arithmetic framework tests."""
 
@@ -51,6 +56,12 @@ class ScalarArithmeticTestBase(
         return make_feature_set("value_int__add_constant", constant=5)
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {op: make_feature_set(f"value_int__{op}_constant", constant=5) for op in sorted(cls.ALL_OPS)}
 
     # -- ArithmeticPinningTestMixin configuration -------------------------------
 
