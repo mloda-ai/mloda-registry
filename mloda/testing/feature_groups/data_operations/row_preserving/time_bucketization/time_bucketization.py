@@ -389,7 +389,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
             with pytest.raises(ValueError, match="non-UTC"):
                 calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
-        expected = row.expected[row.feature][1]
+        expected_data_type, expected = row.expected[row.feature]
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref = self.reference_calculate(arrow_table_of(TypedTestData({column: (data_type, utc_values)})), fs)
@@ -403,6 +403,15 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
             parse_iso=True,
             cast=_instant_and_offset,
         )
+        expected_data = self.create_test_data(TypedTestData({row.feature: (expected_data_type, expected)}))
+        # Probe the expected column: a wrong result type must not disable this check.
+        # SQLite has no exact timestamp type, and PythonDict has no column types.
+        if self.adapter.has_type(expected_data, row.feature, expected_data_type) is not None:
+            actual_type = self.adapter.column_type(result, row.feature)
+            expected_type = self.adapter.column_type(expected_data, row.feature)
+            assert actual_type == expected_type, (
+                f"{row.feature}: expected timestamp type {expected_type}, got {actual_type}"
+            )
 
     def test_divergent_flags_are_declared(self) -> None:
         impl = self.implementation_class()

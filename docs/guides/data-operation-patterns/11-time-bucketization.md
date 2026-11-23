@@ -118,6 +118,8 @@ result = mloda.run_all(features, compute_frameworks=["PyArrowTable"], api_data={
 
 Row count matches the input; each new column has the same timestamp type (resolution and tz) as the source.
 
+The conformance kit checks pinned outputs, including empty results, against the declared timestamp type constructed by the framework adapter. It compares native column types, since equal datetime values do not prove equal resolution. This check applies when the adapter exposes an exact timestamp type; SQLite's TEXT storage and Python dict's untyped columns retain the value and offset checks. DuckDB casts the bucket expression back to the source type to preserve its timestamp unit.
+
 ---
 
 ## Related

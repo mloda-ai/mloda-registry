@@ -125,7 +125,9 @@ class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         else:  # round
             result_expr = cls._round_expression(quoted_source, n, unit, floor_sql, ceil_next)
 
-        raw_sql = f"*, {result_expr} AS {quoted_feature}"
+        # DATE_TRUNC and interval arithmetic widen TIMESTAMP_MS to TIMESTAMP.
+        source_type = column_types(data)[source_col]
+        raw_sql = f"*, CAST({result_expr} AS {source_type}) AS {quoted_feature}"
         result: DuckdbRelation = data.project(raw_sql)
         return result
 
