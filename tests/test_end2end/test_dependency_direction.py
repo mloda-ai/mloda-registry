@@ -1216,7 +1216,7 @@ def _dotted_import_targets(node: ast.AST, package: list[str]) -> list[str]:
     if not isinstance(node, ast.ImportFrom):
         return []
     if node.level:
-        if node.level - 1 > len(package):
+        if node.level - 1 >= len(package):
             return []
         base = package[: len(package) - (node.level - 1)] + (node.module.split(".") if node.module else [])
     else:
@@ -1242,13 +1242,15 @@ def _followed_import_violations(
     label: str,
     author_backends: frozenset[str],
 ) -> list[str]:
-    """Violations in the files `kit_file` reaches through module-level first-party imports, judged against `declared`.
+    """Violations in the files `kit_file` and its ancestor packages reach through module-level first-party imports,
+    judged against `declared`.
 
     Conservative: a followed file's own distribution dependencies do not count; guarded module-level imports
     are still flagged."""
     violations: list[str] = []
-    seen = {kit_file}
-    queue = [kit_file]
+    kit_dotted = ".".join(kit_file.relative_to(import_root).with_suffix("").parts)
+    queue = [kit_file, *(f for f in _files_of_dotted_module(kit_dotted, import_root) if f != kit_file)]
+    seen = set(queue)
     while queue:
         current = queue.pop(0)
         rel_parts = current.relative_to(import_root).with_suffix("").parts
@@ -1506,6 +1508,10 @@ def test_license_kit_declared_set_follows_the_job_requirements(tmp_path: Path, m
     _write(tmp_path / "m.py", "import cryptography\n")
     violations = _license_kit_third_party_import_violations(tmp_path, import_root=tmp_path)
     assert len(violations) == 1 and "import 'cryptography'" in violations[0], violations
+    real = _license_kit_third_party_import_violations(_REPO_ROOT / verify.LICENSE_KIT_PATH)
+    assert any("via mloda/enterprise/licensing/license_token.py" in v and "import 'cryptography'" in v for v in real), (
+        real
+    )
 
 
 _LICENSE_KIT_REL = "mloda/enterprise/licensing/testing"
@@ -1604,9 +1610,19 @@ _TYPE_CHECKING_OL = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    im
         ),
         pytest.param(
             _LICENSE_KIT_REL,
-            {"m.py": "import mloda.enterprise.x\n", "../../x.py": "from .... import y\n", "../../../y.py": _OL},
+            {
+                "m.py": "import mloda.enterprise.x\n",
+                "../../x.py": "from ...y import z\n",
+                "../../../../y.py": _OL,
+            },
             None,
             id="relative-import-above-the-root-is-skipped",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "", "../__init__.py": _OL},
+            ("m.py: via mloda/enterprise/licensing/__init__.py:1", "import 'openlineage'"),
+            id="kit-module-ancestor-package-init-is-followed",
         ),
         pytest.param(
             _LICENSE_KIT_REL,

@@ -249,7 +249,7 @@ def test_mloda_enterprise_dev_extra_is_generated_committed_and_locked() -> None:
     lock = load_toml(_REPO_ROOT / "uv.lock")
     entry = next(package for package in lock["package"] if package["name"] == "mloda-enterprise")
     lock_dev = [dep["name"] for dep in entry.get("optional-dependencies", {}).get("dev", [])]
-    wanted = {re.sub(r"[-_.]+", "-", _dep_name(spec)).lower() for spec in expected}
+    wanted = {gen.normalize_dependency_name(spec) for spec in expected}
     missing = wanted - set(lock_dev)
     assert not missing, f"uv.lock mloda-enterprise dev extra lacks {sorted(missing)}: {lock_dev!r}"
 
