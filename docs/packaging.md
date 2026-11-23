@@ -386,7 +386,8 @@ import:
    `EXTRA_ONLY_IMPORTS` in `scripts/verify_extras.py`, so release verification imports it with the extra.
    A module under `mloda/enterprise/licensing/testing/` that also imports `mloda.testing` needs no entry, because
    `scripts/verify_independent_installs.py` imports every module there with both distributions installed;
-   the dependency-direction gate also requires each direct third-party import there to be declared by those two requirements.
+   the dependency-direction gate also checks that each third-party import there is declared by those two
+   requirements.
 
 Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_extra_entry`
 enforces that pair for every nested leaf the bundle wheel ships (owned leaves ship their own wheel and are skipped).
