@@ -872,6 +872,7 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | SQLite | variant | `nan_as_null` | backend | `avg`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
 | SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL, so they tie in order_by |
+| SQLite | gap |  | backend | `count` | a time-frame count over zero rows has no declared type, so it comes back as string |
 
 ### offset
 
