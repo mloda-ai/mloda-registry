@@ -13,6 +13,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import assert_temporal_timezone_supported
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DateTimeFeatureGroup,
 )
@@ -37,6 +38,7 @@ class PyArrowDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         op: str,
     ) -> pa.Table:
         col = table.column(source_col)
+        assert_temporal_timezone_supported(col.type, source_col)
 
         if op == "year":
             result = pc.year(col)

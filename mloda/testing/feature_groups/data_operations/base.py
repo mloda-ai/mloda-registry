@@ -204,6 +204,10 @@ class DataOpsTestBase(ABC):
 
     # -- Helpers ---------------------------------------------------------------
 
+    def _assert_temporal_source_rejection(self, data: Any, source_col: str, features: Any) -> bool:
+        """Check a framework's expected temporal rejection; False keeps the pinned value assertions."""
+        return False
+
     def _skip_if_unsupported(self, op: str) -> None:
         """Skip a test if *op* is not in the framework's supported set.
 

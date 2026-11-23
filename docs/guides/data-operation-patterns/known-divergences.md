@@ -712,6 +712,47 @@ regression_test:
 - **How**: For month and year the implementation composes the result from the floor, the next boundary and a native comparison instead of calling `round_temporal`.
 - **Regression signal**: The fixed-offset `wall_clock` rows of `round_1_month` and `round_1_year` in `test_pinned_row` fail if `round_temporal` comes back.
 
+### Older PyArrow grouped extrema return infinities for all-NaN buckets
+
+<!-- machine-checked
+operation: resample
+framework: pyarrow
+condition: PyArrow 14.0.1 and 22.0.0 grouped min and max return positive and negative infinity when every non-null value in a bucket is NaN
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_changing/resample/pyarrow_resample.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_min_max_nan_and_infinity_multi_aggregation
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_mixin_nan_policy
+-->
+
+- **Operations**: `resample` (`min` and `max`).
+- **Reference behavior**: Mixed buckets ignore NaN; an all-NaN bucket keeps NaN, and an all-null bucket stays null. Real infinities remain valid extrema.
+- **Native PyArrow behavior**: The minimum-version job exposes `+inf` for all-NaN `min` and `-inf` for all-NaN `max` on older releases.
+- **Mitigation kind**: Implementation fix. A native grouped `all(is_nan(value))` flag identifies only the all-NaN buckets, and `if_else` restores NaN without changing genuine infinities, other aggregates or the float width.
+- **Regression signal**: The multi-aggregation test covers float32 and float64, NaN/null mixtures, genuine infinities, finite values and neighboring buckets at the declared minimum and on current releases.
+
+### PyArrow before 22 cannot run temporal kernels on numeric fixed-offset zones
+
+<!-- machine-checked
+operation: time_bucketization, datetime
+framework: pyarrow
+condition: on PyArrow 14.0.1 through 21.x temporal kernels cannot resolve numeric timezone strings such as +05:00, -03:30 and +00:00
+mitigation_location:
+- mloda/community/feature_groups/data_operations/pyarrow_helpers.py
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/pyarrow_time_bucketization.py
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/pyarrow_datetime.py
+regression_test:
+- tests/test_end2end/test_pyarrow_temporal_minimum.py::test_temporal_timezone_support
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_pyarrow.py::TestPyArrowDateTimeExtraction::test_pinned_row
+-->
+
+- **Operations**: `time_bucketization` and `datetime` extraction.
+- **Reference behavior**: Numeric fixed offsets use their own wall clock.
+- **Native PyArrow behavior**: Releases before 22 raise a timezone-database error for populated or all-null numeric-zone columns, but accept empty columns without resolving the zone. Naive timestamps, UTC and named zones such as `Etc/GMT-5` work. [Arrow 22.0.0](https://arrow.apache.org/release/22.0.0.html) first includes numeric timezone support ([GH-30036 / PR #12865](https://github.com/apache/arrow/pull/12865)).
+- **Mitigation kind**: Up-front rejection with a `ValueError` naming the fixed offset and required PyArrow version. The shared validation reads the column type, so empty and all-null inputs follow the same rule; no values are computed in Python.
+- **Regression signal**: `tox -e pyarrow14` runs all PyArrow data-operation suites and the version-conditional temporal regression at 14.0.1 with NumPy 1.26.4. Older releases must reject only numeric-zone inputs; supported releases and zones still check their values and types.
+
 ### DuckDB time bucketization buckets a non-UTC zone on the UTC wall clock
 
 <!-- machine-checked

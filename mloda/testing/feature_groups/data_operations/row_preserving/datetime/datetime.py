@@ -303,17 +303,16 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         expected = row.expected[row.feature][1]
         column = next(iter(row.inputs))
         data_type, values = row.inputs[column]
+        fs = make_feature_set(row.feature, **row.context)
+        data = self.create_test_data(TypedTestData(row.inputs))
+        if self._assert_temporal_source_rejection(data, column, fs):
+            return
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref_inputs = {column: (data_type, utc_values)}
-            fs = make_feature_set(row.feature, **row.context)
             ref = self.reference_calculate(arrow_table_of(TypedTestData(ref_inputs)), fs)
             expected = extract_column(ref, row.feature)
-        result = calculate_with(
-            self.implementation_class(),
-            self.create_test_data(TypedTestData(row.inputs)),
-            make_feature_set(row.feature, **row.context),
-        )
+        result = calculate_with(self.implementation_class(), data, fs)
         assert self.extract_column(result, row.feature) == list(expected)
 
     def test_divergent_flags_are_declared(self) -> None:

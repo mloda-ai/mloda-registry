@@ -389,12 +389,15 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
             with pytest.raises(ValueError, match="non-UTC"):
                 calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
+        data = self.create_test_data(TypedTestData(row.inputs))
+        if self._assert_temporal_source_rejection(data, column, fs):
+            return
         expected = row.expected[row.feature][1]
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref = self.reference_calculate(arrow_table_of(TypedTestData({column: (data_type, utc_values)})), fs)
             expected = _extract_column(ref, row.feature)
-        result = calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
+        result = calculate_with(self.implementation_class(), data, fs)
         col = self.extract_column(result, row.feature)
         assert_values_with_nulls(
             col,

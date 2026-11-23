@@ -9,6 +9,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import assert_temporal_timezone_supported
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,
     TimeBucketizationFeatureGroup,
@@ -45,6 +46,7 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         arrow_type = data.column(source_col).type
         if not pa.types.is_timestamp(arrow_type):
             TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, arrow_type)
+        assert_temporal_timezone_supported(arrow_type, source_col)
 
     @classmethod
     def _compute_bucket(
