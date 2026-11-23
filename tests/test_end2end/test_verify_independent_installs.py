@@ -291,7 +291,7 @@ def test_one_kit_job_per_gate_extra_imports_exactly_that_extras_modules() -> Non
 
 
 def test_license_kit_job_probes_the_shipped_modules_of_published_extras() -> None:
-    """The license kit job imports the four shipped modules and names published packages' declared extras."""
+    """The license kit job imports the shipped modules and names published packages' declared extras."""
     probe = _kit_jobs()[_LICENSE_KIT_KEY]
     imported = _probe_imports(probe)
     expected = [_LICENSE_KIT_PREFIX] + [

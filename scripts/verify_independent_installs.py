@@ -84,8 +84,7 @@ def verify_distribution(name: str, version: str, modules: list[str]) -> str | No
 
 
 def kit_jobs(version: str) -> list[tuple[tuple[str, ...], str]]:
-    """(requirements, probe source) per kit job: ungated modules from a bare install, gated ones under their extra,
-    then the license kit modules with the distributions they need installed together."""
+    """(requirements, probe source) per kit job: bare, per gating extra, then the license kit."""
     by_gate: dict[str | None, list[str]] = _load_sibling("kit_modules").kit_modules()
 
     def absent(*packages: str) -> str:
