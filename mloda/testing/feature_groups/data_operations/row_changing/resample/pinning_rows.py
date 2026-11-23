@@ -19,6 +19,7 @@ RESAMPLE_RULES: Mapping[str, str] = MappingProxyType(
         "none": "None values are skipped; a bucket whose values are all None gives count 0 and None for sum, mean, min and max.",
         "nan": "NaN propagates through sum and mean, count counts it, min and max skip it, and an all-NaN bucket gives NaN.",
         "null_time": "A None timestamp is its own bucket, with or without partition_by.",
+        "time_source": "When the source is the time column, min and max aggregate floored bucket starts; count counts non-null timestamps.",
         "partition_keys": "NaN partition keys merge, a None key is its own group, 0.0 and -0.0 merge and keep the first-seen value.",
         "whole_table": "Without partition_by the buckets alone group the rows.",
         "dtype": "count is int64, mean is float64, sum widens ints to int64, uint64 to uint64 and floats to float64, min and max keep the source type.",
@@ -55,6 +56,25 @@ RESAMPLE_PINNING = PinningTable(
     rules=RESAMPLE_RULES,
     row_preserving=False,
     rows=(
+        _row(
+            "time_source",
+            "ts__resample_1_hour_min",
+            {"p": (_S, ("a",) * 3), "ts": (_TS, (_t(8, 10), _t(8, 50), None))},
+            {"p": (_S, ("a", "a")), "ts": (_TS, (_t(8), None)), "ts__resample_1_hour_min": (_TS, (_t(8), None))},
+        ),
+        _row(
+            "time_source",
+            "ts__resample_1_hour_max",
+            {"ts": (_TS, (_t(8, 10), _t(8, 50), _t(9, 20)))},
+            {"ts": (_TS, (_t(8), _t(9))), "ts__resample_1_hour_max": (_TS, (_t(8), _t(9)))},
+            _WHOLE,
+        ),
+        _row(
+            "time_source",
+            "ts__resample_1_hour_count",
+            {"p": (_S, ("a",) * 3), "ts": (_TS, (_t(8, 10), _t(8, 50), None))},
+            {"p": (_S, ("a", "a")), "ts": (_TS, (_t(8), None)), "ts__resample_1_hour_count": (_I, (2, 0))},
+        ),
         _row(
             "bucket",
             "v__resample_15_minute_mean",

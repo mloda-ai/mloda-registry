@@ -506,6 +506,46 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         assert ("A", _h(8, 5)) not in result_map
         assert ("A", _h(8, 50)) not in result_map
 
+    @pytest.mark.parametrize("agg", ["min", "max", "count"])
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["partitioned", "whole_table"])
+    def test_time_column_source_uses_bucket_start(self, agg: str, partition_by: list[str]) -> None:
+        """Aggregating the time column reads bucket starts; other sources keep their values."""
+        data = self.create_test_data(
+            TypedTestData(
+                {
+                    "region": (DataType.STRING, ["A", "A", "A", "A", "B", "B"]),
+                    "ts": (DataType.TIMESTAMP_MICROS_TZ, [_h(8, 10), _h(8, 50), _h(9, 20), None, _h(8, 20), _h(8, 55)]),
+                    "value": (DataType.INT64, [1, 2, 4, 8, 16, 32]),
+                }
+            )
+        )
+        before = self._snapshot(data)
+        time_feature = f"ts__resample_1_hour_{agg}"
+        value_feature = "value__resample_1_hour_sum"
+        fs = self._multi_feature_set([time_feature, value_feature], partition_by)
+        result = calculate_with(self.implementation_class(), data, fs)
+
+        # Each literal holds (bucket start, non-null timestamp count, ordinary value sum).
+        expected: dict[tuple[Any, ...], tuple[datetime | None, int, int]]
+        if partition_by:
+            expected = {
+                ("A", _h(8)): (_h(8), 2, 3),
+                ("A", _h(9)): (_h(9), 1, 4),
+                ("A", None): (None, 0, 8),
+                ("B", _h(8)): (_h(8), 2, 48),
+            }
+        else:
+            expected = {(_h(8),): (_h(8), 4, 51), (_h(9),): (_h(9), 1, 4), (None,): (None, 0, 8)}
+
+        assert self.get_row_count(result) == len(expected)
+        time_map = self._build_resample_map(result, time_feature, "ts", partition_by)
+        self._assert_map_equals(
+            time_map, {key: count if agg == "count" else bucket for key, (bucket, count, _) in expected.items()}
+        )
+        value_map = self._build_resample_map(result, value_feature, "ts", partition_by)
+        self._assert_map_equals(value_map, {key: value for key, (_, _, value) in expected.items()})
+        self._assert_snapshot_unchanged(before, data)
+
     # -- Null handling ------------------------------------------------------
 
     def test_null_excluded_from_mean_and_sum(self) -> None:

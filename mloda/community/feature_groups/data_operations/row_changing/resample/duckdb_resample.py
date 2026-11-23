@@ -79,7 +79,11 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
 
         agg_parts = [
             nan_policy_agg_sql(
-                data, spec.source_col, quote_ident(spec.source_col), spec.agg, _DUCKDB_AGG_FUNCS[spec.agg]
+                data,
+                spec.source_col,
+                floor_sql if spec.source_col == time_column else quote_ident(spec.source_col),
+                spec.agg,
+                _DUCKDB_AGG_FUNCS[spec.agg],
             )
             + f" AS {quote_ident(spec.feature_name)}"
             for spec in aggs
