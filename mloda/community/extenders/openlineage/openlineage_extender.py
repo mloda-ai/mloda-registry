@@ -194,6 +194,30 @@ def _requested_features(steps: Any) -> list[str] | None:
         return None
 
 
+def _potential_nan_null_loss(steps: Any) -> list[dict[str, Any]] | None:
+    """Snapshot the plan steps flagged with potential NaN/null loss, without options or data."""
+    try:
+        flagged: list[dict[str, Any]] = []
+        for index, step in enumerate(steps or ()):
+            if getattr(step, "potential_nan_null_loss", False) is not True:
+                continue
+            record: dict[str, Any] = {"stepIndex": index}
+            step_kind = getattr(step, "step_kind", None)
+            if isinstance(step_kind, str):
+                record["stepKind"] = step_kind
+            for field_name, attribute in (
+                ("computeFramework", "compute_framework_name"),
+                ("sourceComputeFramework", "source_compute_framework_name"),
+                ("resultFramework", "result_framework_name"),
+            ):
+                if (name := getattr(step, attribute, None)) is not None:
+                    record[field_name] = str(name)
+            flagged.append(record)
+        return flagged or None
+    except Exception:
+        return None
+
+
 def _processing_engine_facet(producer: str) -> processing_engine_run.ProcessingEngineRunFacet | None:
     """The mloda engine facet, or None when the mloda distribution is not installed."""
     try:
@@ -307,7 +331,7 @@ class OpenLineageExtender(Extender):
         self._finalizer: weakref.finalize[..., Any] | None = None
         self._tripped_runs: dict[str, float] = {}
         self._started_runs: set[str] = set()
-        self._plans: dict[str, tuple[PlanContext, list[str] | None]] = {}
+        self._plans: dict[str, tuple[PlanContext, list[str] | None, list[dict[str, Any]] | None]] = {}
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -440,6 +464,7 @@ class OpenLineageExtender(Extender):
         plan: PlanContext | None,
         event_time: str,
         requested: list[str] | None = None,
+        nan_null_loss: list[dict[str, Any]] | None = None,
     ) -> RunEvent:
         assert run.run_id is not None
         facets: dict[str, Any] = {}
@@ -452,6 +477,7 @@ class OpenLineageExtender(Extender):
                 structureHash=plan.structure_hash,
                 origin=plan.origin,
                 requestedFeatures=requested,
+                potentialNanNullLoss=[dict(record) for record in nan_null_loss] if nan_null_loss else None,
                 producer=self.producer,
             )
         if self._parent is not None:
@@ -484,8 +510,9 @@ class OpenLineageExtender(Extender):
         started_at = run.started_at.isoformat() if run.started_at is not None else _now_iso()
         try:
             requested = _requested_features(steps)
+            nan_null_loss = _potential_nan_null_loss(steps)
             emitted = self._emit(
-                self._parent_event(RunState.START, run, plan, started_at, requested), run_id=run.run_id
+                self._parent_event(RunState.START, run, plan, started_at, requested, nan_null_loss), run_id=run.run_id
             )
         except Exception as exc:
             if self.raise_on_error:
@@ -495,7 +522,7 @@ class OpenLineageExtender(Extender):
         if emitted:
             with self._client_lock:
                 self._started_runs.add(run.run_id)
-            self._plans[run.run_id] = (plan, requested)
+            self._plans[run.run_id] = (plan, requested, nan_null_loss)
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         if run.run_id is None:
@@ -505,9 +532,11 @@ class OpenLineageExtender(Extender):
                 started = run.run_id in self._started_runs
             if started:
                 state = {"succeeded": RunState.COMPLETE, "failed": RunState.FAIL}.get(outcome.status, RunState.ABORT)
-                plan, requested = self._plans.get(run.run_id, (None, None))
+                plan, requested, nan_null_loss = self._plans.get(run.run_id, (None, None, None))
                 try:
-                    self._emit(self._parent_event(state, run, plan, _now_iso(), requested), run_id=run.run_id)
+                    self._emit(
+                        self._parent_event(state, run, plan, _now_iso(), requested, nan_null_loss), run_id=run.run_id
+                    )
                 except Exception as exc:
                     if self.raise_on_error:
                         raise

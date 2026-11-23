@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import pytest
@@ -5037,3 +5037,213 @@ class TestOpenLineageExtenderSigterm:
         assert by_job.pop("mloda.run_all") == ["START", "ABORT"]
         assert list(by_job.values()) == [["START", "ABORT"]]
         assert (tmp_path / "closed.marker").exists()
+
+
+_NAN_NULL_PRIVATE = "PRIVATE_NAN_NULL_LOSS_VALUE"
+
+
+# SimpleNamespace because core's PlanStep has no potential_nan_null_loss field yet.
+def _nan_null_loss_step(
+    *,
+    kind: str = "transform",
+    potential_loss: bool = True,
+    compute: str | None = "PandasDataFrame",
+    source: str | None = "PyArrowTable",
+    result: str | None = None,
+) -> SimpleNamespace:
+    from mloda.user import Options
+
+    base = classified_step(
+        InternalGroup,
+        ("nan_null_lineage",),
+        kind=kind,
+        options=Options(group={"fixture_option": _NAN_NULL_PRIVATE}, context={"fixture_context": _NAN_NULL_PRIVATE}),
+    )
+    values = vars(base).copy()
+    values.update(
+        potential_nan_null_loss=potential_loss,
+        compute_framework_name=compute,
+        source_compute_framework_name=source,
+        result_framework_name=result,
+        data={"fixture_column": [_NAN_NULL_PRIVATE]},
+    )
+    return SimpleNamespace(**values)
+
+
+class TestOpenLineageNanNullLoss:
+    """Potential NaN/null loss is a backward-compatible snapshot on the parent plan facet."""
+
+    def test_plan_facet_potential_nan_null_loss_is_optional_and_serializes(self) -> None:
+        default_facet = MlodaPlanRunFacet(planId=_PLAN_ID)
+
+        assert default_facet.potentialNanNullLoss is None
+        assert "potentialNanNullLoss" not in json.loads(Serde.to_json(default_facet))
+
+        transfers = [{"stepIndex": -1, "stepKind": "transform"}]
+
+        facet = MlodaPlanRunFacet(planId=_PLAN_ID, potentialNanNullLoss=transfers)
+
+        assert json.loads(Serde.to_json(facet))["potentialNanNullLoss"] == transfers
+
+    @pytest.mark.parametrize(
+        ("status", "state"),
+        [("succeeded", RunState.COMPLETE), ("failed", RunState.FAIL), ("cancelled", RunState.ABORT)],
+    )
+    def test_start_and_terminal_list_only_flagged_steps_in_plan_order(
+        self, status: Any, state: RunState, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+        steps = [
+            _nan_null_loss_step(kind="compute", potential_loss=False),
+            _nan_null_loss_step(),
+            _nan_null_loss_step(kind="join", potential_loss=False),
+            _nan_null_loss_step(kind="compute", compute="SqliteFramework", source=None, result="PyArrowTable"),
+            _nan_null_loss_step(kind="compute", compute="PyArrowTable", source=None, result="PandasDataFrame"),
+            _nan_null_loss_step(kind="join", compute="SqliteFramework", source="PandasDataFrame"),
+            _nan_null_loss_step(kind="transform", compute=None, source=None, result=None),
+        ]
+        expected = [
+            {
+                "stepIndex": 1,
+                "stepKind": "transform",
+                "computeFramework": "PandasDataFrame",
+                "sourceComputeFramework": "PyArrowTable",
+            },
+            {
+                "stepIndex": 3,
+                "stepKind": "compute",
+                "computeFramework": "SqliteFramework",
+                "resultFramework": "PyArrowTable",
+            },
+            {
+                "stepIndex": 4,
+                "stepKind": "compute",
+                "computeFramework": "PyArrowTable",
+                "resultFramework": "PandasDataFrame",
+            },
+            {
+                "stepIndex": 5,
+                "stepKind": "join",
+                "computeFramework": "SqliteFramework",
+                "sourceComputeFramework": "PandasDataFrame",
+            },
+            {"stepIndex": 6, "stepKind": "transform"},
+        ]
+
+        extender.on_run_start(run, _plan(), steps)
+        extender.on_run_complete(run, LifecycleOutcome(status=status))
+
+        assert [event.eventType for event in transport.events] == [RunState.START, state]
+        for event in transport.events:
+            assert _plan_facet(event)["potentialNanNullLoss"] == expected
+            assert _NAN_NULL_PRIVATE not in Serde.to_json(event)
+
+    @pytest.mark.parametrize("status", ["succeeded", "failed", "cancelled"])
+    def test_terminal_reuses_the_start_snapshot_after_the_input_steps_change(
+        self, status: Any, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+        lossy = _nan_null_loss_step()
+        steps = [_nan_null_loss_step(potential_loss=False), lossy]
+        expected = [
+            {
+                "stepIndex": 1,
+                "stepKind": "transform",
+                "computeFramework": "PandasDataFrame",
+                "sourceComputeFramework": "PyArrowTable",
+            }
+        ]
+
+        extender.on_run_start(run, _plan(), steps)
+        lossy.potential_nan_null_loss = False
+        lossy.compute_framework_name = "changed-after-start"
+        lossy.source_compute_framework_name = "changed-source"
+        lossy.result_framework_name = "changed-result"
+        lossy.step_kind = "compute"
+        steps.clear()
+        steps.append(_nan_null_loss_step(kind="join"))
+        extender.on_run_complete(run, LifecycleOutcome(status=status))
+
+        assert [_plan_facet(event)["potentialNanNullLoss"] for event in transport.events] == [expected, expected]
+
+    @pytest.mark.parametrize("mode", ["empty", "legacy", "false"])
+    def test_no_risk_and_legacy_steps_omit_the_serialized_field(
+        self, mode: str, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+        step = _nan_null_loss_step(potential_loss=False)
+        if mode == "legacy":
+            del step.potential_nan_null_loss
+        steps = [] if mode == "empty" else [step]
+
+        extender.on_run_start(run, _plan(), steps)
+        extender.on_run_complete(run, LifecycleOutcome(status="succeeded"))
+
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+        assert all("potentialNanNullLoss" not in _plan_facet(event) for event in transport.events)
+
+    @pytest.mark.parametrize("mode", ["no_step_kind", "magicmock_step", "truthy_int"])
+    def test_odd_steps_never_break_start_or_emit_non_json_native_values(
+        self, mode: str, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client, raise_on_error=True)
+        run = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+        step: Any = _nan_null_loss_step()
+        if mode == "no_step_kind":
+            del step.step_kind
+        elif mode == "magicmock_step":
+            step = MagicMock()
+        else:
+            step.potential_nan_null_loss = 1
+
+        extender.on_run_start(run, _plan(), [step])
+
+        assert [event.eventType for event in transport.events] == [RunState.START]
+        event = transport.events[0]
+        assert json.loads(Serde.to_json(event))
+        records = _plan_facet(event).get("potentialNanNullLoss")
+        if mode != "no_step_kind":
+            assert records is None
+        for record in records or []:
+            assert all(isinstance(value, (str, int)) for value in record.values())
+
+    def test_runs_keep_separate_snapshots_and_clear_them_on_terminal(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        run_a = RunContext(run_id=_RUN_A, plan_id=_PLAN_ID)
+        run_b = RunContext(run_id=_RUN_B, plan_id=_PLAN_ID)
+        expected = [
+            {
+                "stepIndex": 0,
+                "stepKind": "transform",
+                "computeFramework": "PandasDataFrame",
+                "sourceComputeFramework": "PyArrowTable",
+            }
+        ]
+
+        extender.on_run_start(run_a, _plan(), [_nan_null_loss_step()])
+        extender.on_run_start(run_b, _plan(), [_nan_null_loss_step(potential_loss=False)])
+        extender.on_run_complete(run_b, LifecycleOutcome(status="succeeded"))
+        extender.on_run_complete(run_a, LifecycleOutcome(status="cancelled"))
+        extender.on_run_start(run_a, _plan(), [])
+        extender.on_run_complete(run_a, LifecycleOutcome(status="failed"))
+
+        assert [event.run.runId for event in transport.events] == [_RUN_A, _RUN_B, _RUN_B, _RUN_A, _RUN_A, _RUN_A]
+        assert [_plan_facet(event).get("potentialNanNullLoss") for event in transport.events] == [
+            expected,
+            None,
+            None,
+            expected,
+            None,
+            None,
+        ]
+        assert extender._plans == {}
