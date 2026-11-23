@@ -57,5 +57,6 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         expr = expr_template.format(col=f"substr({wall_clock_expr(quoted_source)}, 1, 19)")
         quoted_feature = quote_ident(feature_name)
 
-        # Raw "*" projection keeps row order and the source type hints; CAST keeps INT64 on zero rows.
+        data._ensure_column_absent(feature_name)
+        # Raw "*" projection keeps row order and the source type hints.
         return data.select(_raw_sql=f"*, {expr} AS {quoted_feature}")

@@ -71,7 +71,7 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
                 source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, spec.mask_spec, source_sql)
             agg_expr = f"{_SQLITE_AGG_FUNCS[spec.agg_type]}({source_sql})"
             if spec.agg_type == "count":
-                agg_expr = f"CAST({agg_expr} AS INTEGER)"  # declared type keeps INT64 on zero rows
+                agg_expr = f"CAST({agg_expr} AS INTEGER)"  # the declared type survives zero rows
             agg_parts.append(f"{agg_expr} AS {quote_ident(spec.feature_name)}")
 
         select_cols = f"{partition_cols}, " if partition_cols else ""

@@ -56,5 +56,6 @@ class SqliteStringOps(Implementation[StringFeatureGroup]):
         expr = expr_template.format(col=quoted_source)
         quoted_feature = quote_ident(feature_name)
 
-        # Raw "*" projection keeps row order and the source type hints; CAST keeps INT64 on zero rows.
+        data._ensure_column_absent(feature_name)
+        # Raw "*" projection keeps row order and the source type hints.
         return data.select(_raw_sql=f"*, {expr} AS {quoted_feature}")

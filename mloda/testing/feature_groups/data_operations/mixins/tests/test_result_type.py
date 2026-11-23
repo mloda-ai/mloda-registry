@@ -27,7 +27,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PythonDictTestMixin,
     SqliteTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin, _blocking
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 from mloda.testing.typed_data import TypedTestData
 
@@ -317,13 +317,34 @@ class TestShapeFailuresBeyondTheType:
             pytest.param("zero_type", False, "zero_rows", id="zero_rows_type_change_on_output"),
             pytest.param("rewrite", False, "was changed", id="input_column_changed"),
             pytest.param("exact", True, "foreign", id="match_time_foreign_name"),
-            pytest.param("zero_retype", False, "value_int", id="group_retypes_input_on_zero_rows"),
+            pytest.param(
+                "zero_retype",
+                False,
+                "column 'value_int' changes type on zero rows",
+                id="group_retypes_input_on_zero_rows",
+            ),
         ],
     )
     def test_failure_fails_the_test(self, kind: str, matches_any: bool, expected: str) -> None:
         outcome = _run("pyarrow", kind=kind, matches_any=matches_any)
         assert outcome.state == "failed"
         assert expected in outcome.message
+
+    @pytest.mark.parametrize(
+        ("adapter_retypes", "blocks"),
+        [
+            pytest.param(frozenset({"c"}), False, id="retype_by_the_adapter_is_excused"),
+            pytest.param(frozenset({"other"}), True, id="retype_of_another_column_blocks"),
+            pytest.param(frozenset(), True, id="no_adapter_retype_blocks"),
+        ],
+    )
+    def test_zero_row_retype_is_excused_only_for_adapter_retyped_columns(
+        self, adapter_retypes: frozenset[str], blocks: bool
+    ) -> None:
+        """A zero-row retype blocks unless the adapter itself retypes that column."""
+        failure = "zero_rows: column 'c' changes type on zero rows"
+        bad = _blocking([failure], [], readback=False, gap_covers=False, adapter_retypes=adapter_retypes)
+        assert bad == ([failure] if blocks else [])
 
 
 class TestHookContract:

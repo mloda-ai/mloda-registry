@@ -120,7 +120,8 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         else:
             raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
 
-        return cls._broadcast(table, grouped, agg_col, feature_name, num_rows, idx_col)
+        result_type = pa.int64() if agg_type in ("count", "nunique") else None
+        return cls._broadcast(table, grouped, agg_col, feature_name, num_rows, idx_col, result_type)
 
     @classmethod
     def _compute_ordered(
@@ -160,6 +161,7 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         feature_name: str,
         num_rows: int,
         idx_col: str,
+        result_type: pa.DataType | None = None,
     ) -> pa.Table:
         idx_list_col = f"{idx_col}_list"
         result_values: list[Any] = [None] * num_rows
@@ -170,6 +172,4 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             for idx in indices:
                 result_values[idx] = agg_val
 
-        return original_table.append_column(
-            feature_name, pa.array(result_values, type=grouped.schema.field(agg_col).type)
-        )
+        return original_table.append_column(feature_name, pa.array(result_values, type=result_type))

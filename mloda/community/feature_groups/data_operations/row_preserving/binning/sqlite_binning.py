@@ -53,9 +53,12 @@ class SqliteBinning(Implementation[BinningFeatureGroup]):
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
 
+        data._ensure_column_absent(feature_name)
+
         if op == "bin":
+            data._assert_window_supported()
             # Whole-table MIN/MAX OVER () (not subqueries on the table: the type probe runs on placeholder
-            # rows). A "*" projection keeps row order and source type hints; CAST keeps INT64 on zero rows.
+            # rows). A "*" projection keeps row order and source type hints.
             # Safety: all identifiers are quote_ident()-quoted, n_bins is int.
             lo = f"MIN({quoted_source}) OVER ()"
             hi = f"MAX({quoted_source}) OVER ()"

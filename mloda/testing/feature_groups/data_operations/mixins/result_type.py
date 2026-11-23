@@ -16,6 +16,7 @@ from mloda.user import DataType, FeatureName, Options
 from mloda.testing.feature_group_shape import check_feature_group_shape
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.framework_adapter import to_arrow_table
 from mloda.testing.typed_data import TypedTestData
 
 _ZERO_ROWS_RETYPE = re.compile(r"^zero_rows: column '(.*)' changes type on zero rows$")
@@ -104,7 +105,13 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         records = [*group.divergence_records(), *impl.divergence_records()]
         gap_covers = any(r.kind is DivergenceKind.GAP and r.applies_to(subtype, frozenset()) for r in records)
         empty = TypedTestData({n: (t, []) for n, t in data.types.items()})
-        full_frame, empty_frame = self.adapter.from_typed(data), self.adapter.from_typed(empty)
+        arrow_types = None
+        list_columns = [n for n, t in data.types.items() if t == DataType.LIST]
+        if list_columns and self.adapter.capabilities.typed_columns:
+            schema = to_arrow_table(data).schema
+            arrow_types = {n: schema.field(n).type for n in list_columns}
+        full_frame = self.adapter.from_typed(data, arrow_types)
+        empty_frame = self.adapter.from_typed(empty, arrow_types)
         adapter_retypes = frozenset(
             c for c in data.types if self.adapter.column_type(full_frame, c) != self.adapter.column_type(empty_frame, c)
         )
