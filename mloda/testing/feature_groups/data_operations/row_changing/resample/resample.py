@@ -424,7 +424,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     # -- Non-UTC zones --------------------------------------------------------
 
-    # A sub-hour fixed offset is left out because Polars lazy cannot hold it.
+    # A sub-hour fixed offset is left out because Polars lazy cannot hold it; the named zone covers +05:30.
     @pytest.mark.parametrize(
         "tz",
         [timezone(timedelta(hours=5)), ZoneInfo("Asia/Kolkata")],
@@ -433,13 +433,12 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     def test_non_utc_zone_bucket(self, tz: tzinfo) -> None:
         """A non-UTC zone buckets on its own wall clock (on UTC when the hook is True)."""
         rows = [datetime(2024, 1, 1, 2, 0, tzinfo=tz), datetime(2024, 1, 1, 7, 0, tzinfo=tz)]
-        columns = {"ts": DataType.TIMESTAMP_MICROS_TZ, "value": DataType.INT64}
         feature_name = "value__resample_1_day_count"
         fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
 
         def typed(ts: list[datetime]) -> TypedTestData:
             return TypedTestData(
-                {"ts": (columns["ts"], ts), "value": (columns["value"], [10, 20])},
+                {"ts": (DataType.TIMESTAMP_MICROS_TZ, ts), "value": (DataType.INT64, [10, 20])},
             )
 
         expected: dict[tuple[Any, ...], Any] = {(datetime(2024, 1, 1, tzinfo=tz),): 2}
