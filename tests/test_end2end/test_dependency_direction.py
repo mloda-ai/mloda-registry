@@ -1350,7 +1350,7 @@ def _license_kit_third_party_import_violations(
 def _install_closure(requirements: Iterable[str], packages: dict[str, dict[str, Any]]) -> set[str]:
     """Configured distributions a pip install of `requirements` brings, including named extras.
 
-    An undefined extra raises. `{published_children}` and shared default extras are not expanded."""
+    An undefined extra raises. Shared default extras are not expanded."""
     configured = {gen.normalize_package_name(name): name for name in packages}
     installed: set[str] = set()
     seen: set[tuple[str, str]] = set()
@@ -1359,16 +1359,19 @@ def _install_closure(requirements: Iterable[str], packages: dict[str, dict[str, 
         name = gen.sibling_dependency_name(spec, packages, configured)
         if name is None:
             return
-        extras = Requirement(spec.split(";", 1)[0].replace(gen.VERSION_PLACEHOLDER, "0")).extras
+        extras = Requirement(spec.split(";", 1)[0].replace(gen.VERSION_PLACEHOLDER, "0.0")).extras
         if name not in installed:
             installed.add(name)
             for dep in packages[name].get("dependencies", []):
                 visit(dep)
-        for extra in sorted(extras):
+        for extra in sorted(gen.normalize_package_name(e) for e in extras):
             if (name, extra) in seen:
                 continue
             seen.add((name, extra))
-            members = packages[name].get("optional_dependencies", {})
+            members = {
+                gen.normalize_package_name(key): value
+                for key, value in gen.expand_published_children(packages[name], packages).items()
+            }
             if extra not in members:
                 raise ValueError(f"{name} defines no extra {extra!r} (named in {spec!r})")
             for member in members[extra]:
@@ -1388,6 +1391,14 @@ def _wheel_owners(packages: dict[str, dict[str, Any]]) -> dict[str, set[str]]:
     return owners
 
 
+def _packages_and_owners(
+    packages: dict[str, dict[str, Any]] | None, owners: dict[str, set[str]] | None
+) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
+    """Default `packages` from the config and `owners` from their wheels."""
+    packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
+    return packages, _wheel_owners(packages) if owners is None else owners
+
+
 def _unshipped_reached_module_violations(
     root_dir: Path,
     installed_for: Callable[[str], tuple[set[str], str]],
@@ -1397,7 +1408,8 @@ def _unshipped_reached_module_violations(
 ) -> list[str]:
     """Kit modules and reached in-repo files whose package ships in no distribution `installed_for(rel_posix)` installs.
 
-    `installed_for` returns the installed distributions and a label for one kit module."""
+    `installed_for` returns the installed distributions and a label for one kit module.
+    Conservative like `_followed_import_violations`: spec markers are ignored, guarded module-level imports count."""
     import_root = import_root.resolve()
     violations: list[str] = []
     for rel_path, _tree in _runtime_modules(root_dir):
@@ -1422,8 +1434,7 @@ def _license_kit_unshipped_violations(
     owners: dict[str, set[str]] | None = None,
 ) -> list[str]:
     """License kit modules that reach a file shipped by no distribution its job installs."""
-    packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
-    owners = _wheel_owners(packages) if owners is None else owners
+    packages, owners = _packages_and_owners(packages, owners)
     installed = _install_closure(verify.LICENSE_KIT_REQUIREMENTS, packages)
     label = " + ".join(verify.LICENSE_KIT_REQUIREMENTS)
     return _unshipped_reached_module_violations(
@@ -1438,8 +1449,7 @@ def _kit_unshipped_violations(
     owners: dict[str, set[str]] | None = None,
 ) -> list[str]:
     """mloda.testing kit modules that reach a file shipped by no distribution their gate's job installs."""
-    packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
-    owners = _wheel_owners(packages) if owners is None else owners
+    packages, owners = _packages_and_owners(packages, owners)
     closures: dict[str | None, set[str]] = {}
 
     def installed_for(rel_posix: str) -> tuple[set[str], str]:
@@ -1853,7 +1863,6 @@ _TESTING_OWNERS = {
     "mloda.testing.binary_model": {"mloda-testing"},
     "mloda.shared": {"gate-dist"},
 }
-_KIT_DIR_REL = "mloda/enterprise/licensing/testing"
 
 
 @pytest.mark.parametrize(
@@ -1902,7 +1911,7 @@ _KIT_DIR_REL = "mloda/enterprise/licensing/testing"
             _LICENSE_KIT_REL,
             {"m.py": ""},
             {},
-            (f"m.py: via {_KIT_DIR_REL}/m.py", "no configured distribution"),
+            (f"m.py: via {_LICENSE_KIT_REL}/m.py", "no configured distribution"),
             id="kit-files-own-package-unowned",
         ),
         pytest.param(
@@ -2027,6 +2036,32 @@ def test_unshipped_reached_module_collector(
             {"a", "b"},
             id="extras-naming-each-other-terminate",
         ),
+        pytest.param(
+            ["a"],
+            {
+                "a": {"dependencies": ["b[x]~={version}"]},
+                "b": {"optional_dependencies": {"x": ["c>={version}"]}},
+                "c": {},
+            },
+            {"a", "b", "c"},
+            id="compatible-release-sibling-spec-parses",
+        ),
+        pytest.param(
+            ["a[x_y]"],
+            {"a": {"optional_dependencies": {"x-y": ["b>={version}"]}}, "b": {}},
+            {"a", "b"},
+            id="extra-names-are-normalized",
+        ),
+        pytest.param(
+            ["a[all]"],
+            {
+                "a": {"path": "p", "optional_dependencies": {"all": ["{published_children}"]}},
+                "b": {"path": "p/b", "published": True},
+                "c": {"path": "p/c"},
+            },
+            {"a", "b"},
+            id="published-children-placeholder-expands",
+        ),
     ],
 )
 def test_install_closure(requirements: list[str], packages: dict[str, dict[str, Any]], expected: set[str]) -> None:
@@ -2047,5 +2082,5 @@ def test_install_closure(requirements: list[str], packages: dict[str, dict[str, 
 def test_install_closure_raises_on_an_undefined_extra(
     requirements: list[str], packages: dict[str, dict[str, Any]]
 ) -> None:
-    with pytest.raises((KeyError, ValueError)):
+    with pytest.raises(ValueError, match="defines no extra"):
         _install_closure(requirements, packages)
