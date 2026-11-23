@@ -4,7 +4,7 @@ running the install-and-probe cycles concurrently through a bounded thread pool.
 entry_point_bundle's probe also covers every nested package it ships or pulls in via its own
 ``dependencies``, since a bare install carries that code; a nested package it owns only through
 an extra has no code in a bare install, so its surface is probed through its own distribution
-instead. Other wheels probe only their own. One extra job imports the license test kit, which ships
+instead. Other wheels probe only their own. One more job imports the license test kit, which ships
 in the mloda-enterprise wheel.
 
 Run: python scripts/verify_independent_installs.py <version>
@@ -85,7 +85,8 @@ def verify_distribution(name: str, version: str, modules: list[str]) -> str | No
 
 def kit_jobs(version: str) -> list[tuple[tuple[str, ...], str]]:
     """(requirements, probe source) per kit job: bare, per gating extra, then the license kit."""
-    by_gate: dict[str | None, list[str]] = _load_sibling("kit_modules").kit_modules()
+    kit_modules = _load_sibling("kit_modules")
+    by_gate: dict[str | None, list[str]] = kit_modules.kit_modules()
 
     def absent(*packages: str) -> str:
         return "".join(f'assert find_spec("{package}") is None, "{package} must be absent"\n' for package in packages)
@@ -104,9 +105,10 @@ def kit_jobs(version: str) -> list[tuple[tuple[str, ...], str]]:
                 (binary_model_header if gate == "binary-model" else header) + imports,
             )
         )
-    license_modules = sorted(
-        _load_sibling("kit_modules").shipped_modules(REPO_ROOT / LICENSE_KIT_PATH, LICENSE_KIT_PATH).values()
-    )
+    license_modules = sorted(kit_modules.shipped_modules(REPO_ROOT / LICENSE_KIT_PATH, LICENSE_KIT_PATH).values())
+    # An empty set would silently verify nothing.
+    if not license_modules:
+        raise ValueError(f"no module found under LICENSE_KIT_PATH {LICENSE_KIT_PATH!r}")
     jobs.append(
         (
             (f"mloda-enterprise[ed25519]=={version}", f"mloda-testing[binary-model]=={version}"),

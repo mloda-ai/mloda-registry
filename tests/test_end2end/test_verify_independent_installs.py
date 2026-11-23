@@ -32,7 +32,7 @@ _INDEPENDENT_STEP = "Verify packages install independently"
 # The one Verify step allowed to run unconditionally; every step after it must run regardless.
 _FIRST_VERIFY_STEP = "Verify published packages (all together)"
 
-# Published distributions whose 'uv pip install' the fakes below fail, to check isolation.
+# Requirement specs (distributions and kit job requirements) whose 'uv pip install' the fakes below fail.
 _FAILING_DISTRIBUTIONS = [
     "mloda-community-ema",
     "mloda-community-rank",
@@ -310,6 +310,14 @@ def test_license_kit_job_probes_the_shipped_modules_of_published_extras() -> Non
         extra = rest.split("]")[0]
         assert name in packages and packages[name].get("published") is True, f"{name} is not a published package"
         assert extra in packages[name].get("optional_dependencies", {}), f"{name} declares no extra {extra!r}"
+
+
+def test_kit_jobs_reject_a_license_kit_path_with_no_shipped_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty license kit probe would pass without checking anything, so kit_jobs must refuse it."""
+    missing = "mloda/enterprise/no_such_kit"
+    monkeypatch.setattr(module, "LICENSE_KIT_PATH", missing)
+    with pytest.raises(ValueError, match=re.escape(missing)):
+        module.kit_jobs("9.9.9")
 
 
 def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:

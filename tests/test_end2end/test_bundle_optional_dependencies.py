@@ -214,39 +214,37 @@ def test_mloda_enterprise_openlineage_extra_carries_the_community_emitter_for_th
     )
 
 
-def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_compatible_release() -> None:
-    """The generator's output and the committed pyproject.toml both carry the extra with ``{version}`` expanded
-    (``tox -e check-generated`` is not in this gate)."""
+def _assert_enterprise_extra_generated_and_committed(extra: str, expected: list[str]) -> None:
+    """Assert the generated and the committed mloda-enterprise pyproject both declare ``extra`` as ``expected``."""
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
-    expected = [f"mloda-community-openlineage~={shared['project']['version']}"]
 
     generated = loads_toml(gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages))
     assert _ENTERPRISE_PYPROJECT.is_file(), f"committed pyproject not found at {_ENTERPRISE_PYPROJECT}"
     committed = load_toml(_ENTERPRISE_PYPROJECT)
 
     for source, project in (("generated", generated["project"]), ("committed", committed["project"])):
-        actual = project.get("optional-dependencies", {}).get("openlineage")
+        actual = project.get("optional-dependencies", {}).get(extra)
         assert actual == expected, (
-            f"the {source} mloda-enterprise pyproject must declare optional-dependencies.openlineage = "
+            f"the {source} mloda-enterprise pyproject must declare optional-dependencies.{extra} = "
             f"{expected!r}, got {actual!r} (run scripts/generate_pyproject.py)"
         )
+
+
+def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_compatible_release() -> None:
+    """The generator's output and the committed pyproject.toml both carry the extra with ``{version}`` expanded
+    (``tox -e check-generated`` is not in this gate)."""
+    shared, _packages_config = gen.load_configs()
+    expected = [f"mloda-community-openlineage~={shared['project']['version']}"]
+
+    _assert_enterprise_extra_generated_and_committed("openlineage", expected)
 
 
 def test_mloda_enterprise_dev_extra_is_generated_committed_and_locked() -> None:
     """The generated and committed pyproject carry the ``dev`` extra as configured, and uv.lock lists cryptography."""
-    shared, packages_config = gen.load_configs()
-    packages: dict[str, dict[str, Any]] = packages_config["packages"]
-    expected = ["cryptography>=42"]
+    expected = _packages()["mloda-enterprise"]["optional_dependencies"]["dev"]
 
-    generated = loads_toml(gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages))
-    committed = load_toml(_ENTERPRISE_PYPROJECT)
-    for source, project in (("generated", generated["project"]), ("committed", committed["project"])):
-        actual = project.get("optional-dependencies", {}).get("dev")
-        assert actual == expected, (
-            f"the {source} mloda-enterprise pyproject must declare optional-dependencies.dev = "
-            f"{expected!r}, got {actual!r} (run scripts/generate_pyproject.py)"
-        )
+    _assert_enterprise_extra_generated_and_committed("dev", expected)
 
     lock = load_toml(_REPO_ROOT / "uv.lock")
     entry = next(package for package in lock["package"] if package["name"] == "mloda-enterprise")

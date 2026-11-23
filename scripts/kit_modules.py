@@ -1,4 +1,4 @@
-"""Shared map from every shipped mloda-testing module to the extra that gates it (None = ungated)."""
+"""Shipped-module walk, and the map from each mloda-testing module to the extra that gates it (None = ungated)."""
 
 from __future__ import annotations
 
