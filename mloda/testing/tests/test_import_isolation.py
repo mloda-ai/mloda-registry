@@ -1,16 +1,23 @@
-"""Direct unit tests for mloda.testing.import_isolation (evict_package, evict_root, evict_entry_points)."""
+"""Direct unit tests for mloda.testing.import_isolation."""
 
 from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import subprocess  # nosec
 import sys
 import uuid
 from pathlib import Path
 
 import pytest
 
-from mloda.testing.import_isolation import evict_entry_points, evict_package, evict_root
+from mloda.testing.import_isolation import (
+    ImportReport,
+    evict_entry_points,
+    evict_package,
+    evict_root,
+    fresh_import_report,
+)
 
 
 def _write_throwaway_package(base: Path, name: str) -> None:
@@ -151,3 +158,131 @@ def test_evict_entry_points_removes_cold_loaded_entry_point_modules_and_keeps_al
         assert not hasattr(parent, "leaf")
     else:
         assert cold_name not in sys.modules
+
+
+def test_fresh_import_report_lists_root_modules_without_mloda_or_the_twin_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only modules under the root are reported; a sibling `<root>_twin` package is outside it."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    twin_name = f"{package_name}_twin"
+    _write_throwaway_package(tmp_path, package_name)
+    _write_throwaway_package(tmp_path, twin_name)
+    (tmp_path / package_name / "user.py").write_text(
+        f"import {twin_name}.leaf\nimport {package_name}.leaf\nprint('loaded', end='')\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(sys, "path", [*sys.path, tmp_path / "not_a_str_entry"])
+    # In-process state does not reach the report.
+    importlib.import_module(f"{package_name}.leaf")
+
+    report = fresh_import_report(f"{package_name}.user", package_name)
+
+    assert report == ImportReport(
+        mloda_core=False,
+        modules=(package_name, f"{package_name}.leaf", f"{package_name}.user"),
+        groups=(),
+    )
+
+
+def test_fresh_import_report_lists_exactly_the_feature_groups_defined_under_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Groups under root are listed (abstract base included); a twin's group is not."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    twin_name = f"{package_name}_twin"
+    for name in (package_name, twin_name):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "__init__.py").write_text("")
+    (tmp_path / twin_name / "groups.py").write_text(
+        "from mloda.provider import FeatureGroup\n\n\nclass TwinGroup(FeatureGroup):\n    pass\n"
+    )
+    (tmp_path / package_name / "groups.py").write_text(
+        f"import {twin_name}.groups\n"
+        "from mloda.provider import FeatureGroup\n\n\n"
+        "class Base(FeatureGroup):\n    pass\n\n\n"
+        "class Concrete(Base):\n    pass\n"
+    )
+    (tmp_path / package_name / "only_twin.py").write_text(f"import {twin_name}.groups\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with_groups = fresh_import_report(f"{package_name}.groups", package_name)
+    only_twin = fresh_import_report(f"{package_name}.only_twin", package_name)
+
+    assert with_groups.mloda_core is True
+    expected = (f"{package_name}.groups.Base", f"{package_name}.groups.Concrete")
+    assert with_groups.groups == expected
+    assert fresh_import_report(f"{package_name}.groups", f"{package_name}.groups").groups == expected
+    assert only_twin == ImportReport(mloda_core=True, modules=(package_name, f"{package_name}.only_twin"), groups=())
+
+
+def test_fresh_import_report_says_no_mloda_core_for_a_root_in_the_mloda_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leaf under the `mloda.*` namespace that imports no core reports mloda_core=False."""
+    name = f"ii_throwaway_{uuid.uuid4().hex}"
+    leaf_dir = tmp_path / "mloda" / name
+    leaf_dir.mkdir(parents=True)
+    (leaf_dir / "leaf.py").write_text("MARKER = 'loaded'\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    report = fresh_import_report(f"mloda.{name}.leaf", f"mloda.{name}")
+
+    assert report.mloda_core is False
+    assert report.groups == ()
+    assert f"mloda.{name}.leaf" in report.modules
+
+
+@pytest.mark.parametrize(
+    ("module_source", "expected_text"),
+    [
+        ("raise RuntimeError('boom from the child')\n", "boom from the child"),
+        ("import sys\nsys.exit(0)\n", "no JSON summary"),
+    ],
+    ids=["import-raises", "exits-zero-without-summary"],
+)
+def test_fresh_import_report_fails_with_a_clear_message_when_the_child_does_not_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module_source: str, expected_text: str
+) -> None:
+    """A raising or silent-exit import fails the report with an informative message."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    _write_throwaway_package(tmp_path, package_name)
+    (tmp_path / package_name / "broken.py").write_text(module_source)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(AssertionError) as excinfo:
+        fresh_import_report(f"{package_name}.broken", package_name)
+
+    assert expected_text in str(excinfo.value)
+
+
+def test_fresh_import_report_ignores_a_json_py_in_the_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child runs with -P, so a cwd json.py does not shadow the stdlib."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    pkg_base = tmp_path / "pkgs"
+    pkg_base.mkdir()
+    _write_throwaway_package(pkg_base, package_name)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    (cwd / "json.py").write_text("raise RuntimeError('shadowed json')\n")
+    monkeypatch.syspath_prepend(str(pkg_base))
+    monkeypatch.chdir(cwd)
+
+    report = fresh_import_report(package_name, package_name)
+
+    assert report.modules == (package_name,)
+
+
+def test_fresh_import_report_raises_timeout_expired_when_the_child_exceeds_the_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A child slower than `timeout` raises subprocess.TimeoutExpired."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    _write_throwaway_package(tmp_path, package_name)
+    (tmp_path / package_name / "slow.py").write_text("import time\ntime.sleep(30)\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        fresh_import_report(f"{package_name}.slow", package_name, timeout=1)

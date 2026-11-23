@@ -1,13 +1,18 @@
-"""Test-only helpers for poisoning and evicting sys.modules entries with pytest.MonkeyPatch."""
+"""Test-only helpers to poison and evict sys.modules entries, and to report what an import loads."""
 
 from __future__ import annotations
 
 import importlib
 import importlib.metadata
 import importlib.util
+import json
 import pkgutil
+import subprocess  # nosec
 import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import FrameType
+from typing import Any
 
 import pytest
 
@@ -118,3 +123,67 @@ def require_pyarrow() -> None:
         raise ModuleNotFoundError(reason, name="pyarrow") from error
     else:
         return
+
+
+_FRESH_IMPORT_SCRIPT = """
+import importlib
+import json
+import sys
+
+module, root, caller_path = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+sys.path[:] = caller_path
+importlib.import_module(module)
+mloda_core = "mloda.core" in sys.modules
+modules = sorted(m for m in sys.modules if m == root or m.startswith(root + "."))
+groups = []
+if mloda_core:
+    from mloda.provider import FeatureGroup, get_all_subclasses
+
+    groups = sorted(
+        f"{g.__module__}.{g.__qualname__}"
+        for g in get_all_subclasses(FeatureGroup)
+        if g.__module__ == root or g.__module__.startswith(root + ".")
+    )
+print("\\n" + json.dumps({"mloda_core": mloda_core, "modules": modules, "groups": groups}))
+"""
+
+
+def _run_probe(
+    script: str, args: Sequence[str], env: Mapping[str, str] | None = None, *, timeout: float = 60
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+    """Run ``script`` in a fresh interpreter; return the result and its last stdout line parsed as JSON."""
+    completed = subprocess.run(  # nosec B603
+        [sys.executable, "-P", "-c", script, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=None if env is None else dict(env),
+    )
+    if completed.returncode != 0:
+        raise AssertionError(f"probe subprocess failed: {completed.stderr}")
+    lines = completed.stdout.splitlines()
+    try:
+        summary: dict[str, Any] = json.loads(lines[-1])
+    except (IndexError, ValueError) as error:
+        raise AssertionError(
+            f"no JSON summary on the last stdout line; stdout: {completed.stdout!r}, stderr: {completed.stderr!r}"
+        ) from error
+    return completed, summary
+
+
+@dataclass(frozen=True)
+class ImportReport:
+    """What importing a module loaded: whether mloda core, the modules under a root, and the FeatureGroups there."""
+
+    mloda_core: bool
+    modules: tuple[str, ...]
+    groups: tuple[str, ...]
+
+
+def fresh_import_report(module: str, root: str, *, timeout: float = 60) -> ImportReport:
+    """Import ``module`` in a fresh interpreter on the caller's sys.path and report what lands under ``root``."""
+    path = json.dumps([p for p in sys.path if isinstance(p, str)])
+    _, summary = _run_probe(_FRESH_IMPORT_SCRIPT, [module, root, path], timeout=timeout)
+    return ImportReport(
+        mloda_core=bool(summary["mloda_core"]), modules=tuple(summary["modules"]), groups=tuple(summary["groups"])
+    )
