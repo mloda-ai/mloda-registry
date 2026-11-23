@@ -1,10 +1,6 @@
 """Reusable mask integration test mixin for data-operations feature groups.
 
-Provides 3 integration test methods that verify masking works correctly
-through mloda's full pipeline (run_all, PluginCollector, feature resolution).
-
-Each integration test class mixes this in alongside DataOpsIntegrationTestBase
-and overrides the configuration methods to adapt to its specific feature group.
+Mix into an integration test class alongside DataOpsIntegrationTestBase and override the configuration methods.
 """
 
 from __future__ import annotations
@@ -12,10 +8,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mloda.user import Feature, Options, mloda
 
 from mloda.testing.data_creator.base import column_selective
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, is_null, result_column_names
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, is_null
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
 
@@ -92,101 +87,42 @@ class MaskIntegrationTestMixin(DataOpsIntegrationTestBase):
                 assert a == e, f"row {i}: {a} != {e}"
 
     def _run_masked_feature(
-        self,
-        name: str,
-        options_ctx: dict[str, Any],
-        mask_spec: Any,
-        creator: type | None = None,
+        self, name: str, options_ctx: dict[str, Any], mask_spec: Any, creator: type | None = None
     ) -> Any:
         """Run a single masked feature through the pipeline and return the framework result holding it."""
-        ctx = dict(options_ctx)
-        ctx["mask"] = mask_spec
-        feature = Feature(name, options=Options(group=self.group_options(), context=ctx))
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks=self.pipeline_compute_frameworks(),
-            plugin_collector=(self._plugin_collector(creator) if creator is not None else self._plugin_collector()),
-            output_framework=self.compute_framework_class(),
-        )
-        assert len(results) >= 1
-
-        result_table = None
-        for table in results:
-            if name in result_column_names(table):
-                result_table = table
-                break
-
-        assert result_table is not None, f"No result table with {name} found"
-        return result_table
+        return self._run_single_feature(name, {**options_ctx, "mask": mask_spec}, creator)
 
     # -- Concrete test methods -------------------------------------------------
 
+    def _assert_masked(self, spec: Any, expected: list[Any], creator: type | None = None) -> None:
+        """Run the masked feature, then check the row count and values."""
+        name = self.mask_integration_feature_name()
+        result_col = extract_column(
+            self._run_masked_feature(name, self.mask_integration_options(), spec, creator), name
+        )
+        assert len(result_col) == self.mask_integration_expected_row_count()
+        self._assert_mask_integration_values(result_col, expected)
+
     def test_mask_feature_through_pipeline(self) -> None:
         """Run a masked feature through run_all and verify values."""
-        result_table = self._run_masked_feature(
-            self.mask_integration_feature_name(),
-            self.mask_integration_options(),
-            self.mask_integration_spec(),
-        )
-        assert (
-            len(extract_column(result_table, self.mask_integration_feature_name()))
-            == self.mask_integration_expected_row_count()
-        )
-
-        result_col = extract_column(result_table, self.mask_integration_feature_name())
-        self._assert_mask_integration_values(result_col, self.mask_integration_expected())
+        self._assert_masked(self.mask_integration_spec(), self.mask_integration_expected())
 
     def test_mask_feature_with_column_selective_source(self) -> None:
         """Mask columns must be requested from a source that serves only requested columns."""
-        result_table = self._run_masked_feature(
-            self.mask_integration_feature_name(),
-            self.mask_integration_options(),
+        self._assert_masked(
             self.mask_integration_complex_spec(),
-            creator=column_selective(self.data_creator_class()),
+            self.mask_integration_complex_expected(),
+            column_selective(self.data_creator_class()),
         )
-        assert (
-            len(extract_column(result_table, self.mask_integration_feature_name()))
-            == self.mask_integration_expected_row_count()
-        )
-
-        result_col = extract_column(result_table, self.mask_integration_feature_name())
-        self._assert_mask_integration_values(result_col, self.mask_integration_complex_expected())
 
     def test_mask_complex_conditions_through_pipeline(self) -> None:
         """Run a multi-condition masked feature through run_all and verify values."""
-        result_table = self._run_masked_feature(
-            self.mask_integration_feature_name(),
-            self.mask_integration_options(),
-            self.mask_integration_complex_spec(),
-        )
-        assert (
-            len(extract_column(result_table, self.mask_integration_feature_name()))
-            == self.mask_integration_expected_row_count()
-        )
-
-        result_col = extract_column(result_table, self.mask_integration_feature_name())
-        self._assert_mask_integration_values(result_col, self.mask_integration_complex_expected())
+        self._assert_masked(self.mask_integration_complex_spec(), self.mask_integration_complex_expected())
 
     def test_masked_and_unmasked_consistent(self) -> None:
-        """Run masked + unmasked features separately and verify both produce correct results.
-
-        This exercises the complex feature composition path by confirming that
-        the same feature produces different (correct) results with and without
-        a mask through the full mloda pipeline. Features are run in separate
-        pipeline calls because mloda resolves features of the same type to a
-        shared feature group instance, which can cause mask config leakage.
-        """
+        """Run unmasked and masked in separate calls: same-type features share a group instance (mask leakage)."""
         name = self.mask_integration_feature_name()
-        base_options = self.mask_integration_options()
-
-        # Unmasked feature through pipeline
-        result_unmasked = self._run_single_feature(name, base_options)
-        assert len(extract_column(result_unmasked, name)) == self.mask_integration_expected_row_count()
-        unmasked_col = extract_column(result_unmasked, name)
+        unmasked_col = extract_column(self._run_single_feature(name, self.mask_integration_options()), name)
+        assert len(unmasked_col) == self.mask_integration_expected_row_count()
         self._assert_mask_integration_values(unmasked_col, self.mask_integration_unmasked_expected())
-
-        # Masked feature through pipeline (same name, different config)
-        result_masked = self._run_masked_feature(name, base_options, self.mask_integration_spec())
-        assert len(extract_column(result_masked, name)) == self.mask_integration_expected_row_count()
-        masked_col = extract_column(result_masked, name)
-        self._assert_mask_integration_values(masked_col, self.mask_integration_expected())
+        self._assert_masked(self.mask_integration_spec(), self.mask_integration_expected())
