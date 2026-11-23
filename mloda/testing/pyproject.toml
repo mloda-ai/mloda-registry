@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-testing"
-version = "0.14.0"
+version = "0.15.0"
 description = "Test utilities for mloda plugin development"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -22,7 +22,7 @@ dev = ["pytest>=9.0.3", "pyarrow>=14.0.1"]
 pyarrow = ["pyarrow>=14.0.1"]
 otel = ["opentelemetry-sdk>=1.30,<2", "pyarrow>=14.0.1"]
 openlineage = ["openlineage-python>=1.36,<2", "pyarrow>=14.0.1"]
-binary-model = ["pyarrow>=25", "mloda-community-binary-model>=0.14.0"]
+binary-model = ["pyarrow>=25", "mloda-community-binary-model>=0.15.0"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
