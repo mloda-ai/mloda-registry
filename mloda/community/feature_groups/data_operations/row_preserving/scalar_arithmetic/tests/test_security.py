@@ -292,6 +292,29 @@ class TestConstantTypeValidation:
         with pytest.raises(ValueError, match=match):
             calculate_with(PyArrowScalarArithmetic, arrow_table, fs)
 
+    @pytest.mark.parametrize(
+        "constant",
+        [float("nan"), float("inf"), float("-inf")],
+        ids=["nan", "inf", "negative-inf"],
+    )
+    def test_non_finite_constant_rejected_sqlite(self, constant: float) -> None:
+        import sqlite3
+
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.sqlite_scalar_arithmetic import (
+            SqliteScalarArithmetic,
+        )
+
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        conn = sqlite3.connect(":memory:")
+        try:
+            relation = SqliteRelation.from_arrow(conn, arrow_table)
+            fs = _make_fs("value_int__add_constant", constant=constant)
+            with pytest.raises(ValueError, match="finite"):
+                calculate_with(SqliteScalarArithmetic, relation, fs)
+        finally:
+            conn.close()
+
     def test_constant_multi_element_list_rejected(self) -> None:
         # A one-element list is valid caller syntax for one constant (see TestConstantArity);
         # a list holding several values is not a scalar and must still be rejected.
