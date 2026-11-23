@@ -23,6 +23,7 @@ class BinaryModelError(ValueError):
         super().__init__(message)
         self.message = message
         self.code = type(self).CODE
+        self.stderr_excerpt: str | None = None
 
 
 class BinaryUnavailableError(BinaryModelError):
@@ -163,8 +164,10 @@ def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
     """Map a process exit code and its stderr to one ``BinaryModelError`` (contract: Errors).
     Never raises: any malformed input falls back to ``BinaryInternalError``."""
     error = reported_error(returncode, stderr)
-    if error is not None:
-        return error
-
-    kind = "signal" if returncode < 0 else "exit code"
-    return BinaryInternalError(f"binary failed with unrecognized {kind} {returncode} and no parseable error object")
+    if error is None:
+        kind = "signal" if returncode < 0 else "exit code"
+        error = BinaryInternalError(
+            f"binary failed with unrecognized {kind} {returncode} and no parseable error object"
+        )
+    error.stderr_excerpt = contract.stderr_excerpt(stderr, 5)
+    return error
