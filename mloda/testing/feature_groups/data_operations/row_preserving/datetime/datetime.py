@@ -325,16 +325,12 @@ class DateTimeTestBase(
             expected[row.feature] = extract_column(ref, row.feature)
         return expected
 
-    def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
+    def rejection_match(self, row: PinningRow) -> str | None:
         """A numeric fixed-offset row on a rejecting backend must raise up front instead of computing."""
-        row = self.pinned_row_cases()[pinned_row_case]
         values = next(iter(row.inputs.values()))[1]
         if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
-            fs = make_feature_set(row.feature, **row.context)
-            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
-                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
-            return
-        super().test_mixin_pinned_row(pinned_row_case)
+            return r"(?i)fixed.offset"
+        return super().rejection_match(row)
 
     def test_divergent_flags_are_declared(self) -> None:
         impl = self.implementation_class()
