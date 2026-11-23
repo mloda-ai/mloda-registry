@@ -1,4 +1,4 @@
-"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation.
+"""AuditExtender: records each calculate invocation, finalized at step completion when core supports it.
 With fail_closed=True it also refuses at FEATURE_GROUP_MATCHED, writing a deny record; with a classification
 policy it also refuses, at INPUT_DATA_MATCH, a reader declared above the clearance."""
 
@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from mloda.provider import ComputeFramework
 from mloda.steward import (
     Extender,
     ExtenderHook,
@@ -194,7 +195,8 @@ class AuditExtender(Extender):
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
     Records also carry credential_handles, bound_credential_handle and credentials_read (handle names only,
-    never values).
+    never values). Core's step-completion callback includes saver reads and the whole step's outcome before writing;
+    older core versions and direct HookContext calls keep immediate calculate records.
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
     not track code changes).
     record_version 2 (compliant also needs a non-blank principal; enforced marks a fail_closed refusal); an absent
@@ -371,6 +373,7 @@ class AuditExtender(Extender):
         self._plan_refusals: set[str] = set()
         self._reader_denials: dict[str, set[tuple[str, str, tuple[str, ...]]]] = {}
         self._classifications: dict[str, dict[uuid.UUID, str]] = {}
+        self._step_records: dict[tuple[str, uuid.UUID], list[dict[str, Any]]] = {}
         self._pickle_drop_warning = WarnOncePerInstance()
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
@@ -739,6 +742,7 @@ class AuditExtender(Extender):
         state["_plan_refusals"] = set(self._plan_refusals)
         state["_reader_denials"] = {plan_id: set(keys) for plan_id, keys in self._reader_denials.items()}
         state["_classifications"] = {run_id: dict(levels) for run_id, levels in self._classifications.items()}
+        state["_step_records"] = {}
         if not is_picklable(self._classification):
             state["_classification"] = None
             state["_classification_dropped"] = True
@@ -814,7 +818,7 @@ class AuditExtender(Extender):
                 call_ran=True,
             )
             try:
-                self.sink.write(record)
+                self._write_calculate_record(context, record)
             except Exception as sink_exc:
                 logger.warning(
                     "%s failed to write an audit record: %s",
@@ -837,8 +841,37 @@ class AuditExtender(Extender):
             trace=trace,
             call_ran=True,
         )
-        self.sink.write(record)
+        self._write_calculate_record(context, record)
         return result
+
+    def _write_calculate_record(self, context: HookContext, record: dict[str, Any]) -> None:
+        if (
+            hasattr(Extender, "on_step_complete")
+            and context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
+            and context.run_id is not None
+            and context.step_uuid is not None
+            and ComputeFramework.current() is not None
+        ):
+            self._step_records.setdefault((context.run_id, context.step_uuid), []).append(record)
+        else:
+            self.sink.write(record)
+
+    def on_step_complete(self, context: HookContext, outcome: LifecycleOutcome) -> None:
+        """Write completed calculate records with saver reads, retaining the raw calculation metrics."""
+        if context.run_id is None or context.step_uuid is None:
+            return
+        for record in self._step_records.pop((context.run_id, context.step_uuid), []):
+            record.update(
+                credentials_read=list(context.credentials_read),
+                event_time=_utc_now(),
+            )
+            if record["status"] == "success":
+                record.update(
+                    status={"succeeded": "success", "failed": "error", "cancelled": "cancelled"}[outcome.status],
+                    error_type=outcome.error_type if outcome.status == "failed" else None,
+                    cancel_type=outcome.error_type if outcome.status == "cancelled" else None,
+                )
+            self.sink.write(record)
 
     def _deny_reader(
         self, context: HookContext, func: Any, reason: tuple[str, str | None], trace: tuple[str | None, str | None]
