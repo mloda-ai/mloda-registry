@@ -87,6 +87,25 @@ jobs:
       env:
         PYTEST_WORKERS: "4"
 
+  pyarrow14:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install tox
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "uv>=0.13.4,<0.14"
+        uv tool install tox --with tox-uv
+    - name: Run the PyArrow suites at the declared minimum
+      run: tox -e pyarrow14
+      timeout-minutes: 15
+      env:
+        PYTEST_WORKERS: "4"
+
   no-pyarrow:
     runs-on: ubuntu-latest
     steps:

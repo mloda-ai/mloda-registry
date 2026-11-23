@@ -21,11 +21,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.toml_loader import load_toml
 from tests.tox_ini import split_factor_condition
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TOX_INI = _REPO_ROOT / "tox.ini"
 _CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yaml"
+_PACKAGES_TOML = _REPO_ROOT / "config" / "packages.toml"
+_UV_LOCK = _REPO_ROOT / "uv.lock"
 
 _PYTEST = "pytest"
 _LINT_STEPS = ("ruff format --check", "ruff check", "mypy --strict", "bandit")
@@ -357,3 +360,88 @@ def test_ci_has_a_no_pyarrow_job_outside_the_build_matrix() -> None:
         "the ci.yaml no-pyarrow job has no 'run: tox -e no-pyarrow' step"
     )
     assert "no-pyarrow" not in _build_job(), "the ci.yaml build job must not name no-pyarrow: it has its own job"
+
+
+_PYARROW_FLOOR = re.compile(r"pyarrow>=(\d+(?:\.\d+)*)")
+
+
+def _data_operations_pyarrow_floor() -> str:
+    """The lowest ``pyarrow>=`` floor the data-operation packages declare (binary-model extras need newer Arrow)."""
+    packages = load_toml(_PACKAGES_TOML)["packages"]
+    floors: set[tuple[int, ...]] = set()
+    for package in packages.values():
+        if "/data_operations" not in package.get("path", ""):
+            continue
+        requirements = [dep for deps in package.get("optional_dependencies", {}).values() for dep in deps]
+        for requirement in requirements:
+            match = _PYARROW_FLOOR.fullmatch(requirement)
+            if match:
+                floors.add(tuple(int(part) for part in match.group(1).split(".")))
+    assert floors, "config/packages.toml declares no pyarrow floor for the data-operation packages"
+    return ".".join(str(part) for part in min(floors))
+
+
+def _pyarrow14_section() -> configparser.SectionProxy:
+    section = _declared_envs().get("pyarrow14")
+    assert section is not None, "tox.ini declares no pyarrow14 env"
+    return _tox()[section]
+
+
+def _pyarrow14_deps() -> dict[str, str]:
+    """``deps`` of the pyarrow14 env as ``name -> specifier text`` (``==1.2`` gives ``{"name": "==1.2"}``)."""
+    deps: dict[str, str] = {}
+    for line in _pyarrow14_section().get("deps", "").splitlines():
+        if line.strip():
+            match = re.fullmatch(r"([A-Za-z0-9_.-]+)\s*(.*)", line.strip())
+            assert match is not None, f"unparseable pyarrow14 dep {line!r}"
+            deps[match.group(1)] = match.group(2)
+    return deps
+
+
+def _locked_version(name: str) -> str:
+    match = re.search(rf'^name = "{re.escape(name)}"\nversion = "([^"]+)"', _UV_LOCK.read_text(), re.MULTILINE)
+    assert match is not None, f"uv.lock does not lock {name}"
+    return match.group(1)
+
+
+def test_pyarrow14_env_pins_the_declared_pyarrow_floor() -> None:
+    """``deps`` pins pyarrow exactly to the lowest floor the data-operation packages declare."""
+    floor = _data_operations_pyarrow_floor()
+    assert _pyarrow14_deps().get("pyarrow") == f"=={floor}", (
+        f"pyarrow14 must pin 'pyarrow=={floor}', has {_pyarrow14_deps().get('pyarrow')!r}"
+    )
+
+
+@pytest.mark.parametrize("name", ["mloda", "numpy", "pytest", "pytest-xdist", "pytz"])
+def test_pyarrow14_env_pins_every_other_dep_exactly(name: str) -> None:
+    """Every non-pyarrow dep is pinned with ``==``; all but numpy match uv.lock."""
+    deps = _pyarrow14_deps()
+    spec = deps.get(name)
+    assert spec is not None and re.fullmatch(r"==\d[\w.]*", spec), f"pyarrow14 must pin '{name}==x.y.z', has {spec!r}"
+    if name != "numpy":
+        assert spec == f"=={_locked_version(name)}", f"pyarrow14 {name} must equal uv.lock's {_locked_version(name)}"
+    assert set(deps) <= {"pyarrow", "mloda", "numpy", "pytest", "pytest-xdist", "pytz"}, f"unexpected deps {deps}"
+
+
+def test_pyarrow14_env_asserts_the_pyarrow_version_before_pytest() -> None:
+    """The commands assert the installed pyarrow version, then run pytest."""
+    commands = [line.strip() for line in _pyarrow14_section().get("commands", "").splitlines() if line.strip()]
+    floor = _data_operations_pyarrow_floor()
+    checks = [i for i, line in enumerate(commands) if "pyarrow.__version__" in line and f"'{floor}'" in line]
+    runs = [i for i, line in enumerate(commands) if line.startswith("pytest")]
+    assert checks and runs, f"pyarrow14 commands need a pyarrow.__version__ == '{floor}' check and a pytest run"
+    assert checks[0] < runs[0], f"pyarrow14 must assert the pyarrow version before pytest: {commands}"
+
+
+def test_pyarrow14_env_fails_on_errors() -> None:
+    assert _pyarrow14_section().get("ignore_errors", "").strip() == "false", (
+        "pyarrow14 must set 'ignore_errors = false'"
+    )
+
+
+def test_ci_has_a_pyarrow14_job_outside_the_build_matrix() -> None:
+    """A separate ci.yaml job runs ``tox -e pyarrow14``; the build job never names it."""
+    assert re.search(r"^\s*run:\s*tox -e pyarrow14\s*$", _job_text("pyarrow14"), re.MULTILINE), (
+        "the ci.yaml pyarrow14 job has no 'run: tox -e pyarrow14' step"
+    )
+    assert "pyarrow14" not in _build_job(), "the ci.yaml build job must not name pyarrow14: it has its own job"

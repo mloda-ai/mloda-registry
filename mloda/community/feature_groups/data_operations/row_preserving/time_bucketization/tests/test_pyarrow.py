@@ -21,6 +21,11 @@ class TestPyArrowTimeBucketization(PyArrowTestMixin, TimeBucketizationTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
+    def rejects_numeric_offset_source(cls) -> bool:
+        """PyArrow before 22 cannot handle numeric fixed-offset zones."""
+        return bool(pa.cpp_version_info.major < 22)
+
+    @classmethod
     def implementation_class(cls) -> Any:
         return PyArrowTimeBucketization
 

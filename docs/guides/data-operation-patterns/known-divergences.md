@@ -712,6 +712,50 @@ regression_test:
 - **How**: For month and year the implementation composes the result from the floor, the next boundary and a native comparison instead of calling `round_temporal`.
 - **Regression signal**: The fixed-offset `wall_clock` rows of `round_1_month` and `round_1_year` in `test_pinned_row` fail if `round_temporal` comes back.
 
+### Older PyArrow grouped extrema return infinities for all-NaN buckets
+
+<!-- machine-checked
+operation: resample
+framework: pyarrow
+condition: PyArrow releases before 26 (14.0.1, 21.0.0 and 22.0.0 verified; 26.0.0 returns NaN) grouped min and max return positive and negative infinity when every non-null value in a bucket is NaN
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_changing/resample/pyarrow_resample.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_min_max_nan_and_infinity_multi_aggregation
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_mixin_nan_policy
+-->
+
+- **Operations**: `resample` (`min` and `max`).
+- **Reference behavior**: Mixed buckets ignore NaN; an all-NaN bucket keeps NaN, and an all-null bucket stays null. Real infinities remain valid extrema.
+- **Native PyArrow behavior**: All-NaN `min` returns `+inf` and all-NaN `max` returns `-inf`.
+- **Mitigation kind**: Implementation fix. A native grouped `all(is_nan(value))` flag identifies only the all-NaN buckets, and `if_else` restores NaN without changing genuine infinities, other aggregates or the float width.
+- **Not repaired**: PyArrow aggregation, window aggregation and scalar aggregate `min`/`max` share the upstream behaviour, but their shared NaN fixtures have no all-NaN group, so they are not repaired yet.
+- **Regression signal**: The multi-aggregation test covers float32 and float64 with NaN, null and infinity mixtures.
+
+### PyArrow before 22 cannot run temporal kernels on numeric fixed-offset zones
+
+<!-- machine-checked
+operation: time_bucketization, datetime, resample
+framework: pyarrow
+condition: on PyArrow 14.0.1 through 21.x temporal kernels cannot resolve numeric timezone strings such as +05:00, -03:30 and +00:00
+mitigation_location:
+- mloda/community/feature_groups/data_operations/pyarrow_helpers.py
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/pyarrow_time_bucketization.py
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/pyarrow_datetime.py
+- mloda/community/feature_groups/data_operations/row_changing/resample/pyarrow_resample.py
+regression_test:
+- mloda/community/feature_groups/data_operations/tests/test_pyarrow_temporal_zones.py::test_temporal_timezone_support
+- mloda/community/feature_groups/data_operations/tests/test_pyarrow_helpers.py::test_fixed_offset_unsupported_by_zone
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_pyarrow.py::TestPyArrowDateTimeExtraction::test_pinned_row
+-->
+
+- **Operations**: `time_bucketization`, `datetime` extraction and `resample`.
+- **Reference behavior**: Numeric fixed offsets use their own wall clock.
+- **Native PyArrow behavior**: Releases before 22 raise a timezone-database error for numeric-zone columns (empty ones pass). Naive, UTC and named zones such as `Etc/GMT-5` work. [Arrow 22.0.0](https://arrow.apache.org/release/22.0.0.html) first includes numeric timezone support.
+- **Mitigation kind**: Up-front `ValueError` (for `resample`, on the time column) naming the offset and required PyArrow version, decided from the column type so empty and all-null inputs behave alike.
+- **Regression signal**: `tox -e pyarrow14` runs the PyArrow suites at 14.0.1; older releases must reject only numeric-zone inputs.
+
 ### DuckDB time bucketization buckets a non-UTC zone on the UTC wall clock
 
 <!-- machine-checked

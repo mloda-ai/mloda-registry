@@ -1,9 +1,28 @@
-"""Shared PyArrow helper utilities for row-preserving partitioned operations."""
+"""Shared PyArrow helper utilities for data operations."""
 
 from __future__ import annotations
 
 import pyarrow as pa
 import pyarrow.compute as pc
+
+
+def fixed_offset_unsupported(arrow_type: pa.DataType) -> bool:
+    """True when the installed Arrow (< 22) cannot handle this type's numeric fixed-offset timezone."""
+    if pa.cpp_version_info.major >= 22 or not pa.types.is_timestamp(arrow_type):
+        return False
+    zone = arrow_type.tz
+    return zone is not None and zone.startswith(("+", "-"))
+
+
+def assert_temporal_timezone_supported(arrow_type: pa.DataType, source_col: str) -> None:
+    """Numeric fixed-offset timezones need Arrow 22, including empty and all-null columns."""
+    if fixed_offset_unsupported(arrow_type):
+        zone = arrow_type.tz
+        raise ValueError(
+            f"Source column {source_col!r} has fixed-offset timezone {zone!r}; temporal operations require "
+            f"PyArrow >= 22.0.0 for fixed offsets (installed: {pa.__version__}). "
+            "Upgrade PyArrow or convert the source to UTC before this operation."
+        )
 
 
 def nan_safe_not_equal(
