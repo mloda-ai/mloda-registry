@@ -66,6 +66,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
+    has_numeric_fixed_offset,
     make_feature_set,
     make_multi_feature_set,
 )
@@ -296,6 +297,11 @@ class ResampleTestBase(
         """True when a tz-aware source column is bucketed on its UTC instant, not its own zone (a declared GAP)."""
         return False
 
+    @classmethod
+    def rejects_numeric_offset_source(cls) -> bool:
+        """True when a time column with a numeric fixed-offset timezone is rejected with a ValueError."""
+        return False
+
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
@@ -449,6 +455,12 @@ class ResampleTestBase(
             return TypedTestData(
                 {"ts": (DataType.TIMESTAMP_MICROS_TZ, ts), "value": (DataType.INT64, [10, 20])},
             )
+
+        # A named zone is stored by name, not as a numeric offset, so only a fixed timezone is rejected.
+        if self.rejects_numeric_offset_source() and isinstance(tz, timezone) and has_numeric_fixed_offset(rows):
+            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
+                calculate_with(self.implementation_class(), self.create_test_data(typed(rows)), fs)
+            return
 
         expected: dict[tuple[Any, ...], Any] = {(datetime(2024, 1, 1, tzinfo=tz),): 2}
         if self.tz_aware_source_reads_utc():

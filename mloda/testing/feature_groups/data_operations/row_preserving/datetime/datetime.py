@@ -317,11 +317,6 @@ class DateTimeTestBase(
         expected = super().expected_values(row)
         column = next(iter(row.inputs))
         data_type, values = row.inputs[column]
-        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
-            fs = make_feature_set(row.feature, **row.context)
-            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
-                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
-            return
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref_inputs = {column: (data_type, utc_values)}
@@ -329,6 +324,17 @@ class DateTimeTestBase(
             ref = self.reference_calculate(arrow_table_of(TypedTestData(ref_inputs)), fs)
             expected[row.feature] = extract_column(ref, row.feature)
         return expected
+
+    def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
+        """A numeric fixed-offset row on a rejecting backend must raise up front instead of computing."""
+        row = self.pinned_row_cases()[pinned_row_case]
+        values = next(iter(row.inputs.values()))[1]
+        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
+            fs = make_feature_set(row.feature, **row.context)
+            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
+                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
+            return
+        super().test_mixin_pinned_row(pinned_row_case)
 
     def test_divergent_flags_are_declared(self) -> None:
         impl = self.implementation_class()
