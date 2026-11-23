@@ -405,12 +405,14 @@ Test that each result differs from the reference exactly where `divergences` dec
 import math
 from typing import Any
 
-from mloda.provider import DataCreatorFeatureGroup, DivergenceKind, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 import pytest
 
+from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+from mloda.testing.feature_groups.data_operations.helpers import is_null
 from mloda.testing.operation_group_shape import assert_operation_group_shape
 
 VALUES = [1.0, math.nan, 3.0]
@@ -437,30 +439,22 @@ class Guide10Prices(DataCreatorFeatureGroup):
         return {PandasDataFrame}
 
 
-def declared(implementation: Any) -> set[str]:
-    return {s for r in implementation.divergences for s in r.subtypes or () if r.kind is not DivergenceKind.GAP}
-
-
-def is_missing(value: Any) -> bool:
-    return value is None or value != value
-
-
 def reference(op: str, values: list[float]) -> float | None:
     """The documented reference contract: a missing value propagates in sum, max skips missing values."""
-    present = [v for v in values if not is_missing(v)]
+    present = [v for v in values if not is_null(v)]
     if op == "sum":
         return None if len(present) < len(values) else sum(present)
     return max(present)
 
 
 def same(a: Any, b: Any) -> bool:
-    return (is_missing(a) and is_missing(b)) or a == b
+    return (is_null(a) and is_null(b)) or a == b
 
 
 @pytest.mark.parametrize("implementation", [PandasColumnTotal, PyArrowColumnTotal])
 @pytest.mark.parametrize("op", ["sum", "max"])
 def test_result_differs_from_the_reference_exactly_when_declared(implementation, op):
-    assert declared(implementation) == EXPECTED[implementation]
+    assert divergent_subtypes(implementation, named_only=True) == EXPECTED[implementation]
     name = f"guide10_price__{op}_total"
     result = mloda.run_all(
         [Feature(name, implementation=implementation)],
@@ -469,7 +463,7 @@ def test_result_differs_from_the_reference_exactly_when_declared(implementation,
     )[0][name]
     value = list(result.to_pylist() if hasattr(result, "to_pylist") else result)[0]
     differs = not same(value, reference(op, VALUES))
-    assert differs == (op in declared(implementation))
+    assert differs == (op in divergent_subtypes(implementation, named_only=True))
 
 
 def test_column_total_shape():
