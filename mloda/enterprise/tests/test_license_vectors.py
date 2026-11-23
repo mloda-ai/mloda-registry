@@ -1,4 +1,4 @@
-"""Tests for the signed license-token vectors in ``mloda.testing.binary_model.license_vectors``:
+"""Tests for the signed license-token vectors in ``mloda.enterprise.licensing.testing.license_vectors``:
 the deliberately public test keypair (``test-2026-01``), the per-state builders, and the literal
 tokens pinning every time-stable state the conformance kit distinguishes (spec: Test vectors;
 spec: Keys, kid, rotation)."""
@@ -11,14 +11,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from mloda.enterprise.licensing.license_token import LicenseVerificationError, verify_license_token
-from mloda.testing.binary_model.license_vectors import (
+from mloda.enterprise.licensing.testing.license_vectors import (
     COMPACT_TIMESTAMP_TOKEN,
     EXPIRED_TOKEN,
     FLOAT_SCHEMA_VERSION_TOKEN,
     MISSING_PLUGINS_TOKEN,
     NOT_YET_VALID_TOKEN,
     TAMPERED_SIGNATURE_TOKEN,
-    TAMPERED_UNPARSEABLE_TEXT,
     TEST_KID,
     TEST_PUBLIC_KEY,
     TEST_PUBLIC_KEYS,
@@ -136,10 +135,6 @@ class TestTokenShape:
         assert "\r" not in token
         assert token.startswith("v4.public.")
 
-    def test_tampered_unparseable_text_is_not_a_token(self) -> None:
-        assert isinstance(TAMPERED_UNPARSEABLE_TEXT, str)
-        assert not TAMPERED_UNPARSEABLE_TEXT.startswith("v4.public.")
-
 
 class TestVerification:
     """The vectors drive ``verify_license_token`` into every state the conformance kit needs
@@ -159,7 +154,6 @@ class TestVerification:
             pytest.param(UNKNOWN_KID_TOKEN, id="unknown_kid"),
             pytest.param(TAMPERED_SIGNATURE_TOKEN, id="tampered_signature"),
             pytest.param(MISSING_PLUGINS_TOKEN, id="missing_plugins"),
-            pytest.param(TAMPERED_UNPARSEABLE_TEXT, id="unparseable_text"),
             pytest.param(TIMESTAMP_WITHOUT_SECONDS_TOKEN, id="timestamp_without_seconds"),
             pytest.param(COMPACT_TIMESTAMP_TOKEN, id="compact_timestamp"),
             pytest.param(UNPADDED_MAX_RELEASE_DATE_TOKEN, id="unpadded_max_release_date"),

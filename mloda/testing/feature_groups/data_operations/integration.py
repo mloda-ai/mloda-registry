@@ -1,30 +1,7 @@
 """Reusable integration test base for data-operations feature groups.
 
-Provides concrete test methods that verify feature groups work end-to-end
-through mloda's pipeline (run_all, PluginCollector, pattern matching).
-
-Subclasses implement a few abstract methods to wire up their specific
-feature group, then inherit the concrete test methods for free:
-
-- single-feature pipeline tests (primary + secondary)
-- plugin discovery tests (discoverable + blocked when disabled)
-- pattern matching tests (valid names, invalid names, missing config)
-- an abstract family base is never selected without an implementation
-- operation-group checks live in OperationGroupIntegrationTestMixin (mixins/operation_group_integration.py), opt-in per family
-
-Usage::
-
-    class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
-
-        @classmethod
-        def feature_group_class(cls):
-            return WindowAggregationFeatureGroup
-
-        @classmethod
-        def data_creator_class(cls):
-            return PyArrowDataOpsTestDataCreator
-
-        # ... (see abstract methods below)
+Subclasses fill the abstract methods and inherit the pipeline, discovery and pattern-matching tests.
+Operation-group checks live in OperationGroupIntegrationTestMixin (mixins/operation_group_integration.py).
 """
 
 from __future__ import annotations
@@ -36,7 +13,7 @@ from typing import Any
 
 import pytest
 from mloda.provider import FeatureGroup, OperationFeatureGroup
-from mloda.user import Feature, FeatureResolutionError, Options, PluginCollector, mloda
+from mloda.user import DataAccessCollection, Feature, FeatureResolutionError, Options, PluginCollector, mloda
 
 from mloda.testing.data_creator.base import column_selective
 from mloda.testing.feature_groups.data_operations.helpers import (
@@ -70,18 +47,9 @@ def enabled_with_implementations(classes: set[Any]) -> PluginCollector:
 class DataOpsIntegrationTestBase(ABC):
     """Abstract base class for data-ops integration tests through mloda pipeline.
 
-    Subclasses must implement the abstract methods below. The base class
-    provides concrete test methods that exercise the full mloda pipeline
-    including run_all, PluginCollector, and pattern matching.
-
-    For row-preserving operations (window_aggregation, scalar_aggregate, rank, offset),
-    the expected row count is 12 (same as input). For reducing operations
-    (aggregation), override ``expected_row_count`` to return the reduced count.
-
-    For operations where result order is not guaranteed (aggregation),
-    set ``compare_sorted`` to True.
-
-    For floating-point results, set ``use_approx`` to True; set ``nan_is_null`` to True if NaN stands for null.
+    Subclasses implement the abstract methods below. Override ``expected_row_count`` for reducing operations,
+    set ``compare_sorted`` where result order is not guaranteed, ``use_approx`` for floats, and ``nan_is_null``
+    if NaN stands for null.
     """
 
     # -- Abstract methods: subclasses must implement --------------------------
@@ -188,11 +156,20 @@ class DataOpsIntegrationTestBase(ABC):
         """Group options set on every feature built by the kit (e.g. ``allow_variants``). Default: none."""
         return {}
 
+    @classmethod
+    def data_access_collection(cls) -> DataAccessCollection | None:
+        """Data access for every kit run_all, e.g. credentials named by a ``group_options()`` handle. Default: none."""
+        return None
+
     # -- Helpers --------------------------------------------------------------
 
     def _make_feature(self, name: str, options_context: dict[str, Any]) -> Feature:
         """Create a Feature with the given name, group options and options context."""
         return Feature(name, options=Options(group=self.group_options(), context=options_context))
+
+    def _run_all(self, feature: Feature, **kwargs: Any) -> Any:
+        """``mloda.run_all`` for one feature with the ``data_access_collection()``."""
+        return mloda.run_all([feature], data_access_collection=self.data_access_collection(), **kwargs)
 
     def _plugin_collector(self, creator: type | None = None) -> PluginCollector:
         """Create a PluginCollector with the feature group and data creator (or ``creator``) enabled."""
@@ -201,20 +178,15 @@ class DataOpsIntegrationTestBase(ABC):
     def _run_single_feature(self, name: str, options_context: dict[str, Any], creator: type | None = None) -> Any:
         """Run a single feature through the pipeline and return the framework result holding it."""
         feature = self._make_feature(name, options_context)
-        results = mloda.run_all(
-            [feature],
+        results = self._run_all(
+            feature,
             compute_frameworks=self.pipeline_compute_frameworks(),
             plugin_collector=self._plugin_collector(creator) if creator is not None else self._plugin_collector(),
             output_framework=self.compute_framework_class(),
         )
         assert len(results) >= 1
 
-        result_table = None
-        for table in results:
-            if name in result_column_names(table):
-                result_table = table
-                break
-
+        result_table = next((t for t in results if name in result_column_names(t)), None)
         assert result_table is not None, f"No result table with {name} found"
         return result_table
 
@@ -230,40 +202,34 @@ class DataOpsIntegrationTestBase(ABC):
 
     # -- Concrete test methods (inherited for free) ---------------------------
 
+    def _assert_pipeline(
+        self, name: str, options: dict[str, Any], expected: list[Any], creator: type | None = None
+    ) -> None:
+        """Run the feature, then check the row count and values."""
+        result_col = extract_column(self._run_single_feature(name, options, creator), name)
+        assert len(result_col) == self.expected_row_count()
+        self._assert_values_equal(result_col, expected)
+
     def test_primary_feature_through_pipeline(self) -> None:
         """Run the primary feature through run_all and verify values."""
-        result_table = self._run_single_feature(
-            self.primary_feature_name(),
-            self.primary_feature_options(),
+        self._assert_pipeline(
+            self.primary_feature_name(), self.primary_feature_options(), self.primary_expected_values()
         )
-        assert len(extract_column(result_table, self.primary_feature_name())) == self.expected_row_count()
-
-        result_col = extract_column(result_table, self.primary_feature_name())
-        self._assert_values_equal(result_col, self.primary_expected_values())
 
     def test_primary_feature_with_column_selective_source(self) -> None:
         """Key columns named in the options must be requested from a source that serves only requested columns."""
-        selective = column_selective(self.data_creator_class())
-        result_table = self._run_single_feature(
+        self._assert_pipeline(
             self.primary_feature_name(),
             self.primary_feature_options(),
-            creator=selective,
+            self.primary_expected_values(),
+            column_selective(self.data_creator_class()),
         )
-        assert len(extract_column(result_table, self.primary_feature_name())) == self.expected_row_count()
-
-        result_col = extract_column(result_table, self.primary_feature_name())
-        self._assert_values_equal(result_col, self.primary_expected_values())
 
     def test_secondary_feature_through_pipeline(self) -> None:
         """Run the secondary feature through run_all and verify values."""
-        result_table = self._run_single_feature(
-            self.secondary_feature_name(),
-            self.secondary_feature_options(),
+        self._assert_pipeline(
+            self.secondary_feature_name(), self.secondary_feature_options(), self.secondary_expected_values()
         )
-        assert len(extract_column(result_table, self.secondary_feature_name())) == self.expected_row_count()
-
-        result_col = extract_column(result_table, self.secondary_feature_name())
-        self._assert_values_equal(result_col, self.secondary_expected_values())
 
     def test_feature_group_is_discoverable(self) -> None:
         """Verify the feature group can be enabled via PluginCollector."""
@@ -281,8 +247,8 @@ class DataOpsIntegrationTestBase(ABC):
         )
 
         with pytest.raises(ValueError):
-            mloda.run_all(
-                [feature],
+            self._run_all(
+                feature,
                 compute_frameworks=self.pipeline_compute_frameworks(),
                 plugin_collector=plugin_collector,
                 output_framework=self.compute_framework_class(),
@@ -301,20 +267,21 @@ class DataOpsIntegrationTestBase(ABC):
             and inspect.isabstract(base)
             and "PREFIX_PATTERN" in vars(base)
         ]
-        options = Options(context=self.primary_feature_options())
+        feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())
         # A subclass may override PREFIX_PATTERN, so keep only bases that match the primary name.
         bases = [
-            base for base in bases if base.match_feature_group_criteria(self.primary_feature_name(), options, None)
+            base
+            for base in bases
+            if base.match_feature_group_criteria(self.primary_feature_name(), feature.options, None)
         ]
         if not bases:
             pytest.skip("no data-operations family base matches the primary feature")
 
         plugin_collector = PluginCollector.enabled_feature_groups({self.data_creator_class(), *bases})
-        feature = self._make_feature(self.primary_feature_name(), self.primary_feature_options())
 
         with pytest.raises(FeatureResolutionError) as excinfo:
-            mloda.run_all(
-                [feature],
+            self._run_all(
+                feature,
                 compute_frameworks=[self.compute_framework_class()],
                 plugin_collector=plugin_collector,
             )

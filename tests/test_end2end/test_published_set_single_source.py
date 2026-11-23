@@ -13,6 +13,7 @@ a nested package stays out of its parent's wheel, published or not, with the
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess  # nosec
@@ -26,6 +27,7 @@ from typing import Any
 import pytest
 
 from tests.script_loader import load_script, version_tuple
+from tests.test_end2end.test_dependency_direction import _is_import_of
 from tests.test_end2end.test_verify_independent_installs import _FakeCompletedProcess
 from tests.toml_loader import load_toml, loads_toml
 from tests.tox_ini import tox_block
@@ -46,7 +48,7 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 # The released set, in config order: registry, the shared extenders package, the examples, the otel and
 # openlineage extenders, the data-operations base plus its plugin packages, german-ledger, the two bundles, which own
 # (dependencies/extras) every published package nested under their path, and finally testing, whose
-# binary-model extra pins the mloda-enterprise bundle (license token) and the mloda-community-binary-model package.
+# binary-model extra pins the mloda-community-binary-model package.
 _EXPECTED_PUBLISHED = [
     "mloda-registry",
     "mloda-community-extenders-shared",
@@ -1004,7 +1006,7 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
             ["mloda-community-otel", "mloda-community-openlineage", "mloda-community-german-ledger"],
         ),
         ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
-        ("mloda-testing", "binary-model", ["mloda-enterprise", "mloda-community-binary-model"]),
+        ("mloda-testing", "binary-model", ["mloda-community-binary-model"]),
     ]
     assert entries == expected, f"internal_extra_members() yielded {entries!r}, expected exactly {expected!r}"
 
@@ -1072,12 +1074,12 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
         ),
         ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
         ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
-        ("mloda-testing", "mloda-testing==9.9.9", False, ["mloda-enterprise", "mloda-community-binary-model"]),
+        ("mloda-testing", "mloda-testing==9.9.9", False, ["mloda-community-binary-model"]),
         (
             "mloda-testing",
             "mloda-testing[binary-model]==9.9.9",
             True,
-            ["mloda-enterprise", "mloda-community-binary-model"],
+            ["mloda-community-binary-model"],
         ),
     ]
     assert jobs == expected, f"verification_jobs() yielded {jobs!r}, expected exactly {expected!r}"
@@ -1234,6 +1236,7 @@ def test_external_bundle_extras_yields_exactly_the_third_party_bundle_extras() -
 
 
 _LICENSE_TOKEN_MODULE = "mloda.enterprise.licensing.license_token"  # nosec B105
+_LICENSE_VECTORS_MODULE = "mloda.enterprise.licensing.testing.license_vectors"
 
 
 def _stub_surface(path: str) -> tuple[str, ...]:
@@ -1241,8 +1244,8 @@ def _stub_surface(path: str) -> tuple[str, ...]:
     return (path.replace("/", "."),)
 
 
-def test_external_verification_jobs_import_the_license_token_only_in_the_ed25519_job() -> None:
-    """Only the mloda-enterprise[ed25519] job imports the license token module, after the bundle surface."""
+def test_external_verification_jobs_import_the_licensing_modules_only_in_the_ed25519_job() -> None:
+    """Only the mloda-enterprise[ed25519] job imports the license token and vectors modules."""
     packages = _packages()
     entries = _external_extra_entries(packages)
     jobs = _external_verification_jobs(entries, packages, "9.9.9", _stub_surface)
@@ -1252,10 +1255,15 @@ def test_external_verification_jobs_import_the_license_token_only_in_the_ed25519
     ], "the jobs must match the external entries one to one"
     owners_by_spec = {spec: owners for spec, owners, _names, _binaries in jobs}
     surface = _stub_surface(str(packages["mloda-enterprise"]["path"]))
-    assert owners_by_spec["mloda-enterprise[ed25519]==9.9.9"] == (*surface, _LICENSE_TOKEN_MODULE)
+    assert owners_by_spec["mloda-enterprise[ed25519]==9.9.9"] == (
+        *surface,
+        _LICENSE_TOKEN_MODULE,
+        _LICENSE_VECTORS_MODULE,
+    )
     others = {spec: owners for spec, owners in owners_by_spec.items() if spec != "mloda-enterprise[ed25519]==9.9.9"}
     assert others, "expected other external jobs"
-    assert all(_LICENSE_TOKEN_MODULE not in owners for owners in others.values()), others
+    for module in (_LICENSE_TOKEN_MODULE, _LICENSE_VECTORS_MODULE):
+        assert all(module not in owners for owners in others.values()), (module, others)
 
     extra_only: dict[tuple[str, str], tuple[str, ...]] = load_script(
         _EXTRAS_SCRIPT.stem, _EXTRAS_SCRIPT
@@ -1273,6 +1281,12 @@ def test_external_verification_jobs_import_the_license_token_only_in_the_ed25519
             assert base.with_suffix(".py").is_file() or (base / "__init__.py").is_file(), (
                 f"{module} ({bundle}[{extra}]) resolves to no file in the checkout; was it renamed?"
             )
+            source_file = base.with_suffix(".py") if base.with_suffix(".py").is_file() else base / "__init__.py"
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            for banned in ("mloda.testing", "pytest"):
+                assert not any(_is_import_of(node, banned) for node in ast.walk(tree)), (
+                    f"{module} ({bundle}[{extra}]) must not import {banned}"
+                )
 
 
 def test_external_verification_jobs_append_extra_imports_only_to_the_matching_job() -> None:

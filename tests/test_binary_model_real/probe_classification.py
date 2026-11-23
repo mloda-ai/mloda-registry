@@ -13,10 +13,10 @@ import pyarrow as pa
 
 from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
+from mloda.enterprise.licensing.testing.license_vectors import valid_license_token
 from mloda.testing.binary_model import LICENSE_INVALID
 from mloda.testing.binary_model.arrow import arrow_stream_bytes
 from mloda.testing.binary_model.conformance import run_binary, stderr_error_object, write_json
-from mloda.testing.binary_model.license_vectors import valid_license_token
 
 # Wording owned by the mloda-binary-wrapper repo's stub/binary, not this repo's contract; verified
 # against the real wheel but not contractually pinned, so a future wording change is expected to

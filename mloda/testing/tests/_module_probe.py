@@ -7,11 +7,11 @@ binary-model FeatureGroup's own tests.
 
 from __future__ import annotations
 
-import json
 import subprocess  # nosec
-import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
+
+from mloda.testing.import_isolation import _run_probe
 
 _MODULE_PROBE_TEMPLATE = """
 import json
@@ -36,13 +36,4 @@ def run_module_probe(
     and which ``watched`` modules ended up in ``sys.modules``. The summary is the last stdout line,
     so callers must route binary output to ``--output`` rather than stdout."""
     script = _MODULE_PROBE_TEMPLATE.format(module=module, argv=list(argv), watched=tuple(watched))
-    completed = subprocess.run(  # nosec B603
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env=None if env is None else dict(env),
-    )
-    assert completed.returncode == 0, f"probe subprocess failed: {completed.stderr}"
-    summary: dict[str, Any] = json.loads(completed.stdout.splitlines()[-1])
-    return completed, summary
+    return _run_probe(script, [], env)

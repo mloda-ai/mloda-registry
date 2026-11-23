@@ -33,7 +33,7 @@ import subprocess  # nosec
 import sys
 import tempfile
 import textwrap
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,6 +54,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_framework import PythonDictFramework
 
 import mloda.community.feature_groups.data_operations as data_operations
+from tests.script_loader import load_script
 from tests.test_end2end.test_binary_backed_features_guide import _section
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -358,11 +359,27 @@ def test_way_2_guide_usage_line_resolves_to_exactly_one_sibling() -> None:
     assert result.candidates == [namespace["FaissRetriever"]]
 
 
-def test_way_2_unknown_discriminator_value_resolves_to_nothing() -> None:
-    _, result = _resolve_way_2(Feature("retrieved_passages", options=Options(group={"retrieve_backend": "fiass"})))
+@pytest.mark.parametrize(
+    "group, code, value",
+    [
+        ({}, "[code: required_option_absent]", None),
+        ({"retrieve_backend": "fiass"}, "[code: option_value_rejected]", "'fiass'"),
+    ],
+)
+def test_way_2_absent_or_unknown_discriminator_resolves_to_nothing(
+    group: dict[str, str], code: str, value: str | None
+) -> None:
+    _, result = _resolve_way_2(Feature("retrieved_passages", options=Options(group=group)))
     assert result.feature_group is None
     assert result.candidates == []
-    assert "No feature groups found" in str(result.error)
+    error = str(result.error)
+    assert "No feature groups found" in error
+    if value is not None:
+        assert value in error
+    lines = error.splitlines()
+    for sibling in ("Bm25Retriever", "FaissRetriever"):
+        assert any(sibling in line and "retrieve_backend" in line and code in line for line in lines), error
+    assert "BaseRetriever" not in error
 
 
 def test_way_3_guide_usage_resolves_to_the_reader_sibling() -> None:
@@ -535,7 +552,7 @@ def test_conformance_section_test_passes_against_the_operation_group_example(tmp
         (
             TESTING_GUIDE,
             "mloda.testing.import_isolation",
-            ("block_root", "evict_root", "evict_package", "evict_entry_points"),
+            ("block_root", "evict_root", "evict_package", "evict_entry_points", "fresh_import_report", "ImportReport"),
         ),
         (
             INPUT_DATA_READERS_GUIDE,
@@ -584,6 +601,115 @@ def test_testing_guide_opens_with_the_kit_map() -> None:
     section = _section(text, KIT_MAP_HEADING, ("\n## ",))
     for target in KIT_MAP_LINKS:
         assert target in section, f"the kit map no longer links {target}"
+
+
+kit_map = load_script("kit_modules", REPO_ROOT / "scripts" / "kit_modules.py")
+KIT_ROOT = "mloda.testing"
+DATA_OPERATIONS_ROOT = "mloda.testing.feature_groups.data_operations."
+NON_FAMILY_PARENTS = {"mixins", "row_preserving", "row_changing"}
+FAMILY_SHARED_STEMS = {"reference", "pinning_rows"}
+UNNAMED_KIT_MODULES: dict[str, str] = {
+    "mloda.testing.binary_model.arrow": "Arrow IPC helpers for the binary-model conformance kit and the binary-model mixin's own tests",
+    "mloda.testing.binary_model.arrow_arrays": "builds output arrays for the shipped fake binaries",
+    "mloda.testing.extenders.uri_source": "fixture source group the extender contract and runners load; the audit extender tests import it directly",
+    "mloda.testing.source.reclaim": "suite machinery that reclaims the test-local subclasses a suite builds",
+}
+
+
+def _public_kit_modules() -> list[str]:
+    names = [name for modules in kit_map.kit_modules().values() for name in modules]
+    # package __init__ modules are skipped; the guides name packages through their modules
+    return sorted(n for n in names if not (REPO_ROOT.joinpath(*n.split(".")).is_dir()))
+
+
+def _unnamed_kit_modules(modules: Iterable[str], guide_text: str) -> set[str]:
+    paragraphs = re.split(r"\n\s*\n", guide_text)
+    unnamed: set[str] = set()
+    for module in modules:
+        parts = module.split(".")
+        if any(part.startswith("_") for part in parts):
+            continue
+        path = "/".join(parts) + ".py"
+        if re.search(rf"{re.escape(module)}(?!\w)", guide_text) or re.search(rf"{re.escape(path)}(?!\w)", guide_text):
+            continue
+        stem = parts[-1]
+        parent = parts[:-1]
+        if module.startswith(DATA_OPERATIONS_ROOT):
+            family = module[len(DATA_OPERATIONS_ROOT) :].split(".")[:-1]
+            if family and not (len(family) == 1 and family[0] in NON_FAMILY_PARENTS):
+                if (stem == family[-1] or stem in FAMILY_SHARED_STEMS) and re.search(
+                    rf"(?<!\w){re.escape(family[-1])}/", guide_text
+                ):
+                    continue
+        if parent == KIT_ROOT.split("."):
+            unnamed.add(module)
+            continue
+        token = re.compile(rf"`{re.escape(stem)}(?:\.py)?`")
+        named_parent = re.compile(rf"(?:{re.escape('.'.join(parent))}|{re.escape('/'.join(parent))})(?!\w)")
+        if any(token.search(par) and named_parent.search(par) for par in paragraphs):
+            continue
+        unnamed.add(module)
+    return unnamed
+
+
+def test_every_public_kit_module_is_named_in_a_guide() -> None:
+    text = "\n\n".join(g.read_text(encoding="utf-8") for g in sorted((REPO_ROOT / "docs" / "guides").rglob("*.md")))
+    public = _public_kit_modules()
+    unnamed = _unnamed_kit_modules(public, text)
+    allowed = set(UNNAMED_KIT_MODULES)
+    stale = sorted(allowed - unnamed)
+    assert unnamed == allowed, (
+        f"no guide names these mloda.testing modules (name them in a guide or allowlist them with a reason): "
+        f"{sorted(unnamed - allowed)}; allowlist entries that are now named or no longer exist: {stale}"
+    )
+    empty = [m for m, reason in UNNAMED_KIT_MODULES.items() if not reason.strip()]
+    assert not empty, f"allowlist entries need a reason: {empty}"
+
+
+_FAMILY = "mloda.testing.feature_groups.data_operations.row_preserving.widget"
+
+
+@pytest.mark.parametrize(
+    ("module", "text", "expected_named"),
+    [
+        pytest.param("mloda.testing.a.b", "see mloda.testing.a.b here", True, id="dotted-path"),
+        pytest.param("mloda.testing.a.b", "see mloda/testing/a/b.py here", True, id="file-path"),
+        pytest.param("mloda.testing.a.b", "the b helper lives in mloda.testing.a", False, id="bare-word"),
+        pytest.param("mloda.testing.a.b", "`mloda.testing.a` ships `b`", True, id="code-token-with-ancestor"),
+        pytest.param(
+            "mloda.testing.a.b", "`mloda.testing.a` ships stuff\n\nuse `b` alone", False, id="ancestor-other-paragraph"
+        ),
+        pytest.param("mloda.testing.result", "use `result` here", False, id="top-level-code-token-only"),
+        pytest.param(f"{_FAMILY}.widget", "see `row_preserving/widget/`", True, id="family-stem"),
+        pytest.param(f"{_FAMILY}.reference", "see `row_preserving/widget/`", True, id="family-reference"),
+        pytest.param(f"{_FAMILY}.pinning_rows", "see `row_preserving/widget/`", True, id="family-pinning-rows"),
+        pytest.param(f"{_FAMILY}.other", "nothing", False, id="family-other-stem"),
+        pytest.param(
+            "mloda.testing.feature_groups.data_operations.row_preserving.reference",
+            "nothing",
+            False,
+            id="row-preserving-not-family",
+        ),
+        pytest.param(
+            "mloda.testing.feature_groups.data_operations.helpers", "nothing", False, id="data-operations-top-level"
+        ),
+        pytest.param(
+            "mloda.testing.a.b", "`mloda/testing/a` ships `b.py`", True, id="code-token-py-with-path-ancestor"
+        ),
+        pytest.param(
+            "mloda.testing.feature_groups.data_operations.mixins.reference", "nothing", False, id="mixins-reference"
+        ),
+        pytest.param("mloda.testing._private.thing", "nothing", True, id="private-skipped"),
+        pytest.param("mloda.testing.a.b", "see mloda.testing.a.b_c here", False, id="prefix-of-longer-module"),
+        pytest.param("mloda.testing.a.b.c", "`mloda.testing.a` ships `c`", False, id="grandparent-only-ancestor"),
+        pytest.param("mloda.testing.a.b.c", "`mloda/testing/a/b` ships `c`", True, id="parent-as-path"),
+        pytest.param("mloda.testing.a.b", "`mloda.testing.a` ships x.b` here", False, id="dot-prefixed-token"),
+        pytest.param("mloda.testing.a.b", "`mloda.testing.a` calls `b()`", False, id="token-is-a-call"),
+        pytest.param(f"{_FAMILY}.widget", "nothing", False, id="family-unnamed"),
+    ],
+)
+def test_unnamed_kit_modules_rule(module: str, text: str, expected_named: bool) -> None:
+    assert (module not in _unnamed_kit_modules([module], text)) is expected_named
 
 
 def test_import_section_check_fails_when_the_helper_imports_mloda(tmp_path: Path) -> None:

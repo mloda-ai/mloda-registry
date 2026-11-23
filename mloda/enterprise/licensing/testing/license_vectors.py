@@ -224,6 +224,3 @@ FLOAT_SCHEMA_VERSION_TOKEN = (  # nosec B105
     "0wMS0wMVQwMDowMDowMCswMDowMCIsInBsdWdpbnMiOlsiZXhhbXBsZV9iaW5hcnkiXSwidiI6MS4wfekZ-9BWDc9OyJLcZq1IdbwFSFimzs"
     "H4P-1q5ML60xainT1IKwbDt5NTX7okrH5VUYRPGRm2MHuC7V89PIoKYwI.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
 )
-
-# Text that is not a token at all, not even the PASETO v4.public container (spec: Test vectors).
-TAMPERED_UNPARSEABLE_TEXT = "{this is not json"

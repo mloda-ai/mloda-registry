@@ -1,7 +1,10 @@
 """Dependency-direction guard: community and enterprise plugin packages must never depend on
 ``mloda-testing`` or on a binary wheel (see ``docs/guides/feature-group-patterns/29-binary-backed-
 features.md``), and no runtime module under ``mloda/community/`` or ``mloda/enterprise/`` may import
-``mloda.testing`` at any depth. Enterprise code may use ``mloda.community.extenders.shared`` only
+``mloda.testing`` or ``mloda.enterprise.licensing.testing`` at any depth (only
+``mloda/enterprise/licensing/testing/`` is exempt). The kit imports
+no ``mloda.enterprise`` module anywhere and ``mloda-testing`` names no enterprise distribution in any
+extra. Enterprise code may use ``mloda.community.extenders.shared`` only
 through public names (no private imports, subclassing, or private attributes). Binary wheel floors must
 also exclude releases that trust no production key. Mirrors the resolution
 and TOML-loading style of ``tests/test_end2end/test_dev_dependencies.py`` and
@@ -456,28 +459,29 @@ def test_no_configured_package_names_the_community_bundle_outside_dev() -> None:
 
 
 def _mloda_testing_plugin_distribution_violations(packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Community or enterprise distributions that mloda-testing names outside its binary-model extra."""
+    """Enterprise distributions that mloda-testing names anywhere, and community distributions outside its
+    binary-model extra."""
     cfg = packages.get("mloda-testing", {})
     specs = {"dependencies": cfg.get("dependencies", [])}
     for extra, extra_deps in cfg.get("optional_dependencies", {}).items():
-        if extra != "binary-model":
-            specs[f"extra {extra}"] = extra_deps
+        specs[f"extra {extra}"] = extra_deps
     return [
         f"mloda-testing ({where}): {dep}"
         for where, deps in specs.items()
         for dep in deps
-        if _dep_name(dep).startswith(("mloda-community", "mloda-enterprise"))
+        if _dep_name(dep).startswith("mloda-enterprise")
+        or (_dep_name(dep).startswith("mloda-community") and where != "extra binary-model")
     ]
 
 
-def test_mloda_testing_names_no_community_or_enterprise_distribution_outside_binary_model_extra() -> None:
+def test_mloda_testing_names_no_enterprise_distribution_and_community_only_in_binary_model_extra() -> None:
     packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
     assert "mloda-testing" in packages, "mloda-testing missing from config/packages.toml"
     violations = _mloda_testing_plugin_distribution_violations(packages)
-    assert violations == [], f"the test kit must not depend on community or enterprise code: {violations}"
+    assert violations == [], f"the test kit must not depend on enterprise code: {violations}"
 
 
-def test_mloda_testing_plugin_distribution_violations_are_detected_outside_binary_model_extra() -> None:
+def test_mloda_testing_plugin_distribution_violations_are_detected() -> None:
     hard = {"mloda-testing": {"dependencies": ["mloda_community_aggregation>=1"]}}
     assert _mloda_testing_plugin_distribution_violations(hard) == [
         "mloda-testing (dependencies): mloda_community_aggregation>=1"
@@ -489,10 +493,26 @@ def test_mloda_testing_plugin_distribution_violations_are_detected_outside_binar
     allowed = {
         "mloda-testing": {
             "dependencies": ["pyarrow"],
-            "optional_dependencies": {"binary-model": ["mloda-community-binary-model>=1", "mloda-enterprise>=1"]},
+            "optional_dependencies": {"binary-model": ["pyarrow>=25", "mloda-community-binary-model>=1"]},
         }
     }
     assert _mloda_testing_plugin_distribution_violations(allowed) == []
+    enterprise_in_binary_model = {
+        "mloda-testing": {"optional_dependencies": {"binary-model": ["mloda-enterprise[ed25519]>=1"]}}
+    }
+    assert _mloda_testing_plugin_distribution_violations(enterprise_in_binary_model) == [
+        "mloda-testing (extra binary-model): mloda-enterprise[ed25519]>=1"
+    ]
+    bare_enterprise_in_binary_model = {
+        "mloda-testing": {"optional_dependencies": {"binary-model": ["mloda-enterprise>=1"]}}
+    }
+    assert _mloda_testing_plugin_distribution_violations(bare_enterprise_in_binary_model) == [
+        "mloda-testing (extra binary-model): mloda-enterprise>=1"
+    ]
+    community_elsewhere = {"mloda-testing": {"optional_dependencies": {"otel": ["mloda-community-binary-model>=1"]}}}
+    assert _mloda_testing_plugin_distribution_violations(community_elsewhere) == [
+        "mloda-testing (extra otel): mloda-community-binary-model>=1"
+    ]
 
 
 def test_consumers_name_the_binary_model_package_instead_of_the_bundle() -> None:
@@ -537,14 +557,6 @@ def test_generated_mloda_testing_pyproject_does_not_depend_on_itself() -> None:
     for deps in project.get("optional-dependencies", {}).values():
         specs.extend(deps)
     assert [spec for spec in specs if _dep_name(spec) == "mloda-testing"] == []
-
-
-def test_mloda_testing_binary_model_extra_pins_the_enterprise_license_token_extra() -> None:
-    """The raw spec is compared: ``_dep_name`` strips extras and would miss a dropped ``[ed25519]``."""
-    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
-    extra = packages["mloda-testing"].get("optional_dependencies", {}).get("binary-model", [])
-    spec = "mloda-enterprise[ed25519]>={version}"
-    assert spec in extra, f"mloda-testing: the binary-model extra must contain {spec!r}, got {extra!r}"
 
 
 def _is_import_of(node: ast.AST, dotted: str, from_parent: bool = False) -> bool:
@@ -651,21 +663,27 @@ def _walk_with_scope(
             yield from _walk_with_scope(child, inside, skip_type_checking, type_checking_alias)
 
 
-def _kit_plugin_imports(root_dir: Path) -> set[tuple[str, str]]:
+def _kit_plugin_imports(root_dir: Path, *, exempt_binary_model: bool = True) -> set[tuple[str, str]]:
     """(posix path relative to root_dir, imported module) for every mloda.community / mloda.enterprise
-    import outside tests/ and the top-level binary_model/ directory. A dynamic import_module
-    argument cannot be checked."""
+    import outside tests/, and outside the top-level binary_model/ directory unless exempt_binary_model is
+    False. A dynamic import_module argument cannot be checked."""
     found: set[tuple[str, str]] = set()
     for rel_path, tree in _runtime_modules(root_dir):
-        if rel_path.parts[0] == "binary_model":
+        if exempt_binary_model and rel_path.parts[0] == "binary_model":
             continue
         for node in ast.walk(tree):
             found.update((rel_path.as_posix(), module) for module in _plugin_modules_imported_by(node))
     return found
 
 
-def _files_importing_mloda_testing(root_dir: Path) -> list[Path]:
-    return _files_with_import(root_dir, _is_mloda_testing_import)
+def _kit_enterprise_imports(root_dir: Path) -> set[tuple[str, str]]:
+    """(posix path relative to root_dir, imported module) for every mloda.enterprise import outside tests/,
+    with no directory exemption."""
+    return {
+        (path, module)
+        for path, module in _kit_plugin_imports(root_dir, exempt_binary_model=False)
+        if _plugin_package_of(module) == "mloda.enterprise"
+    }
 
 
 _EXTENDERS_SHARED = "mloda.community.extenders.shared"
@@ -752,13 +770,65 @@ def test_enterprise_runtime_code_uses_extenders_shared_only_through_public_names
     )
 
 
-def test_no_community_or_enterprise_runtime_file_imports_mloda_testing() -> None:
+_LICENSING_TESTING_DIR = Path("mloda/enterprise/licensing/testing")
+
+
+def _importers_outside_exempt_dir(root_name: str, root_dir: Path, predicate: Callable[[ast.AST], bool]) -> list[str]:
+    """Repo-relative paths of files under root_dir with a node matching predicate, outside the exempt directory."""
+    paths = (Path("mloda") / root_name / path for path in _files_with_import(root_dir, predicate))
+    return [path.as_posix() for path in paths if _LICENSING_TESTING_DIR not in path.parents]
+
+
+def _is_licensing_testing_import(node: ast.AST) -> bool:
+    """True for an import of ``mloda.enterprise.licensing.testing`` or a submodule, at any depth."""
+    return _is_import_of(node, "mloda.enterprise.licensing.testing", from_parent=True)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "message"),
+    [
+        pytest.param(_is_mloda_testing_import, "mloda.testing imported outside tests/", id="mloda_testing"),
+        pytest.param(
+            _is_licensing_testing_import,
+            "mloda.enterprise.licensing.testing imported outside tests/",
+            id="licensing_test_tooling",
+        ),
+    ],
+)
+def test_no_community_or_enterprise_runtime_file_imports_the_test_tooling(
+    predicate: Callable[[ast.AST], bool], message: str
+) -> None:
     offenders: list[str] = []
     for root_name in ("community", "enterprise"):
         root_dir = _REPO_ROOT / "mloda" / root_name
         assert root_dir.is_dir(), f"expected {root_dir} to exist"
-        offenders.extend(f"mloda/{root_name}/{path.as_posix()}" for path in _files_importing_mloda_testing(root_dir))
-    assert not offenders, f"mloda.testing imported outside tests/: {offenders}"
+        offenders.extend(_importers_outside_exempt_dir(root_name, root_dir, predicate))
+    assert not offenders, f"{message}: {offenders}"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("from mloda.enterprise.licensing.testing import license_vectors\n", id="from-package-import"),
+        pytest.param("import mloda.enterprise.licensing.testing.licensed_binary\n", id="plain-submodule-import"),
+        pytest.param("from mloda.enterprise.licensing import testing\n", id="from-parent-import"),
+    ],
+)
+def test_licensing_test_tooling_rule_flags_a_runtime_importer(tmp_path: Path, body: str) -> None:
+    _write(tmp_path / "feature_groups" / "x" / "manifest.py", body)
+    assert _importers_outside_exempt_dir("enterprise", tmp_path, _is_licensing_testing_import) == [
+        "mloda/enterprise/feature_groups/x/manifest.py"
+    ]
+
+
+def test_licensing_test_tooling_rule_ignores_the_exempt_directory_and_tests(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "licensing" / "testing" / "a.py", "from mloda.enterprise.licensing.testing import license_vectors\n"
+    )
+    _write(
+        tmp_path / "feature_groups" / "x" / "tests" / "test_m.py", "from mloda.enterprise.licensing import testing\n"
+    )
+    assert _importers_outside_exempt_dir("enterprise", tmp_path, _is_licensing_testing_import) == []
 
 
 def _is_core_testing_import(node: ast.AST) -> bool:
@@ -784,9 +854,20 @@ def _write(path: Path, body: str) -> None:
     path.write_text(body)
 
 
+def test_mloda_testing_rule_exempts_only_the_enterprise_licensing_testing_directory(tmp_path: Path) -> None:
+    body = "from mloda.testing.base import FeatureGroupTestBase\n"
+    for rel in ("licensing/testing/a.py", "licensing/other.py", "licensing/testing_extra/b.py", "other/c.py"):
+        _write(tmp_path / rel, body)
+    assert _importers_outside_exempt_dir("enterprise", tmp_path, _is_mloda_testing_import) == [
+        "mloda/enterprise/licensing/other.py",
+        "mloda/enterprise/licensing/testing_extra/b.py",
+        "mloda/enterprise/other/c.py",
+    ]
+
+
 def test_walker_catches_function_level_import(tmp_path: Path) -> None:
     _write(tmp_path / "m.py", "def f() -> None:\n    from mloda.testing.base import FeatureGroupTestBase\n")
-    assert _files_importing_mloda_testing(tmp_path) == [Path("m.py")]
+    assert _files_with_import(tmp_path, _is_mloda_testing_import) == [Path("m.py")]
 
 
 def test_walker_catches_type_checking_import(tmp_path: Path) -> None:
@@ -795,14 +876,14 @@ def test_walker_catches_type_checking_import(tmp_path: Path) -> None:
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from mloda.testing.base import FeatureGroupTestBase\n"
     )
     _write(tmp_path / "m.py", body)
-    assert _files_importing_mloda_testing(tmp_path) == [Path("m.py")]
+    assert _files_with_import(tmp_path, _is_mloda_testing_import) == [Path("m.py")]
 
 
 def test_walker_ignores_import_inside_a_tests_directory(tmp_path: Path) -> None:
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     _write(tests_dir / "test_m.py", "from mloda.testing.base import FeatureGroupTestBase\n")
-    assert _files_importing_mloda_testing(tmp_path) == []
+    assert _files_with_import(tmp_path, _is_mloda_testing_import) == []
 
 
 @pytest.mark.parametrize(
@@ -943,6 +1024,19 @@ def test_kit_plugin_import_collector_skips_tests_and_top_level_binary_model(tmp_
 def test_kit_plugin_import_collector_scans_a_nested_binary_model_directory(tmp_path: Path) -> None:
     _write(tmp_path / "pkg" / "binary_model" / "m.py", "from mloda.community.x import y\n")
     assert _kit_plugin_imports(tmp_path) == {("pkg/binary_model/m.py", "mloda.community.x")}
+
+
+def test_kit_imports_no_enterprise_module_including_binary_model() -> None:
+    offenders = sorted(_kit_enterprise_imports(_KIT_ROOT))
+    assert offenders == [], f"mloda/testing must not import mloda.enterprise anywhere: {offenders}"
+
+
+def test_kit_enterprise_import_collector_scans_binary_model_and_skips_community_and_tests(tmp_path: Path) -> None:
+    _write(tmp_path / "binary_model" / "m.py", "from mloda.enterprise.x import y\n")
+    _write(tmp_path / "binary_model" / "c.py", "from mloda.community.x import y\n")
+    _write(tmp_path / "binary_model" / "tests" / "test_m.py", "from mloda.enterprise.x import y\n")
+    _write(tmp_path / "tests" / "test_m.py", "from mloda.enterprise.x import y\n")
+    assert _kit_enterprise_imports(tmp_path) == {("binary_model/m.py", "mloda.enterprise.x")}
 
 
 kit_map = load_script("kit_modules", _REPO_ROOT / "scripts" / "kit_modules.py")

@@ -16,13 +16,13 @@
 | Subclass that takes over on an option | `assert_subclass_scope` | `subclass_scope` | [Subclasses That Take Over on an Option](#subclasses-that-take-over-on-an-option) |
 | Source or reader group | `SourceFeatureGroupTestMixin`, `ReadFileFGTestMixin`, `ReadDBFGTestMixin`, `ReadDocumentFGTestMixin`, the loads-into-framework mixins, `ColumnDiscoveryContractTestMixin` | `source` | [Source FeatureGroups: Test](27-input-data-readers.md#test) |
 | Operation group | `assert_operation_group_shape`; a data-operation family uses `OperationGroupTestBase` (it already runs that assert) and the data-operation mixins | `operation_group_shape`, `feature_groups.data_operations` | [Operation Groups](#operation-groups-conformance-to-the-reference-contract) and [adding an operation](../data-operation-patterns/10-adding-new-operation.md) |
-| Binary-backed group | simulated binary, license vectors, `BinaryModelConformanceBase` (extra `mloda-testing[binary-model]`) | `binary_model` | [Binary-Backed Features: Test](29-binary-backed-features.md#test) |
+| Binary-backed group | simulated binary, simulated license, `BinaryModelConformanceBase` (extra `mloda-testing[binary-model]`) | `binary_model` | [Binary-Backed Features: Test](29-binary-backed-features.md#test) |
 | Extender package | `ExtenderContractTestMixin` (extra `mloda-testing[pyarrow]`) | `extenders` | [Create an Extender: Testing](../11-create-extender.md#testing) |
 | Extender package with an optional dependency | `OptionalDependencyPackageTestMixin` | `optional_dependency` | [Create an Extender: Optional dependency packages](../11-create-extender.md#optional-dependency-packages) |
-| Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
+| Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
 | Compute framework | `assert_compute_framework_shape`, the suites, `TypedTestData`, `FrameworkAdapter` | `compute_framework_shape`, `compute_framework`, `typed_data`, `framework_adapter` | [Compute Framework Testing Guide](../compute-framework-patterns/09-testing-guide.md) |
 
-The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases: name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
+The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases (re-exported with `HookError` and `SwitchedOffError` from `mloda.testing.suite`): name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
 
 ## Testing Levels
 
@@ -75,7 +75,7 @@ class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
 
 ## Level 1: Unit Test Example
 
-`assert_feature_group_shape` from `mloda.testing.feature_group_shape` checks the match contract of a plain FeatureGroup: the declared names match, a foreign name does not, `input_features()` resolves, required and strict options are enforced, no option is secret-shaped, and `version()` and `compute_framework_rule()` are well formed. A pattern-matching group passes the names to probe as `requests=`. `check_feature_group_shape` returns the `CheckResult` (failures and notes) instead of failing. Keep hand asserts for what is specific to the group:
+`assert_feature_group_shape` from `mloda.testing.feature_group_shape` checks the match contract of a plain FeatureGroup: the declared names match, a foreign name does not, `input_features()` resolves, required and strict options are enforced, no option is secret-shaped, and `version()` and `compute_framework_rule()` are well formed. It ships in `mloda-testing` 0.14+; on mloda 0.20 without it, import from core's `mloda._testing.feature_group_shape`. A pattern-matching group passes the names to probe as `requests=`. `check_feature_group_shape` returns the `CheckResult` (`mloda.testing.result`; failures and notes) instead of failing. Keep hand asserts for what is specific to the group:
 
 ```python
 from mloda.testing.feature_group_shape import assert_feature_group_shape
@@ -131,7 +131,7 @@ def test_scaled_feature_runs():
 
 `TypedTestData` raises `ValueError` for a value that does not fit its declared `DataType` (a `bool` in an `INT64` column, an int beyond 2**53 in a `DOUBLE` one). `check_values_fit(columns, types)` from `mloda.testing.value_fit` applies the same rules to plain lists such as hand-written expected columns and returns a `CheckResult`.
 
-A group that reads a credential calls `calculate_feature` inside `credentials_scope` and keeps one Level 3 test with `data_access_collection=` (see [Secrets](11-options.md#secrets)).
+A group that reads a credential calls `calculate_feature` inside `credentials_scope` and keeps one Level 3 test with `data_access_collection=` (on `DataOpsIntegrationTestBase`, the `data_access_collection()` hook; see [Secrets](11-options.md#secrets)).
 
 ## Level 3: Integration Test Example
 
@@ -405,12 +405,14 @@ Test that each result differs from the reference exactly where `divergences` dec
 import math
 from typing import Any
 
-from mloda.provider import DataCreatorFeatureGroup, DivergenceKind, FeatureGroup, FeatureSet
+from mloda.provider import DataCreatorFeatureGroup, FeatureGroup, FeatureSet
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 import pytest
 
+from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
+from mloda.testing.feature_groups.data_operations.helpers import is_null
 from mloda.testing.operation_group_shape import assert_operation_group_shape
 
 VALUES = [1.0, math.nan, 3.0]
@@ -437,30 +439,22 @@ class Guide10Prices(DataCreatorFeatureGroup):
         return {PandasDataFrame}
 
 
-def declared(implementation: Any) -> set[str]:
-    return {s for r in implementation.divergences for s in r.subtypes or () if r.kind is not DivergenceKind.GAP}
-
-
-def is_missing(value: Any) -> bool:
-    return value is None or value != value
-
-
 def reference(op: str, values: list[float]) -> float | None:
     """The documented reference contract: a missing value propagates in sum, max skips missing values."""
-    present = [v for v in values if not is_missing(v)]
+    present = [v for v in values if not is_null(v)]
     if op == "sum":
         return None if len(present) < len(values) else sum(present)
     return max(present)
 
 
 def same(a: Any, b: Any) -> bool:
-    return (is_missing(a) and is_missing(b)) or a == b
+    return (is_null(a) and is_null(b)) or a == b
 
 
 @pytest.mark.parametrize("implementation", [PandasColumnTotal, PyArrowColumnTotal])
 @pytest.mark.parametrize("op", ["sum", "max"])
 def test_result_differs_from_the_reference_exactly_when_declared(implementation, op):
-    assert declared(implementation) == EXPECTED[implementation]
+    assert divergent_subtypes(implementation, named_only=True) == EXPECTED[implementation]
     name = f"guide10_price__{op}_total"
     result = mloda.run_all(
         [Feature(name, implementation=implementation)],
@@ -469,7 +463,7 @@ def test_result_differs_from_the_reference_exactly_when_declared(implementation,
     )[0][name]
     value = list(result.to_pylist() if hasattr(result, "to_pylist") else result)[0]
     differs = not same(value, reference(op, VALUES))
-    assert differs == (op in declared(implementation))
+    assert differs == (op in divergent_subtypes(implementation, named_only=True))
 
 
 def test_column_total_shape():
@@ -590,7 +584,7 @@ def test_consumer_with_link_computes() -> None:
 
 ## Testing What an Import Loads
 
-A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). `mloda.testing.import_isolation` holds the helpers. All take a `pytest.MonkeyPatch` first and are undone with it:
+A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). `mloda.testing.import_isolation` holds the helpers. These four take a `pytest.MonkeyPatch` first and are undone with it:
 
 | Helper | Effect |
 |--------|--------|
@@ -653,33 +647,31 @@ def test_loader_skips_the_rdf_manifest_without_rdflib(monkeypatch: pytest.Monkey
 
 Evict only the package of the optional manifest, since a cold import of a module whose FeatureGroups are already loaded defines them a second time.
 
-Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time.
+Which FeatureGroups an import loads needs a fresh interpreter: the test process has already imported every FeatureGroup, and a cold in-process import of a plugin module would define each one a second time. `fresh_import_report(module, root)` imports `module` in a fresh interpreter that uses the caller's `sys.path` and returns an `ImportReport`: the modules and FeatureGroups (qualified names) under `root`, and whether mloda core was loaded. In-process patches such as `block_root` do not reach the child.
 
-```py
-import json
-import subprocess
-import sys
-
-_PROBE = """
-import json
-import {module}
-from mloda.provider import FeatureGroup, get_all_subclasses
-groups = sorted(fg.__name__ for fg in get_all_subclasses(FeatureGroup) if fg.__module__.startswith("acme."))
-print(json.dumps(groups))
-"""
+```python
+from mloda.testing.import_isolation import ImportReport, fresh_import_report
 
 
-def _groups_loaded_by(module: str) -> list[str]:
-    probe = [sys.executable, "-c", _PROBE.format(module=module)]
-    return json.loads(subprocess.run(probe, check=True, capture_output=True, text=True).stdout)
+@pytest.fixture
+def acme_plugin(acme: None, tmp_path: Path) -> None:
+    plugin = tmp_path / "acme" / "feature_groups" / "my_plugin"
+    plugin.mkdir(parents=True)
+    (tmp_path / "acme" / "feature_groups" / "__init__.py").write_text("")
+    (plugin / "__init__.py").write_text(
+        "from mloda.provider import FeatureGroup\n\n\nclass MyFeatureGroup(FeatureGroup):\n    pass\n"
+    )
 
 
-def test_imports_load_only_their_groups() -> None:
-    assert _groups_loaded_by("acme.core.parsers") == []
-    assert _groups_loaded_by("acme.feature_groups.my_plugin") == ["MyFeatureGroup"]
+def test_imports_load_only_their_groups(acme_plugin: None) -> None:
+    parsers = fresh_import_report("acme.core.parsers", "acme")
+    assert parsers == ImportReport(mloda_core=False, modules=("acme", "acme.core", "acme.core.parsers"), groups=())
+    assert fresh_import_report("acme.feature_groups.my_plugin", "acme").groups == (
+        "acme.feature_groups.my_plugin.MyFeatureGroup",
+    )
 ```
 
-`get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
+The report lists abstract bases too, so include them in the expected groups.
 
 ## Testing by Pattern
 

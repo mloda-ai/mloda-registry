@@ -16,9 +16,8 @@ import struct
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 if TYPE_CHECKING:
     # Imported inside the run-path functions so --version and --capabilities skip the pyarrow import.
@@ -40,9 +39,6 @@ from mloda.testing.binary_model.hash_reference import compute_expected_hash_colu
 
 PLUGIN_ID = "example_binary"
 VERSION = "1.0.0"
-RELEASE_DATE = date(2026, 9, 1)
-"""The stub's own release date, the build-time constant compared against the license's
-``max_release_date`` claim (spec: Verification step 8)."""
 RESERVED_INTERNAL_ERROR_OPERATION = "_conformance_internal_error"
 
 _REQUIRED_CONFIG_KEYS = frozenset({"input_columns", "operation", "parameters", "output_columns"})
@@ -183,6 +179,36 @@ class _ReservedConformanceInternalError(Exception):
     than a hand-written message that bypasses it (contract: Data handling, Errors, Conformance)."""
 
 
+SimulatedLicenseState = Literal["valid", "expired", "in_grace"]
+
+_SIMULATED_LICENSE_PREFIX = "simulated-license"
+_SIMULATED_LICENSE_STATES = frozenset(get_args(SimulatedLicenseState))
+
+
+def simulated_license(plugin_id: str, state: SimulatedLicenseState = "valid") -> str:
+    """The text of a simulated license for ``plugin_id`` in ``state``. Not a real license."""
+    return f"{_SIMULATED_LICENSE_PREFIX}:{plugin_id}:{state}"
+
+
+class FakeLicenseError(Exception):
+    """Raised by a license check to reject a license; ``str(exc)`` is the reported reason.
+    Never put the license text in it."""
+
+
+def check_simulated_license(text: str, plugin_id: str) -> bool:
+    """The default ``FakeBinary.check_license``: accepts ``simulated_license(plugin_id, ...)``.
+    Returns True when accepted inside grace, False when plainly accepted; raises ``FakeLicenseError``
+    with a fixed reason otherwise."""
+    parts = text.split(":")
+    if len(parts) != 3 or parts[0] != _SIMULATED_LICENSE_PREFIX or parts[2] not in _SIMULATED_LICENSE_STATES:
+        raise FakeLicenseError("not a simulated license")
+    if parts[1] != plugin_id:
+        raise FakeLicenseError("license does not cover this plugin")
+    if parts[2] == "expired":
+        raise FakeLicenseError("license expired")
+    return parts[2] == "in_grace"
+
+
 class FakeUsageError(Exception):
     """Raised by a ``FakeOperation.validate``; reported as a usage error (code 1) with its message.
     The message reaches stderr verbatim, so never put parameter values in it."""
@@ -208,6 +234,7 @@ class FakeBinary:
     operations: tuple[FakeOperation, ...]
     column_types: frozenset[str] = COLUMN_TYPES
     version: str = VERSION
+    check_license: Callable[[str, str], bool] = check_simulated_license
 
     def __post_init__(self) -> None:
         names = [op.name for op in self.operations]
@@ -272,7 +299,7 @@ def _parse_run_args(args: list[str]) -> _RunArgs:
 
 
 def _license_source() -> tuple[str, str]:
-    """Return (source_name, token_text), the first of MLODA_LICENSE_FILE / MLODA_LICENSE_KEY set
+    """Return (source_name, license_text), the first of MLODA_LICENSE_FILE / MLODA_LICENSE_KEY set
     to a non-empty value (contract: License). Raises code 2 if neither is usable."""
     file_value = os.environ.get("MLODA_LICENSE_FILE", "")
     if file_value:
@@ -300,27 +327,16 @@ def _license_source() -> tuple[str, str]:
 
 
 def _check_license(binary: FakeBinary) -> None:
-    """Verify the signed license token from the resolved source (contract: License; spec:
-    Verification). The stub embeds only the published test key map, never a production key (spec:
-    Keys, kid, rotation). A token past ``exp`` but inside ``grace_days`` is accepted with one
-    free-form diagnostic line on stderr, never stdout, and the exit stays 0 (contract: Errors;
-    spec: Verification step 6)."""
-    # Imported inside the call so license-free invocations (--version, --capabilities) skip the cryptography import.
-    from mloda.enterprise.licensing import license_token
-    from mloda.testing.binary_model import license_vectors
-
+    """Check the license text from the resolved source with ``binary.check_license`` (contract:
+    License). A ``FakeLicenseError`` is code 3; a True return is accepted inside grace, with one
+    free-form diagnostic line on stderr, never stdout, and the exit stays 0 (contract: Errors)."""
     source_name, text = _license_source()
-    text = text.strip()
     try:
-        verified = license_token.verify_license_token(
-            text,
-            keys=license_vectors.TEST_PUBLIC_KEYS,
-            plugin_id=binary.plugin_id,
-            release_date=RELEASE_DATE,
-        )
-    except license_token.LicenseVerificationError as exc:
-        raise _CliError(LICENSE_INVALID, f"{source_name}: {exc.reason}", exc.reason) from exc
-    if verified.in_grace:
+        in_grace = binary.check_license(text.strip(), binary.plugin_id)
+    except FakeLicenseError as exc:
+        reason = str(exc)
+        raise _CliError(LICENSE_INVALID, f"{source_name}: {reason}", reason) from exc
+    if in_grace:
         print(f"{source_name}: license accepted inside its grace window", file=sys.stderr)
 
 

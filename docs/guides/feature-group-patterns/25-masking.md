@@ -127,7 +127,7 @@ The framework selection does not affect the mask spec format. The same `("column
 
 ## Testing with MaskTestMixin
 
-Compose `MaskTestMixin` (unit-level scenarios) with `DataOpsTestBase` and override its `mask_*` class methods, or `MaskIntegrationTestMixin` (pipeline-level, through `mloda.run_all`) with `DataOpsIntegrationTestBase` and override its `mask_integration_*` class methods; see [Adding a New Operation: Step 7](../data-operation-patterns/10-adding-new-operation.md#step-7-decide-if-it-needs-mask-support) and Step 6 for the framework test classes.
+Compose `MaskTestMixin` (unit-level scenarios) with `DataOpsTestBase` and override its `mask_*` class methods, or `MaskIntegrationTestMixin` (`mloda.testing.feature_groups.data_operations.mixins.mask_integration`; pipeline-level, through `mloda.run_all`) with `DataOpsIntegrationTestBase` and override its `mask_integration_*` class methods; see [Adding a New Operation: Step 7](../data-operation-patterns/10-adding-new-operation.md#step-7-decide-if-it-needs-mask-support) and Step 6 for the framework test classes.
 
 ---
 

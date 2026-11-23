@@ -34,7 +34,6 @@ import pytest
 from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
-from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.framework_adapter import to_arrow_table
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
@@ -137,6 +136,8 @@ def empty_like(data: TypedTestData) -> TypedTestData:
 
 def canonical_data_empty() -> TypedTestData:
     """The canonical typed data's columns with zero rows."""
+    from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+
     return empty_like(DataOperationsTestDataCreator.typed_data())
 
 

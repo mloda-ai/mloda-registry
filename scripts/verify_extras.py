@@ -39,7 +39,10 @@ DEV_EXTRA = "dev"
 
 # Modules only the extra makes importable; no configured package path or entry point reaches them.
 EXTRA_ONLY_IMPORTS: dict[tuple[str, str], tuple[str, ...]] = {
-    ("mloda-enterprise", "ed25519"): ("mloda.enterprise.licensing.license_token",)
+    ("mloda-enterprise", "ed25519"): (
+        "mloda.enterprise.licensing.license_token",
+        "mloda.enterprise.licensing.testing.license_vectors",
+    )
 }
 
 # Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.

@@ -1,5 +1,6 @@
 """Tests for ``probe_classification.py``: the exit-code classification, tested with synthetic
-``subprocess.CompletedProcess`` results, and the probe itself, run against the simulated binary.
+``subprocess.CompletedProcess`` results, and the probe itself, run against the token-verifying simulated
+binary (``licensed_binary``).
 ``test_real_wheel.py`` is ``pytest.importorskip("example_binary")``-gated, so this module must
 never import from it, or the import would propagate that module-level skip here.
 """
@@ -12,13 +13,13 @@ import sys
 
 import pytest
 
-from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.enterprise.licensing.testing.license_vectors import valid_license_token
 from tests.test_binary_model_real import probe_classification
 from tests.test_binary_model_real.probe_classification import classify_test_key_probe, probe_accepts_test_key
 
-# Same spelling as mloda/enterprise/tests/test_licensing_invariants.py and
-# mloda/enterprise/feature_groups/binary_example/tests/test_binary_example_feature_group.py.
-STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
+# The licensed binary verifies the shared test-signed tokens, so it stands in for a test-key build.
+STUB_CMD = [sys.executable, "-m", "mloda.enterprise.licensing.testing.licensed_binary"]
+PLAIN_SIMULATED_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 
 
 def _completed_process(
@@ -59,6 +60,12 @@ def test_classify_test_key_probe_raises_on_license_invalid_for_an_unrelated_reas
 
 def test_probe_accepts_test_key_true_for_accepting_binary() -> None:
     assert probe_accepts_test_key(STUB_CMD) is True
+
+
+def test_probe_accepts_test_key_raises_for_a_binary_that_rejects_signed_tokens() -> None:
+    """The plain simulated binary rejects a signed token with a reason that is not the unknown-key-id message."""
+    with pytest.raises(AssertionError, match="unexpected LICENSE_INVALID rejection unrelated to an unknown test key"):
+        probe_accepts_test_key(PLAIN_SIMULATED_CMD)
 
 
 def test_probe_accepts_test_key_ignores_ambient_license_env(monkeypatch: pytest.MonkeyPatch) -> None:

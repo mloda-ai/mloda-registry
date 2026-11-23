@@ -52,7 +52,7 @@ from mloda.community.feature_groups.binary_model.transport import (
 )
 from mloda.testing.binary_model.arrow import arrow_stream_bytes, read_arrow_stream
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
-from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
+from mloda.testing.binary_model.simulated_binary import simulated_license
 
 if os.name == "posix":
     import fcntl
@@ -1027,7 +1027,7 @@ class TestRunBinary:
         schema = pa.schema([pa.field("col_a", pa.string())])
         rows = {"col_a": ["alpha", "beta", "gamma"]}
         input_bytes = arrow_stream_bytes(schema, rows)
-        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
+        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": simulated_license(PLUGIN_ID)}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             output_bytes = _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path)
             assert (inv.path / "config.json").is_file()
@@ -1040,7 +1040,7 @@ class TestRunBinary:
     def test_config_json_has_owner_only_mode_after_run(self, tmp_path: Path) -> None:
         schema = pa.schema([pa.field("col_a", pa.string())])
         input_bytes = arrow_stream_bytes(schema, {"col_a": ["alpha"]})
-        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
+        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": simulated_license(PLUGIN_ID)}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path)
             assert stat.S_IMODE((inv.path / "config.json").stat().st_mode) == 0o600
@@ -1052,7 +1052,7 @@ class TestRunBinary:
         schema = pa.schema([pa.field("col_a", pa.string())])
         rows = {"col_a": ["alpha", "beta"]}
         input_bytes = arrow_stream_bytes(schema, rows)
-        env = minimal_environment(license_key=valid_license_token([PLUGIN_ID]), inherit_license=False)
+        env = minimal_environment(license_key=simulated_license(PLUGIN_ID), inherit_license=False)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             output_bytes = _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path, file_transport_threshold=0)
             assert (inv.path / "input.arrows").is_file()
@@ -1068,7 +1068,7 @@ class TestRunBinary:
         schema = pa.schema([pa.field("col_a", pa.string())])
         rows = {"col_a": ["alpha", "beta"]}
         input_bytes = arrow_stream_bytes(schema, rows)
-        env = minimal_environment(license_key=valid_license_token([PLUGIN_ID]), inherit_license=False)
+        env = minimal_environment(license_key=simulated_license(PLUGIN_ID), inherit_license=False)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             output_bytes = _run_binary(
                 STUB_CMD, env, _hash_config(), input_bytes, inv.path, file_transport_threshold=len(input_bytes) + 1
@@ -1089,7 +1089,7 @@ class TestRunBinary:
 
     def test_expired_license_raises_license_invalid(self, tmp_path: Path) -> None:
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
-        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": expired_license_token([PLUGIN_ID])}
+        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": simulated_license(PLUGIN_ID, "expired")}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(LicenseInvalidError) as excinfo:
                 _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path)
@@ -1097,7 +1097,7 @@ class TestRunBinary:
 
     def test_unknown_operation_raises_unsupported(self, tmp_path: Path) -> None:
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
-        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
+        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": simulated_license(PLUGIN_ID)}
         config = _hash_config(operation="no-such-operation")
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(UnsupportedError) as excinfo:
