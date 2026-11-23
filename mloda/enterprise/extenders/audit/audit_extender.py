@@ -193,6 +193,8 @@ class AuditExtender(Extender):
     rule, null on match and RUN_START records). The identity is core's
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
     back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
+    Records also carry credential_handles, bound_credential_handle and credentials_read (handle names only,
+    never values).
     Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
     not track code changes).
     record_version 2 (compliant also needs a non-blank principal; enforced marks a fail_closed refusal); an absent
@@ -500,6 +502,9 @@ class AuditExtender(Extender):
             "duration_seconds": None,
             "feature_group_declared_attributes": None,
             "failed_rows": None,
+            "credential_handles": None,
+            "bound_credential_handle": None,
+            "credentials_read": None,
         }
         try:
             raise error
@@ -907,6 +912,7 @@ class AuditExtender(Extender):
         call_ran: bool = False,
     ) -> dict[str, Any]:
         matched = context.hook in _PLAN_HOOKS
+        calculate_ran = call_ran and context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
         per_call: dict[str, Any] = {
             "feature_group_class": context.feature_group_class,
             "feature_group_version": context.feature_group_version,
@@ -922,11 +928,10 @@ class AuditExtender(Extender):
             "rows_out": context.rows_out,
             "duration_seconds": context.duration_seconds,
             "feature_group_declared_attributes": None if matched else readable_declared(context.declared_attributes),
-            "failed_rows": (
-                failed_rows_summary(context.failed_rows)
-                if call_ran and context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
-                else None
-            ),
+            "failed_rows": failed_rows_summary(context.failed_rows) if calculate_ran else None,
+            "credential_handles": None if matched else list(context.credential_handles),
+            "bound_credential_handle": None if matched else context.bound_credential_handle,
+            "credentials_read": list(context.credentials_read) if calculate_ran else None,
         }
         return self._record(
             context,

@@ -20,7 +20,7 @@ import time
 import uuid
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, suppress
+from contextlib import AbstractContextManager, nullcontext, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,7 +37,9 @@ from mloda.provider import (
     FeatureSet,
     ReadFileFG,
     SourceFeatureGroup,
+    credentials_scope,
     instrument,
+    read_credential,
     report_failed_rows,
 )
 from mloda.steward import (
@@ -101,9 +103,15 @@ from mloda.testing.extenders.runners import (
     expected_value_int,
     prepare_csv_feature,
     prepare_value_int,
+    run_credentialed_source_feature,
     run_csv_feature,
     run_value_int,
     write_csv,
+)
+from mloda.testing.extenders.uri_source import (
+    CREDENTIAL_HANDLE,
+    CREDENTIAL_TOKEN,
+    MlodaTestingCredentialedUriFileFG,
 )
 
 _BOTH_POSTURES = pytest.mark.parametrize("fail_closed", [False, True])
@@ -180,6 +188,9 @@ _EXPECTED_RECORD_KEYS = {
     "compute_framework_name",
     "rows_out",
     "failed_rows",
+    "credential_handles",
+    "bound_credential_handle",
+    "credentials_read",
     "duration_seconds",
     "status",
     "error_type",
@@ -1522,12 +1533,16 @@ class TestAuditExtenderRecord:
             principal="svc-1",
             run_id="run-123",
             plan_id="plan-456",
+            credential_handles=("a", "src"),
+            bound_credential_handle="src",
         )
 
         with context.activate():
             extender(lambda: None)
 
         record = sink.records[0]
+        assert record["credential_handles"] == ["a", "src"]
+        assert record["bound_credential_handle"] == "src"
         assert record["feature_group_class"] == "my.module.MyFeatureGroup"
         assert record["feature_group_version"] == "3"
         assert record["plugin_version"] == "1.2.3"
@@ -1693,6 +1708,7 @@ class TestAuditExtenderRecord:
             AuditExtender(sink=sink)(lambda: None)
 
         assert sink.records[0]["failed_rows"] == {"count": 0, "columns": {}}
+        assert sink.records[0]["credential_handles"] == []
 
     def test_error_record_carries_rows_reported_before_the_wrapped_call_raised(self) -> None:
         sink = InMemoryAuditSink()
@@ -1713,19 +1729,54 @@ class TestAuditExtenderRecord:
         assert "91733" not in json.dumps(record)
 
     @pytest.mark.parametrize(
+        ("reads", "raises", "status", "expected"),
+        [
+            pytest.param(True, None, "success", ["h"], id="read-then-return"),
+            pytest.param(True, RuntimeError, "error", ["h"], id="read-then-raise"),
+            pytest.param(True, KeyboardInterrupt, "cancelled", ["h"], id="read-then-interrupt"),
+            pytest.param(False, None, "success", [], id="no-read"),
+        ],
+    )
+    def test_calculate_record_lists_the_handles_read_inside_the_wrapped_call(
+        self, reads: bool, raises: type[BaseException] | None, status: str, expected: list[str]
+    ) -> None:
+        sink = InMemoryAuditSink()
+        context = make_hook_context(
+            tenant_id="tenant-1", hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, credential_handles=("h",)
+        )
+
+        def func() -> None:
+            if reads:
+                read_credential("h")
+            if raises is not None:
+                raise raises("boom")
+
+        with credentials_scope({"h": {"token": CREDENTIAL_TOKEN}}):
+            with context.activate():
+                with pytest.raises(raises) if raises else nullcontext():
+                    AuditExtender(sink=sink)(instrument(context, func))
+
+        assert sink.records[0]["status"] == status
+        assert sink.records[0]["credentials_read"] == expected
+
+    @pytest.mark.parametrize(
         "hook",
         [ExtenderHook.VALIDATE_INPUT_FEATURE, ExtenderHook.VALIDATE_OUTPUT_FEATURE, ExtenderHook.FEATURE_GROUP_MATCHED],
     )
     def test_non_calculate_hooks_record_null_failed_rows(self, hook: ExtenderHook) -> None:
         sink = InMemoryAuditSink()
         context = make_hook_context(
-            tenant_id="tenant-1", hook=hook, failed_rows=(FailedRows(_FAILED_ROWS_FG, "price", (1,), "a"),)
+            tenant_id="tenant-1",
+            hook=hook,
+            failed_rows=(FailedRows(_FAILED_ROWS_FG, "price", (1,), "a"),),
+            credentials_read=("h",),
         )
 
         with context.activate():
             AuditExtender(sink=sink)(lambda: None)
 
         assert sink.records[0]["failed_rows"] is None
+        assert sink.records[0]["credentials_read"] is None
 
     def test_fail_closed_refusal_records_null_failed_rows(self) -> None:
         sink = InMemoryAuditSink()
@@ -1734,6 +1785,8 @@ class TestAuditExtenderRecord:
             tenant_id=None,
             hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
             failed_rows=(FailedRows(_FAILED_ROWS_FG, "price", (1,), "a"),),
+            credential_handles=("h",),
+            credentials_read=("h",),
         )
 
         with context.activate():
@@ -1741,6 +1794,8 @@ class TestAuditExtenderRecord:
                 extender(lambda: None)
 
         assert sink.records[0]["failed_rows"] is None
+        assert sink.records[0]["credentials_read"] is None
+        assert sink.records[0]["credential_handles"] == ["h"]
 
     def test_failed_row_positions_never_reach_the_serialized_record(self) -> None:
         sink = InMemoryAuditSink()
@@ -2018,6 +2073,9 @@ class TestAuditExtenderRecordV2:
 
         assert record is not None
         assert record["step_run_id"] is None
+        assert record["credential_handles"] is None
+        assert record["bound_credential_handle"] is None
+        assert record["credentials_read"] is None
 
     @pytest.mark.parametrize(
         ("tenant_id", "principal", "required", "decision", "compliant"),
@@ -4815,6 +4873,34 @@ class TestAuditExtenderRunAll:
             assert record["policy_version"] == extender.policy_version
             assert record["run_id"] is not None
             assert record["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name
+
+    @pytest.mark.parametrize(
+        "mode", [ParallelizationMode.SYNC, ParallelizationMode.THREADING, ParallelizationMode.MULTIPROCESSING]
+    )
+    def test_run_all_credentialed_source_records_the_handle_names_never_the_value(
+        self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
+
+        with verified_context(tenant_id="tenant-42"):
+            run_credentialed_source_feature(
+                AuditExtender(sink=NdjsonAuditSink(audit_path)),
+                parallelization_modes={mode},
+                flight_server=flight_server,
+            )
+
+        sink_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        records = [r for r in sink_records if r["feature_group_class"] == _qualname(MlodaTestingCredentialedUriFileFG)]
+        calculate = [r for r in records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+        assert len(calculate) == 1
+        assert calculate[0]["credential_handles"] == [CREDENTIAL_HANDLE]
+        assert calculate[0]["credentials_read"] == [CREDENTIAL_HANDLE]
+        assert calculate[0]["bound_credential_handle"] is None
+        assert CREDENTIAL_TOKEN not in json.dumps(sink_records)
 
     @_BOTH_POSTURES
     def test_run_outside_a_verified_context_inherits_the_plan_time_identity(self, fail_closed: bool) -> None:
