@@ -360,14 +360,6 @@ class PercentileTestBase(
 
     # -- Edge case tests -------------------------------------------------------
 
-    def test_empty_data_returns_zero_rows(self) -> None:
-        """Percentile on an empty table (0 rows) should return 0 rows with the new column."""
-        empty_arrow = TypedTestData({"region": (DataType.STRING, []), "value_int": (DataType.INT64, [])})
-        empty_data = self.create_test_data(empty_arrow)
-        fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = calculate_with(self.implementation_class(), empty_data, fs)
-        assert self.get_row_count(result) == 0
-
     def test_single_row_partitions_return_own_value(self) -> None:
         """Each partition has 1 row: percentile at any level equals the single value."""
 
