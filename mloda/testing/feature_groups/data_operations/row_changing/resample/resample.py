@@ -456,8 +456,7 @@ class ResampleTestBase(
                 {"ts": (DataType.TIMESTAMP_MICROS_TZ, ts), "value": (DataType.INT64, [10, 20])},
             )
 
-        # A named zone is stored by name, not as a numeric offset, so only a fixed timezone is rejected.
-        if self.rejects_numeric_offset_source() and isinstance(tz, timezone) and has_numeric_fixed_offset(rows):
+        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(rows):
             with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
                 calculate_with(self.implementation_class(), self.create_test_data(typed(rows)), fs)
             return

@@ -66,7 +66,7 @@ class _ComputesWrong:
         return {"f": [10, 21]}
 
 
-def _make_host(impl: type, pattern: str | None) -> Any:
+def _make_host(impl: type, pattern: str | None, expected_values_raises: bool = False) -> Any:
     class Host(PinnedRowTestMixin, _StubBase):
         @classmethod
         def implementation_class(cls) -> Any:
@@ -75,6 +75,11 @@ def _make_host(impl: type, pattern: str | None) -> Any:
         @classmethod
         def pinning_table(cls) -> PinningTable:
             return PinningTable(operation="op", rules={}, rows=(_ROW,))
+
+        def expected_values(self, row: PinningRow) -> Any:
+            if expected_values_raises:
+                raise AssertionError("expected_values must not run")
+            return super().expected_values(row)
 
         def rejection_match(self, row: PinningRow) -> str | None:
             return pattern
@@ -101,3 +106,6 @@ class TestRejectionHook:
         _make_host(_Computes, None).test_mixin_pinned_row(_CASE_ID)
         with pytest.raises(AssertionError):
             _make_host(_ComputesWrong, None).test_mixin_pinned_row(_CASE_ID)
+
+    def test_rejection_match_takes_precedence_over_expected_values(self) -> None:
+        _make_host(_Raises, _PATTERN, expected_values_raises=True).test_mixin_pinned_row(_CASE_ID)

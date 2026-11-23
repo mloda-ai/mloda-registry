@@ -43,19 +43,14 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         """A row matches the backend result; rejection_match takes precedence over expected_values."""
         row = self.pinned_row_cases()[pinned_row_case]
 
-        def run() -> Any:
-            return calculate_with(
-                self.implementation_class(),
-                self.create_test_data(TypedTestData(row.inputs)),
-                make_feature_set(row.feature, **row.context),
-            )
-
+        data = self.create_test_data(TypedTestData(row.inputs))
+        fs = make_feature_set(row.feature, **row.context)
         pattern = self.rejection_match(row)
         if pattern is not None:
             with pytest.raises(ValueError, match=pattern):
-                run()
+                calculate_with(self.implementation_class(), data, fs)
             return
         expected = self.expected_values(row)
-        result = run()
+        result = calculate_with(self.implementation_class(), data, fs)
         for column, values in expected.items():
             self.assert_pinned_values(row, column, self.extract_column(result, column), values)
