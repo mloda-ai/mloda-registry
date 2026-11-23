@@ -259,3 +259,28 @@ LIMITATIONS: tuple[PinningLimitation, ...] = (
         "The first-seen negative zero partition key loses its sign.",
     ),
 )
+
+
+def _duckdb_is_below_2() -> bool:
+    try:
+        import duckdb
+    except ImportError:
+        return False
+    return int(duckdb.__version__.split(".")[0]) < 2
+
+
+if _duckdb_is_below_2():
+    LIMITATIONS += (
+        PinningLimitation(
+            "aggregation",
+            ("duckdb",),
+            ("6-signed_zero-v__count_agg",),
+            "DuckDB 1.x loses the negative sign of the first-seen zero partition key.",
+        ),
+        PinningLimitation(
+            "resample",
+            ("duckdb",),
+            ("27-partition_keys-v__resample_1_hour_count",),
+            "DuckDB 1.x loses the negative sign of the first-seen zero partition key.",
+        ),
+    )
