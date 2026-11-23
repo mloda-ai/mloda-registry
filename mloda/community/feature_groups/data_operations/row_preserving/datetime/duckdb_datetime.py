@@ -9,7 +9,9 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
 
@@ -59,6 +61,8 @@ class DuckdbDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         expr_template = _DUCKDB_DATETIME_EXPRS.get(op)
         if expr_template is None:
             raise ValueError(f"Unsupported datetime operation for DuckDB: {op}")
+        if op in TIME_OF_DAY_OPS and column_types(data)[source_col].upper() == "DATE":
+            DateTimeFeatureGroup._raise_date_source(source_col, op)
 
         quoted_source = quote_ident(source_col)
         expr = expr_template.format(col=quoted_source)

@@ -54,9 +54,7 @@ class PythonDictDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
                     f"datetime components; got {type(value).__name__} ({value!r})."
                 )
             if op in TIME_OF_DAY_OPS and not isinstance(value, datetime):
-                raise ValueError(
-                    f"Column {source_col!r} holds a bare date, but {op!r} needs a time of day (datetime or timestamp)."
-                )
+                DateTimeFeatureGroup._raise_date_source(source_col, op)
 
     @staticmethod
     def _extract(value: date | None, op: str) -> int | None:

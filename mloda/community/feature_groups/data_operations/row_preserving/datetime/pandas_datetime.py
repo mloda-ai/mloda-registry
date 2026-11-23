@@ -9,6 +9,7 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
 
@@ -37,6 +38,8 @@ class PandasDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         source_col: str,
         op: str,
     ) -> pd.DataFrame:
+        if op in TIME_OF_DAY_OPS and pd.api.types.infer_dtype(data[source_col], skipna=True) == "date":
+            DateTimeFeatureGroup._raise_date_source(source_col, op)
         data = data.copy()
         col = pd.to_datetime(data[source_col])
 

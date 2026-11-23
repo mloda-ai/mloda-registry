@@ -9,6 +9,7 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
 
@@ -31,6 +32,8 @@ class PolarsLazyDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         source_col: str,
         op: str,
     ) -> pl.LazyFrame:
+        if op in TIME_OF_DAY_OPS and data.collect_schema()[source_col] == pl.Date:
+            DateTimeFeatureGroup._raise_date_source(source_col, op)
         col = pl.col(source_col)
 
         if op == "year":

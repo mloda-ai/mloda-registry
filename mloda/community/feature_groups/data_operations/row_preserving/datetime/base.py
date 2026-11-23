@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NoReturn
 
 from mloda.provider import (
     DefaultOptionKeys,
@@ -91,6 +91,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
     preserved. ``dayofweek`` uses 0=Monday, 6=Sunday. Every op declares INT64. Each implementation passes
     ``compute_datetime(data, feature_name, source_col, op)`` to the group; it returns the input with the new
     column appended.
+    A DATE source supports date parts, but ``hour``, ``minute`` and ``second`` require a time of day and raise ``ValueError``.
     """
 
     CONTRACT_VERSION = 1
@@ -146,6 +147,12 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
         """Declare the deterministic output type: all datetime ops are integer-valued."""
         cls._extract_datetime_op(feature)
         return DataType.INT64
+
+    @staticmethod
+    def _raise_date_source(source_col: str, op: str) -> NoReturn:
+        raise ValueError(
+            f"Column {source_col!r} holds a bare date, but {op!r} needs a time of day (datetime or timestamp)."
+        )
 
     @classmethod
     def extract_datetime(

@@ -14,6 +14,7 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
 
@@ -37,6 +38,8 @@ class PyArrowDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         op: str,
     ) -> pa.Table:
         col = table.column(source_col)
+        if op in TIME_OF_DAY_OPS and pa.types.is_date(col.type):
+            DateTimeFeatureGroup._raise_date_source(source_col, op)
 
         if op == "year":
             result = pc.year(col)

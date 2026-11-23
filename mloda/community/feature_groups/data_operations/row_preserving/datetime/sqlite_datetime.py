@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
+    TIME_OF_DAY_OPS,
     DateTimeFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.sqlite_helpers import wall_clock_expr
@@ -51,6 +53,8 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         expr_template = _SQLITE_DATETIME_EXPRS.get(op)
         if expr_template is None:
             raise ValueError(f"Unsupported datetime operation for SQLite: {op}")
+        if op in TIME_OF_DAY_OPS and pa.types.is_date(data.types[data.columns.index(source_col)]):
+            DateTimeFeatureGroup._raise_date_source(source_col, op)
 
         quoted_source = quote_ident(source_col)
         # First 19 chars (second precision): older SQLite rounds a fractional pre-epoch value across midnight.

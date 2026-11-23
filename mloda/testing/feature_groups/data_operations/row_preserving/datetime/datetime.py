@@ -30,7 +30,7 @@ a few abstract methods.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
@@ -322,6 +322,19 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
             pytest.skip("implementation under test is not an Implementation class")
         if self.tz_aware_source_reads_utc():
             assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
+
+    # -- DATE source validation ----------------------------------------------
+
+    @pytest.mark.parametrize("op", ["hour", "minute", "second"])
+    def test_date_source_time_of_day_rejected(self, op: str) -> None:
+        """A DATE has no time of day; reject it before returning even a lazy result."""
+        data = self.create_test_data(
+            TypedTestData({"d": (DataType.DATE, [date(2024, 2, 29), date(1969, 12, 31), None])})
+        )
+        with pytest.raises(ValueError, match="time of day") as exc_info:
+            calculate_with(self.implementation_class(), data, make_feature_set(f"d__{op}"))
+        assert repr(op) in str(exc_info.value)
+        assert "'d'" in str(exc_info.value)
 
     # -- Null handling tests -------------------------------------------------
 
