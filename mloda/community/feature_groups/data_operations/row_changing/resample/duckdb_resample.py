@@ -3,7 +3,8 @@
 Floors the time column with the shared ``floor_expr`` epoch-anchored
 expression (``DATE_TRUNC`` for n=1, ``time_bucket`` with a
 ``DATE '1970-01-01'`` origin for n>1 -- NOT the native 2000-01-03 anchor) so
-buckets align with the reference. SQL ``SUM`` / ``AVG`` ignore nulls and
+buckets align with the reference. A tz-aware non-UTC column is bucketed on the UTC wall
+clock (a declared gap). SQL ``SUM`` / ``AVG`` ignore nulls and
 return NULL for all-null groups, and ``COUNT(col)`` counts non-null values, so
 the null semantics already match the reference. Float ``max`` also skips NaN,
 matching PyArrow's ``pc.max``.
@@ -49,8 +50,8 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
         Divergence(
             kind=DivergenceKind.GAP,
             cause=Cause.BACKEND,
-            reason="a tz-aware fixed-offset column arrives as UTC, so resample groups by UTC boundaries instead of its source wall clock",
-            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-uses-utc-day-boundaries-for-fixed-offset-timestamps",
+            reason="a tz-aware column arrives as UTC, so a non-UTC zone is resampled on the UTC wall clock and returned in UTC",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock",
         ),
     )
 
