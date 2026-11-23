@@ -23,6 +23,7 @@ ed25519 = ["cryptography>=42"]
 otel = ["opentelemetry-api>=1.37,<2"]
 openlineage = ["mloda-community-openlineage~=0.14.0"]
 anonymizer = ["mloda-anonymizer-binary>=0.1.3,<0.2.0", "pyarrow>=25"]
+dev = ["cryptography>=42"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

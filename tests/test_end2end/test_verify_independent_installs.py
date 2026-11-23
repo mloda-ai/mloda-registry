@@ -16,19 +16,29 @@ from typing import Any
 import pytest
 
 from tests.script_loader import load_script
+from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_independent_installs.py"
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
+_PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "verify-published.yaml"
+
+_LICENSE_KIT_KEY = "mloda-enterprise[ed25519]==9.9.9 mloda-testing[binary-model]==9.9.9"
+_LICENSE_KIT_PREFIX = "mloda.enterprise.licensing.testing"
 
 _INDEPENDENT_STEP = "Verify packages install independently"
 
 # The one Verify step allowed to run unconditionally; every step after it must run regardless.
 _FIRST_VERIFY_STEP = "Verify published packages (all together)"
 
-# Published distributions whose 'uv pip install' the fakes below fail, to check isolation.
-_FAILING_DISTRIBUTIONS = ["mloda-community-ema", "mloda-community-rank", "mloda-testing[otel]"]
+# Requirement specs (distributions and kit job requirements) whose 'uv pip install' the fakes below fail.
+_FAILING_DISTRIBUTIONS = [
+    "mloda-community-ema",
+    "mloda-community-rank",
+    "mloda-testing[otel]",
+    "mloda-enterprise[ed25519]",
+]
 
 # A step name line, followed by its body up to the next step at the same indent or end of file.
 _STEP_RE = re.compile(
@@ -178,6 +188,9 @@ def test_main_reports_every_failing_distribution_while_running_concurrently(
     assert exit_code == 1, f"main() exited {exit_code!r} with failing distributions (including a kit job), expected 1"
     for name in _FAILING_DISTRIBUTIONS:
         assert f"✗ {name}" in out, f"main() output does not report failing distribution {name!r}: {out!r}"
+    assert f"✗ {_LICENSE_KIT_KEY}" in out, (
+        f"main() output does not report the failing kit job {_LICENSE_KIT_KEY!r}: {out!r}"
+    )
 
 
 def test_later_verify_steps_run_independently_of_earlier_failures() -> None:
@@ -224,10 +237,13 @@ def test_independent_install_step_has_no_longer_timeout_than_the_other_verify_st
 
 
 def _kit_jobs() -> dict[str, str]:
-    """Requirement specifier to probe source for every kit job main() must run."""
-    fn: Callable[[str], list[tuple[str, str]]] | None = getattr(module, "kit_jobs", None)
+    """Requirements joined with one space to probe source for every kit job main() must run."""
+    fn: Callable[[str], list[tuple[tuple[str, ...], str]]] | None = getattr(module, "kit_jobs", None)
     assert callable(fn), "verify_independent_installs.kit_jobs must be a callable"
-    return dict(fn("9.9.9"))
+    jobs = fn("9.9.9")
+    keys = [" ".join(requirements) for requirements, _probe in jobs]
+    assert len(keys) == len(set(keys)), f"two kit jobs share a key: {sorted(keys)}"
+    return dict(zip(keys, (probe for _requirements, probe in jobs), strict=True))
 
 
 def _probe_imports(probe: str) -> list[str]:
@@ -263,23 +279,56 @@ def test_gated_kit_job_probes_no_plugin_package_present(spec: str) -> None:
 
 
 def test_one_kit_job_per_gate_extra_imports_exactly_that_extras_modules() -> None:
+    """Besides the bare and gated mloda-testing jobs, the only other kit job is the license kit job."""
     jobs = _kit_jobs()
     gated = {gate: modules for gate, modules in kit_map.kit_modules().items() if gate is not None}
-    assert set(jobs) == {"mloda-testing==9.9.9"} | {f"mloda-testing[{gate}]==9.9.9" for gate in gated}, sorted(jobs)
+    assert set(jobs) == (
+        {"mloda-testing==9.9.9", _LICENSE_KIT_KEY} | {f"mloda-testing[{gate}]==9.9.9" for gate in gated}
+    ), sorted(jobs)
     for gate, modules in gated.items():
         imported = sorted(_probe_imports(jobs[f"mloda-testing[{gate}]==9.9.9"]))
         assert imported == sorted(modules), f"the [{gate}] kit job imports {imported}, expected {sorted(modules)}"
 
 
-def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Fake subprocess.run; the list collects every requirement passed to 'uv pip install'."""
-    requirements: list[str] = []
+def test_license_kit_job_probes_the_shipped_modules_of_published_extras() -> None:
+    """The license kit job imports the shipped modules and names published packages' declared extras."""
+    probe = _kit_jobs()[_LICENSE_KIT_KEY]
+    imported = _probe_imports(probe)
+    expected = [_LICENSE_KIT_PREFIX] + [
+        f"{_LICENSE_KIT_PREFIX}.{name}" for name in ("conformance", "license_vectors", "licensed_binary")
+    ]
+    assert set(expected) <= set(imported), f"license kit probe imports {imported}, expected at least {expected}"
+    outside = [
+        name for name in imported if name != _LICENSE_KIT_PREFIX and not name.startswith(f"{_LICENSE_KIT_PREFIX}.")
+    ]
+    assert outside == [], f"license kit probe imports modules outside {_LICENSE_KIT_PREFIX}: {outside}"
+    assert "find_spec" not in probe, f"license kit probe must not assert module absence: {probe!r}"
+
+    packages = load_toml(_PACKAGES_CONFIG)["packages"]
+    for requirement in _LICENSE_KIT_KEY.split(" "):
+        name, _, rest = requirement.partition("[")
+        extra = rest.split("]")[0]
+        assert name in packages and packages[name].get("published") is True, f"{name} is not a published package"
+        assert extra in packages[name].get("optional_dependencies", {}), f"{name} declares no extra {extra!r}"
+
+
+def test_kit_jobs_reject_a_license_kit_path_with_no_shipped_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty license kit probe would pass without checking anything, so kit_jobs must refuse it."""
+    missing = "mloda/enterprise/no_such_kit"
+    monkeypatch.setattr(module, "LICENSE_KIT_PATH", missing)
+    with pytest.raises(ValueError, match=re.escape(missing)):
+        module.kit_jobs("9.9.9")
+
+
+def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Fake subprocess.run; the list collects the requirements of each 'uv pip install' call."""
+    requirements: list[list[str]] = []
     lock = threading.Lock()
 
     def _fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeCompletedProcess:
         if command[:3] == ["uv", "pip", "install"]:
             with lock:
-                requirements.extend(command[5:])
+                requirements.append(command[5:])
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
@@ -294,5 +343,10 @@ def test_main_installs_every_kit_job_specifier(
     header = next(line for line in capsys.readouterr().out.splitlines() if "Installing" in line)
     assert f"+ {len(_kit_jobs())} kit jobs" in header, f"main() header does not count the kit jobs: {header!r}"
     assert exit_code == 0, f"main() exited {exit_code!r} against an all-success fake, expected 0"
-    missing = [spec for spec in _kit_jobs() if spec not in requirements]
-    assert missing == [], f"main() never installed the kit job specifier(s) {missing}"
+    installed = [requirement for call in requirements for requirement in call]
+    missing = [spec for key in _kit_jobs() for spec in key.split(" ") if spec not in installed]
+    assert missing == [], f"main() never installed the kit job requirement(s) {missing}"
+    license_requirements = _LICENSE_KIT_KEY.split(" ")
+    assert any(all(spec in call for spec in license_requirements) for call in requirements), (
+        f"main() did not install {license_requirements} in one 'uv pip install' call: {requirements}"
+    )

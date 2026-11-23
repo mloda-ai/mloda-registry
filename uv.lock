@@ -1962,6 +1962,9 @@ anonymizer = [
     { name = "mloda-anonymizer-binary" },
     { name = "pyarrow" },
 ]
+dev = [
+    { name = "cryptography" },
+]
 ed25519 = [
     { name = "cryptography" },
 ]
@@ -1974,6 +1977,7 @@ otel = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", marker = "extra == 'dev'", specifier = ">=42" },
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.21.0,<0.22.0" },
     { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.3,<0.2.0" },
@@ -1983,7 +1987,7 @@ requires-dist = [
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.37,<2" },
     { name = "pyarrow", marker = "extra == 'anonymizer'", specifier = ">=25" },
 ]
-provides-extras = ["ed25519", "otel", "openlineage", "anonymizer"]
+provides-extras = ["ed25519", "otel", "openlineage", "anonymizer", "dev"]
 
 [[package]]
 name = "mloda-enterprise-anonymizer"

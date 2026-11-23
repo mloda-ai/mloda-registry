@@ -46,7 +46,7 @@ set, tox envs and verify scripts are the ones that release shipped, not main's. 
 | Env | Checks |
 |-----|--------|
 | `verify-published` | The released set installs together and imports |
-| `verify-published-independent` | Every published distribution installs and imports on its own |
+| `verify-published-independent` | Every published distribution installs and imports on its own, plus every module under `mloda/enterprise/licensing/testing/` with `mloda-enterprise[ed25519]` and `mloda-testing[binary-model]` installed |
 | `verify-extras` | The `[all]` extras resolve and pull in their variants, and each bundle's third-party extras install |
 | `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
 
