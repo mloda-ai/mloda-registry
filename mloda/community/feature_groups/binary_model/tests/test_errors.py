@@ -7,6 +7,8 @@ array instead of an object) falls back to ``BinaryInternalError``.
 from __future__ import annotations
 
 import json
+import logging
+import traceback
 
 import pytest
 
@@ -60,6 +62,7 @@ def test_error_class_code_and_message(error_class: type[BinaryModelError], expec
     assert str(exc) == "something went wrong"
     assert isinstance(exc, ValueError)
     assert isinstance(exc, BinaryModelError)
+    assert exc.stderr_excerpt is None
 
 
 @pytest.mark.parametrize(
@@ -160,6 +163,89 @@ def test_error_from_exit_ignores_earlier_diagnostic_lines() -> None:
     assert exc.message == "malformed input"
 
 
+@pytest.mark.parametrize(
+    "returncode, stderr, error_class, message",
+    [
+        pytest.param(
+            5,
+            b"diagnostic-only-private-value\nloading input\n" + _stderr_line(5, "malformed input"),
+            DataError,
+            "malformed input",
+            id="structured-error-after-debug-lines",
+        ),
+        pytest.param(
+            127,
+            b"Traceback from binary\ndiagnostic-only-private-value\n",
+            BinaryInternalError,
+            "binary failed with unrecognized exit code 127 and no parseable error object",
+            id="crash-before-error-handler",
+        ),
+        pytest.param(
+            -9,
+            b"native failure\ndiagnostic-only-private-value\n",
+            BinaryInternalError,
+            "binary failed with unrecognized signal -9 and no parseable error object",
+            id="signal",
+        ),
+    ],
+)
+def test_failed_exit_exposes_diagnostics_only_through_explicit_attribute(
+    returncode: int,
+    stderr: bytes,
+    error_class: type[BinaryModelError],
+    message: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        exc = error_from_exit(returncode, stderr)
+
+    assert type(exc) is error_class
+    assert exc.code == error_class.CODE
+    assert exc.message == str(exc) == message
+    assert exc.args == (message,)
+    assert not getattr(exc, "__notes__", ())
+    assert "diagnostic-only-private-value" not in "".join(traceback.format_exception_only(exc))
+    assert "diagnostic-only-private-value" not in caplog.text
+    assert exc.stderr_excerpt == stderr.decode("utf-8").rstrip("\n")
+
+
+def test_failed_exit_excerpt_keeps_only_last_five_nonblank_lines() -> None:
+    last = _stderr_line(5, "malformed input")
+    stderr = b"discard-one\ndiscard-two\none\n\ntwo\n \nthree\nfour\n" + last + b"\n\t\n"
+
+    exc = error_from_exit(5, stderr)
+
+    assert exc.stderr_excerpt == "one\ntwo\nthree\nfour\n" + last.decode("utf-8").rstrip("\n")
+
+
+def test_failed_exit_excerpt_keeps_bounded_multibyte_tail() -> None:
+    stderr = ("discard-head\n" + "\u2603" * 500 + "\nlast diagnostic").encode("utf-8")
+
+    excerpt = error_from_exit(127, stderr).stderr_excerpt
+
+    assert excerpt is not None
+    assert 0 < len(excerpt.encode("utf-8")) <= contract.MESSAGE_MAX_BYTES
+    assert excerpt.startswith("\u2603")
+    assert excerpt.endswith("\nlast diagnostic")
+    assert "discard-head" not in excerpt
+    assert "\ufffd" not in excerpt
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        pytest.param(b"", id="empty"),
+        pytest.param(b"\n \n\t\n", id="blank"),
+        pytest.param(b"outside-tail-window\n" + b"\n" * (64 * 1024), id="only-diagnostic-outside-window"),
+    ],
+)
+def test_failed_exit_has_no_excerpt_without_diagnostics_in_tail(stderr: bytes) -> None:
+    exc = error_from_exit(127, stderr)
+
+    assert isinstance(exc, BinaryInternalError)
+    assert exc.stderr_excerpt is None
+
+
 def test_error_from_exit_unparseable_stderr_becomes_internal_error() -> None:
     exc = error_from_exit(5, b"not json at all")
     assert isinstance(exc, BinaryInternalError)
@@ -206,6 +292,7 @@ def test_error_from_exit_never_raises_on_non_utf8_stderr() -> None:
     exc = error_from_exit(5, b"\xff\xfe not valid utf-8 \x00")
     assert isinstance(exc, BinaryInternalError)
     assert exc.code == 6
+    assert exc.stderr_excerpt == "\ufffd\ufffd not valid utf-8 \x00"
 
 
 def test_error_from_exit_never_raises_on_a_lone_surrogate_message() -> None:

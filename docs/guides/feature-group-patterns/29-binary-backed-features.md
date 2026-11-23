@@ -167,6 +167,14 @@ The simulated license is not a license: only the simulated binary and fakes buil
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks=[PyArrowTable]` and `PluginCollector.enabled_feature_groups({StubExample, ApiDataFG})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryNotInstalledError`, and a run without a license `LicenseMissingError`.
 
+For diagnostics after a non-zero exit, catch `BinaryModelError` from
+`mloda.community.feature_groups.binary_model.errors`; in a test using
+`with pytest.raises(BinaryModelError) as excinfo:`, read `excinfo.value.stderr_excerpt`.
+It is `str | None`: the last five non-blank lines found in stderr's last 64 KiB,
+capped at 1024 UTF-8 bytes, or `None` when no diagnostics are captured. It defaults to
+`None` on directly constructed errors. This failure excerpt is not automatically
+included in the exception message, exception notes or logs.
+
 For `AnonymizerFeatureGroup` subclasses, `mloda-testing[binary-model]` also ships an `hmac_sha256` fake; `--plugin-id` makes it answer as `anonymizer_binary` (an argument, not an env var: the mixin passes the binary a minimal environment):
 
 ```python

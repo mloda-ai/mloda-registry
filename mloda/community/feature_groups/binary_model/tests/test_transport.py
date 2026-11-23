@@ -1219,13 +1219,21 @@ class TestRunBinary:
                 )
         assert excinfo.value.code == 2
 
-    def test_garbage_stderr_raises_binary_internal_error(self, tmp_path: Path) -> None:
+    def test_garbage_stderr_raises_binary_internal_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.DEBUG, logger=transport.__name__)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryInternalError) as excinfo:
                 _run_binary(
                     [*FAULTY_CMD, "--mode", "garbage_stderr"], {"PATH": os.defpath}, _hash_config(), b"", inv.path
                 )
         assert excinfo.value.code == 6
+        assert "not json at all" not in str(excinfo.value)
+        assert "not json at all" not in caplog.text
+        assert not getattr(excinfo.value, "__notes__", ())
+        assert excinfo.value.stderr_excerpt is not None
+        assert excinfo.value.stderr_excerpt.splitlines() == ["not json at all"]
 
     def test_signal_terminated_binary_raises_binary_internal_error(self, tmp_path: Path) -> None:
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
