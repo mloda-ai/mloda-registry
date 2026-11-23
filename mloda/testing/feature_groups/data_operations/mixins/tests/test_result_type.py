@@ -329,28 +329,25 @@ class TestRunsThatDoNotHappen:
 
 class TestShapeFailuresBeyondTheType:
     @pytest.mark.parametrize(
-        ("kind", "matches_any", "expected"),
+        ("kind", "matches_any", "expected", "typed"),
         [
-            pytest.param("zero_type", False, "zero_rows", id="zero_rows_type_change_on_output"),
-            pytest.param("rewrite", False, "was changed", id="input_column_changed"),
-            pytest.param("exact", True, "foreign", id="match_time_foreign_name"),
+            pytest.param("zero_type", False, "zero_rows", True, id="zero_rows_type_change_on_output"),
+            pytest.param("rewrite", False, "was changed", True, id="input_column_changed"),
+            pytest.param("exact", True, "foreign", True, id="match_time_foreign_name"),
             pytest.param(
                 "zero_retype",
                 False,
                 "column 'value_int' changes type on zero rows",
+                True,
                 id="group_retypes_input_on_zero_rows",
             ),
+            pytest.param("zero_type", False, "zero_rows", False, id="untyped_group_zero_rows_type_change"),
         ],
     )
-    def test_failure_fails_the_test(self, kind: str, matches_any: bool, expected: str) -> None:
-        outcome = _run("pyarrow", kind=kind, matches_any=matches_any)
+    def test_failure_fails_the_test(self, kind: str, matches_any: bool, expected: str, typed: bool) -> None:
+        outcome = _run("pyarrow", kind=kind, matches_any=matches_any, typed=typed)
         assert outcome.state == "failed"
         assert expected in outcome.message
-
-    def test_untyped_group_fails_on_a_shape_finding(self) -> None:
-        outcome = _run("pyarrow", kind="zero_type", typed=False)
-        assert outcome.state == "failed"
-        assert "zero_rows" in outcome.message
 
     @pytest.mark.parametrize(
         ("failure", "keyword", "columns", "blocks"),
