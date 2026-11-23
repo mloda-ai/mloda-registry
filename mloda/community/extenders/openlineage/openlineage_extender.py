@@ -194,26 +194,28 @@ def _requested_features(steps: Any) -> list[str] | None:
         return None
 
 
-def _lossy_transfers(steps: Any) -> list[dict[str, Any]] | None:
-    """Snapshot the plan's potential NaN/null loss advisories, without options or data."""
-    transfers: list[dict[str, Any]] = []
-    for index, step in enumerate(steps or (), start=1):
-        if not getattr(step, "potential_nan_null_loss", False):
-            continue
-        record: dict[str, Any] = {
-            "stepIndex": index,
-            "stepKind": step.step_kind,
-            "potentialNanNullLoss": True,
-        }
-        for field_name, attribute in (
-            ("computeFramework", "compute_framework_name"),
-            ("sourceComputeFramework", "source_compute_framework_name"),
-            ("resultFramework", "result_framework_name"),
-        ):
-            if (name := getattr(step, attribute, None)) is not None:
-                record[field_name] = name
-        transfers.append(record)
-    return transfers or None
+def _potential_nan_null_loss(steps: Any) -> list[dict[str, Any]] | None:
+    """Snapshot the plan steps flagged with potential NaN/null loss, without options or data."""
+    try:
+        flagged: list[dict[str, Any]] = []
+        for index, step in enumerate(steps or ()):
+            if getattr(step, "potential_nan_null_loss", False) is not True:
+                continue
+            record: dict[str, Any] = {"stepIndex": index}
+            step_kind = getattr(step, "step_kind", None)
+            if isinstance(step_kind, str):
+                record["stepKind"] = step_kind
+            for field_name, attribute in (
+                ("computeFramework", "compute_framework_name"),
+                ("sourceComputeFramework", "source_compute_framework_name"),
+                ("resultFramework", "result_framework_name"),
+            ):
+                if (name := getattr(step, attribute, None)) is not None:
+                    record[field_name] = str(name)
+            flagged.append(record)
+        return flagged or None
+    except Exception:
+        return None
 
 
 def _processing_engine_facet(producer: str) -> processing_engine_run.ProcessingEngineRunFacet | None:
@@ -462,7 +464,7 @@ class OpenLineageExtender(Extender):
         plan: PlanContext | None,
         event_time: str,
         requested: list[str] | None = None,
-        lossy_transfers: list[dict[str, Any]] | None = None,
+        nan_null_loss: list[dict[str, Any]] | None = None,
     ) -> RunEvent:
         assert run.run_id is not None
         facets: dict[str, Any] = {}
@@ -475,7 +477,7 @@ class OpenLineageExtender(Extender):
                 structureHash=plan.structure_hash,
                 origin=plan.origin,
                 requestedFeatures=requested,
-                lossyTransfers=[dict(record) for record in lossy_transfers] if lossy_transfers else None,
+                potentialNanNullLoss=[dict(record) for record in nan_null_loss] if nan_null_loss else None,
                 producer=self.producer,
             )
         if self._parent is not None:
@@ -508,9 +510,9 @@ class OpenLineageExtender(Extender):
         started_at = run.started_at.isoformat() if run.started_at is not None else _now_iso()
         try:
             requested = _requested_features(steps)
-            lossy_transfers = _lossy_transfers(steps)
+            nan_null_loss = _potential_nan_null_loss(steps)
             emitted = self._emit(
-                self._parent_event(RunState.START, run, plan, started_at, requested, lossy_transfers), run_id=run.run_id
+                self._parent_event(RunState.START, run, plan, started_at, requested, nan_null_loss), run_id=run.run_id
             )
         except Exception as exc:
             if self.raise_on_error:
@@ -520,7 +522,7 @@ class OpenLineageExtender(Extender):
         if emitted:
             with self._client_lock:
                 self._started_runs.add(run.run_id)
-            self._plans[run.run_id] = (plan, requested, lossy_transfers)
+            self._plans[run.run_id] = (plan, requested, nan_null_loss)
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         if run.run_id is None:
@@ -530,10 +532,10 @@ class OpenLineageExtender(Extender):
                 started = run.run_id in self._started_runs
             if started:
                 state = {"succeeded": RunState.COMPLETE, "failed": RunState.FAIL}.get(outcome.status, RunState.ABORT)
-                plan, requested, lossy_transfers = self._plans.get(run.run_id, (None, None, None))
+                plan, requested, nan_null_loss = self._plans.get(run.run_id, (None, None, None))
                 try:
                     self._emit(
-                        self._parent_event(state, run, plan, _now_iso(), requested, lossy_transfers), run_id=run.run_id
+                        self._parent_event(state, run, plan, _now_iso(), requested, nan_null_loss), run_id=run.run_id
                     )
                 except Exception as exc:
                     if self.raise_on_error:
