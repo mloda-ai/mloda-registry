@@ -56,6 +56,16 @@ feature = Feature(
 
 The push is one hop: an input feature does not push the keys on to its own inputs. For a name-chained feature such as `a__b__c`, a key pushed from the requested feature reaches `a__b`, not the root `a`. To reach every level, list the key in `cascade_context_keys` instead (also in the JSON feature config); see core's [Context propagation](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/property-mapping.md#context-propagation) for its limits. Group options also forward down the whole chain, but they are part of feature identity and resolution at every level; a credential handle key forwards only past a consumer that does not declare it (see [Secrets](#secrets)). A feature group author can instead pull a key level by level with `inherit_context_keys` (see [Input-Feature Option Forwarding](26-input-feature-forwarding.md)).
 
+On a core release containing [mloda #2942](https://github.com/mloda-ai/mloda/issues/2942), planning
+warns when a key is passed in an uncascaded `context`, the requested feature's own group does not
+declare it, and a resolved input group declares the key with `property_spec(..., context=False)`
+but is missing the setting. A successful pull with `inherit_context_keys`, a one-hop push that
+reaches that group, an explicit input setting, or an already equal effective value keeps that
+consumer quiet. Keeping the key local can otherwise leave the downstream reader without it.
+The warning names the key and suggests either putting it in `Options(group={...})` or keeping it
+in `context` and listing it in `cascade_context_keys`; it does not disclose option values.
+The registry's locked `mloda==0.21.0` does not yet emit this warning.
+
 A key that a consumer and its input both read is declared only on the group the user requests; the input reads the forwarded value from `feature.options`, and declaring it on both logs a warning. A credential handle key is the exception: each group that reads it declares it, and the consumer sets it on the input itself (see [A Credential Handle the Input Reads Too](26-input-feature-forwarding.md#a-credential-handle-the-input-reads-too)).
 
 Use the push sparingly; most context should remain local. Typical use: a key the direct input features need, such as a trace ID or a tenant identifier.
