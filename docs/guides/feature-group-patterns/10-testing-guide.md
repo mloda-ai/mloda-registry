@@ -210,9 +210,14 @@ def test_empty_source_keeps_schema():
 
 `assert_subclass_scope(Subclass, Parent, selecting)` from `mloda.testing.subclass_scope` checks that the parent resolves without the selecting options, the subclass resolves with them, and another value of a selecting key does not select the subclass (gating on the key's mere presence fails as a steal). With `input_data=` (a `TypedTestData`) it also runs both groups and compares the output columns; a changed column passes only when a divergence record the subclass declares covers it, and a comparison that cannot run fails unless `require_run=False`; details in [core's doc](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/troubleshooting/feature-group-resolution-errors.md#a-loaded-subclass-replaces-its-parent). A pattern-matching parent needs `requests=`. A selecting key that configures the subclass without selecting it also goes in `free=`, which skips its other-value probe.
 
+`RoundedPrices` declares its own `DIVERGENCES` tuple (see [kinds and causes](09-framework-specific.md#reference-contract-and-divergence)); records inherited unchanged from the parent do not cover a new difference.
+The input below includes fractional cents, so the check compares values that rounding actually changes.
+
 ```python
+from mloda.provider import Cause, Divergence, DivergenceKind
 from mloda.testing.subclass_scope import assert_subclass_scope
-from mloda.user import Feature, Options
+from mloda.testing.typed_data import TypedTestData
+from mloda.user import DataType, Feature, Options
 
 
 class Prices(FeatureGroup):
@@ -233,6 +238,15 @@ class Prices(FeatureGroup):
 
 
 class RoundedPrices(Prices):
+    DIVERGENCES = (
+        Divergence(
+            kind=DivergenceKind.VALUE,
+            cause=Cause.OTHER,
+            reason="rounds to cents",
+            docs="rounding='cents' rounds price_eur to two decimal places",
+        ),
+    )
+
     @classmethod
     def match_feature_group_criteria(
         cls, feature_name: Any, options: Options, data_access_collection: Any = None
@@ -246,7 +260,12 @@ class RoundedPrices(Prices):
 
 
 def test_rounded_prices_scope():
-    assert_subclass_scope(RoundedPrices, Prices, Options(group={"rounding": "cents"}))
+    assert_subclass_scope(
+        RoundedPrices,
+        Prices,
+        Options(group={"rounding": "cents"}),
+        input_data=TypedTestData({"price": (DataType.DOUBLE, [1.234, 5.678])}),
+    )
 ```
 
 ## Mocking Feature Dependencies

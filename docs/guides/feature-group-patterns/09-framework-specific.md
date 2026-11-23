@@ -145,6 +145,22 @@ assert arrow_out["value__doubled"].to_pylist() == [2, 4]
 
 ## Reference Contract and Divergence
 
+FeatureGroup subclasses declare their own differences in a `DIVERGENCES` tuple;
+Implementations use the lowercase `divergences` attribute. Both contain `Divergence`
+records from `mloda.provider`, with these `DivergenceKind` values:
+
+| Kind | Meaning |
+|------|---------|
+| `VALUE` | Output values differ from the reference. |
+| `TYPE` | Output types differ from the reference. |
+| `VARIANT` | A named alternate contract, requiring a `variant` listed in the group's `VARIANTS` and selected through `allow_variants`. |
+| `GAP` | A known limitation; it does not excuse a changed value in `assert_subclass_scope`. |
+
+Choose `Cause.NOT_IMPLEMENTED` for missing behavior, `Cause.BACKEND` for backend semantics,
+`Cause.ENVIRONMENT` for environment constraints, or `Cause.OTHER` for another reason.
+Give a one-line `reason`; `Cause.OTHER` also requires non-empty `docs` explaining the difference.
+See the runnable [RoundedPrices subclass example](10-testing-guide.md#subclasses-that-take-over-on-an-option).
+
 `divergences` is measured against a reference contract documented on the group, keyed by the subtypes it declares in `SUBTYPES`. Implementations that follow the contract declare nothing:
 
 ```python
