@@ -240,9 +240,7 @@ Each line is one event. Per run:
 - **Inputs:** loaded datasets with `dataSource` (core's data-access identity) and the step's declared input features.
 - **COMPLETE outputs:** one per feature, with `schema` and, when the compute framework can count the result's rows (not for lazy frames), `outputStatistics.rowCount`. The count is the step's, repeated on every output of a multi-output step, so never sum it across outputs. Each output also gets an `mlodaFailedRows` facet (`count`, per-column `count` and `reasons`) when failed rows were reported for it: a column that equals an output name goes to that output only, otherwise a `name~part` column goes to the output with the longest matching `name~` prefix. Entries matching no output appear in spans, metrics and audit only. Every output also gets an `mlodaResult` facet (`attributes`) with the step's published result attributes, absent when nothing was published.
 
-The optional root-run `mlodaPlan.lossyTransfers` field reports plan steps with potential NaN/null
-loss when core provides that advisory; it is absent on the locked core 0.21.0. See
-[Run correlation](11-create-extender.md#run-correlation) for the fields and version requirement.
+The root run's `mlodaPlan` facet may also carry `lossyTransfers` (potential NaN/null loss per plan step); see [Run correlation](11-create-extender.md#run-correlation).
 
 Notes:
 

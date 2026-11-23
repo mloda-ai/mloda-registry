@@ -5039,7 +5039,7 @@ class TestOpenLineageExtenderSigterm:
         assert (tmp_path / "closed.marker").exists()
 
 
-_NAN_NULL_PRIVATE = "PRIVATE_NAN_NULL_LOSS_VALUE_2964"
+_NAN_NULL_PRIVATE = "PRIVATE_NAN_NULL_LOSS_VALUE"
 
 
 def _nan_null_loss_step(
@@ -5054,7 +5054,7 @@ def _nan_null_loss_step(
 
     base = classified_step(
         InternalGroup,
-        ("nan_null_lineage_2964",),
+        ("nan_null_lineage",),
         kind=kind,
         options=Options(group={"fixture_option": _NAN_NULL_PRIVATE}, context={"fixture_context": _NAN_NULL_PRIVATE}),
     )
