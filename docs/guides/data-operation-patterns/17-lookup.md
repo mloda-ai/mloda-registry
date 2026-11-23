@@ -66,10 +66,10 @@ A `ValueError` subclass raised by policy `raise`; the group exposes the class as
 | `reasons` | Reasons from `resolve_unmatched_reasons`, restricted to the sample. |
 
 ```text
-product_code__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300', 'D400']
+product_code__lookup: 3 rows, 2 distinct keys not in the mapping. A sorted sample of up to 10 keys is on the error's sample attribute.
 ```
 
-A key with a reason renders as `'C300' (reason text)`. The message carries up to ten source key values, so they reach any log that records the error.
+The message carries counts only, never a source value; read the keys from `err.sample` and `err.reasons`.
 
 ---
 
@@ -82,7 +82,7 @@ Use the hook instead of the option for large or external tables.
 | `MAPPING_FROM_OPTION = False` | The subclass supplies its own mapping and matches by feature name only. It does not match through the config path. |
 | `PREFIX_PATTERN` | Required, must differ from the base `r".*__lookup$"` (a subclass that keeps it raises `TypeError` at class definition). |
 | `resolve_mapping(feature)` | Returns the mapping. Validated with the same rules as the option. |
-| `resolve_unmatched_reasons(feature)` | Optional. Returns `{key: reason}` for the error message. |
+| `resolve_unmatched_reasons(feature)` | Optional. Returns `{key: reason}` for the error's `reasons`. |
 
 ```py
 class NutsMapping:

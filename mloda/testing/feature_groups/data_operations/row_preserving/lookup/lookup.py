@@ -209,17 +209,22 @@ class LookupTestBase(
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        """One mapping per value family, each read off ``product_code`` (holds a null)."""
+        """One mapping per value family read off ``product_code`` (holds a null), plus one raising case."""
         mappings = {
             "STRING": PARTIAL_STR_MAP,
             "INT64": STR_TO_INT_MAP,
             "DOUBLE": STR_TO_FLOAT_MAP,
             "BOOLEAN": STR_TO_BOOL_MAP,
         }
-        return {
+        cases = {
             family: make_feature_set("product_code__lookup", lookup_mapping=mapping, on_unmatched="null")
             for family, mapping in mappings.items()
         }
+        # Every fixture key matches; core's perturbed run does not, so error_values inspects the raised text.
+        cases["STRING_raise"] = make_feature_set(
+            "product_code__lookup", lookup_mapping=FULL_STR_MAP, on_unmatched="raise"
+        )
+        return cases
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -403,7 +408,8 @@ class LookupTestBase(
                 3,
                 2,
                 ("C300", "D400"),
-                "product_code__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300', 'D400']",
+                "product_code__lookup: 3 rows, 2 distinct keys not in the mapping. "
+                "A sorted sample of up to 10 keys is on the error's sample attribute.",
                 id="str_keys",
             ),
             pytest.param(
@@ -412,7 +418,8 @@ class LookupTestBase(
                 3,
                 2,
                 (3, 4),
-                "store_id__lookup: 3 rows, 2 distinct keys not in the mapping. Sample: [3, 4]",
+                "store_id__lookup: 3 rows, 2 distinct keys not in the mapping. "
+                "A sorted sample of up to 10 keys is on the error's sample attribute.",
                 id="int_keys",
             ),
         ],
@@ -676,5 +683,6 @@ class LookupTestBase(
         assert type(err) is hook.UNMATCHED_ERROR
         assert dict(err.reasons) == HOOK_REASONS
         assert str(err) == (
-            f"{name}: 3 rows, 2 distinct keys not in the mapping. Sample: ['C300' (discontinued), 'D400']"
+            f"{name}: 3 rows, 2 distinct keys not in the mapping. "
+            "A sorted sample of up to 10 keys is on the error's sample attribute."
         )
