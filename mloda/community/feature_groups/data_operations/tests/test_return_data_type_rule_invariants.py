@@ -461,9 +461,8 @@ def test_matched_config_boundary_never_raises(
 
 # --- result-type case coverage (registry-driven) ------------------------------
 #
-# Every generated name whose rule returns a type must have its (canonical subtype, DataType) among
-# the ``result_type_cases()`` of the family's kit test base, so a new typed op cannot ship without
-# its output type being checked on every framework. Lookup has no subtypes (subtype is None).
+# Every typed generated name must have its (canonical subtype, DataType) in its kit base's
+# ``result_type_cases()``. Lookup has no subtypes (subtype is None).
 
 KIT_RESULT_TYPE_BASES: dict[str, type[Any]] = {
     "aggregation": AggregationTestBase,
@@ -493,7 +492,7 @@ def _typed_pair(group: Any, name: str, options: Options) -> tuple[str | None, Da
 
 
 def test_result_type_bases_cover_every_typed_family() -> None:
-    """The family -> kit base map names exactly the eleven typed families."""
+    """The family -> kit base map names exactly the typed families."""
     assert {spec.key for spec in _TYPED_SPECS} == set(KIT_RESULT_TYPE_BASES)
     assert len(KIT_RESULT_TYPE_BASES) == len(ALL_BASE_CLASSES)
 

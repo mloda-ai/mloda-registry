@@ -199,6 +199,19 @@ class TestDivergenceRecords:
         assert outcome.state == "failed"
         assert "int32" in outcome.message
 
+    @pytest.mark.parametrize(
+        "records",
+        [
+            pytest.param({"impl_records": (_record(DivergenceKind.GAP),)}, id="gap_on_implementation"),
+            pytest.param({"group_records": (_record(DivergenceKind.GAP),)}, id="gap_on_group"),
+            pytest.param({"impl_records": (_record(DivergenceKind.GAP, "cnt"),)}, id="gap_for_the_subtype"),
+        ],
+    )
+    def test_gap_record_does_not_excuse_a_column_that_lost_its_type(self, records: dict[str, Any]) -> None:
+        outcome = _run("pandas", kind="text", rule=DataType.INT64, **records)
+        assert outcome.state == "failed"
+        assert "out_cnt" in outcome.message
+
 
 class TestUnresolvedType:
     @pytest.mark.parametrize("framework", ["pandas", "pandas_object_string"])
