@@ -32,6 +32,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
     SUPPORTED_SCALAR_AGG_TYPES,
 )
@@ -104,7 +105,12 @@ NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
 
 
 class ScalarAggregateTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    NanPolicyTestMixin,
+    MaskTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for scalar aggregate framework tests."""
 
@@ -112,6 +118,13 @@ class ScalarAggregateTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_scalar")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        counting = cls.feature_group_class()._COUNTING_AGG_TYPES
+        return {t: make_feature_set(f"value_int__{t}_scalar") for t in sorted(counting)}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

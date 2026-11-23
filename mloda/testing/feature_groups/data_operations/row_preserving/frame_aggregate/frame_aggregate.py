@@ -41,6 +41,7 @@ from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMix
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
     SINGLE_VALUE_VAR,
@@ -279,6 +280,7 @@ class FrameAggregateTestBase(
     SingleValueStdVarTestMixin,
     ReservedColumnsTestMixin,
     MaskTestMixin,
+    ResultTypeTestMixin,
     DataOpsTestBase,
 ):
     """Abstract base class for frame aggregate framework tests."""
@@ -287,6 +289,36 @@ class FrameAggregateTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_data(cls) -> TypedTestData:
+        """Small typed table: ``value_int`` holds a null, ``ts`` none (time windows reject a null order column)."""
+        return TypedTestData(
+            {
+                "region": (DataType.STRING, ["A", "A", "A", "B"]),
+                "ts": (
+                    DataType.TIMESTAMP_MICROS_TZ,
+                    [datetime(2023, 1, day, tzinfo=timezone.utc) for day in (1, 2, 3, 4)],
+                ),
+                "value_int": (DataType.INT64, [10, None, 30, 40]),
+            }
+        )
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        names = {
+            "rolling": "value_int__count_rolling_3",
+            "time": "value_int__count_2_day_window",
+            "cumulative": "value_int__cumcount",
+            "expanding": "value_int__expanding_count",
+        }
+        return {
+            frame: make_feature_set(name, ["region"], "ts")
+            for frame, name in names.items()
+            if frame in cls.supported_frame_types()
+        }
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

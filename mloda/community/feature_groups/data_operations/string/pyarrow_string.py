@@ -46,4 +46,6 @@ class PyArrowStringOps(Implementation[StringFeatureGroup]):
 
         col = table.column(source_col)
         new_col = getattr(pc, func_name)(col)
+        if op == "length":
+            new_col = new_col.cast(pa.int64())
         return table.append_column(feature_name, new_col)

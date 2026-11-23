@@ -109,7 +109,9 @@ def _run(
         DIVERGENCES = group_records
 
         @classmethod
-        def match_feature_group_criteria(cls, feature_name: Any, options: Any, data_access_collection: Any = None) -> bool:
+        def match_feature_group_criteria(
+            cls, feature_name: Any, options: Any, data_access_collection: Any = None
+        ) -> bool:
             return str(feature_name).startswith("out_")
 
         @classmethod
@@ -140,7 +142,7 @@ def _run(
     if supported is not None:
         _Impl.supported = supported
     namespace: dict[str, Any] = {
-        "implementation_class": classmethod(lambda cls: _Impl),
+        "implementation_class": classmethod(lambda cls, impl=_Impl: impl),
         "result_type_cases": classmethod(lambda cls: {} if empty_cases else {_CASE: make_feature_set(_CASE)}),
     }
     if data is not None:
@@ -287,4 +289,3 @@ class TestSupportAndVariants:
         outcome = _run("pyarrow")
         assert outcome.seen_options
         assert all(options.get("allow_variants") is None for options in outcome.seen_options)
-

@@ -78,6 +78,24 @@ from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_co
     _load_class,
     generate_valid_names,
 )
+from mloda.testing.feature_groups.data_operations.aggregation.aggregation import AggregationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import ResampleTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import BinningTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import DateTimeTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
+    FrameAggregateTestBase,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import LookupTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import OffsetTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import RankTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
+    ScalarAggregateTestBase,
+)
+from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
+    WindowAggregationTestBase,
+)
+from mloda.testing.feature_groups.data_operations.string.string import StringTestBase
 
 # The eleven base classes that declare a deterministic output type. Kept as a named
 # tuple so both tests can assert they cover all eleven.
@@ -439,3 +457,63 @@ def test_matched_config_boundary_never_raises(
         return
     result = feature_group_class.return_data_type_rule(Feature(feature_name, options=options))
     assert result is None or isinstance(result, DataType)
+
+
+# --- result-type case coverage (registry-driven) ------------------------------
+#
+# Every generated name whose rule returns a type must have its (canonical subtype, DataType) among
+# the ``result_type_cases()`` of the family's kit test base, so a new typed op cannot ship without
+# its output type being checked on every framework. Lookup has no subtypes (subtype is None).
+
+KIT_RESULT_TYPE_BASES: dict[str, type[Any]] = {
+    "aggregation": AggregationTestBase,
+    "window_aggregation": WindowAggregationTestBase,
+    "scalar_aggregate": ScalarAggregateTestBase,
+    "frame_aggregate": FrameAggregateTestBase,
+    "resample": ResampleTestBase,
+    "datetime": DateTimeTestBase,
+    "binning": BinningTestBase,
+    "lookup": LookupTestBase,
+    "string": StringTestBase,
+    "offset": OffsetTestBase,
+    "rank": RankTestBase,
+}
+
+_TYPED_SPECS = [spec for spec in FAMILIES if spec.key in KIT_RESULT_TYPE_BASES]
+
+
+def _typed_pair(group: Any, name: str, options: Options) -> tuple[str | None, DataType] | None:
+    """(canonical subtype, declared DataType) of a feature, or None when its rule returns no type."""
+    declared = group.return_data_type_rule(Feature(name, options=options))
+    if declared is None:
+        return None
+    subtype = group.resolve_subtype(name, options)
+    canonical = group.canonical_subtype(subtype) if subtype is not None else None
+    return (canonical if canonical in group.subtype_universe() else None), declared
+
+
+def test_result_type_bases_cover_every_typed_family() -> None:
+    """The family -> kit base map names exactly the eleven typed families."""
+    assert {spec.key for spec in _TYPED_SPECS} == set(KIT_RESULT_TYPE_BASES)
+    assert len(KIT_RESULT_TYPE_BASES) == len(ALL_BASE_CLASSES)
+
+
+@pytest.mark.parametrize("spec", _TYPED_SPECS, ids=[spec.key for spec in _TYPED_SPECS])
+def test_every_typed_generated_name_is_covered_by_the_kit_result_type_cases(spec: Any) -> None:
+    """Each typed generated name has its (subtype, DataType) among its kit base's ``result_type_cases()``."""
+    group = _load_class(spec)
+    probe: type[ResultTypeTestMixin] = type(
+        "_ResultTypeProbe", (KIT_RESULT_TYPE_BASES[spec.key],), {"feature_group_class": classmethod(lambda c: group)}
+    )
+    covered: set[tuple[str | None, DataType]] = set()
+    for feature_set in probe.result_type_cases().values():
+        for feature in feature_set.features:
+            pair = _typed_pair(group, str(feature.name), feature.options)
+            assert pair is not None, f"{spec.key}: case {feature.name} names an op without a type rule"
+            covered.add(pair)
+
+    options = Options(group=dict(PERMISSIVE_OPTIONS.group), context={**PERMISSIVE_OPTIONS.context, **spec.options})
+    required = {pair for name in generate_valid_names(spec) if (pair := _typed_pair(group, name, options)) is not None}
+    assert required, f"{spec.key}: no generated name has a typed rule; the guard is vacuous"
+    missing = sorted(required - covered, key=repr)
+    assert not missing, f"{spec.key}: typed (subtype, DataType) pairs without a result_type_cases() entry: {missing}"

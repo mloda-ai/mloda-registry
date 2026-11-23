@@ -33,6 +33,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.pinning_rows import BINNING_PINNING
 from mloda.testing.typed_data import TypedTestData
 
@@ -83,7 +84,13 @@ EXPECTED_QBIN_5: list[Any] = [1, 0, 0, 2, None, 4, 3, 4, 1, 2, 3, 0]
 # ---------------------------------------------------------------------------
 
 
-class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase, CaseParametrizationTestMixin):
+class BinningTestBase(
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
+    CaseParametrizationTestMixin,
+):
     """Abstract base class for binning framework tests."""
 
     _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
@@ -114,6 +121,12 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__bin_3")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {op: make_feature_set(f"value_int__{op}_3") for op in ("bin", "qbin")}
 
     @classmethod
     def supported_ops(cls) -> set[str]:

@@ -108,7 +108,7 @@ class TestPandasDivergences:
     @pytest.mark.parametrize(
         ("values", "mapping", "expected_dtype"),
         [
-            pytest.param(["a", "b", None], {"a": "x", "b": "y"}, "object", id="str"),
+            pytest.param(["a", "b", None], {"a": "x", "b": "y"}, "str", id="str"),
             pytest.param(["a", "b", None], {"a": 1, "b": 2}, "Int64", id="int"),
             pytest.param(["a", "b", None], {"a": 1.5, "b": 2.5}, "float64", id="float"),
             pytest.param(["a", "b", None], {"a": True, "b": False}, "boolean", id="bool"),

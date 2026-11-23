@@ -25,7 +25,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
 _POLARS_AGG_EXPRS: dict[str, Any] = {
     "mean": lambda col: pl.col(col).mean(),
     "sum": lambda col: pl.col(col).sum(),
-    "count": lambda col: pl.col(col).count(),
+    "count": lambda col: pl.col(col).count().cast(pl.Int64),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),
 }

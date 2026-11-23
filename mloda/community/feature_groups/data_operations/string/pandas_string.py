@@ -67,7 +67,7 @@ class PandasStringOps(Implementation[StringFeatureGroup]):
         elif op == "trim":
             data[feature_name] = col.str.strip()
         elif op == "length":
-            data[feature_name] = col.str.len()
+            data[feature_name] = col.str.len().astype("Int64")
         elif op == "reverse":
             data[feature_name] = col.str[::-1]
         else:

@@ -40,6 +40,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
 
@@ -162,7 +163,9 @@ VALUE_CASES: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class LookupTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for key-lookup framework tests."""
 
     # -- Hook path configuration -------------------------------------------------
@@ -201,6 +204,22 @@ class LookupTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("product_code__lookup", lookup_mapping=FULL_STR_MAP)
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        """One mapping per value family, each read off ``product_code`` (holds a null)."""
+        mappings = {
+            "STRING": PARTIAL_STR_MAP,
+            "INT64": STR_TO_INT_MAP,
+            "DOUBLE": STR_TO_FLOAT_MAP,
+            "BOOLEAN": STR_TO_BOOL_MAP,
+        }
+        return {
+            family: make_feature_set("product_code__lookup", lookup_mapping=mapping, on_unmatched="null")
+            for family, mapping in mappings.items()
+        }
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 

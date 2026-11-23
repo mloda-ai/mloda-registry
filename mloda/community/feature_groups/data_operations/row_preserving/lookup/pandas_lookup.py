@@ -20,7 +20,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
     value_family,
 )
 
-_VALUE_DTYPES: dict[str, str] = {"str": "object", "int": "Int64", "float": "float64", "bool": "boolean"}
+_VALUE_DTYPES: dict[str, str] = {"str": "str", "int": "Int64", "float": "float64", "bool": "boolean"}
 
 
 def _source_family(series: pd.Series) -> str | None:

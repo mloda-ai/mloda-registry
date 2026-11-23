@@ -35,6 +35,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -93,7 +94,7 @@ EXPECTED_NONE_NAN_PERCENT_RANK_TIED = [1 / 3, 1 / 3, 1 / 3, 0.0]
 # ---------------------------------------------------------------------------
 
 
-class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase):
     """Abstract base class for rank framework tests.
 
     Subclasses implement the abstract adapter methods from ``DataOpsTestBase``
@@ -106,6 +107,19 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
         return make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
 
     ALL_RANK_TYPES = {"row_number", "rank", "dense_rank", "percent_rank", "ntile", "top", "bottom"}
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        names = {
+            "row_number": "value_int__row_number_ranked",
+            "rank": "value_int__rank_ranked",
+            "dense_rank": "value_int__dense_rank_ranked",
+            "percent_rank": "value_int__percent_rank_ranked",
+            "ntile": "value_int__ntile_4_ranked",
+        }
+        return {rank_type: make_feature_set(name, ["region"], "value_int") for rank_type, name in names.items()}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

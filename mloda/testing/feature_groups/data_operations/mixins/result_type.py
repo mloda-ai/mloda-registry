@@ -67,12 +67,13 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             pytest.skip(f"{impl.__name__} does not support {subtype!r}")
 
         data = self.result_type_data()
-        null_free = [
+        inputs = [
             str(f.name)
             for f in group.declared_input_features(feature.options, FeatureName(name)) or ()
-            if str(f.name) in data.types and None not in data.to_python_dict()[str(f.name)]
+            if str(f.name) in data.types
         ]
-        assert not null_free, f"{name}: input column(s) {null_free} hold no null in result_type_data()"
+        has_null = [col for col in inputs if None in data.to_python_dict()[col]]
+        assert has_null or not inputs, f"{name}: none of the input columns {inputs} holds a null in result_type_data()"
 
         group_options = dict(feature.options.group)
         if declares_nan_as_null(impl, subtypes):

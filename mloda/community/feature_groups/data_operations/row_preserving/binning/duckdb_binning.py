@@ -89,7 +89,7 @@ class DuckdbBinning(Implementation[BinningFeatureGroup]):
                 f"ELSE LEAST(CAST(FLOOR("
                 f"({dsource} - {qmin}) / "
                 f"NULLIF(({qmax} - {qmin}) / {n_bins}.0, 0)"
-                f") AS INTEGER), {n_bins - 1}) END"
+                f") AS BIGINT), {n_bins - 1}) END"
             )
             rel = rel.project(f"*, {expr} AS {quoted_feature}")
             keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (bin_min, bin_max))

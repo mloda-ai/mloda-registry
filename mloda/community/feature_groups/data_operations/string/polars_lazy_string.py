@@ -52,7 +52,7 @@ class PolarsLazyStringOps(Implementation[StringFeatureGroup]):
         elif op == "trim":
             expr = col.str.strip_chars(_TRIM_CHARS)
         elif op == "length":
-            expr = col.str.len_chars()
+            expr = col.str.len_chars().cast(pl.Int64)
         elif op == "reverse":
             expr = col.str.split("").list.reverse().list.join("")
         else:

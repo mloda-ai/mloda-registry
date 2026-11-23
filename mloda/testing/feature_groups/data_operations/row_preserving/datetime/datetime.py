@@ -53,6 +53,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.typed_data import TypedTestData
@@ -120,7 +121,9 @@ def _create_varied_times_data() -> TypedTestData:
 # ---------------------------------------------------------------------------
 
 
-class DateTimeTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class DateTimeTestBase(
+    PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for datetime extraction framework tests."""
 
     @classmethod
@@ -141,6 +144,12 @@ class DateTimeTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContr
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__year")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {op: make_feature_set(f"timestamp__{op}") for op in sorted(cls.feature_group_class().subtype_universe())}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

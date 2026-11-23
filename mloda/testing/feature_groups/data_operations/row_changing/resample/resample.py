@@ -76,6 +76,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -275,7 +276,9 @@ NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
 # ---------------------------------------------------------------------------
 
 
-class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestBase):
+class ResampleTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for resample framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -383,6 +386,12 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
 
     def _resample_fs(self, feature_name: str, partition_by: list[str]) -> FeatureSet:
         return make_feature_set(feature_name, partition_by=partition_by, time_column="ts")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"count": make_feature_set("value__resample_1_hour_count", ["region"], time_column="ts")}
 
     # -- NanPolicyTestMixin configuration ---------------------------------------
 
