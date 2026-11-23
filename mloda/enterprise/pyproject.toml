@@ -23,7 +23,7 @@ ed25519 = ["cryptography>=42"]
 otel = ["opentelemetry-api>=1.37,<2"]
 openlineage = ["mloda-community-openlineage~=0.15.0"]
 anonymizer = ["mloda-anonymizer-binary>=0.1.3,<0.2.0", "pyarrow>=25"]
-dev = ["cryptography>=42"]
+dev = ["cryptography>=42", "mloda-testing[binary-model]", "pytest>=9.0.3"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
@@ -48,3 +48,4 @@ packages = ["mloda.enterprise", "mloda.enterprise.extenders.audit", "mloda.enter
 mloda-community-binary-model = { workspace = true }
 mloda-community-extenders-shared = { workspace = true }
 mloda-community-openlineage = { workspace = true }
+mloda-testing = { workspace = true }

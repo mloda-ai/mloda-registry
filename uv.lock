@@ -1964,6 +1964,8 @@ anonymizer = [
 ]
 dev = [
     { name = "cryptography" },
+    { name = "mloda-testing", extra = ["binary-model"] },
+    { name = "pytest" },
 ]
 ed25519 = [
     { name = "cryptography" },
@@ -1984,8 +1986,10 @@ requires-dist = [
     { name = "mloda-community-binary-model", editable = "mloda/community/feature_groups/binary_model" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
+    { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.37,<2" },
     { name = "pyarrow", marker = "extra == 'anonymizer'", specifier = ">=25" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["ed25519", "otel", "openlineage", "anonymizer", "dev"]
 

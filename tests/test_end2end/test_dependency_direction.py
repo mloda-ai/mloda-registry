@@ -1184,37 +1184,122 @@ def _import_roots_of(node: ast.AST) -> list[str]:
     return []
 
 
-def _third_party_import_violations(
-    root_dir: Path, declared_for: Callable[[str], tuple[set[str], str]], *, author_backends: frozenset[str]
+def _import_violation_text(
+    root: str,
+    node: ast.AST,
+    fn: _FunctionNode | None,
+    declared: set[str],
+    label: str,
+    author_backends: frozenset[str],
+) -> str | None:
+    """Why importing `root` at `node` is not covered by `declared` (None when it is)."""
+    if root in _STDLIB_ROOTS or root in _FIRST_PARTY_IMPORT_ROOTS:
+        return None
+    if root in author_backends and fn is not None:
+        return None
+    distribution = _KIT_IMPORT_DISTRIBUTIONS.get(root)
+    if distribution is None and root in author_backends:
+        return f"author backend {root!r} must be imported inside a function"
+    if distribution is None:
+        return f"unknown import name {root!r}"
+    if _dep_name(distribution) in declared:
+        return None
+    if fn is not None and _imports_root_via_importorskip(fn, root, getattr(node, "lineno", 0)):
+        return None
+    return f"import {root!r} needs {distribution!r}, not declared for {label}"
+
+
+def _dotted_import_targets(node: ast.AST, package: list[str]) -> list[str]:
+    """Dotted modules an import statement may load, relative imports resolved against `package`."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if not isinstance(node, ast.ImportFrom):
+        return []
+    if node.level:
+        if node.level - 1 > len(package):
+            return []
+        base = package[: len(package) - (node.level - 1)] + (node.module.split(".") if node.module else [])
+    else:
+        base = node.module.split(".") if node.module else []
+    if not base:
+        return []
+    return [".".join(base)] + [".".join([*base, alias.name]) for alias in node.names if alias.name != "*"]
+
+
+def _files_of_dotted_module(dotted: str, import_root: Path) -> list[Path]:
+    """Existing files under `import_root` that importing `dotted` runs: its module and every parent package."""
+    parts = dotted.split(".")
+    files = [import_root.joinpath(*parts[:i], "__init__.py") for i in range(1, len(parts))]
+    files += [import_root.joinpath(*parts).with_suffix(".py"), import_root.joinpath(*parts, "__init__.py")]
+    return [f for f in files if f.is_file()]
+
+
+def _followed_import_violations(
+    kit_file: Path,
+    kit_rel: str,
+    import_root: Path,
+    declared: set[str],
+    label: str,
+    author_backends: frozenset[str],
 ) -> list[str]:
-    """Third-party imports in shipped modules that `declared_for(rel_posix)` (declared set, label) does not cover.
+    """Violations in the in-repo files `kit_file` reaches through module-level first-party imports.
+
+    Followed files are judged against the importing kit module's declared set. Conservative by design: a followed
+    file's own distribution's hard dependencies do not count, and a module-level guarded import is still flagged."""
+    violations: list[str] = []
+    seen = {kit_file}
+    queue = [kit_file]
+    while queue:
+        current = queue.pop(0)
+        rel_parts = current.relative_to(import_root).with_suffix("").parts
+        package = list(rel_parts[:-1])
+        tree = ast.parse(current.read_text(encoding="utf-8"))
+        for node, fn in _walk_with_scope(tree, skip_type_checking=True):
+            if fn is not None:
+                continue
+            if current != kit_file:
+                for root in _import_roots_of(node):
+                    text = _import_violation_text(root, node, fn, declared, label, author_backends)
+                    if text is not None:
+                        where = f"{current.relative_to(import_root).as_posix()}:{getattr(node, 'lineno', 0)}"
+                        violations.append(f"{kit_rel}: via {where}: {text}")
+            for dotted in _dotted_import_targets(node, package):
+                for target in _files_of_dotted_module(dotted, import_root):
+                    if target not in seen:
+                        seen.add(target)
+                        queue.append(target)
+    return violations
+
+
+def _third_party_import_violations(
+    root_dir: Path,
+    declared_for: Callable[[str], tuple[set[str], str]],
+    *,
+    author_backends: frozenset[str],
+    import_root: Path,
+) -> list[str]:
+    """Third-party imports in shipped modules, and in the in-repo modules they import at module level, that
+    `declared_for(rel_posix)` (declared set, label) does not cover.
 
     Only `author_backends` may be imported inside a function without being declared."""
+    import_root = import_root.resolve()
     violations: list[str] = []
     for rel_path, tree in _runtime_modules(root_dir):
         declared, label = declared_for(rel_path.as_posix())
         for node, fn in _walk_with_scope(tree, skip_type_checking=True):
             for root in _import_roots_of(node):
-                if root in _STDLIB_ROOTS or root in _FIRST_PARTY_IMPORT_ROOTS:
-                    continue
-                where = f"{rel_path.as_posix()}:{getattr(node, 'lineno', 0)}"
-                if root in author_backends and fn is not None:
-                    continue
-                distribution = _KIT_IMPORT_DISTRIBUTIONS.get(root)
-                if distribution is None and root in author_backends:
-                    violations.append(f"{where}: author backend {root!r} must be imported inside a function")
-                elif distribution is None:
-                    violations.append(f"{where}: unknown import name {root!r}")
-                elif _dep_name(distribution) in declared:
-                    continue
-                elif fn is not None and _imports_root_via_importorskip(fn, root, getattr(node, "lineno", 0)):
-                    continue
-                else:
-                    violations.append(f"{where}: import {root!r} needs {distribution!r}, not declared for {label}")
+                text = _import_violation_text(root, node, fn, declared, label, author_backends)
+                if text is not None:
+                    violations.append(f"{rel_path.as_posix()}:{getattr(node, 'lineno', 0)}: {text}")
+        violations += _followed_import_violations(
+            (root_dir / rel_path).resolve(), rel_path.as_posix(), import_root, declared, label, author_backends
+        )
     return violations
 
 
-def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | None = None) -> list[str]:
+def _kit_third_party_import_violations(
+    root_dir: Path, cfg: dict[str, Any] | None = None, import_root: Path = _REPO_ROOT
+) -> list[str]:
     """Third-party imports in shipped kit modules that mloda-testing does not declare for that module."""
     cfg = _mloda_testing_config() if cfg is None else cfg
 
@@ -1222,7 +1307,9 @@ def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | Non
         gate = kit_map.kit_gate(rel_posix)
         return _kit_declared_distributions(cfg, gate), f"gate {gate!r}"
 
-    return _third_party_import_violations(root_dir, declared_for, author_backends=_AUTHOR_BACKENDS)
+    return _third_party_import_violations(
+        root_dir, declared_for, author_backends=_AUTHOR_BACKENDS, import_root=import_root
+    )
 
 
 def _license_kit_declared_distributions(packages: dict[str, dict[str, Any]]) -> set[str]:
@@ -1236,13 +1323,15 @@ def _license_kit_declared_distributions(packages: dict[str, dict[str, Any]]) -> 
 
 
 def _license_kit_third_party_import_violations(
-    root_dir: Path, packages: dict[str, dict[str, Any]] | None = None
+    root_dir: Path, packages: dict[str, dict[str, Any]] | None = None, import_root: Path = _REPO_ROOT
 ) -> list[str]:
     """Third-party imports in the license kit that its job's requirements do not declare."""
     packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
     declared = _license_kit_declared_distributions(packages)
     label = " + ".join(verify.LICENSE_KIT_REQUIREMENTS)
-    return _third_party_import_violations(root_dir, lambda _rel: (declared, label), author_backends=frozenset())
+    return _third_party_import_violations(
+        root_dir, lambda _rel: (declared, label), author_backends=frozenset(), import_root=import_root
+    )
 
 
 def test_kit_imports_only_third_party_distributions_mloda_testing_declares() -> None:
@@ -1365,7 +1454,7 @@ _SKIP_THEN_IMPORT = (
 )
 def test_kit_third_party_import_collector(tmp_path: Path, rel: str, body: str, fragment: str | None) -> None:
     _write(tmp_path / rel, body)
-    violations = _kit_third_party_import_violations(tmp_path)
+    violations = _kit_third_party_import_violations(tmp_path, import_root=tmp_path)
     if fragment is None:
         assert violations == []
     else:
@@ -1374,7 +1463,7 @@ def test_kit_third_party_import_collector(tmp_path: Path, rel: str, body: str, f
 
 def test_kit_third_party_import_collector_skips_tests_directories(tmp_path: Path) -> None:
     _write(tmp_path / "tests" / "test_m.py", "import pandas\n")
-    assert _kit_third_party_import_violations(tmp_path) == []
+    assert _kit_third_party_import_violations(tmp_path, import_root=tmp_path) == []
 
 
 def test_license_kit_imports_only_third_party_distributions_its_job_declares() -> None:
@@ -1405,7 +1494,7 @@ def test_license_kit_imports_only_third_party_distributions_its_job_declares() -
 )
 def test_license_kit_third_party_import_collector(tmp_path: Path, body: str, fragments: tuple[str, ...] | None) -> None:
     _write(tmp_path / "m.py", body)
-    violations = _license_kit_third_party_import_violations(tmp_path)
+    violations = _license_kit_third_party_import_violations(tmp_path, import_root=tmp_path)
     if fragments is None:
         assert violations == []
     else:
@@ -1415,5 +1504,148 @@ def test_license_kit_third_party_import_collector(tmp_path: Path, body: str, fra
 def test_license_kit_declared_set_follows_the_job_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(verify, "LICENSE_KIT_REQUIREMENTS", ("mloda-testing[binary-model]",))
     _write(tmp_path / "m.py", "import cryptography\n")
-    violations = _license_kit_third_party_import_violations(tmp_path)
+    violations = _license_kit_third_party_import_violations(tmp_path, import_root=tmp_path)
     assert len(violations) == 1 and "import 'cryptography'" in violations[0], violations
+
+
+_LICENSE_KIT_REL = "mloda/enterprise/licensing/testing"
+_TESTING_KIT_REL = "mloda/testing"
+_OL = "import openlineage\n"
+_TYPE_CHECKING_OL = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import openlineage\n"
+
+
+@pytest.mark.parametrize(
+    ("kit_rel", "files", "fragments"),
+    [
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": _OL},
+            ("m.py: via mloda/enterprise/x.py:1", "import 'openlineage'"),
+            id="module-level-first-party-import-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": "import cryptography\n"},
+            None,
+            id="followed-import-declared",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "import mloda.enterprise.a\n",
+                "../../a.py": "import mloda.enterprise.b\n",
+                "../../b.py": _OL,
+            },
+            ("m.py: via mloda/enterprise/b.py:1", "import 'openlineage'"),
+            id="transitive-chain-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": f"def f() -> None:\n    {_OL}"},
+            None,
+            id="followed-function-level-import-clean",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "def f() -> None:\n    import mloda.enterprise.x\n", "../../x.py": _OL},
+            None,
+            id="function-level-first-party-import-not-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import mloda.enterprise.x\n",
+                "../../x.py": _OL,
+            },
+            None,
+            id="type-checking-first-party-import-not-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "from mloda.enterprise import x\n", "../../x.py": _OL},
+            ("m.py: via mloda/enterprise/x.py:1", "import 'openlineage'"),
+            id="from-package-import-submodule-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": "", "../../__init__.py": _OL},
+            ("m.py: via mloda/enterprise/__init__.py:1", "import 'openlineage'"),
+            id="parent-package-init-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "import mloda.enterprise.x\n",
+                "../../x.py": "from .mod import y\n",
+                "../../mod.py": _OL,
+            },
+            ("m.py: via mloda/enterprise/mod.py:1", "import 'openlineage'"),
+            id="single-dot-relative-import-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "import mloda.enterprise.sub.x\n",
+                "../../sub/x.py": "from ..mod import y\n",
+                "../../mod.py": _OL,
+            },
+            ("m.py: via mloda/enterprise/mod.py:1", "import 'openlineage'"),
+            id="double-dot-relative-import-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "import mloda.enterprise.a\n",
+                "../../a.py": "import cryptography\nimport mloda.enterprise.b\n",
+                "../../b.py": "import cryptography\nimport mloda.enterprise.a\n",
+            },
+            None,
+            id="import-cycle-terminates",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": _TYPE_CHECKING_OL},
+            None,
+            id="followed-type-checking-import-clean",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "from mloda.core import y\nimport mloda.steward\n"},
+            None,
+            id="first-party-module-absent-under-import-root-skipped",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": "import requests\n"},
+            ("m.py: via mloda/enterprise/x.py:1", "unknown import name 'requests'"),
+            id="followed-unknown-import-name",
+        ),
+        pytest.param(
+            _TESTING_KIT_REL,
+            {"m.py": "import mloda.community.x\n", "../community/x.py": "import pandas\n"},
+            ("m.py: via mloda/community/x.py:1", "author backend 'pandas' must be imported inside a function"),
+            id="followed-author-backend-at-module-level",
+        ),
+        pytest.param(
+            _TESTING_KIT_REL,
+            {"m.py": "import mloda.testing.extenders.otel\n", "extenders/otel.py": "import opentelemetry\n"},
+            ("m.py: via mloda/testing/extenders/otel.py:1", "import 'opentelemetry'"),
+            id="followed-kit-module-checked-against-the-importers-gate",
+        ),
+    ],
+)
+def test_kit_third_party_import_follower(
+    tmp_path: Path, kit_rel: str, files: dict[str, str], fragments: tuple[str, ...] | None
+) -> None:
+    """Module-level first-party imports are followed and judged against the importing kit module's declared set."""
+    kit_dir = tmp_path / kit_rel
+    for rel, body in files.items():
+        _write((kit_dir / rel).resolve(), body)
+    if kit_rel == _LICENSE_KIT_REL:
+        violations = _license_kit_third_party_import_violations(kit_dir, import_root=tmp_path)
+    else:
+        violations = _kit_third_party_import_violations(kit_dir, import_root=tmp_path)
+    if fragments is None:
+        assert violations == []
+    else:
+        assert len(violations) == 1 and all(f in violations[0] for f in fragments), violations

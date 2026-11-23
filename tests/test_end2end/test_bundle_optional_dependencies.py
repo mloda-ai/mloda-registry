@@ -241,7 +241,7 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
 
 
 def test_mloda_enterprise_dev_extra_is_generated_committed_and_locked() -> None:
-    """The generated and committed pyproject carry the ``dev`` extra as configured, and uv.lock lists cryptography."""
+    """The generated and committed pyproject carry the ``dev`` extra as configured, and uv.lock lists every dev distribution."""
     expected = _packages()["mloda-enterprise"]["optional_dependencies"]["dev"]
 
     _assert_enterprise_extra_generated_and_committed("dev", expected)
@@ -249,7 +249,9 @@ def test_mloda_enterprise_dev_extra_is_generated_committed_and_locked() -> None:
     lock = load_toml(_REPO_ROOT / "uv.lock")
     entry = next(package for package in lock["package"] if package["name"] == "mloda-enterprise")
     lock_dev = [dep["name"] for dep in entry.get("optional-dependencies", {}).get("dev", [])]
-    assert "cryptography" in lock_dev, f"uv.lock mloda-enterprise dev extra lacks cryptography: {lock_dev!r}"
+    wanted = {re.sub(r"[-_.]+", "-", _dep_name(spec)).lower() for spec in expected}
+    missing = wanted - set(lock_dev)
+    assert not missing, f"uv.lock mloda-enterprise dev extra lacks {sorted(missing)}: {lock_dev!r}"
 
 
 def test_mloda_enterprise_wheel_packages_include_the_licensing_package() -> None:

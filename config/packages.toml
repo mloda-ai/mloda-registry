@@ -350,8 +350,8 @@ path = "mloda/enterprise"
 has_readme = true
 published = true
 entry_point_bundle = true
-# The dev extra carries cryptography for the license token tests under mloda/enterprise/tests/.
-optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"], anonymizer = ["mloda-anonymizer-binary>=0.1.3,<0.2.0", "pyarrow>=25"], dev = ["cryptography>=42"] }
+# The dev extra carries what the tests under mloda/enterprise/tests/ import.
+optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"], anonymizer = ["mloda-anonymizer-binary>=0.1.3,<0.2.0", "pyarrow>=25"], dev = ["cryptography>=42", "mloda-testing[binary-model]", "pytest>=9.0.3"] }
 py_typed = true
 
 # mloda-testing[binary-model] pins the mixin package (the kit checks binaries with the mixin's own
