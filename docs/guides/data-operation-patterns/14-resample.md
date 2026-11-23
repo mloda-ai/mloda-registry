@@ -65,6 +65,8 @@ The reference takes ms and us timestamps with no zone or UTC; other zones and ns
 | Python dict | epoch-anchored floor (shared with time bucketization) → row indices grouped by `(*partition_by, bucket_start)` in first-occurrence order, each group reduced skipping nulls. |
 | SQLite | not implemented in v1. |
 
+The PyArrow backend before 22.0.0 (including the declared 14.0.1 minimum) rejects numeric fixed-offset time-column zones such as `+05:00` with a `ValueError`; see [known divergences](known-divergences.md#pyarrow-before-22-cannot-run-temporal-kernels-on-numeric-fixed-offset-zones).
+
 ---
 
 ## Usage

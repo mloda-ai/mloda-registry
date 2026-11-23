@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pyarrow as pa
 import pytest
 
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import fixed_offset_unsupported
+from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import PyArrowResample
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
     PyArrowDateTimeExtraction,
 )
@@ -74,3 +76,29 @@ def test_temporal_timezone_support(
     expected_values = {"values": [expected, None], "all-null": [None], "empty": []}[shape]
     expected_column = pa.chunked_array([pa.array(expected_values, type=output_type)])
     assert result.column(feature).equals(expected_column)
+
+
+@pytest.mark.parametrize("major", [None, 21], ids=["installed", "arrow-21"])
+@pytest.mark.parametrize("zone", [None, "UTC", "Etc/GMT-5", "+05:00", "-03:30"])
+def test_resample_timezone_support(monkeypatch: pytest.MonkeyPatch, major: int | None, zone: str | None) -> None:
+    """Resample rejects a numeric fixed-offset time column up front on Arrow < 22; other zones keep working."""
+    if major is not None:
+        monkeypatch.setattr(pa, "cpp_version_info", SimpleNamespace(major=major))
+    timestamp_type = pa.timestamp("us", tz=zone)
+    table = pa.table(
+        {
+            "ts": pa.array([datetime(2024, 3, 31, 23, 15), datetime(2024, 3, 31, 23, 45)], type=timestamp_type),
+            "value": pa.array([1.0, 3.0], type=pa.float64()),
+        }
+    )
+    features = make_feature_set("value__resample_1_hour_sum", time_column="ts")
+
+    if fixed_offset_unsupported(timestamp_type):
+        with pytest.raises(ValueError, match="22.0.0") as error:
+            calculate_with(PyArrowResample, table, features)
+        assert zone is not None
+        assert zone in str(error.value)
+        return
+
+    result = calculate_with(PyArrowResample, table, features)
+    assert sum(result.column("value__resample_1_hour_sum").to_pylist()) == 4.0

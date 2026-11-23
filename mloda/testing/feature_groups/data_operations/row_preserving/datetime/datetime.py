@@ -43,6 +43,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
     extract_column,
+    has_numeric_fixed_offset,
     make_feature_set,
     typed_data_without,
 )
@@ -121,6 +122,11 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
     """Abstract base class for datetime extraction framework tests."""
 
     _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
+
+    @classmethod
+    def rejects_numeric_offset_source(cls) -> bool:
+        """True when a source with a numeric fixed-offset timezone is rejected with a ValueError."""
+        return False
 
     @classmethod
     def tz_aware_source_reads_utc(cls) -> bool:
@@ -303,16 +309,22 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
         expected = row.expected[row.feature][1]
         column = next(iter(row.inputs))
         data_type, values = row.inputs[column]
-        fs = make_feature_set(row.feature, **row.context)
-        data = self.create_test_data(TypedTestData(row.inputs))
-        if self._assert_temporal_source_rejection(data, column, fs):
+        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
+            fs = make_feature_set(row.feature, **row.context)
+            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
+                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref_inputs = {column: (data_type, utc_values)}
+            fs = make_feature_set(row.feature, **row.context)
             ref = self.reference_calculate(arrow_table_of(TypedTestData(ref_inputs)), fs)
             expected = extract_column(ref, row.feature)
-        result = calculate_with(self.implementation_class(), data, fs)
+        result = calculate_with(
+            self.implementation_class(),
+            self.create_test_data(TypedTestData(row.inputs)),
+            make_feature_set(row.feature, **row.context),
+        )
         assert self.extract_column(result, row.feature) == list(expected)
 
     def test_divergent_flags_are_declared(self) -> None:

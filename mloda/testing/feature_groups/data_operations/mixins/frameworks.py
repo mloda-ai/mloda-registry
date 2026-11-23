@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with
+from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of
 from mloda.testing.framework_adapter import (
     DuckDBAdapter,
     FrameworkAdapter,
@@ -216,25 +216,6 @@ class PyArrowTestMixin(AdapterTestMixin):
         import pyarrow as pa
 
         return pa.Table
-
-
-class PyArrowTemporalTestMixin(PyArrowTestMixin):
-    """Pinned temporal rows reject numeric zones on Arrow < 22; supported rows keep the shared value checks."""
-
-    def _assert_temporal_source_rejection(self, data: Any, source_col: str, features: Any) -> bool:
-        import pytest
-
-        from mloda.community.feature_groups.data_operations.pyarrow_helpers import fixed_offset_unsupported
-
-        arrow_type = data.column(source_col).type
-        if fixed_offset_unsupported(arrow_type):
-            zone = arrow_type.tz
-            with pytest.raises(ValueError, match=r"fixed.offset") as error:
-                calculate_with(self.implementation_class(), data, features)  # type: ignore[attr-defined]
-            assert "22.0.0" in str(error.value)
-            assert zone in str(error.value)
-            return True
-        return False
 
 
 class PolarsLazyTestMixin(AdapterTestMixin):

@@ -15,7 +15,10 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
-from mloda.community.feature_groups.data_operations.pyarrow_helpers import rename_aggregates_by_position
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
+    assert_temporal_timezone_supported,
+    rename_aggregates_by_position,
+)
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleAgg,
@@ -59,6 +62,8 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
                 raise ValueError(
                     f"Unsupported resample agg {spec.agg!r} for PyArrow; supported: {sorted(RESAMPLE_AGGS)}."
                 )
+
+        assert_temporal_timezone_supported(data.column(time_column).type, time_column)
 
         # Floor the time column in place (bucket start keeps the original name).
         bucket = pc.floor_temporal(data.column(time_column), multiple=n, unit=unit)

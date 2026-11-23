@@ -5,9 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pyarrow as pa
 import pytest
-
-pa = pytest.importorskip("pyarrow")
 
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
     assert_temporal_timezone_supported,

@@ -81,7 +81,7 @@ For quick iteration during development, you can run only the tests. Note that th
 pytest -n 2
 ```
 
-`tox -e pyarrow14` runs the native PyArrow data-operation suites at the declared PyArrow 14.0.1 minimum.
+`tox -e pyarrow14` runs the per-backend `test_pyarrow*` data-operation suites at the declared PyArrow 14.0.1 minimum.
 
 ## Ways to Contribute
 

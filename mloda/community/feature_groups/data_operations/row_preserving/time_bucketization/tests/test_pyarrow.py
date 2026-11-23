@@ -11,14 +11,19 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     PyArrowTimeBucketization,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTemporalTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
 
 
-class TestPyArrowTimeBucketization(PyArrowTemporalTestMixin, TimeBucketizationTestBase):
+class TestPyArrowTimeBucketization(PyArrowTestMixin, TimeBucketizationTestBase):
     """All tests inherited from the base class."""
+
+    @classmethod
+    def rejects_numeric_offset_source(cls) -> bool:
+        """PyArrow before 22 cannot handle numeric fixed-offset zones."""
+        return bool(pa.cpp_version_info.major < 22)
 
     @classmethod
     def implementation_class(cls) -> Any:

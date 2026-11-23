@@ -43,6 +43,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
+    has_numeric_fixed_offset,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
@@ -244,6 +245,11 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
         return False
 
     @classmethod
+    def rejects_numeric_offset_source(cls) -> bool:
+        """True when a source with a numeric fixed-offset timezone is rejected with a ValueError."""
+        return False
+
+    @classmethod
     def holds_sub_hour_offset(cls) -> bool:
         """False when the framework cannot hold a fixed offset that is not a whole number of hours."""
         return True
@@ -389,15 +395,16 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
             with pytest.raises(ValueError, match="non-UTC"):
                 calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
-        data = self.create_test_data(TypedTestData(row.inputs))
-        if self._assert_temporal_source_rejection(data, column, fs):
+        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
+            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
+                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
         expected = row.expected[row.feature][1]
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref = self.reference_calculate(arrow_table_of(TypedTestData({column: (data_type, utc_values)})), fs)
             expected = _extract_column(ref, row.feature)
-        result = calculate_with(self.implementation_class(), data, fs)
+        result = calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
         col = self.extract_column(result, row.feature)
         assert_values_with_nulls(
             col,

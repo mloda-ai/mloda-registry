@@ -6,6 +6,7 @@ Provides:
 - ``make_feature_set``: Build a FeatureSet with optional partition_by/order_by.
 - ``make_multi_feature_set``: Build a FeatureSet holding one Feature per (name, context) pair.
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
+- ``has_numeric_fixed_offset``: True when a datetime value list holds a non-UTC fixed-offset tz (Arrow zone "+05:00").
 - ``is_null``: True for None or a float NaN.
 - ``sort_none_last``: Sort values with None ordered last.
 - ``result_column_values``: One value list per result frame (pyarrow or pandas) holding a column.
@@ -158,6 +159,12 @@ def result_column_names(result: Any) -> list[str]:
     if hasattr(result, "collect"):
         return list(result.collect().columns)
     return list(result.columns)
+
+
+def has_numeric_fixed_offset(values: Sequence[Any]) -> bool:
+    """True when any datetime carries a non-UTC fixed offset, which Arrow stores as a numeric zone."""
+    offsets = [v.utcoffset() for v in values if isinstance(v, datetime)]
+    return any(offset is not None and offset.total_seconds() != 0 for offset in offsets)
 
 
 def is_null(value: Any) -> bool:
