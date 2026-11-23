@@ -678,7 +678,16 @@ _FAMILY = "mloda.testing.feature_groups.data_operations.row_preserving.widget"
         pytest.param(f"{_FAMILY}.pinning_rows", "nothing", True, id="family-pinning-rows"),
         pytest.param(f"{_FAMILY}.other", "nothing", False, id="family-other-stem"),
         pytest.param(
-            "mloda.testing.feature_groups.data_operations.mixins.mixins", "nothing", False, id="mixins-not-family"
+            "mloda.testing.feature_groups.data_operations.row_preserving.reference",
+            "nothing",
+            False,
+            id="row-preserving-not-family",
+        ),
+        pytest.param(
+            "mloda.testing.feature_groups.data_operations.helpers", "nothing", False, id="data-operations-top-level"
+        ),
+        pytest.param(
+            "mloda.testing.a.b", "`mloda/testing/a` ships `b.py`", True, id="code-token-py-with-path-ancestor"
         ),
         pytest.param(
             "mloda.testing.feature_groups.data_operations.mixins.reference", "nothing", False, id="mixins-reference"

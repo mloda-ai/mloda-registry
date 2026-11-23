@@ -42,7 +42,7 @@ If your framework produces NaN where the reference produces NULL, the comparison
 
 ## Canonical test data
 
-Row-preserving and aggregation tests share a canonical input: 12 rows defined in `mloda/testing/data_creator/base.py` (one creator per framework in `mloda.testing.data_creator.pandas`, `.polars`, `.pyarrow` and `.sqlite`) (`region`, `category`, `timestamp`, `value_int`, `value_float`, `name` and more). Each operation's test base asserts specific expected values against this fixture. When you subclass the test base for a new framework, you do not redefine the data or the expected values. The data is typed (`TypedTestData` with a declared `DataType` per column), and core's adapter converts it to your framework's native type. A fixture overrides `source_data()`.
+Row-preserving and aggregation tests share a canonical input: 12 rows defined in `mloda/testing/data_creator/base.py` (`region`, `category`, `timestamp`, `value_int`, `value_float`, `name` and more). Each framework has its creator in `mloda.testing.data_creator.pandas`, `mloda.testing.data_creator.polars`, `mloda.testing.data_creator.pyarrow` and `mloda.testing.data_creator.sqlite`. Each operation's test base asserts specific expected values against this fixture. When you subclass the test base for a new framework, you do not redefine the data or the expected values. The data is typed (`TypedTestData` with a declared `DataType` per column), and core's adapter converts it to your framework's native type. A fixture overrides `source_data()`.
 
 ---
 
