@@ -1148,7 +1148,7 @@ def _mloda_testing_config() -> dict[str, Any]:
 
 
 def _kit_declared_distributions(cfg: dict[str, Any], gate: str | None) -> set[str]:
-    """Normalized distributions mloda-testing declares for a module: its dependencies plus its gate extra."""
+    """Normalized distributions a package config declares: its dependencies plus the named extra."""
     specs = list(cfg.get("dependencies", []))
     if gate is not None:
         specs.extend(cfg.get("optional_dependencies", {}).get(gate, []))
@@ -1184,8 +1184,12 @@ def _import_roots_of(node: ast.AST) -> list[str]:
     return []
 
 
-def _third_party_import_violations(root_dir: Path, declared_for: Callable[[str], tuple[set[str], str]]) -> list[str]:
-    """Third-party imports in shipped modules that `declared_for(rel_posix)` (declared set, label) does not cover."""
+def _third_party_import_violations(
+    root_dir: Path, declared_for: Callable[[str], tuple[set[str], str]], *, author_backends: frozenset[str]
+) -> list[str]:
+    """Third-party imports in shipped modules that `declared_for(rel_posix)` (declared set, label) does not cover.
+
+    Only `author_backends` may be imported inside a function without being declared."""
     violations: list[str] = []
     for rel_path, tree in _runtime_modules(root_dir):
         declared, label = declared_for(rel_path.as_posix())
@@ -1194,10 +1198,10 @@ def _third_party_import_violations(root_dir: Path, declared_for: Callable[[str],
                 if root in _STDLIB_ROOTS or root in _FIRST_PARTY_IMPORT_ROOTS:
                     continue
                 where = f"{rel_path.as_posix()}:{getattr(node, 'lineno', 0)}"
-                if root in _AUTHOR_BACKENDS and fn is not None:
+                if root in author_backends and fn is not None:
                     continue
                 distribution = _KIT_IMPORT_DISTRIBUTIONS.get(root)
-                if distribution is None and root in _AUTHOR_BACKENDS:
+                if distribution is None and root in author_backends:
                     violations.append(f"{where}: author backend {root!r} must be imported inside a function")
                 elif distribution is None:
                     violations.append(f"{where}: unknown import name {root!r}")
@@ -1218,7 +1222,7 @@ def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | Non
         gate = kit_map.kit_gate(rel_posix)
         return _kit_declared_distributions(cfg, gate), f"gate {gate!r}"
 
-    return _third_party_import_violations(root_dir, declared_for)
+    return _third_party_import_violations(root_dir, declared_for, author_backends=_AUTHOR_BACKENDS)
 
 
 def _license_kit_declared_distributions(packages: dict[str, dict[str, Any]]) -> set[str]:
@@ -1226,8 +1230,7 @@ def _license_kit_declared_distributions(packages: dict[str, dict[str, Any]]) -> 
     declared: set[str] = set()
     for spec in verify.LICENSE_KIT_REQUIREMENTS:
         req = Requirement(spec)
-        declared |= _kit_declared_distributions(packages[req.name], None)
-        for extra in req.extras:
+        for extra in req.extras or (None,):
             declared |= _kit_declared_distributions(packages[req.name], extra)
     return declared
 
@@ -1239,7 +1242,7 @@ def _license_kit_third_party_import_violations(
     packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
     declared = _license_kit_declared_distributions(packages)
     label = " + ".join(verify.LICENSE_KIT_REQUIREMENTS)
-    return _third_party_import_violations(root_dir, lambda _rel: (declared, label))
+    return _third_party_import_violations(root_dir, lambda _rel: (declared, label), author_backends=frozenset())
 
 
 def test_kit_imports_only_third_party_distributions_mloda_testing_declares() -> None:
@@ -1393,6 +1396,11 @@ def test_license_kit_imports_only_third_party_distributions_its_job_declares() -
             id="extra-outside-the-job",
         ),
         pytest.param("import requests\n", ("unknown import name",), id="unknown-name"),
+        pytest.param(
+            "def f() -> None:\n    import pandas\n",
+            ("unknown import name",),
+            id="function-level-author-backend-not-exempt",
+        ),
     ],
 )
 def test_license_kit_third_party_import_collector(tmp_path: Path, body: str, fragments: tuple[str, ...] | None) -> None:
