@@ -47,7 +47,7 @@ from mloda.community.feature_groups.data_operations.base import (
 )
 
 ON_UNMATCHED_POLICIES: dict[str, str] = {
-    "raise": "Raise LookupUnmatchedError naming the unmatched keys",
+    "raise": "Raise LookupUnmatchedError counting the unmatched keys",
     "null": "Output null for an unmatched key",
     "keep": "Pass the unmatched source value through (key family must equal value family)",
 }
@@ -68,7 +68,7 @@ MAPPING_EXPECTED = (
 
 
 class LookupUnmatchedError(ValueError):
-    """Non-null source values that are not keys of the mapping (policy ``raise``)."""
+    """Non-null source values that are not keys of the mapping (policy ``raise``); the keys are on ``sample`` and ``reasons``, never in the message."""
 
     def __init__(
         self,
@@ -192,10 +192,9 @@ def build_unmatched_error(
     keys = sorted(distinct_keys)
     sample = tuple(keys[:SAMPLE_SIZE])
     sample_reasons = {key: reasons[key] for key in sample if key in reasons}
-    shown = [f"{key!r} ({sample_reasons[key]})" if key in sample_reasons else repr(key) for key in sample]
     message = (
         f"{feature_name}: {_plural(unmatched_rows, 'row')}, {_plural(len(keys), 'distinct key')} not in the mapping. "
-        f"Sample: [{', '.join(shown)}]"
+        "A sorted sample of up to 10 keys is on the error's sample attribute."
     )
     return error_class(message, feature_name, unmatched_rows, len(keys), sample, sample_reasons)
 
@@ -321,7 +320,7 @@ class LookupFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     @classmethod
     def resolve_unmatched_reasons(cls, feature: Feature) -> Mapping[Any, str]:
-        """Optional per-key reasons rendered in the unmatched error."""
+        """Optional per-key reasons on the unmatched error's ``reasons``."""
         return {}
 
     @classmethod

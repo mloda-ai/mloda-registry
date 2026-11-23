@@ -48,10 +48,12 @@ def _unmatched_error(
     keys = sorted(distinct)
     sample = tuple(keys[:_SAMPLE_SIZE])
     sample_reasons = {key: reasons[key] for key in sample if key in reasons}
-    shown = [f"{key!r} ({sample_reasons[key]})" if key in sample_reasons else repr(key) for key in sample]
     row_noun = f"{rows} row" if rows == 1 else f"{rows} rows"
     key_noun = f"{len(keys)} distinct key" if len(keys) == 1 else f"{len(keys)} distinct keys"
-    message = f"{feature_name}: {row_noun}, {key_noun} not in the mapping. Sample: [{', '.join(shown)}]"
+    message = (
+        f"{feature_name}: {row_noun}, {key_noun} not in the mapping. "
+        "A sorted sample of up to 10 keys is on the error's sample attribute."
+    )
     error: Exception = group.UNMATCHED_ERROR(message, feature_name, rows, len(keys), sample, sample_reasons)
     return error
 
