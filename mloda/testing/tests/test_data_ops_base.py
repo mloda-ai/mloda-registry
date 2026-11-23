@@ -1084,7 +1084,6 @@ def test_implementation_import_fails_unless_the_dependency_is_declared() -> None
 
 
 def test_importing_the_data_op_helpers_defines_no_feature_group() -> None:
-    """The helpers import light: the test data creator FeatureGroup is not defined as a side effect."""
     from mloda.testing.import_isolation import fresh_import_report
 
     report = fresh_import_report("mloda.testing.feature_groups.data_operations.base", "mloda.testing")
