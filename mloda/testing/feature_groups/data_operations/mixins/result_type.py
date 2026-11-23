@@ -30,10 +30,7 @@ def _blocking(
     gap_covers: bool,
     adapter_retypes: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """Core messages that fail the test; all matching on core's wording lives here.
-
-    Every failure blocks, except a zero-row retype of an input column the adapter itself retypes.
-    """
+    """Core messages that fail the test: every failure, except a zero-row retype the adapter itself makes."""
     bad = []
     for f in failures:
         m = _ZERO_ROWS_RETYPE.match(f)
