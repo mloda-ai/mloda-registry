@@ -68,7 +68,7 @@ MAPPING_EXPECTED = (
 
 
 class LookupUnmatchedError(ValueError):
-    """Non-null source values that are not keys of the mapping (policy ``raise``); the keys are on ``sample`` and ``reasons``, never in the message."""
+    """Unmatched non-null source keys (policy ``raise``); the keys are on ``sample`` and ``reasons``, not in the message."""
 
     def __init__(
         self,
