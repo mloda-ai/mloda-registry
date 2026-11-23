@@ -383,6 +383,16 @@ Step span names are display names and can change in any release. Select step spa
 
 `OpenLineageExtender` (and `LineageFacetsExtender`) emit a parent run in `on_run_start` and `on_run_complete`: START, then COMPLETE, FAIL (failed) or ABORT (cancelled, as on steps) for the job `root_job_name`, with `runId` equal to the mloda `run_id` and the run facet `mlodaPlan` (`planId`, `structureHash`, the plan fingerprint, `requestedFeatures`, the sorted feature names the run's compute steps were asked for, and `origin`: `run_all`, `stream_all` or `prepare`; not the per-step `structureHash` of the `mloda` facet below). Step runs reference it through the `parent` facet and carry no `mlodaPlan`. With `parent_id` (or `parent_from_env`) set, the parent run also carries a `parent` facet pointing at the orchestrator run, and each step's `parent` facet gains the orchestrator `root` (see [Run under an orchestrator](12-export-telemetry.md#run-under-an-orchestrator)). A parent START transport failure with `raise_on_error=False` trips the run's breaker, and with `raise_on_error=True` it refuses the run; no parent events are emitted when the extender is inert, and no terminal event when the START was not emitted.
 
+When core provides `PlanStep.potential_nan_null_loss`, `mlodaPlan.lossyTransfers` lists only the
+flagged steps in plan order: `stepIndex` (starting at 1), `stepKind`, `potentialNanNullLoss: true`,
+and the available `computeFramework`, `sourceComputeFramework`, and `resultFramework` names.
+START captures this metadata and COMPLETE, FAIL, or ABORT reuses that run's snapshot. The field
+contains no options or data values. It describes potential loss, not observed data loss; a compute
+step may refer to a neutral source import or result conversion, so its names do not identify a
+unique transfer edge. The field is omitted when no step is flagged or core lacks the flag.
+It requires a core release containing [mloda #2964](https://github.com/mloda-ai/mloda/issues/2964);
+the registry's locked `mloda==0.21.0` does not provide it.
+
 Step run ids derive from the run: `step_run_id(run_id, job_name, feature_names, compute_framework_name, step_uuid)` (`mloda.community.extenders.shared`) is a UUIDv5 over the run id and `[job, sorted feature names, framework, step uuid]`, or `None` when the run id is missing or not a UUID. OpenLineage uses it as the step `runId`, `AuditExtender` as the record's `step_run_id`, and `OtelExtender` as `mloda.step.run_id` on calculate spans, so the three join on it; all pass core's `HookContext.step_uuid`, so two steps of one run never share an id. Without a step uuid (hook-only use) the key omits it, and such steps can collide. Ids only join between extenders of the same registry release.
 
 ## Lineage facets

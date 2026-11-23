@@ -67,6 +67,7 @@ class MlodaPlanRunFacet(RunFacet):
     structureHash: str | None = attr.field(default=None)
     origin: str | None = attr.field(default=None)
     requestedFeatures: list[str] | None = attr.field(default=None)
+    lossyTransfers: list[dict[str, Any]] | None = attr.field(default=None)
 
     @staticmethod
     def _get_schema() -> str:
