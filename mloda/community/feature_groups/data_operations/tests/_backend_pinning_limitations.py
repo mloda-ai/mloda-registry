@@ -1,8 +1,8 @@
 """Reproduced backend pinning limitations, keyed to exact rows rather than whole operations.
 
-Every listed row still executes. The runner applies strict xfail with the named exception,
-so a fixed backend produces XPASS and the entry must shrink. A variant entry additionally
-requires the Implementation's applicable declaration; unrelated divergences never excuse a row.
+Every listed row still executes under strict xfail with the named exception, so a fixed backend
+produces XPASS and the entry must shrink. A variant entry also requires the Implementation's
+applicable declaration. Operations with their own twin pinned runner are not covered here.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ class PinningLimitation:
     reason: str
     variant: str | None = None
     raises: str = "builtins.AssertionError"
-    native: bool = False
 
 
 LIMITATIONS: tuple[PinningLimitation, ...] = (
@@ -258,20 +257,5 @@ LIMITATIONS: tuple[PinningLimitation, ...] = (
         ("polars_lazy",),
         ("27-partition_keys-v__resample_1_hour_count",),
         "The first-seen negative zero partition key loses its sign.",
-    ),
-    PinningLimitation(
-        "time_bucketization",
-        ("polars_lazy",),
-        (
-            "16-wall_clock-ts__floor_1_day",
-            "17-wall_clock-ts__floor_1_hour",
-            "18-wall_clock-ts__ceil_1_hour",
-            "19-wall_clock-ts__round_1_minute",
-            "22-wall_clock-ts__round_1_month",
-            "25-wall_clock-ts__round_1_year",
-        ),
-        "Polars cannot ingest the fixed -03:30 timezone; attempt native input construction instead of the twin's skip.",
-        raises="polars.exceptions.ComputeError",
-        native=True,
     ),
 )

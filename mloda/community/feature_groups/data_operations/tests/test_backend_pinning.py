@@ -1,9 +1,9 @@
 """Run all reference pinning tables through every supported shipped Implementation.
 
-Reuse the twin suites' adapters and existing pinned runners, including declared arithmetic,
-case-mapping and UTC expectations. Other rows compare every expected column strictly after
-lossless representation conversions. Exact known limitations execute under strict xfail;
-neither a generic divergence nor an unexpected exception can silently hide a new failure.
+Reuse the twin suites' adapters and compare every expected column strictly after lossless
+representation conversions. Operations whose twin base already has its own pinned runner are
+skipped, since the twin suites run those rows. Exact known limitations execute under strict
+xfail; neither a generic divergence nor an unexpected exception can silently hide a failure.
 """
 
 from __future__ import annotations
@@ -92,9 +92,14 @@ def _backend_parameters() -> list[Any]:
     seen: set[tuple[str, str, str]] = set()
     parameters: list[Any] = []
     catalog = {info.name: info for info in DataOperationsCatalog.list()}
+    framework_names = {name for name, _ in FRAMEWORKS}
+    covered: set[str] = set()
     for group, _, table in PINNED:
         spec = TWIN_SPECS[table.operation]
         base = getattr(importlib.import_module(spec.base_module), spec.base_class)
+        if hasattr(base, "test_mixin_pinned_row") or hasattr(base, "test_pinned_row"):
+            continue
+        covered.add(table.operation)
         for framework, _ in FRAMEWORKS:
             if FRAMEWORK_CATALOG_KEYS[framework] not in catalog[table.operation].frameworks:
                 continue
@@ -117,9 +122,11 @@ def _backend_parameters() -> list[Any]:
                 case = BackendPinningCase(table, row, row_id, framework, host, implementation, limitations.get(key))
                 marks = [_limitation_mark(case, subtype)] if case.limitation is not None else []
                 parameters.append(pytest.param(case, id="-".join(key), marks=marks))
+    unknown = [key for key in limitations if key[0] not in covered or key[1] not in framework_names]
+    assert not unknown, f"pinning limitations name an uncovered operation or unknown framework: {unknown}"
     stale = [key for key in limitations if key[:2] in available and key not in seen]
     assert not stale, f"remove stale or unsupported pinning limitations: {stale}"
-    assert {key[0] for key in seen} == {table.operation for _, _, table in PINNED}
+    assert {key[0] for key in seen} == covered
     return parameters
 
 
@@ -173,14 +180,6 @@ def _assert_columns(case: BackendPinningCase, backend: DataOpsTestBase, result: 
 @pytest.mark.parametrize("pinned_backend_case", _backend_parameters())
 def test_backend_matches_pinned_row(pinned_backend_case: BackendPinningCase, backend: DataOpsTestBase) -> None:
     case = pinned_backend_case
-    runner = getattr(backend, "test_mixin_pinned_row", None) or getattr(backend, "test_pinned_row", None)
-    if runner is not None and not (case.limitation and case.limitation.native):
-        # Existing runners carry float32 input construction, declared value transforms, and
-        # expected rejection checks. Keep those contracts instead of reimplementing them here.
-        cases = getattr(backend, "pinned_row_cases")()
-        key = next(key for key, row in cases.items() if row is case.row)
-        runner(key)
-        return
     result = calculate_with(
         case.implementation,
         backend.create_test_data(TypedTestData(case.row.inputs)),
