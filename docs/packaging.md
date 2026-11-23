@@ -161,7 +161,7 @@ in its parent's wheel.
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
-`mloda-enterprise` declares its own `dev`, which carries `cryptography` for the license token tests under `mloda/enterprise/tests/`.
+`mloda-enterprise` declares its own `dev`, which carries `cryptography`, `mloda-testing[binary-model]` and `pytest` for the tests under `mloda/enterprise/tests/`. A bundle skips only the shared default dev deps and may name `mloda-testing` in its own `dev`.
 
 `mloda-testing` exposes pyarrow as an extra, and every other package's default dev extra installs `mloda-testing[pyarrow]`.
 
@@ -386,8 +386,8 @@ import:
    `EXTRA_ONLY_IMPORTS` in `scripts/verify_extras.py`, so release verification imports it with the extra.
    A module under `mloda/enterprise/licensing/testing/` that also imports `mloda.testing` needs no entry, because
    `scripts/verify_independent_installs.py` imports every module there with both distributions installed;
-   the dependency-direction gate also checks that each third-party import there is declared by those two
-   requirements.
+   the dependency-direction gate also checks that each third-party import there, and in the in-repo modules it
+   reaches through module-level imports, is declared by those two requirements.
 
 Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_extra_entry`
 enforces that pair for every nested leaf the bundle wheel ships (owned leaves ship their own wheel and are skipped).

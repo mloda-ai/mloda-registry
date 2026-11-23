@@ -609,7 +609,14 @@ def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> N
             f"expected mloda-enterprise sources[{name!r}] == {_WORKSPACE!r}, got {enterprise_sources!r}"
         )
     for label, bundle_sources in (("mloda-enterprise", enterprise_sources), ("mloda-community", community_sources)):
-        assert "mloda-testing" not in bundle_sources, f"{label} skips default dev deps, got {bundle_sources!r}"
+        names_testing = any(
+            gen.normalize_dependency_name(spec) == "mloda-testing"
+            for specs in packages[label].get("optional_dependencies", {}).values()
+            for spec in specs
+        )
+        assert ("mloda-testing" in bundle_sources) == names_testing, (
+            f"{label} needs a mloda-testing source iff its own extras name it, got {bundle_sources!r}"
+        )
         assert all(value == _WORKSPACE for value in bundle_sources.values()), (
             f"every {label} workspace source must be {_WORKSPACE!r}, got {bundle_sources!r}"
         )
