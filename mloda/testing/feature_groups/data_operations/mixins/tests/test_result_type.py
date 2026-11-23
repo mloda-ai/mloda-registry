@@ -70,7 +70,7 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
     """``data`` plus the output column: ``exact`` int64, ``narrow`` int32, ``text`` strings (object dtype on Pandas).
 
     PyArrow only: ``zero_type`` writes strings on zero rows, ``rewrite`` and ``zero_retype`` alter ``value_int``.
-    SQLite adapters: ``rewrite`` also alters ``value_int``.
+    SQLite adapters: ``rewrite`` also alters ``value_int``, ``rewrite_ts`` replaces ``ts`` with another timestamp.
     """
     if framework == "pyarrow":
         rows = data.num_rows
@@ -100,6 +100,11 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
         # SELECT * would repeat value_int, so list the other columns and replace it.
         others = ", ".join(quote_ident(c) for c in data.columns if c != "value_int")
         return data.select(_raw_sql=f"{others}, 99 AS value_int, CAST(1 AS INTEGER) AS {quote_ident(_CASE)}")
+    if kind == "rewrite_ts":
+        others = ", ".join(quote_ident(c) for c in data.columns if c != "ts")
+        return data.select(
+            _raw_sql=f"{others}, '2030-05-05 00:00:00' AS ts, CAST(1 AS INTEGER) AS {quote_ident(_CASE)}"
+        )
     # A raw select keeps the integer type on zero rows, unlike append_column.
     return data.select(_raw_sql=f"*, CAST(1 AS INTEGER) AS {quote_ident(_CASE)}")
 
@@ -408,10 +413,15 @@ class TestShapeFailuresBeyondTheType:
         """The adapter reads a TIMESTAMP passenger column back as ISO text; a clean stub still passes."""
         assert _run("sqlite_computed", data=_TIMESTAMP_PASSENGER).state == "passed"
 
-    def test_sqlite_computed_adapter_still_fails_a_rewrite_of_a_source_column(self) -> None:
-        outcome = _run("sqlite_computed", kind="rewrite", data=_TIMESTAMP_PASSENGER)
+    @pytest.mark.parametrize(
+        ("kind", "column"),
+        [("rewrite", "value_int"), ("rewrite_ts", "ts")],
+        ids=["plain_column", "adapter_altered_column"],
+    )
+    def test_sqlite_computed_adapter_still_fails_a_rewrite_of_a_source_column(self, kind: str, column: str) -> None:
+        outcome = _run("sqlite_computed", kind=kind, data=_TIMESTAMP_PASSENGER)
         assert outcome.state == "failed"
-        assert "input column 'value_int' was changed" in outcome.message
+        assert f"input column '{column}' was changed" in outcome.message
 
 
 class TestHookContract:

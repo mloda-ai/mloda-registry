@@ -91,6 +91,6 @@ class SqliteScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
         if not rows:
             # The fetch path has no declared type on zero rows; a typed raw select keeps the output type.
             data._ensure_column_absent(feature_name)
-            return data.select(_raw_sql=f"*, ({source_expr} {sql_op} {literal}) AS {quoted_feature}")  # nosec
+            return data.select(_raw_sql=f"*, ({source_expr} {sql_op} {literal}) AS {quoted_feature}")
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

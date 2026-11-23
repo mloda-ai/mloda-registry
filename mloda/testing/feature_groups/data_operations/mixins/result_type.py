@@ -1,4 +1,4 @@
-"""Reusable result-type test mixin: each op passes core's shape check, and its output type matches the group's declared type if any.
+"""Reusable result-type test mixin: each op passes core's shape check and the group's declared output type.
 
 Provides ``test_mixin_result_type``: runs core's ``check_feature_group_shape`` per case on source data with
 nulls and asserts the full shape check on every group; on a typed group also the declared output type
@@ -12,12 +12,12 @@ import re
 from typing import ClassVar
 
 import pytest
-from mloda._testing.feature_group_shape import _same
 from mloda.provider import DivergenceKind, FeatureGroup, FeatureSet
-from mloda.user import DataType, FeatureName, Options
+from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.testing.feature_group_shape import check_feature_group_shape
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, same_values
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 from mloda.testing.framework_adapter import to_arrow_table
 from mloda.testing.typed_data import TypedTestData
@@ -36,7 +36,7 @@ def _blocking(
     adapter_retypes: frozenset[str] = frozenset(),
     adapter_rewrites: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """Core messages that fail the test: every failure, except a zero-row retype or a changed input the adapter makes."""
+    """Core messages that fail the test: every failure except a zero-row retype or changed input the adapter makes."""
     bad = []
     for f in failures:
         m = _ZERO_ROWS_RETYPE.match(f)
@@ -61,7 +61,7 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        """Case id -> one-feature FeatureSet of a typed op. Required."""
+        """Case id -> one-feature FeatureSet: one per typed op, or per op if the group is untyped. Required."""
         raise NotImplementedError("Subclass must override result_type_cases")
 
     @classmethod
@@ -70,7 +70,7 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         return cls.source_data()
 
     def test_mixin_result_type(self, result_type_case: str) -> None:
-        """The case's output column has the declared type, or a ``type`` record excuses it."""
+        """The shape check passes; a typed output has its declared type unless a ``type`` record excuses it."""
         cases = self.result_type_cases()
         assert cases, f"{type(self).__name__}.result_type_cases() is empty"
         feature = next(iter(cases[result_type_case].features))
@@ -125,9 +125,19 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             c for c in data.types if self.adapter.column_type(full_frame, c) != self.adapter.column_type(empty_frame, c)
         )
         source_values = data.to_python_dict()
-        adapter_rewrites = frozenset(
-            c for c in data.types if not _same(self.adapter.column_values(full_frame, c), source_values[c])
-        )
+        candidates = [
+            c for c in data.types if not same_values(self.adapter.column_values(full_frame, c), source_values[c])
+        ]
+        adapter_rewrites: frozenset[str] = frozenset()
+        if candidates:
+            features = FeatureSet()
+            features.add(Feature(name, options=options))
+            ran = calculate_with(impl, self.adapter.from_typed(data, arrow_types), features, group=group)
+            adapter_rewrites = frozenset(
+                c
+                for c in candidates
+                if same_values(self.adapter.column_values(ran, c), self.adapter.column_values(full_frame, c))
+            )
         bad = _blocking(
             list(result.failures),
             list(result.notes),

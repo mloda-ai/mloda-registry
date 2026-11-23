@@ -266,13 +266,13 @@ class TimeBucketizationTestBase(
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__floor_1_day")
 
+    ALL_OPS = {"floor", "ceil", "round"}
+
     # -- ResultTypeTestMixin configuration --------------------------------------
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
         return {op: make_feature_set(f"timestamp__{op}_1_day") for op in sorted(cls.ALL_OPS)}
-
-    ALL_OPS = {"floor", "ceil", "round"}
 
     @classmethod
     def supported_ops(cls) -> set[str]:
