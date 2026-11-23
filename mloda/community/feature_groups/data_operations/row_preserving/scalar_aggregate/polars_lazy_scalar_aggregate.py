@@ -57,7 +57,7 @@ class PolarsLazyScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
         elif agg_type in ("avg", "mean"):
             expr = col.mean()
         elif agg_type == "count":
-            expr = col.count()
+            expr = col.count().cast(pl.Int64)
         elif agg_type in ("std", "std_pop"):
             expr = col.std(ddof=0)
         elif agg_type in ("var", "var_pop"):

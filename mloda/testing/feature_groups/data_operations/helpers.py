@@ -28,7 +28,7 @@ from __future__ import annotations
 import math
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
@@ -162,14 +162,15 @@ def result_column_names(result: Any) -> list[str]:
 
 
 def has_numeric_fixed_offset(values: Sequence[Any]) -> bool:
-    """True when any datetime carries a non-UTC fixed offset, which Arrow stores as a numeric zone."""
-    offsets = [v.utcoffset() for v in values if isinstance(v, datetime)]
-    return any(offset is not None and offset.total_seconds() != 0 for offset in offsets)
+    """True when any datetime has a non-zero `datetime.timezone` offset, which Arrow stores as a numeric zone."""
+    return any(
+        isinstance(v, datetime) and isinstance(v.tzinfo, timezone) and v.utcoffset() != timedelta(0) for v in values
+    )
 
 
 def is_null(value: Any) -> bool:
-    """True for None or a float NaN."""
-    if value is None:
+    """True for None, a float NaN or pandas' ``pd.NA``."""
+    if value is None or type(value).__name__ == "NAType":
         return True
     if isinstance(value, float) and value != value:
         return True

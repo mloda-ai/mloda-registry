@@ -19,12 +19,14 @@ test suite.
 from __future__ import annotations
 
 import importlib
+import inspect
 import pkgutil
 from itertools import combinations
 from types import ModuleType
 from typing import Any, ClassVar, Iterator, cast
 
 import pytest
+from mloda.provider import FeatureGroup
 
 import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
@@ -46,6 +48,7 @@ from mloda.testing.feature_groups.data_operations.mixins.operation_group_integra
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 
@@ -346,6 +349,27 @@ class TestMixinIsolation:
             sorted(offenders)
         )
 
+    def test_every_typed_data_ops_test_class_mixes_in_result_type(self) -> None:
+        """A concrete test class whose group overrides ``return_data_type_rule`` mixes in ``ResultTypeTestMixin``."""
+        offenders: list[str] = []
+        concrete_classes = [cls for cls in _iter_concrete_test_classes() if issubclass(cls, DataOpsTestBase)]
+        assert concrete_classes, "no concrete DataOpsTestBase subclasses discovered; discovery is broken"
+
+        typed = 0
+        for cls in concrete_classes:
+            group = cls.feature_group_class()
+            if inspect.getattr_static(group, "return_data_type_rule") is inspect.getattr_static(
+                FeatureGroup, "return_data_type_rule"
+            ):
+                continue
+            typed += 1
+            if not issubclass(cls, ResultTypeTestMixin):
+                offenders.append(f"{cls.__module__}.{cls.__name__}")
+        assert typed, "no concrete test class with a return_data_type_rule override discovered; the guard is vacuous"
+        assert not offenders, "typed DataOpsTestBase subclasses missing ResultTypeTestMixin:\n" + "\n".join(
+            sorted(offenders)
+        )
+
     def test_mixins_subclass_their_host_base(self) -> None:
         """Every discovered mixin subclasses its host base or is a listed neither-base mixin."""
         host_bases: dict[type, type] = {
@@ -357,6 +381,7 @@ class TestMixinIsolation:
             MaskTestMixin: DataOpsTestBase,
             OutputContractTestMixin: DataOpsTestBase,
             PinnedRowTestMixin: DataOpsTestBase,
+            ResultTypeTestMixin: DataOpsTestBase,
             MaskIntegrationTestMixin: DataOpsIntegrationTestBase,
             OperationGroupIntegrationTestMixin: DataOpsIntegrationTestBase,
         }

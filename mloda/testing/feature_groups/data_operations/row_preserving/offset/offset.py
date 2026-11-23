@@ -33,6 +33,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 from mloda.testing.typed_data import TypedTestData
 
@@ -82,13 +83,21 @@ _TIE_NULLS = (
 _TIE_NULL_ORDER = (["a"] * 4, [None, None, 1, 1], [1.0, 2.0, 3.0, 4.0])
 
 
-class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class OffsetTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for offset framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"pct_change": make_feature_set("value_float__pct_change_1_offset", ["region"], "value_int")}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

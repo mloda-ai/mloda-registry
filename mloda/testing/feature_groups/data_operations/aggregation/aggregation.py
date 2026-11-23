@@ -43,6 +43,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
     SINGLE_VALUE_VAR,
@@ -195,6 +196,7 @@ class AggregationTestBase(
     NanPolicyTestMixin,
     SingleValueStdVarTestMixin,
     MaskTestMixin,
+    ResultTypeTestMixin,
     DataOpsTestBase,
 ):
     """Abstract base class for aggregation framework tests.
@@ -283,6 +285,13 @@ class AggregationTestBase(
     @classmethod
     def mask_no_mask_expected(cls) -> dict[Any, Any]:
         return dict(EXPECTED_SUM_BY_REGION)
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        counting = cls.feature_group_class()._COUNTING_AGG_TYPES
+        return {t: make_feature_set(f"value_int__{t}_agg", ["region"]) for t in sorted(counting)}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

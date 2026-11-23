@@ -34,6 +34,7 @@ from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMix
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
     SINGLE_VALUE_VAR,
@@ -144,6 +145,7 @@ class WindowAggregationTestBase(
     SingleValueStdVarTestMixin,
     ReservedColumnsTestMixin,
     MaskTestMixin,
+    ResultTypeTestMixin,
     DataOpsTestBase,
 ):
     """Abstract base class for window aggregation framework tests."""
@@ -152,6 +154,13 @@ class WindowAggregationTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_window", ["region"])
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        counting = cls.feature_group_class()._COUNTING_AGG_TYPES
+        return {t: make_feature_set(f"value_int__{t}_window", ["region"]) for t in sorted(counting)}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

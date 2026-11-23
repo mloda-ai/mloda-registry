@@ -66,6 +66,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
+    has_numeric_fixed_offset,
     make_feature_set,
     make_multi_feature_set,
 )
@@ -76,6 +77,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -275,7 +277,9 @@ NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
 # ---------------------------------------------------------------------------
 
 
-class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestBase):
+class ResampleTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for resample framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -291,6 +295,11 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     @classmethod
     def tz_aware_source_reads_utc(cls) -> bool:
         """True when a tz-aware source column is bucketed on its UTC instant, not its own zone (a declared GAP)."""
+        return False
+
+    @classmethod
+    def rejects_numeric_offset_source(cls) -> bool:
+        """True when a time column with a numeric fixed-offset timezone is rejected with a ValueError."""
         return False
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -384,6 +393,12 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     def _resample_fs(self, feature_name: str, partition_by: list[str]) -> FeatureSet:
         return make_feature_set(feature_name, partition_by=partition_by, time_column="ts")
 
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"count": make_feature_set("value__resample_1_hour_count", ["region"], time_column="ts")}
+
     # -- NanPolicyTestMixin configuration ---------------------------------------
 
     @classmethod
@@ -440,6 +455,11 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
             return TypedTestData(
                 {"ts": (DataType.TIMESTAMP_MICROS_TZ, ts), "value": (DataType.INT64, [10, 20])},
             )
+
+        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(rows):
+            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
+                calculate_with(self.implementation_class(), self.create_test_data(typed(rows)), fs)
+            return
 
         expected: dict[tuple[Any, ...], Any] = {(datetime(2024, 1, 1, tzinfo=tz),): 2}
         if self.tz_aware_source_reads_utc():

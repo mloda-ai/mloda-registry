@@ -35,6 +35,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.string.pinning_rows import STRING_PINNING
 from mloda.testing.typed_data import TypedTestData
@@ -98,7 +99,9 @@ EXPECTED_REVERSE: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class StringTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class StringTestBase(
+    PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for string operation framework tests."""
 
     @classmethod
@@ -132,6 +135,12 @@ class StringTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContrac
         return make_feature_set("name__trim")
 
     ALL_STRING_OPS = {"upper", "lower", "trim", "length", "reverse"}
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"length": make_feature_set("name__length")}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

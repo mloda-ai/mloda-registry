@@ -26,7 +26,7 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "sum": lambda col: pl.col(col).sum(),
     "avg": lambda col: pl.col(col).mean(),
     "mean": lambda col: pl.col(col).mean(),
-    "count": lambda col: pl.col(col).count(),
+    "count": lambda col: pl.col(col).count().cast(pl.Int64),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),
     "std": lambda col: pl.col(col).std(ddof=0),
@@ -35,7 +35,7 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "std_samp": lambda col: pl.col(col).std(ddof=1),
     "var_pop": lambda col: pl.col(col).var(ddof=0),
     "var_samp": lambda col: pl.col(col).var(ddof=1),
-    "nunique": lambda col: pl.col(col).drop_nulls().n_unique(),
+    "nunique": lambda col: pl.col(col).drop_nulls().n_unique().cast(pl.Int64),
     "first": lambda col: pl.col(col).drop_nulls().first(),
     "last": lambda col: pl.col(col).drop_nulls().last(),
 }

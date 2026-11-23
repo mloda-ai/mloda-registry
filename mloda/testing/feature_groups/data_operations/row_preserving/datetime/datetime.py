@@ -53,6 +53,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime.pinning_rows import DATETIME_PINNING
 from mloda.testing.typed_data import TypedTestData
@@ -120,7 +121,9 @@ def _create_varied_times_data() -> TypedTestData:
 # ---------------------------------------------------------------------------
 
 
-class DateTimeTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class DateTimeTestBase(
+    PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for datetime extraction framework tests."""
 
     @classmethod
@@ -141,6 +144,12 @@ class DateTimeTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContr
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__year")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {op: make_feature_set(f"timestamp__{op}") for op in sorted(cls.feature_group_class().subtype_universe())}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
@@ -308,11 +317,6 @@ class DateTimeTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContr
         expected = super().expected_values(row)
         column = next(iter(row.inputs))
         data_type, values = row.inputs[column]
-        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
-            fs = make_feature_set(row.feature, **row.context)
-            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
-                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
-            return
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
             ref_inputs = {column: (data_type, utc_values)}
@@ -320,6 +324,13 @@ class DateTimeTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContr
             ref = self.reference_calculate(arrow_table_of(TypedTestData(ref_inputs)), fs)
             expected[row.feature] = extract_column(ref, row.feature)
         return expected
+
+    def rejection_match(self, row: PinningRow) -> str | None:
+        """A numeric fixed-offset row on a rejecting backend must raise up front instead of computing."""
+        values = next(iter(row.inputs.values()))[1]
+        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
+            return r"(?i)fixed.offset"
+        return super().rejection_match(row)
 
     def test_divergent_flags_are_declared(self) -> None:
         impl = self.implementation_class()

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+import pytest
+
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
@@ -29,18 +31,26 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         """Expected columns; override for declared divergences or to skip unsupported operations."""
         return {column: list(values) for column, (_, values) in row.expected.items()}
 
+    def rejection_match(self, row: PinningRow) -> str | None:
+        """Regex of the up-front ValueError a declared rejection raises for this row; None computes it."""
+        return None
+
     def assert_pinned_values(self, row: PinningRow, column: str, actual: list[Any], expected: list[Any]) -> None:
         """Compare one column; hosts may retain a stricter numeric comparison or backend cast."""
         assert actual == expected
 
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
-        """Every expected column of a hand-computed row must match the backend result."""
+        """A row matches the backend result; rejection_match takes precedence over expected_values."""
         row = self.pinned_row_cases()[pinned_row_case]
+
+        data = self.create_test_data(TypedTestData(row.inputs))
+        fs = make_feature_set(row.feature, **row.context)
+        pattern = self.rejection_match(row)
+        if pattern is not None:
+            with pytest.raises(ValueError, match=pattern):
+                calculate_with(self.implementation_class(), data, fs)
+            return
         expected = self.expected_values(row)
-        result = calculate_with(
-            self.implementation_class(),
-            self.create_test_data(TypedTestData(row.inputs)),
-            make_feature_set(row.feature, **row.context),
-        )
+        result = calculate_with(self.implementation_class(), data, fs)
         for column, values in expected.items():
             self.assert_pinned_values(row, column, self.extract_column(result, column), values)

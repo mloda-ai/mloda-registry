@@ -58,4 +58,4 @@ class PolarsLazyDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         else:
             raise ValueError(f"Unsupported datetime operation: {op}")
 
-        return data.with_columns(expr.alias(feature_name))
+        return data.with_columns(expr.cast(pl.Int64).alias(feature_name))

@@ -6,9 +6,10 @@ import importlib.util
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 import pytest
@@ -113,6 +114,23 @@ def test_skip_if_unsupported_returns_for_a_declared_op() -> None:
 )
 def test_is_null(value: Any, expected: bool) -> None:
     assert helpers.is_null(value) is expected
+
+
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        ([datetime(2024, 1, 1, tzinfo=timezone(timedelta(hours=5)))], True),
+        ([None, datetime(2024, 1, 1, tzinfo=timezone(timedelta(hours=-3)))], True),
+        ([datetime(2024, 1, 1, tzinfo=ZoneInfo("Asia/Kolkata"))], False),
+        ([datetime(2024, 1, 1, tzinfo=timezone.utc)], False),
+        ([datetime(2024, 1, 1, tzinfo=timezone(timedelta(0)))], False),
+        ([datetime(2024, 1, 1)], False),
+        ([None, None], False),
+        ([], False),
+    ],
+)
+def test_has_numeric_fixed_offset(values: list[Any], expected: bool) -> None:
+    assert helpers.has_numeric_fixed_offset(values) is expected
 
 
 # -- helpers.assert_values_with_nulls ---------------------------------------

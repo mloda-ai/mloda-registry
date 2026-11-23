@@ -25,7 +25,7 @@ _DUCKDB_DATETIME_EXPRS: dict[str, str] = {
     "minute": "MINUTE({col})",
     "second": "SECOND({col})",
     "dayofweek": "(DAYOFWEEK({col}) + 6) % 7",
-    "is_weekend": "CASE WHEN {col} IS NULL THEN NULL WHEN DAYOFWEEK({col}) IN (0, 6) THEN 1 ELSE 0 END",
+    "is_weekend": "CASE WHEN {col} IS NULL THEN NULL WHEN DAYOFWEEK({col}) IN (0, 6) THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END",
     "quarter": "QUARTER({col})",
 }
 

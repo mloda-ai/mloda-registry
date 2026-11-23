@@ -99,7 +99,7 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             elif agg_type == "max":
                 expr = col.cum_max().forward_fill().pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "count":
-                expr = col.cum_count().pipe(_over, partition_by).alias(feature_name)
+                expr = col.cum_count().cast(pl.Int64).pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "avg":
                 cum_sum = col.cum_sum().forward_fill().pipe(_over, partition_by)
                 cum_count = col.cum_count().pipe(_over, partition_by).cast(pl.Float64)
@@ -266,7 +266,7 @@ class PolarsLazyFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                     .alias(feature_name)
                 )
             elif agg_type == "count":
-                expr = non_null_count.pipe(_over, partition_by).alias(feature_name)
+                expr = non_null_count.cast(pl.Int64).pipe(_over, partition_by).alias(feature_name)
             else:
                 raise unsupported_agg_type_error(
                     agg_type,
