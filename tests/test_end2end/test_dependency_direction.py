@@ -1040,6 +1040,7 @@ def test_kit_enterprise_import_collector_scans_binary_model_and_skips_community_
 
 
 kit_map = load_script("kit_modules", _REPO_ROOT / "scripts" / "kit_modules.py")
+verify = load_script("verify_independent_installs", _REPO_ROOT / "scripts" / "verify_independent_installs.py")
 
 
 def _kit_modules_flat() -> dict[str, str | None]:
@@ -1127,12 +1128,13 @@ def test_kit_modules_skips_build_and_test_directories(tmp_path: Path, skipped: s
     assert kit_map.kit_modules(tmp_path) == {None: ["mloda.testing.keep"]}
 
 
-# Import root -> the mloda-testing distribution that provides it.
+# Import root -> the distribution that provides it.
 _KIT_IMPORT_DISTRIBUTIONS = {
     "pytest": "pytest",
     "pyarrow": "pyarrow",
     "opentelemetry": "opentelemetry-sdk",
     "openlineage": "openlineage-python",
+    "cryptography": "cryptography",
 }
 
 # Allowed inside a function in any kit module (pyarrow because data_creator/pyarrow.py imports it lazily
@@ -1146,7 +1148,7 @@ def _mloda_testing_config() -> dict[str, Any]:
 
 
 def _kit_declared_distributions(cfg: dict[str, Any], gate: str | None) -> set[str]:
-    """Normalized distributions mloda-testing declares for a module: its dependencies plus its gate extra."""
+    """Normalized distributions a package config declares: its dependencies plus the named extra."""
     specs = list(cfg.get("dependencies", []))
     if gate is not None:
         specs.extend(cfg.get("optional_dependencies", {}).get(gate, []))
@@ -1182,22 +1184,24 @@ def _import_roots_of(node: ast.AST) -> list[str]:
     return []
 
 
-def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | None = None) -> list[str]:
-    """Third-party imports in shipped kit modules that mloda-testing does not declare for that module."""
-    cfg = _mloda_testing_config() if cfg is None else cfg
+def _third_party_import_violations(
+    root_dir: Path, declared_for: Callable[[str], tuple[set[str], str]], *, author_backends: frozenset[str]
+) -> list[str]:
+    """Third-party imports in shipped modules that `declared_for(rel_posix)` (declared set, label) does not cover.
+
+    Only `author_backends` may be imported inside a function without being declared."""
     violations: list[str] = []
     for rel_path, tree in _runtime_modules(root_dir):
-        gate = kit_map.kit_gate(rel_path.as_posix())
-        declared = _kit_declared_distributions(cfg, gate)
+        declared, label = declared_for(rel_path.as_posix())
         for node, fn in _walk_with_scope(tree, skip_type_checking=True):
             for root in _import_roots_of(node):
                 if root in _STDLIB_ROOTS or root in _FIRST_PARTY_IMPORT_ROOTS:
                     continue
                 where = f"{rel_path.as_posix()}:{getattr(node, 'lineno', 0)}"
-                if root in _AUTHOR_BACKENDS and fn is not None:
+                if root in author_backends and fn is not None:
                     continue
                 distribution = _KIT_IMPORT_DISTRIBUTIONS.get(root)
-                if distribution is None and root in _AUTHOR_BACKENDS:
+                if distribution is None and root in author_backends:
                     violations.append(f"{where}: author backend {root!r} must be imported inside a function")
                 elif distribution is None:
                     violations.append(f"{where}: unknown import name {root!r}")
@@ -1206,10 +1210,39 @@ def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | Non
                 elif fn is not None and _imports_root_via_importorskip(fn, root, getattr(node, "lineno", 0)):
                     continue
                 else:
-                    violations.append(
-                        f"{where}: import {root!r} needs {distribution!r}, not declared for gate {gate!r}"
-                    )
+                    violations.append(f"{where}: import {root!r} needs {distribution!r}, not declared for {label}")
     return violations
+
+
+def _kit_third_party_import_violations(root_dir: Path, cfg: dict[str, Any] | None = None) -> list[str]:
+    """Third-party imports in shipped kit modules that mloda-testing does not declare for that module."""
+    cfg = _mloda_testing_config() if cfg is None else cfg
+
+    def declared_for(rel_posix: str) -> tuple[set[str], str]:
+        gate = kit_map.kit_gate(rel_posix)
+        return _kit_declared_distributions(cfg, gate), f"gate {gate!r}"
+
+    return _third_party_import_violations(root_dir, declared_for, author_backends=_AUTHOR_BACKENDS)
+
+
+def _license_kit_declared_distributions(packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Normalized distributions the license kit job's requirements declare: dependencies plus each named extra."""
+    declared: set[str] = set()
+    for spec in verify.LICENSE_KIT_REQUIREMENTS:
+        req = Requirement(spec)
+        for extra in req.extras or (None,):
+            declared |= _kit_declared_distributions(packages[req.name], extra)
+    return declared
+
+
+def _license_kit_third_party_import_violations(
+    root_dir: Path, packages: dict[str, dict[str, Any]] | None = None
+) -> list[str]:
+    """Third-party imports in the license kit that its job's requirements do not declare."""
+    packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
+    declared = _license_kit_declared_distributions(packages)
+    label = " + ".join(verify.LICENSE_KIT_REQUIREMENTS)
+    return _third_party_import_violations(root_dir, lambda _rel: (declared, label), author_backends=frozenset())
 
 
 def test_kit_imports_only_third_party_distributions_mloda_testing_declares() -> None:
@@ -1342,3 +1375,45 @@ def test_kit_third_party_import_collector(tmp_path: Path, rel: str, body: str, f
 def test_kit_third_party_import_collector_skips_tests_directories(tmp_path: Path) -> None:
     _write(tmp_path / "tests" / "test_m.py", "import pandas\n")
     assert _kit_third_party_import_violations(tmp_path) == []
+
+
+def test_license_kit_imports_only_third_party_distributions_its_job_declares() -> None:
+    license_kit_root = _REPO_ROOT / verify.LICENSE_KIT_PATH
+    assert license_kit_root.is_dir(), f"expected {license_kit_root} to exist"
+    violations = _license_kit_third_party_import_violations(license_kit_root)
+    assert violations == [], f"the license kit imports a distribution its job does not declare: {violations}"
+
+
+@pytest.mark.parametrize(
+    ("body", "fragments"),
+    [
+        pytest.param("import pytest\n", None, id="mloda-testing-dependency"),
+        pytest.param("import pyarrow\n", None, id="binary-model-extra"),
+        pytest.param("import cryptography\n", None, id="ed25519-extra"),
+        pytest.param(
+            "import openlineage\n",
+            ("import 'openlineage'", "mloda-enterprise[ed25519]"),
+            id="extra-outside-the-job",
+        ),
+        pytest.param("import requests\n", ("unknown import name",), id="unknown-name"),
+        pytest.param(
+            "def f() -> None:\n    import pandas\n",
+            ("unknown import name",),
+            id="function-level-author-backend-not-exempt",
+        ),
+    ],
+)
+def test_license_kit_third_party_import_collector(tmp_path: Path, body: str, fragments: tuple[str, ...] | None) -> None:
+    _write(tmp_path / "m.py", body)
+    violations = _license_kit_third_party_import_violations(tmp_path)
+    if fragments is None:
+        assert violations == []
+    else:
+        assert len(violations) == 1 and all(f in violations[0] for f in fragments), violations
+
+
+def test_license_kit_declared_set_follows_the_job_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(verify, "LICENSE_KIT_REQUIREMENTS", ("mloda-testing[binary-model]",))
+    _write(tmp_path / "m.py", "import cryptography\n")
+    violations = _license_kit_third_party_import_violations(tmp_path)
+    assert len(violations) == 1 and "import 'cryptography'" in violations[0], violations
