@@ -1348,7 +1348,9 @@ def _license_kit_third_party_import_violations(
 
 
 def _install_closure(requirements: Iterable[str], packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured distributions a pip install of `requirements` brings, including named extras. An undefined extra raises."""
+    """Configured distributions a pip install of `requirements` brings, including named extras.
+
+    An undefined extra raises. `{published_children}` and shared default extras are not expanded."""
     configured = {gen.normalize_package_name(name): name for name in packages}
     installed: set[str] = set()
     seen: set[tuple[str, str]] = set()
@@ -1458,7 +1460,11 @@ def test_kit_imports_only_third_party_distributions_mloda_testing_declares() -> 
 def test_kit_reaches_only_modules_its_gate_job_installs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(_REPO_ROOT)
     assert _KIT_ROOT.is_dir(), f"expected {_KIT_ROOT} to exist"
-    violations = _kit_unshipped_violations(_KIT_ROOT)
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    owners = _wheel_owners(packages)
+    assert "mloda-testing" in owners["mloda.testing.binary_model"]
+    assert owners["mloda.community.feature_groups.binary_model"] == {"mloda-community-binary-model"}
+    violations = _kit_unshipped_violations(_KIT_ROOT, packages, owners=owners)
     assert violations == [], f"mloda/testing reaches a module that its gate's job does not install: {violations}"
 
 
@@ -2011,6 +2017,15 @@ def test_unshipped_reached_module_collector(
             {"a": {"dependencies": ["b>={version}"]}, "b": {"dependencies": ["a>={version}"]}},
             {"a", "b"},
             id="cycle-terminates",
+        ),
+        pytest.param(
+            ["a[x]"],
+            {
+                "a": {"optional_dependencies": {"x": ["b[y]>={version}"]}},
+                "b": {"optional_dependencies": {"y": ["a[x]>={version}"]}},
+            },
+            {"a", "b"},
+            id="extras-naming-each-other-terminate",
         ),
     ],
 )
