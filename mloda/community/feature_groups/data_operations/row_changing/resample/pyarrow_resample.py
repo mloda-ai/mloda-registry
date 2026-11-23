@@ -84,8 +84,7 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
         grouped = data.group_by(keys).aggregate(entries)
         result = rename_aggregates_by_position(grouped, keys, [*names, *nan_helpers.values()])
 
-        # Older Arrow returns +/-inf for all-NaN extrema. Only the native all-NaN
-        # flag repairs them: genuine infinities and all-null buckets stay intact.
+        # Older Arrow returns +/-inf for all-NaN extrema; repair only those buckets.
         for spec in aggs:
             if spec.agg in {"min", "max"} and spec.source_col in nan_helpers:
                 values = result.column(spec.feature_name)

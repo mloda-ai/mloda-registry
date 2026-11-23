@@ -56,12 +56,7 @@ def test_temporal_timezone_support(
     offset_minutes: int,
     shape: str,
 ) -> None:
-    """Reject unsupported column types before kernels run, even when there are no values.
-
-    Arrow 22.0.0 added numeric timezone support (apache/arrow#12865 / GH-30036).
-    The old ArrowInvalid already inherits ValueError, so pin an actionable message.
-    Named zones, naive timestamps and UTC must keep working on older releases.
-    """
+    """Numeric fixed-offset zones are rejected up front on Arrow < 22; other zones keep working."""
     local_zone = None if zone is None else timezone(timedelta(minutes=offset_minutes))
     timestamp = datetime(2024, 3, 31, 23, 45, 50, tzinfo=local_zone)
     values = {"values": [timestamp, None], "all-null": [None], "empty": []}[shape]

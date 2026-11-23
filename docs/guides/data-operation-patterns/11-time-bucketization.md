@@ -82,7 +82,7 @@ A NULL timestamp yields NULL on every backend; DuckDB guards each CASE projectio
 
 ## Timezone fidelity
 
-PyArrow accepts numeric fixed-offset zones such as `+05:00`, `-03:30` and `+00:00` from version **22.0.0**. On the declared minimum (14.0.1) through 21.x, time bucketization and datetime extraction reject these column types up front with a `ValueError` naming the zone and required version, including empty and all-null columns. Naive timestamps, `UTC` and named zones such as `Etc/GMT-5` remain supported. See [known divergences](known-divergences.md#pyarrow-before-22-cannot-run-temporal-kernels-on-numeric-fixed-offset-zones).
+PyArrow before 22.0.0 (including the declared 14.0.1 minimum) rejects numeric fixed-offset zones such as `+05:00` with a `ValueError`; naive, `UTC` and named zones work. See [known divergences](known-divergences.md#pyarrow-before-22-cannot-run-temporal-kernels-on-numeric-fixed-offset-zones).
 
 Bucket math runs on the column's own wall clock and PyArrow, Pandas and Polars return the input timezone. Exceptions: DuckDB receives a tz-aware column as UTC, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC (a declared `GAP`); SQLite rejects non-UTC offsets up front; Polars cannot hold a sub-hour fixed offset, so such a column fails in the framework transfer. See [known divergences](known-divergences.md). Pandas' `PeriodIndex` strips tz, so `_calendar_floor` re-localises after `to_timestamp()`.
 

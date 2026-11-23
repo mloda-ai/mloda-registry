@@ -727,9 +727,9 @@ regression_test:
 
 - **Operations**: `resample` (`min` and `max`).
 - **Reference behavior**: Mixed buckets ignore NaN; an all-NaN bucket keeps NaN, and an all-null bucket stays null. Real infinities remain valid extrema.
-- **Native PyArrow behavior**: The minimum-version job exposes `+inf` for all-NaN `min` and `-inf` for all-NaN `max` on older releases.
+- **Native PyArrow behavior**: All-NaN `min` returns `+inf` and all-NaN `max` returns `-inf`.
 - **Mitigation kind**: Implementation fix. A native grouped `all(is_nan(value))` flag identifies only the all-NaN buckets, and `if_else` restores NaN without changing genuine infinities, other aggregates or the float width.
-- **Regression signal**: The multi-aggregation test covers float32 and float64, NaN/null mixtures, genuine infinities, finite values and neighboring buckets at the declared minimum and on current releases.
+- **Regression signal**: The multi-aggregation test covers float32 and float64 with NaN, null and infinity mixtures.
 
 ### PyArrow before 22 cannot run temporal kernels on numeric fixed-offset zones
 
@@ -749,9 +749,9 @@ regression_test:
 
 - **Operations**: `time_bucketization` and `datetime` extraction.
 - **Reference behavior**: Numeric fixed offsets use their own wall clock.
-- **Native PyArrow behavior**: Releases before 22 raise a timezone-database error for populated or all-null numeric-zone columns, but accept empty columns without resolving the zone. Naive timestamps, UTC and named zones such as `Etc/GMT-5` work. [Arrow 22.0.0](https://arrow.apache.org/release/22.0.0.html) first includes numeric timezone support ([GH-30036 / PR #12865](https://github.com/apache/arrow/pull/12865)).
-- **Mitigation kind**: Up-front rejection with a `ValueError` naming the fixed offset and required PyArrow version. The shared validation reads the column type, so empty and all-null inputs follow the same rule; no values are computed in Python.
-- **Regression signal**: `tox -e pyarrow14` runs all PyArrow data-operation suites and the version-conditional temporal regression at 14.0.1 with NumPy 1.26.4. Older releases must reject only numeric-zone inputs; supported releases and zones still check their values and types.
+- **Native PyArrow behavior**: Releases before 22 raise a timezone-database error for numeric-zone columns (empty ones pass). Naive, UTC and named zones such as `Etc/GMT-5` work. [Arrow 22.0.0](https://arrow.apache.org/release/22.0.0.html) first includes numeric timezone support.
+- **Mitigation kind**: Up-front `ValueError` naming the offset and required PyArrow version, decided from the column type so empty and all-null inputs behave alike.
+- **Regression signal**: `tox -e pyarrow14` runs the PyArrow suites at 14.0.1; older releases must reject only numeric-zone inputs.
 
 ### DuckDB time bucketization buckets a non-UTC zone on the UTC wall clock
 
