@@ -34,12 +34,16 @@ _HAS_OFFSET = "substr({q}, -6, 1) IN ('+', '-') AND substr({q}, -3, 1) = ':'"
 
 
 def wall_clock_expr(quoted: str) -> str:
-    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` offset, leaving the wall clock."""
+    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` / ``Z``, leaving the wall clock."""
     cond = _HAS_OFFSET.format(q=quoted)
-    return f"(CASE WHEN {cond} THEN substr({quoted}, 1, length({quoted}) - 6) ELSE {quoted} END)"
+    return (
+        f"(CASE WHEN {cond} THEN substr({quoted}, 1, length({quoted}) - 6) "
+        f"WHEN substr({quoted}, -1) = 'Z' THEN substr({quoted}, 1, length({quoted}) - 1) "
+        f"ELSE {quoted} END)"
+    )
 
 
 def offset_suffix_expr(quoted: str) -> str:
-    """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` offset or ``''``."""
+    """SQL expression for the trailing offset or ``''``, normalizing UTC ``Z`` to ``+00:00``."""
     cond = _HAS_OFFSET.format(q=quoted)
-    return f"(CASE WHEN {cond} THEN substr({quoted}, -6) ELSE '' END)"
+    return f"(CASE WHEN {cond} THEN substr({quoted}, -6) WHEN substr({quoted}, -1) = 'Z' THEN '+00:00' ELSE '' END)"
