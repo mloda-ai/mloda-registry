@@ -166,6 +166,9 @@ _EVENT_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(
 _UNFORWARDED = {
     "failed_rows": {"count": 4242, "columns": {"col-marker-9c1d": {"count": 4242, "reasons": ["reason-marker-9c1d"]}}},
     "extra_marker": "extra-marker-9c1d",
+    "credential_handles": ["handle-marker-9c1d"],
+    "bound_credential_handle": "bound-marker-9c1d",
+    "credentials_read": ["read-marker-9c1d"],
     "data_access_identity": ["s3://bucket-marker-9c1d/key"],
     "data_access_format": ["format-marker-9c1d"],
     "data_access_declared_attributes": [{"license": "declared-marker-9c1d"}],
