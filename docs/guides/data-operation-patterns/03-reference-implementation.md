@@ -61,7 +61,7 @@ Do not "fix" a framework to agree with a reference bug. The reference is where c
 
 ## Pure Python reference for the aggregating operations
 
-Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. Resample shares `group_rows` and `aggregate` through `compute_groups` and the time bucketization floor (`bucket_helpers.py`). The ordered families (rank, offset, ffill, sessionization, EMA) share the kernel's `ordered_groups`, and percentile uses its `quantile`. Point and scalar arithmetic, string, datetime, binning, time bucketization and lookup have their own. The contract, per agg type over one group's values:
+Aggregation, window aggregation, frame aggregate and scalar aggregate share one Python kernel, `mloda/testing/feature_groups/data_operations/aggregation_helpers.py`. A reference reads columns with `to_pylist()`, groups with `group_rows`, aggregates with `aggregate` and builds the output with the declared dtype. `pa.Table` is only the I/O container. Resample shares `group_rows` and `aggregate` through `compute_groups` and the time bucketization floor (`mloda/testing/feature_groups/data_operations/row_preserving/bucket_helpers.py`). The ordered families (rank, offset, ffill, sessionization, EMA) share the kernel's `ordered_groups`, and percentile uses its `quantile`. Point and scalar arithmetic, string, datetime, binning, time bucketization and lookup have their own. The contract, per agg type over one group's values:
 
 | Rule | Contract |
 |---|---|

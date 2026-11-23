@@ -617,6 +617,7 @@ UNNAMED_KIT_MODULES: dict[str, str] = {
 
 def _public_kit_modules() -> list[str]:
     names = [name for modules in kit_map.kit_modules().values() for name in modules]
+    # package __init__ modules are skipped; the guides name packages through their modules
     return sorted(n for n in names if not (REPO_ROOT.joinpath(*n.split(".")).is_dir()))
 
 
@@ -627,19 +628,24 @@ def _unnamed_kit_modules(modules: Iterable[str], guide_text: str) -> set[str]:
         parts = module.split(".")
         if any(part.startswith("_") for part in parts):
             continue
-        if module in guide_text or "/".join(parts) + ".py" in guide_text:
+        path = "/".join(parts) + ".py"
+        if re.search(rf"{re.escape(module)}(?!\w)", guide_text) or re.search(rf"{re.escape(path)}(?!\w)", guide_text):
             continue
-        below = parts[len(KIT_ROOT.split(".")) :]
         stem = parts[-1]
+        parent = parts[:-1]
         if module.startswith(DATA_OPERATIONS_ROOT):
-            parent = module[len(DATA_OPERATIONS_ROOT) :].split(".")[:-1]
-            if parent and not (len(parent) == 1 and parent[0] in NON_FAMILY_PARENTS):
-                if stem == parent[-1] or stem in FAMILY_SHARED_STEMS:
+            family = module[len(DATA_OPERATIONS_ROOT) :].split(".")[:-1]
+            if family and not (len(family) == 1 and family[0] in NON_FAMILY_PARENTS):
+                if (stem == family[-1] or stem in FAMILY_SHARED_STEMS) and re.search(
+                    rf"(?<!\w){re.escape(family[-1])}/", guide_text
+                ):
                     continue
-        ancestors = [KIT_ROOT.split(".") + below[:i] for i in range(1, len(below))]
-        needles = [".".join(a) for a in ancestors] + ["/".join(a) for a in ancestors]
-        token = re.compile(rf"[`./]{re.escape(stem)}(?:\.py)?(?!\w)")
-        if any(token.search(par) and any(n in par for n in needles) for par in paragraphs):
+        if parent == KIT_ROOT.split("."):
+            unnamed.add(module)
+            continue
+        token = re.compile(rf"`{re.escape(stem)}(?:\.py)?`")
+        named_parent = re.compile(rf"(?:{re.escape('.'.join(parent))}|{re.escape('/'.join(parent))})(?!\w)")
+        if any(token.search(par) and named_parent.search(par) for par in paragraphs):
             continue
         unnamed.add(module)
     return unnamed
@@ -673,9 +679,9 @@ _FAMILY = "mloda.testing.feature_groups.data_operations.row_preserving.widget"
             "mloda.testing.a.b", "`mloda.testing.a` ships stuff\n\nuse `b` alone", False, id="ancestor-other-paragraph"
         ),
         pytest.param("mloda.testing.result", "use `result` here", False, id="top-level-code-token-only"),
-        pytest.param(f"{_FAMILY}.widget", "nothing", True, id="family-stem"),
-        pytest.param(f"{_FAMILY}.reference", "nothing", True, id="family-reference"),
-        pytest.param(f"{_FAMILY}.pinning_rows", "nothing", True, id="family-pinning-rows"),
+        pytest.param(f"{_FAMILY}.widget", "see `row_preserving/widget/`", True, id="family-stem"),
+        pytest.param(f"{_FAMILY}.reference", "see `row_preserving/widget/`", True, id="family-reference"),
+        pytest.param(f"{_FAMILY}.pinning_rows", "see `row_preserving/widget/`", True, id="family-pinning-rows"),
         pytest.param(f"{_FAMILY}.other", "nothing", False, id="family-other-stem"),
         pytest.param(
             "mloda.testing.feature_groups.data_operations.row_preserving.reference",
@@ -693,6 +699,12 @@ _FAMILY = "mloda.testing.feature_groups.data_operations.row_preserving.widget"
             "mloda.testing.feature_groups.data_operations.mixins.reference", "nothing", False, id="mixins-reference"
         ),
         pytest.param("mloda.testing._private.thing", "nothing", True, id="private-skipped"),
+        pytest.param("mloda.testing.a.b", "see mloda.testing.a.b_c here", False, id="prefix-of-longer-module"),
+        pytest.param("mloda.testing.a.b.c", "`mloda.testing.a` ships `c`", False, id="grandparent-only-ancestor"),
+        pytest.param("mloda.testing.a.b.c", "`mloda/testing/a/b` ships `c`", True, id="parent-as-path"),
+        pytest.param("mloda.testing.a.b", "`mloda.testing.a` ships x.b` here", False, id="dot-prefixed-token"),
+        pytest.param("mloda.testing.a.b", "`mloda.testing.a` calls `b()`", False, id="token-is-a-call"),
+        pytest.param(f"{_FAMILY}.widget", "nothing", False, id="family-unnamed"),
     ],
 )
 def test_unnamed_kit_modules_rule(module: str, text: str, expected_named: bool) -> None:
