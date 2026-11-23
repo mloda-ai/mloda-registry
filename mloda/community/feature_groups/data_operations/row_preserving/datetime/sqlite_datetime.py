@@ -24,9 +24,9 @@ _SQLITE_DATETIME_EXPRS: dict[str, str] = {
     "hour": "CAST(strftime('%H', {col}) AS INTEGER)",
     "minute": "CAST(strftime('%M', {col}) AS INTEGER)",
     "second": "CAST(strftime('%S', {col}) AS INTEGER)",
-    "dayofweek": "(CAST(strftime('%w', {col}) AS INTEGER) + 6) % 7",
-    "is_weekend": "CASE WHEN {col} IS NULL THEN NULL WHEN strftime('%w', {col}) IN ('0', '6') THEN 1 ELSE 0 END",
-    "quarter": "((CAST(strftime('%m', {col}) AS INTEGER) - 1) / 3 + 1)",
+    "dayofweek": "CAST((CAST(strftime('%w', {col}) AS INTEGER) + 6) % 7 AS INTEGER)",
+    "is_weekend": "CAST(CASE WHEN {col} IS NULL THEN NULL WHEN strftime('%w', {col}) IN ('0', '6') THEN 1 ELSE 0 END AS INTEGER)",
+    "quarter": "CAST(((CAST(strftime('%m', {col}) AS INTEGER) - 1) / 3 + 1) AS INTEGER)",
 }
 
 
@@ -57,17 +57,6 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         expr = expr_template.format(col=f"substr({wall_clock_expr(quoted_source)}, 1, 19)")
         quoted_feature = quote_ident(feature_name)
 
-        # Positional append: this SELECT must stay free of ORDER BY, JOIN, GROUP BY and DISTINCT.
-        sql = " ".join(
-            [
-                "SELECT",
-                f"{expr} AS {quoted_feature}",
-                "FROM",
-                f"{quote_ident(data.table_name)}",
-            ]
-        )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-
-        result_values = [row[0] for row in rows]
-        return data.append_column(feature_name, result_values)
+        data._ensure_column_absent(feature_name)
+        # Raw "*" projection keeps row order and the source type hints.
+        return data.select(_raw_sql=f"*, {expr} AS {quoted_feature}")

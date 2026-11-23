@@ -76,8 +76,8 @@ class SqliteOffset(Implementation[OffsetFeatureGroup]):
                 f"CASE WHEN {qhelper} IS NOT NULL AND {qhelper} != 0 "
                 f"THEN ({quoted_source} - {qhelper}) * 1.0 / {qhelper} END"
             )
-            proj = ", ".join(quote_ident(c) for c in original_cols) + f", {wrapper} AS {quote_ident(feature_name)}"
-            return rel.select(_raw_sql=proj)
+            rel = rel.select(_raw_sql=f"*, {wrapper} AS {quote_ident(feature_name)}")
+            return rel.select(*original_cols, feature_name)
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])

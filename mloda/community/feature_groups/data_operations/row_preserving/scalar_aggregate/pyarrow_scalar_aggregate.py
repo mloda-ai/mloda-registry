@@ -72,5 +72,5 @@ class PyArrowScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
                 agg_type, ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, framework="PyArrow"
             )
 
-        repeated = pa.array([result] * table.num_rows)
+        repeated = pa.array([result] * table.num_rows, type=pa.int64() if agg_type == "count" else None)
         return table.append_column(feature_name, repeated)

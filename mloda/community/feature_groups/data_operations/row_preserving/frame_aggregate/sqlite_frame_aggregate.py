@@ -268,5 +268,8 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             if tagged is not None:
                 tagged.drop()
 
+        if not rows and agg_func == "COUNT":
+            # The fetch path has no declared type on zero rows; a typed raw select keeps count integer.
+            return data.select(_raw_sql=f"*, CAST(0 AS INTEGER) AS {quoted_feature}")
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

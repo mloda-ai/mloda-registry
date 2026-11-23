@@ -17,6 +17,7 @@ from mloda.provider import (
     get_all_subclasses,
 )
 from mloda.user import DataType, Feature, Options
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
@@ -26,7 +27,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PythonDictTestMixin,
     SqliteTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin, _blocking
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 from mloda.testing.typed_data import TypedTestData
 
@@ -57,9 +58,20 @@ def _record(kind: DivergenceKind, *subtypes: str, variant: str | None = None) ->
 
 
 def _with_column(framework: str, data: Any, kind: str) -> Any:
-    """``data`` plus the output column: ``exact`` int64, ``narrow`` int32, ``text`` strings (object dtype on Pandas)."""
+    """``data`` plus the output column: ``exact`` int64, ``narrow`` int32, ``text`` strings (object dtype on Pandas).
+
+    PyArrow only: ``zero_type`` writes strings on zero rows, ``rewrite`` and ``zero_retype`` alter ``value_int``.
+    """
     if framework == "pyarrow":
         rows = data.num_rows
+        if kind == "zero_type" and rows == 0:
+            kind = "text"
+        if kind == "rewrite":
+            data = data.set_column(
+                data.schema.get_field_index("value_int"), "value_int", pa.array([99] * rows, pa.int64())
+            )
+        if kind == "zero_retype" and rows == 0:
+            data = data.set_column(data.schema.get_field_index("value_int"), "value_int", pa.array([], pa.string()))
         values = ["a"] * rows if kind == "text" else [1] * rows
         arrow_type = pa.string() if kind == "text" else pa.int32() if kind == "narrow" else pa.int64()
         return data.append_column(_CASE, pa.array(values, type=arrow_type))
@@ -72,7 +84,10 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
     if framework == "python_dict":
         rows = len(next(iter(data.values())))
         return {**data, _CASE: ["a"] * rows if kind == "text" else [1] * rows}
-    return data.append_column(_CASE, ["a"] * len(data) if kind == "text" else [1] * len(data))
+    if kind == "text":
+        return data.append_column(_CASE, ["a"] * len(data))
+    # A raw select keeps the integer type on zero rows, unlike append_column.
+    return data.select(_raw_sql=f"*, CAST(1 AS INTEGER) AS {quote_ident(_CASE)}")
 
 
 @dataclass
@@ -98,6 +113,7 @@ def _run(
     empty_cases: bool = False,
     raises: bool = False,
     writes: bool = True,
+    matches_any: bool = False,
 ) -> _Outcome:
     """Run ``test_mixin_result_type`` on a stub host over stub plugins, then remove every trace of them."""
     seen: list[Options] = []
@@ -116,7 +132,7 @@ def _run(
         def match_feature_group_criteria(
             cls, feature_name: Any, options: Any, data_access_collection: Any = None
         ) -> bool:
-            return str(feature_name).startswith("out_")
+            return matches_any or str(feature_name).startswith("out_")
 
         @classmethod
         def feature_names_supported(cls) -> set[str]:
@@ -292,6 +308,43 @@ class TestRunsThatDoNotHappen:
         outcome = _run(framework, writes=False)
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
+
+
+class TestShapeFailuresBeyondTheType:
+    @pytest.mark.parametrize(
+        ("kind", "matches_any", "expected"),
+        [
+            pytest.param("zero_type", False, "zero_rows", id="zero_rows_type_change_on_output"),
+            pytest.param("rewrite", False, "was changed", id="input_column_changed"),
+            pytest.param("exact", True, "foreign", id="match_time_foreign_name"),
+            pytest.param(
+                "zero_retype",
+                False,
+                "column 'value_int' changes type on zero rows",
+                id="group_retypes_input_on_zero_rows",
+            ),
+        ],
+    )
+    def test_failure_fails_the_test(self, kind: str, matches_any: bool, expected: str) -> None:
+        outcome = _run("pyarrow", kind=kind, matches_any=matches_any)
+        assert outcome.state == "failed"
+        assert expected in outcome.message
+
+    @pytest.mark.parametrize(
+        ("adapter_retypes", "blocks"),
+        [
+            pytest.param(frozenset({"c"}), False, id="retype_by_the_adapter_is_excused"),
+            pytest.param(frozenset({"other"}), True, id="retype_of_another_column_blocks"),
+            pytest.param(frozenset(), True, id="no_adapter_retype_blocks"),
+        ],
+    )
+    def test_zero_row_retype_is_excused_only_for_adapter_retyped_columns(
+        self, adapter_retypes: frozenset[str], blocks: bool
+    ) -> None:
+        """A zero-row retype blocks unless the adapter itself retypes that column."""
+        failure = "zero_rows: column 'c' changes type on zero rows"
+        bad = _blocking([failure], [], readback=False, gap_covers=False, adapter_retypes=adapter_retypes)
+        assert bad == ([failure] if blocks else [])
 
 
 class TestHookContract:
