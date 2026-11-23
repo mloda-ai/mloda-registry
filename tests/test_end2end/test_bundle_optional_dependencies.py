@@ -156,6 +156,17 @@ def test_bundle_extra_floor_matches_leaf_extra_entry(leaf_extra: str) -> None:
     )
 
 
+def test_mloda_enterprise_dev_extra_lists_every_ed25519_entry_once() -> None:
+    """The ``dev`` extra carries the ``ed25519`` entries verbatim, so the cryptography floor cannot drift."""
+    optional = _packages()["mloda-enterprise"].get("optional_dependencies", {})
+    dev = optional.get("dev", [])
+    assert optional["ed25519"], "packages.mloda-enterprise.optional_dependencies.ed25519 must not be empty"
+    for entry in optional["ed25519"]:
+        assert dev.count(entry) == 1, (
+            f"packages.mloda-enterprise.optional_dependencies.dev must list {entry!r} exactly once, got {dev!r}"
+        )
+
+
 def test_bundle_extra_sibling_floor_matches_leaf_dev_entry() -> None:
     """The guard above skips first-party siblings, so the ``{version}`` spelling of a sibling in a bundle extra
     and in the leaf's ``dev`` entry is pinned here."""
@@ -220,6 +231,27 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
             f"the {source} mloda-enterprise pyproject must declare optional-dependencies.openlineage = "
             f"{expected!r}, got {actual!r} (run scripts/generate_pyproject.py)"
         )
+
+
+def test_mloda_enterprise_dev_extra_is_generated_committed_and_locked() -> None:
+    """The generated and committed pyproject carry the ``dev`` extra as configured, and uv.lock lists cryptography."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    expected = ["cryptography>=42"]
+
+    generated = loads_toml(gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages))
+    committed = load_toml(_ENTERPRISE_PYPROJECT)
+    for source, project in (("generated", generated["project"]), ("committed", committed["project"])):
+        actual = project.get("optional-dependencies", {}).get("dev")
+        assert actual == expected, (
+            f"the {source} mloda-enterprise pyproject must declare optional-dependencies.dev = "
+            f"{expected!r}, got {actual!r} (run scripts/generate_pyproject.py)"
+        )
+
+    lock = load_toml(_REPO_ROOT / "uv.lock")
+    entry = next(package for package in lock["package"] if package["name"] == "mloda-enterprise")
+    lock_dev = [dep["name"] for dep in entry.get("optional-dependencies", {}).get("dev", [])]
+    assert "cryptography" in lock_dev, f"uv.lock mloda-enterprise dev extra lacks cryptography: {lock_dev!r}"
 
 
 def test_mloda_enterprise_wheel_packages_include_the_licensing_package() -> None:

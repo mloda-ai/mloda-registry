@@ -4,7 +4,8 @@ running the install-and-probe cycles concurrently through a bounded thread pool.
 entry_point_bundle's probe also covers every nested package it ships or pulls in via its own
 ``dependencies``, since a bare install carries that code; a nested package it owns only through
 an extra has no code in a bare install, so its surface is probed through its own distribution
-instead. Other wheels probe only their own.
+instead. Other wheels probe only their own. One extra job imports the license test kit, which ships
+in the mloda-enterprise wheel.
 
 Run: python scripts/verify_independent_installs.py <version>
 Exit code: 1 if any distribution fails to install or import on its own, 0 otherwise.
@@ -26,6 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Installs are network-bound; bounding the pool keeps runner memory and uv cache-lock contention in check.
 MAX_WORKERS = 8
+
+# The kit ships in the mloda-enterprise wheel but imports mloda.testing and pytest, so its job needs both distributions.
+LICENSE_KIT_PATH = "mloda/enterprise/licensing/testing"
 
 # Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
@@ -79,8 +83,9 @@ def verify_distribution(name: str, version: str, modules: list[str]) -> str | No
     return None if error is None else f"{name}: {error}"
 
 
-def kit_jobs(version: str) -> list[tuple[str, str]]:
-    """(requirement, probe source) per kit job: ungated modules from a bare install, gated ones under their extra."""
+def kit_jobs(version: str) -> list[tuple[tuple[str, ...], str]]:
+    """(requirements, probe source) per kit job: ungated modules from a bare install, gated ones under their extra,
+    then the license kit modules with the distributions they need installed together."""
     by_gate: dict[str | None, list[str]] = _load_sibling("kit_modules").kit_modules()
 
     def absent(*packages: str) -> str:
@@ -91,12 +96,24 @@ def kit_jobs(version: str) -> list[tuple[str, str]]:
     # The binary-model extra legitimately ships mloda.community but never mloda.enterprise.
     binary_model_header = import_line + absent("mloda.enterprise")
     bare = header + "\n".join(f"import {m}" for m in by_gate.get(None, []))
-    jobs = [(f"mloda-testing=={version}", bare)]
+    jobs: list[tuple[tuple[str, ...], str]] = [((f"mloda-testing=={version}",), bare)]
     for gate in sorted(g for g in by_gate if g is not None):
         imports = "\n".join(f"import {m}" for m in by_gate[gate])
         jobs.append(
-            (f"mloda-testing[{gate}]=={version}", (binary_model_header if gate == "binary-model" else header) + imports)
+            (
+                (f"mloda-testing[{gate}]=={version}",),
+                (binary_model_header if gate == "binary-model" else header) + imports,
+            )
         )
+    license_modules = sorted(
+        _load_sibling("kit_modules").shipped_modules(REPO_ROOT / LICENSE_KIT_PATH, LICENSE_KIT_PATH).values()
+    )
+    jobs.append(
+        (
+            (f"mloda-enterprise[ed25519]=={version}", f"mloda-testing[binary-model]=={version}"),
+            "\n".join(f"import {m}" for m in license_modules),
+        )
+    )
     return jobs
 
 
@@ -129,9 +146,9 @@ def main() -> int:
     def _verify(name: str) -> str | None:
         return verify_distribution(name, args.version, modules_by_name[name])
 
-    def _verify_kit(job: tuple[str, str]) -> str | None:
-        error = install_and_probe([job[0]], job[1])
-        return None if error is None else f"{job[0]}: {error}"
+    def _verify_kit(job: tuple[tuple[str, ...], str]) -> str | None:
+        error = install_and_probe(list(job[0]), job[1])
+        return None if error is None else f"{' '.join(job[0])}: {error}"
 
     errors: list[str] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
@@ -143,7 +160,8 @@ def main() -> int:
             else:
                 print(f"  ✗ {name}: failed")
                 errors.append(error)
-        for (spec, _), kit_error in zip(kit, kit_results):
+        for (requirements, _), kit_error in zip(kit, kit_results):
+            spec = " ".join(requirements)
             if kit_error is None:
                 print(f"  ✓ {spec}: kit modules load")
             else:
