@@ -30,6 +30,8 @@ MAX_WORKERS = 8
 
 # The kit ships in the mloda-enterprise wheel but imports mloda.testing and pytest, so its job needs both distributions.
 LICENSE_KIT_PATH = "mloda/enterprise/licensing/testing"
+# The requirements the license kit job installs; the dependency-direction gate reads them too.
+LICENSE_KIT_REQUIREMENTS: tuple[str, ...] = ("mloda-enterprise[ed25519]", "mloda-testing[binary-model]")
 
 # Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
@@ -111,7 +113,7 @@ def kit_jobs(version: str) -> list[tuple[tuple[str, ...], str]]:
         raise ValueError(f"no module found under LICENSE_KIT_PATH {LICENSE_KIT_PATH!r}")
     jobs.append(
         (
-            (f"mloda-enterprise[ed25519]=={version}", f"mloda-testing[binary-model]=={version}"),
+            tuple(f"{requirement}=={version}" for requirement in LICENSE_KIT_REQUIREMENTS),
             "\n".join(f"import {m}" for m in license_modules),
         )
     )

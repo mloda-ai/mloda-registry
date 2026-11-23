@@ -320,6 +320,12 @@ def test_kit_jobs_reject_a_license_kit_path_with_no_shipped_module(monkeypatch: 
         module.kit_jobs("9.9.9")
 
 
+def test_kit_jobs_build_the_license_job_from_the_license_kit_requirements(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(module, "LICENSE_KIT_REQUIREMENTS", ("pkg-a[x]", "pkg-b[y]"))
+    requirements, _probe = module.kit_jobs("9.9.9")[-1]
+    assert requirements == ("pkg-a[x]==9.9.9", "pkg-b[y]==9.9.9")
+
+
 def _record_installs(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """Fake subprocess.run; the list collects the requirements of each 'uv pip install' call."""
     requirements: list[list[str]] = []
