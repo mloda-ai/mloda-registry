@@ -94,3 +94,38 @@ class TestPyArrowResample(PyArrowTestMixin, ResampleTestBase):
         for key, expected_values in expected.items():
             actual = {name: rows[key][name] for name in names}
             assert actual == pytest.approx(dict(zip(names, expected_values)), nan_ok=True), f"bucket {key!r}"
+
+    def test_min_max_repair_survives_helper_name_collision_across_sources(self) -> None:
+        """Two repaired sources do not clobber a data column named like the repair helper or leak helpers."""
+        collision = "__mloda_resample_nan__"
+        table = pa.table(
+            {
+                "region": ["case"] * 4 + ["control"] * 4,
+                "ts": pa.array(
+                    [datetime(2024, 1, 1, hour, minute) for hour in (8, 9) for minute in (5, 15, 25, 35)],
+                    type=pa.timestamp("us"),
+                ),
+                "first": pa.array([math.nan] * 4 + [1.0, 2.0, None, 3.0], type=pa.float64()),
+                "second": pa.array([math.nan] * 4 + [-1.0, math.nan, 5.0, None], type=pa.float64()),
+                collision: pa.array([7, 8, 9, 10, 11, 12, 13, 14], type=pa.int64()),
+            }
+        )
+        original = repr(table.to_pylist())
+        names = [
+            "first__resample_1_hour_min",
+            "second__resample_1_hour_max",
+            "first__resample_1_hour_max",
+            "second__resample_1_hour_min",
+        ]
+        result = calculate_with(PyArrowResample, table, self._multi_feature_set(names, ["region"]))
+        assert repr(table.to_pylist()) == original
+        assert set(result.column_names) == {"region", "ts", *names}
+        rows = {(row["region"], row["ts"]): row for row in result.to_pylist()}
+        expected = {
+            ("case", datetime(2024, 1, 1, 8)): [math.nan, math.nan, math.nan, math.nan],
+            ("control", datetime(2024, 1, 1, 9)): [1.0, 5.0, 3.0, -1.0],
+        }
+        assert rows.keys() == expected.keys()
+        for key, expected_values in expected.items():
+            actual = {name: rows[key][name] for name in names}
+            assert actual == pytest.approx(dict(zip(names, expected_values)), nan_ok=True), f"bucket {key!r}"

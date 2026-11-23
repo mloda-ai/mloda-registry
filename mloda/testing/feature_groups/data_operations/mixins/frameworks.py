@@ -222,12 +222,13 @@ class PyArrowTemporalTestMixin(PyArrowTestMixin):
     """Pinned temporal rows reject numeric zones on Arrow < 22; supported rows keep the shared value checks."""
 
     def _assert_temporal_source_rejection(self, data: Any, source_col: str, features: Any) -> bool:
-        import pyarrow as pa
         import pytest
 
+        from mloda.community.feature_groups.data_operations.pyarrow_helpers import fixed_offset_unsupported
+
         arrow_type = data.column(source_col).type
-        zone = arrow_type.tz if pa.types.is_timestamp(arrow_type) else None
-        if pa.cpp_version_info.major < 22 and zone is not None and zone.startswith(("+", "-")):
+        if fixed_offset_unsupported(arrow_type):
+            zone = arrow_type.tz
             with pytest.raises(ValueError, match=r"fixed.offset") as error:
                 calculate_with(self.implementation_class(), data, features)  # type: ignore[attr-defined]
             assert "22.0.0" in str(error.value)

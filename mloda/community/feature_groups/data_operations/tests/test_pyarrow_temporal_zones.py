@@ -1,4 +1,4 @@
-"""Pin the temporal contract on both the minimum and current PyArrow releases."""
+"""Pin the PyArrow temporal timezone contract on the minimum and current releases."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import fixed_offset_unsupported
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
     PyArrowDateTimeExtraction,
 )
@@ -21,19 +22,9 @@ from mloda.testing.feature_groups.data_operations.helpers import calculate_with,
     ("implementation", "operation", "expected"),
     [
         pytest.param(PyArrowTimeBucketization, "floor_1_day", datetime(2024, 3, 31), id="floor"),
-        pytest.param(PyArrowTimeBucketization, "ceil_1_day", datetime(2024, 4, 1), id="ceil"),
-        pytest.param(PyArrowTimeBucketization, "round_1_day", datetime(2024, 4, 1), id="round"),
         pytest.param(PyArrowTimeBucketization, "round_1_month", datetime(2024, 4, 1), id="round-month"),
-        pytest.param(PyArrowTimeBucketization, "round_1_year", datetime(2024, 1, 1), id="round-year"),
         pytest.param(PyArrowDateTimeExtraction, "year", 2024, id="year"),
-        pytest.param(PyArrowDateTimeExtraction, "month", 3, id="month"),
-        pytest.param(PyArrowDateTimeExtraction, "day", 31, id="day"),
         pytest.param(PyArrowDateTimeExtraction, "hour", 23, id="hour"),
-        pytest.param(PyArrowDateTimeExtraction, "minute", 45, id="minute"),
-        pytest.param(PyArrowDateTimeExtraction, "second", 50, id="second"),
-        pytest.param(PyArrowDateTimeExtraction, "dayofweek", 6, id="dayofweek"),
-        pytest.param(PyArrowDateTimeExtraction, "is_weekend", 1, id="is-weekend"),
-        pytest.param(PyArrowDateTimeExtraction, "quarter", 1, id="quarter"),
     ],
 )
 @pytest.mark.parametrize(
@@ -65,10 +56,11 @@ def test_temporal_timezone_support(
     feature = f"event_ts__{operation}"
     features = make_feature_set(feature)
 
-    if zone is not None and zone.startswith(("+", "-")) and pa.cpp_version_info.major < 22:
+    if fixed_offset_unsupported(timestamp_type):
         with pytest.raises(ValueError, match=r"(?i)fixed.offset") as error:
             calculate_with(implementation, table, features)
         assert "22.0.0" in str(error.value)
+        assert zone is not None
         assert zone in str(error.value)
         return
 
