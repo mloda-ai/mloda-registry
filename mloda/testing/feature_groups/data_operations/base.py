@@ -28,7 +28,6 @@ import pytest
 from mloda.provider import DivergenceKind, Implementation
 from mloda.user import DataType
 
-from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
@@ -170,6 +169,8 @@ class DataOpsTestBase(ABC):
     @classmethod
     def source_data(cls) -> TypedTestData:
         """Typed fixture setup_method builds ``self.test_data`` from; default: the canonical dataset."""
+        from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+
         return DataOperationsTestDataCreator.typed_data()
 
     @classmethod
