@@ -184,6 +184,13 @@ The test method calls `_compare_with_reference`, which runs both the Implementat
 
 Shipped modules under `mloda/testing/` may not import `mloda.community` or `mloda.enterprise` (a guard in `tests/test_end2end/test_dependency_direction.py` enforces it). A new operation therefore ships a kit-owned reference function `(group, table, features)` and overrides `reference_calculate` as aggregation, rank and offset do. The base no longer has `reference_implementation_class`; every test base overrides `reference_calculate` (see [How the comparison works](03-reference-implementation.md#how-the-comparison-works)). The reference also ships a `pinning_rows.py` of hand-computed rows and one entry in the `PINNED` list of the pinning runner (runner: `mloda/community/feature_groups/data_operations/tests/test_reference_pinning.py`).
 
+To run the same `PinningTable` on each backend, mix `PinnedRowTestMixin` from
+`mloda.testing.feature_groups.data_operations.mixins.pinned_rows` into the test base
+and implement `pinning_table()` to return the table. Override `expected_values(row)`
+to return a `{column: list_of_values}` mapping for declared backend divergences.
+Override `assert_pinned_values(row, column, actual, expected)` for strict numeric
+comparison, as the arithmetic test base does.
+
 One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 
 The group's shape gets its own test in `{category}/{your_op}/tests/test_base.py`: subclass `OperationGroupTestBase` (`mloda/testing/feature_groups/data_operations/operation_group.py`) and fill its hooks. It checks the base order, `SUBTYPES`, that the loop is on the group and the step only on the Implementations, each Implementation's framework pair, and the manifest. The claim hygiene (supported and divergences inside the universe, a reason on every divergence record, aliases, declines, `CONTRACT_VERSION`) is core's operation group shape check, run on the listed Implementations, so a listed one that serves no compute framework of the group fails; override `shape_probe()` when the subtype is resolver-based and an Implementation restricts `supported`:

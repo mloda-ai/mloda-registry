@@ -9,27 +9,28 @@ import pytest
 from mloda.provider import DivergenceKind
 from mloda.user import DataType
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
+from mloda.testing.feature_groups.data_operations.base import divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
     calculate_with,
     make_feature_set,
 )
-from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
-from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.arithmetic.pinning_rows import OverflowRow
 from mloda.testing.typed_data import TypedTestData
 
 OVERFLOW_MESSAGE = r"(?i)overflow|outside|out of range"
 
 
-class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
+class ArithmeticPinningTestMixin(PinnedRowTestMixin):
     """Pinned rows and overflow rows of an arithmetic group; the host base names its table and rows."""
 
-    _case_fixtures: ClassVar[dict[str, str]] = {
-        "pinned_row_case": "pinned_row_cases",
-        "overflow_case": "overflow_cases",
-    }
+    _case_fixtures: ClassVar[dict[str, str]] = {"overflow_case": "overflow_cases"}
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return cls.arithmetic_pinning_table()
 
     @classmethod
     def arithmetic_pinning_table(cls) -> PinningTable:
@@ -45,10 +46,6 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     def keeps_zero_sign(cls) -> bool:
         """Whether the backend keeps the sign of a zero result."""
         return True
-
-    @classmethod
-    def pinned_row_cases(cls) -> dict[str, Any]:
-        return {f"{i}-{row.case}": row for i, row in enumerate(cls.arithmetic_pinning_table().rows)}
 
     @classmethod
     def overflow_cases(cls) -> dict[str, Any]:
@@ -78,9 +75,9 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             for record in getattr(cls.implementation_class(), "divergences", ())
         )
 
-    def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
-        """Rows are compared by value, so the result type is not checked; the sign of a zero result is."""
-        row = self.pinned_row_cases()[pinned_row_case]
+    def expected_values(self, row: PinningRow) -> dict[str, list[Any]]:
+        """Apply only the backend's declared non-finite and signed-zero behavior."""
+        expected = super().expected_values(row)
         op = self.feature_group_class().get_arithmetic_op(row.feature)
         data_type, values = row.expected[row.feature]
         is_float = data_type in (DataType.FLOAT, DataType.DOUBLE)
@@ -97,17 +94,14 @@ class ArithmeticPinningTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
                 return value if self.keeps_zero_sign() else value + 0.0
             return int(value)
 
-        def cast(value: Any) -> Any:
-            return float(value) if is_float else int(value)
+        expected[row.feature] = [expect(v) for v in values]
+        return expected
 
-        result = calculate_with(
-            self.implementation_class(),
-            self.create_test_data(TypedTestData(row.inputs)),
-            make_feature_set(row.feature, **row.context),
-        )
-        assert_values_with_nulls(
-            self.extract_column(result, row.feature), [expect(v) for v in values], strict=True, cast=cast
-        )
+    def assert_pinned_values(self, row: PinningRow, column: str, actual: list[Any], expected: list[Any]) -> None:
+        """Compare numeric values strictly after casting, including the sign of a zero result."""
+        data_type = row.expected[column][0]
+        cast = float if data_type in (DataType.FLOAT, DataType.DOUBLE) else int
+        assert_values_with_nulls(actual, expected, strict=True, cast=cast)
 
     def test_mixin_integer_overflow(self, overflow_case: str) -> None:
         """An integer result outside its operands' range raises, unless a GAP record names the op."""

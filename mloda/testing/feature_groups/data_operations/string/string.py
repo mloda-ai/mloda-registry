@@ -20,7 +20,7 @@ and implementing a few abstract methods.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -34,6 +34,8 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.string.pinning_rows import STRING_PINNING
 from mloda.testing.typed_data import TypedTestData
 
@@ -96,14 +98,12 @@ EXPECTED_REVERSE: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
+class StringTestBase(PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for string operation framework tests."""
 
-    _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
-
     @classmethod
-    def pinned_row_cases(cls) -> dict[str, Any]:
-        return {f"{i}-{row.case}-{row.feature}": row for i, row in enumerate(STRING_PINNING.rows)}
+    def pinning_table(cls) -> PinningTable:
+        return STRING_PINNING
 
     @classmethod
     def _full_case_mapping_declared(cls, op: str) -> bool:
@@ -115,21 +115,15 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
             return False
         return op in ("upper", "lower") and op in divergent_subtypes(impl, named_only=True)
 
-    def test_pinned_row(self, pinned_row_case: str) -> None:
+    def expected_values(self, row: PinningRow) -> dict[str, list[Any]]:
         """Hand-computed rows; a declared upper/lower divergence pins Python's full mapping on case_mapping rows."""
-        row = self.pinned_row_cases()[pinned_row_case]
         op = self.feature_group_class().get_string_op(row.feature)
         self._skip_if_unsupported(op)
-        expected = list(row.expected[row.feature][1])
+        expected = super().expected_values(row)
         if row.case == "case_mapping" and self._full_case_mapping_declared(op):
             source = next(iter(row.inputs.values()))[1]
-            expected = [None if v is None else (v.upper() if op == "upper" else v.lower()) for v in source]
-        result = calculate_with(
-            self.implementation_class(),
-            self.create_test_data(TypedTestData(row.inputs)),
-            make_feature_set(row.feature, **row.context),
-        )
-        assert self.extract_column(result, row.feature) == expected
+            expected[row.feature] = [None if v is None else (v.upper() if op == "upper" else v.lower()) for v in source]
+        return expected
 
     # -- OutputContractTestMixin configuration ----------------------------------
     # trim is supported by every framework, unlike upper/lower/reverse.
