@@ -44,6 +44,9 @@ _CASE = "out_cnt"
 _GROUP_NAME = "_ResultTypeStubGroup"
 _IMPL_NAME = "_ResultTypeStubImpl"
 
+_NULL_ONLY_IN_PARTITION = TypedTestData(
+    {"value_int": (DataType.INT64, [1, 2, 3]), "grp": (DataType.INT64, [1, None, 2])}
+)
 _NO_NULL_INPUT = TypedTestData({"value_int": (DataType.INT64, [1, 2, 3])})
 
 
@@ -90,6 +93,7 @@ def _run(
     group_records: tuple[Divergence, ...] = (),
     supported: frozenset[str] | None = None,
     input_name: str = "value_int",
+    partition_input: str | None = None,
     data: TypedTestData | None = None,
     empty_cases: bool = False,
     raises: bool = False,
@@ -123,7 +127,8 @@ def _run(
             return rule
 
         def input_features(self, options: Options, feature_name: Any) -> set[Feature]:
-            return {Feature(input_name)}
+            names = [input_name] if partition_input is None else [input_name, partition_input]
+            return {Feature(n) for n in names}
 
     class _Impl(Implementation[_Group]):
         feature_group = _Group
@@ -143,7 +148,13 @@ def _run(
         _Impl.supported = supported
     namespace: dict[str, Any] = {
         "implementation_class": classmethod(lambda cls, impl=_Impl: impl),
-        "result_type_cases": classmethod(lambda cls: {} if empty_cases else {_CASE: make_feature_set(_CASE)}),
+        "result_type_cases": classmethod(
+            lambda cls: (
+                {}
+                if empty_cases
+                else {_CASE: make_feature_set(_CASE, partition_by=[partition_input] if partition_input else None)}
+            )
+        ),
     }
     if data is not None:
         namespace["result_type_data"] = classmethod(lambda cls: data)
@@ -249,6 +260,19 @@ class TestValueFit:
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
 
+    @pytest.mark.parametrize(
+        "records",
+        [
+            pytest.param({"impl_records": (_record(DivergenceKind.GAP),)}, id="gap_on_implementation"),
+            pytest.param({"group_records": (_record(DivergenceKind.GAP),)}, id="gap_on_group"),
+            pytest.param({"impl_records": (_record(DivergenceKind.GAP, "cnt"),)}, id="gap_for_the_subtype"),
+        ],
+    )
+    def test_gap_record_does_not_excuse_values_that_do_not_fit(self, records: dict[str, Any]) -> None:
+        outcome = _run("python_dict", kind="text", rule=DataType.INT64, **records)
+        assert outcome.state == "failed"
+        assert "out_cnt" in outcome.message
+
 
 class TestRunsThatDoNotHappen:
     @pytest.mark.parametrize("framework", ["pyarrow", "python_dict"])
@@ -283,6 +307,11 @@ class TestHookContract:
 
     def test_case_whose_input_column_holds_no_null_fails(self) -> None:
         outcome = _run("pyarrow", data=_NO_NULL_INPUT)
+        assert outcome.state == "failed"
+        assert "value_int" in outcome.message
+
+    def test_null_only_in_a_context_named_input_column_fails_naming_the_source(self) -> None:
+        outcome = _run("pyarrow", partition_input="grp", data=_NULL_ONLY_IN_PARTITION)
         assert outcome.state == "failed"
         assert "value_int" in outcome.message
 

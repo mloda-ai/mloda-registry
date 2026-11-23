@@ -108,7 +108,7 @@ class TestPandasDivergences:
     @pytest.mark.parametrize(
         ("values", "mapping", "expected_dtype"),
         [
-            pytest.param(["a", "b", None], {"a": "x", "b": "y"}, "str", id="str"),
+            pytest.param(["a", "b", None], {"a": "x", "b": "y"}, "string", id="str"),
             pytest.param(["a", "b", None], {"a": 1, "b": 2}, "Int64", id="int"),
             pytest.param(["a", "b", None], {"a": 1.5, "b": 2.5}, "float64", id="float"),
             pytest.param(["a", "b", None], {"a": True, "b": False}, "boolean", id="bool"),
@@ -118,3 +118,15 @@ class TestPandasDivergences:
         fs = make_feature_set("v__lookup", lookup_mapping=mapping, on_unmatched="null")
         result = calculate_with(PandasLookup, pd.DataFrame({"v": values}), fs)
         assert str(result["v__lookup"].dtype) == expected_dtype
+
+    @pytest.mark.parametrize("infer_string", [False, True])
+    def test_string_mapping_keeps_real_nulls_and_the_string_dtype(self, infer_string: bool) -> None:
+        fs = make_feature_set("v__lookup", lookup_mapping={"a": "x", "b": "y"}, on_unmatched="null")
+        with pd.option_context("future.infer_string", infer_string):
+            source = pd.DataFrame({"v": ["a", None, "zzz", "b"]})
+            result = calculate_with(PandasLookup, source, fs)
+        column = result["v__lookup"]
+        assert column.isna().tolist() == [False, True, True, False]
+        assert str(column.dtype) == "string"
+        assert column.tolist()[0] == "x"
+        assert column.tolist()[3] == "y"

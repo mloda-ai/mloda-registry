@@ -113,11 +113,11 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, ResultType
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
         names = {
-            "row_number": "value_int__row_number_ranked",
-            "rank": "value_int__rank_ranked",
-            "dense_rank": "value_int__dense_rank_ranked",
-            "percent_rank": "value_int__percent_rank_ranked",
-            "ntile": "value_int__ntile_4_ranked",
+            "row_number": "value_float__row_number_ranked",
+            "rank": "value_float__rank_ranked",
+            "dense_rank": "value_float__dense_rank_ranked",
+            "percent_rank": "value_float__percent_rank_ranked",
+            "ntile": "value_float__ntile_4_ranked",
         }
         return {rank_type: make_feature_set(name, ["region"], "value_int") for rank_type, name in names.items()}
 

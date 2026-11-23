@@ -29,7 +29,7 @@ def _blocking(failures: list[str], notes: list[str], *, readback: bool, gap_cove
         excused_exact = "declared gap divergence" in note and (
             ("is " in note and "expected" in note) or "lost its type" in note
         )
-        if note.startswith("type:") and excused_exact:
+        if note.startswith("type:") and (excused_exact or "do not fit" in note):
             bad.append(note)
         elif _VALUE_ONLY in note and readback and not gap_covers:
             bad.append(note)
@@ -72,8 +72,14 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             for f in group.declared_input_features(feature.options, FeatureName(name)) or ()
             if str(f.name) in data.types
         ]
-        has_null = [col for col in inputs if None in data.to_python_dict()[col]]
-        assert has_null or not inputs, f"{name}: none of the input columns {inputs} holds a null in result_type_data()"
+        named: set[str] = set()
+        for value in feature.options.context.values():
+            named.update(str(v) for v in (value if isinstance(value, (list, tuple, set, frozenset)) else [value]))
+        sources = [col for col in inputs if col not in named]
+        has_null = [col for col in sources if None in data.to_python_dict()[col]]
+        assert has_null or not sources, (
+            f"{name}: none of the source columns {sources} holds a null in result_type_data()"
+        )
 
         group_options = dict(feature.options.group)
         if declares_nan_as_null(impl, subtypes):

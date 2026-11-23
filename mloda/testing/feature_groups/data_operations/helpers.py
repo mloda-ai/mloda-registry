@@ -168,8 +168,8 @@ def has_numeric_fixed_offset(values: Sequence[Any]) -> bool:
 
 
 def is_null(value: Any) -> bool:
-    """True for None or a float NaN."""
-    if value is None:
+    """True for None, a float NaN or pandas' ``pd.NA``."""
+    if value is None or type(value).__name__ == "NAType":
         return True
     if isinstance(value, float) and value != value:
         return True

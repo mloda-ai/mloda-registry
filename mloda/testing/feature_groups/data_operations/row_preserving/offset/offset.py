@@ -97,7 +97,7 @@ class OffsetTestBase(
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        return {"pct_change": make_feature_set("value_int__pct_change_1_offset", ["region"], "value_int")}
+        return {"pct_change": make_feature_set("value_float__pct_change_1_offset", ["region"], "value_int")}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
