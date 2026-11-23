@@ -54,15 +54,17 @@ partitions ``region`` A / B)::
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import TYPE_CHECKING, Any, Callable
+from zoneinfo import ZoneInfo
 
 import pytest
-from mloda.provider import FeatureSet
+from mloda.provider import DivergenceKind, FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
+    arrow_table_of,
     calculate_with,
     make_feature_set,
     make_multi_feature_set,
@@ -286,6 +288,11 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
     later version and is intentionally not tested here.
     """
 
+    @classmethod
+    def tz_aware_source_reads_utc(cls) -> bool:
+        """True when a tz-aware source column is bucketed on its UTC instant, not its own zone (a declared GAP)."""
+        return False
+
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
@@ -414,6 +421,43 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
             f"{row_count} rows collapsed to {len(bucket_map)} map entries; duplicate (grp, bucket) rows?"
         )
         return bucket_map
+
+    # -- Non-UTC zones --------------------------------------------------------
+
+    # A sub-hour fixed offset is left out because Polars lazy cannot hold it.
+    @pytest.mark.parametrize(
+        "tz",
+        [timezone(timedelta(hours=5)), ZoneInfo("Asia/Kolkata")],
+        ids=["fixed_plus_05", "named_asia_kolkata"],
+    )
+    def test_non_utc_zone_bucket(self, tz: tzinfo) -> None:
+        """A non-UTC zone buckets on its own wall clock and keeps it; the reference on UTC instants if the hook is True."""
+        rows = [datetime(2024, 1, 1, 2, 0, tzinfo=tz), datetime(2024, 1, 1, 7, 0, tzinfo=tz)]
+        columns = {"ts": DataType.TIMESTAMP_MICROS_TZ, "value": DataType.INT64}
+        feature_name = "value__resample_1_day_count"
+        fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
+
+        def typed(ts: list[datetime]) -> TypedTestData:
+            return TypedTestData(
+                {"ts": (columns["ts"], ts), "value": (columns["value"], [10, 20])},
+            )
+
+        expected: dict[tuple[Any, ...], Any] = {(datetime(2024, 1, 1, tzinfo=tz),): 2}
+        if self.tz_aware_source_reads_utc():
+            utc_rows = [v.astimezone(timezone.utc) for v in rows]
+            ref = self.reference_calculate(arrow_table_of(typed(utc_rows)), fs)
+            expected = self._build_resample_map(ref, feature_name, "ts", [], column=_extract_column)
+        result = calculate_with(self.implementation_class(), self.create_test_data(typed(rows)), fs)
+        actual = self._build_resample_map(result, feature_name, "ts", [])
+        self._assert_map_equals(actual, expected)
+        assert {k[-1].utcoffset() for k in actual} == {k[-1].utcoffset() for k in expected}
+
+    def test_divergent_flags_are_declared(self) -> None:
+        impl = self.implementation_class()
+        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
+            pytest.skip("implementation under test is not an Implementation class")
+        if self.tz_aware_source_reads_utc():
+            assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
 
     # -- Core per-partition value tests -------------------------------------
 
