@@ -5072,13 +5072,12 @@ def _nan_null_loss_step(
 class TestOpenLineageNanNullLoss:
     """Potential NaN/null loss is a backward-compatible snapshot on the parent plan facet."""
 
-    def test_plan_facet_defaults_to_absent_lossy_transfers(self) -> None:
-        facet = MlodaPlanRunFacet(planId=_PLAN_ID)
+    def test_plan_facet_lossy_transfers_is_optional_and_serializes(self) -> None:
+        default_facet = MlodaPlanRunFacet(planId=_PLAN_ID)
 
-        assert getattr(facet, "lossyTransfers") is None
-        assert "lossyTransfers" not in json.loads(Serde.to_json(facet))
+        assert getattr(default_facet, "lossyTransfers") is None
+        assert "lossyTransfers" not in json.loads(Serde.to_json(default_facet))
 
-    def test_plan_facet_accepts_serializable_lossy_transfers(self) -> None:
         transfers = [{"stepIndex": 1, "stepKind": "transform", "potentialNanNullLoss": True}]
         extra: dict[str, Any] = {"lossyTransfers": transfers}
 
@@ -5103,6 +5102,7 @@ class TestOpenLineageNanNullLoss:
             _nan_null_loss_step(kind="compute", compute="SqliteFramework", source=None, result="PyArrowTable"),
             _nan_null_loss_step(kind="compute", compute="PyArrowTable", source=None, result="PandasDataFrame"),
             _nan_null_loss_step(kind="join", compute="SqliteFramework", source="PandasDataFrame"),
+            _nan_null_loss_step(kind="transform", compute=None, source=None, result=None),
         ]
         expected = [
             {
@@ -5133,6 +5133,7 @@ class TestOpenLineageNanNullLoss:
                 "computeFramework": "SqliteFramework",
                 "sourceComputeFramework": "PandasDataFrame",
             },
+            {"stepIndex": 7, "stepKind": "transform", "potentialNanNullLoss": True},
         ]
 
         extender.on_run_start(run, _plan(), steps)
@@ -5192,20 +5193,6 @@ class TestOpenLineageNanNullLoss:
 
         assert len(transport.events) == 2
         assert all("lossyTransfers" not in _plan_facet(event) for event in transport.events)
-
-    @pytest.mark.parametrize("kind", ["compute", "transform", "join"])
-    def test_missing_framework_endpoints_are_omitted(
-        self, kind: str, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        extender = OpenLineageExtender(client=client)
-        step = _nan_null_loss_step(kind=kind, compute=None, source=None, result=None)
-
-        extender.on_run_start(RunContext(run_id=_RUN_A, plan_id=_PLAN_ID), _plan(), [step])
-
-        assert _plan_facet(transport.events[0])["lossyTransfers"] == [
-            {"stepIndex": 1, "stepKind": kind, "potentialNanNullLoss": True}
-        ]
 
     def test_runs_keep_separate_snapshots_and_clear_them_on_terminal(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
