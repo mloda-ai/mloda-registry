@@ -121,6 +121,75 @@ def test_evict_root_forces_a_genuine_cold_reimport_and_restores_the_original_mod
     assert sys.modules[package_name] is original
 
 
+@pytest.mark.parametrize("preloaded", [True, False], ids=["warm-root", "cold-root"])
+def test_evict_root_removes_first_imports_at_every_depth_and_restores_preloaded_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preloaded: bool
+) -> None:
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    sibling_name = f"{package_name}_other"
+    for name in (package_name, sibling_name):
+        _write_throwaway_package(tmp_path, name)
+    for relative in ("branch", "branch/nested"):
+        directory = tmp_path / package_name / relative
+        directory.mkdir()
+        (directory / "__init__.py").write_text("")
+    (tmp_path / package_name / "branch" / "nested" / "deep.py").write_text("MARKER = 'deep'\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    root_names = [package_name, f"{package_name}.leaf"]
+    cold_names = [f"{package_name}.{suffix}" for suffix in ("branch", "branch.nested", "branch.nested.deep")]
+    for name in (*root_names, *cold_names, sibling_name, f"{sibling_name}.leaf"):
+        monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.delitem(sys.modules, name)
+
+    originals = {name: importlib.import_module(name) for name in root_names} if preloaded else {}
+    sibling = importlib.import_module(sibling_name)
+    with pytest.MonkeyPatch.context() as mp:
+        evict_root(mp, package_name)
+        assert not any(name in sys.modules for name in root_names)
+        for name in root_names:
+            assert importlib.import_module(name) is not originals.get(name)
+        deep = importlib.import_module(cold_names[-1])
+        sibling_leaf = importlib.import_module(f"{sibling_name}.leaf")
+        assert deep.MARKER == "deep"
+
+    assert sys.modules[sibling_name] is sibling
+    assert sys.modules[f"{sibling_name}.leaf"] is sibling_leaf
+    for name in root_names:
+        if preloaded:
+            assert sys.modules[name] is originals[name]
+        else:
+            assert name not in sys.modules
+    assert not any(name in sys.modules for name in cold_names)
+
+
+def test_repeated_root_eviction_restores_a_namespace_package_without_new_descendants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    namespace_dir = tmp_path / package_name / "branch"
+    namespace_dir.mkdir(parents=True)
+    (namespace_dir / "leaf.py").write_text("MARKER = 'namespace leaf'\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    names = [package_name, f"{package_name}.branch", f"{package_name}.branch.leaf"]
+    for name in names:
+        monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.delitem(sys.modules, name)
+    original = importlib.import_module(package_name)
+
+    with pytest.MonkeyPatch.context() as mp:
+        for _ in range(2):
+            evict_root(mp, package_name)
+            assert not any(name in sys.modules for name in names)
+            leaf = importlib.import_module(names[-1])
+            assert leaf.MARKER == "namespace leaf"
+            assert sys.modules[package_name] is not original
+
+    assert sys.modules[package_name] is original
+    assert not any(name in sys.modules for name in names[1:])
+    assert not hasattr(original, "branch")
+
+
 @pytest.mark.parametrize("cold_parent_preloaded", [True, False], ids=["cold-parent-preloaded", "cold-parent-cold"])
 def test_evict_entry_points_removes_cold_loaded_entry_point_modules_and_keeps_already_loaded_ones(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cold_parent_preloaded: bool

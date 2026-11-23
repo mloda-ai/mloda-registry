@@ -241,7 +241,7 @@ class RotatingUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ### Audit Identity
 
-Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging. Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
+Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging; it also masks every registered credential literal, so an identity built with it can collapse to `***` inside a credential scope (prefer a unique, credential-free dataset label there). Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
 
 ## Credentials: Bound at Match Time or Read at Run Time
 

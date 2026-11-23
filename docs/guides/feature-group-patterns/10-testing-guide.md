@@ -589,7 +589,7 @@ A packaging check alongside Level 1: which plugin modules an import pulls in and
 | Helper | Effect |
 |--------|--------|
 | `block_root(monkeypatch, root)` | every import of `root` raises `ModuleNotFoundError` |
-| `evict_root(monkeypatch, root)` | drops `root` and its submodules, so the next import runs them again |
+| `evict_root(monkeypatch, root)` | drops `root` and its submodules so the next import runs them; teardown restores the prior ones and removes new ones |
 | `evict_package(monkeypatch, dotted)` | the same for one package and its `manifest`, and removes what the test imports under it for the first time |
 | `evict_entry_points(monkeypatch, group)` | removes the entry-point modules of `group` that the test loads for the first time |
 
@@ -598,7 +598,6 @@ Evict the helper's package and block `mloda`, then import it: the import fails i
 ```python
 import importlib
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -607,28 +606,24 @@ from mloda.testing.import_isolation import block_root, evict_root
 
 
 @pytest.fixture
-def acme(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Stand-in for your installed package, imported as a real test module would have."""
+def acme(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stand-in for your installed package."""
     core = tmp_path / "acme" / "core"
     core.mkdir(parents=True)
     (core / "parsers.py").write_text("def parse(line):\n    return line.split(',')\n")
     monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.import_module("acme.core.parsers")
-    yield
-    for name in [m for m in sys.modules if m.split(".")[0] == "acme"]:
-        del sys.modules[name]
 
 
 def test_helper_import_loads_no_mloda(acme: None) -> None:
     with pytest.MonkeyPatch.context() as patch:
-        evict_root(patch, "acme")  # the import below runs the modules again
+        evict_root(patch, "acme")  # the import below runs the modules cold
         block_root(patch, "mloda")  # any mloda import now raises ModuleNotFoundError
         importlib.import_module("acme.core.parsers")
         loaded = sorted(m for m in sys.modules if m.startswith("acme."))
     assert loaded == ["acme.core", "acme.core.parsers"]
 ```
 
-The `with` block keeps mloda blocked only while the helper imports. `evict_root` restores only modules that were imported before, so a real test imports the helper at module level (the fixture does that for the stand-in). `block_root` does not catch an import the helper guards with `try` / `except ImportError`.
+The `with` block keeps mloda blocked only while the helper imports. On teardown `evict_root` restores the modules imported before and removes those first imported inside the block, at any depth; for a dotted package use `evict_package`, which also detaches it from its parent. `block_root` does not catch an import the helper guards with `try` / `except ImportError`.
 
 A missing optional backend must make the loader skip that manifest. This example runs against your installed package and its entry point. Block the backend and load the entry points cold:
 

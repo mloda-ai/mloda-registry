@@ -189,7 +189,7 @@ condition: upper and lower on characters with a multi-codepoint or context-depen
 mitigation_location:
 - mloda/community/feature_groups/data_operations/string/polars_lazy_string.py
 regression_test:
-- mloda/community/feature_groups/data_operations/string/tests/test_polars_lazy.py::TestPolarsLazyStringOps::test_pinned_row
+- mloda/community/feature_groups/data_operations/string/tests/test_polars_lazy.py::TestPolarsLazyStringOps::test_mixin_pinned_row
 -->
 
 - **Operations**: `string` (`upper` and `lower` ops).
@@ -197,7 +197,7 @@ regression_test:
 - **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
 - **Native Polars behavior**: Full case mapping: `ß` uppercases to `SS`, `İ` lowercases to `i` plus U+0307, and a final sigma lowers to `ς`.
 - **Mitigation kind**: Accepted divergence, declared as a `value` record on `upper` and `lower`.
-- **Regression signal**: `test_pinned_row` pins Python's full mapping while the record is declared; removing the record fails the case rows.
+- **Regression signal**: `test_mixin_pinned_row` pins Python's full mapping while the record is declared; removing the record fails the case rows.
 
 ### Pandas upper/lower cast non-pyarrow string storage to match the reference
 
@@ -208,8 +208,8 @@ condition: upper and lower on object or python-storage string columns with a mul
 mitigation_location:
 - mloda/community/feature_groups/data_operations/string/pandas_string.py
 regression_test:
-- mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsObjectString::test_pinned_row
-- mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsPythonString::test_pinned_row
+- mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsObjectString::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsPythonString::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/string/tests/test_pandas.py::TestPandasStringOpsObjectString::test_upper_lower_raise_without_pyarrow_while_trim_works
 -->
 
@@ -218,7 +218,7 @@ regression_test:
 - **Reference behavior**: Simple per-codepoint case mapping: `ß` uppercases to `ẞ`, `İ` lowercases to `i`, and a final sigma lowers to `σ` (no final-sigma rule).
 - **Native pandas behavior**: On `object` and `string[python]` storage pandas uses Python's full case mapping (`ß` to `SS`, `İ` to `i` plus U+0307, final sigma `ς`); pyarrow-backed storage matches the reference.
 - **Mitigation kind**: Implementation fix: non-pyarrow string-valued columns (non-string content is left uncast) are cast to `string[pyarrow]` before `upper`/`lower`, and the ops raise a `ValueError` when pyarrow is not installed.
-- **Regression signal**: `test_pinned_row` on the object and python-storage classes pins the reference values; the without-pyarrow test pins the rejection.
+- **Regression signal**: `test_mixin_pinned_row` on the object and python-storage classes pins the reference values; the without-pyarrow test pins the rejection.
 
 ### Float accumulation order across SQL engines vs. columnar reductions
 
@@ -684,7 +684,7 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/datetime/duckdb_datetime.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_divergent_flags_are_declared
-- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_duckdb.py::TestDuckdbDateTimeExtraction::test_mixin_pinned_row
 -->
 
 - **Operations**: `datetime` field extraction.

@@ -45,19 +45,43 @@ def _sibling_submodule_names(parent_name: str) -> set[str]:
     return names
 
 
+class _RootSnapshot(dict[str, None]):
+    """Restore a module namespace when MonkeyPatch removes its teardown sentinel.
+
+    Relies on ``MonkeyPatch.undo`` deleting a key that ``setitem`` added (``del d[key]``); the import
+    isolation tests fail if that changes.
+    """
+
+    def __init__(self, root: str) -> None:
+        super().__init__()
+        self.root = root
+        self.modules = {
+            name: module for name, module in sys.modules.copy().items() if name == root or name.startswith(f"{root}.")
+        }
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        for name in list(sys.modules):
+            if name == self.root or name.startswith(f"{self.root}."):
+                del sys.modules[name]
+        sys.modules.update(self.modules)
+
+
 def evict_root(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
     """Cold-evict every sys.modules entry at or under ``root``, forcing a genuine cold re-import
     (unlike ``block_root``, which poisons entries to raise ModuleNotFoundError instead).
 
     Used to simulate ``root`` being installed but missing one of its own transitive dependencies:
     the caller poisons that dependency's sys.modules entry separately, then this forces ``root`` to
-    re-execute its own import machinery and hit that poison. The setitem-then-delitem dance restores
-    the pre-test module object on teardown even if the re-import rebinds the name to a new one.
+    re-execute its own import machinery and hit that poison. Teardown restores pre-test module objects
+    and removes modules first imported during the test, including nested and namespace packages. It does
+    not touch the parent's attribute of a dotted ``root``; ``evict_package`` also detaches that.
     """
-    for name in list(sys.modules):
-        if name == root or name.startswith(f"{root}."):
-            monkeypatch.setitem(sys.modules, name, sys.modules[name])
-            monkeypatch.delitem(sys.modules, name)
+    snapshot = _RootSnapshot(root)
+    # Queue restoration before later patches, so undo restores snapshots in reverse eviction order.
+    monkeypatch.setitem(snapshot, root, None)
+    for name in snapshot.modules:
+        del sys.modules[name]
 
 
 def _detach_from_parent(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
