@@ -1244,7 +1244,8 @@ def _followed_import_violations(
 ) -> list[str]:
     """Violations in the files `kit_file` reaches through module-level first-party imports, judged against `declared`.
 
-    Conservative: a followed file's own distribution dependencies do not count, and guarded module-level imports flag."""
+    Conservative: a followed file's own distribution dependencies do not count; guarded module-level imports
+    are still flagged."""
     violations: list[str] = []
     seen = {kit_file}
     queue = [kit_file]
@@ -1600,6 +1601,34 @@ _TYPE_CHECKING_OL = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    im
             },
             None,
             id="import-cycle-terminates",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": "from .... import y\n", "../../../y.py": _OL},
+            None,
+            id="relative-import-above-the-root-is-skipped",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": "from . import mod\n", "../../mod.py": _OL},
+            ("m.py: via mloda/enterprise/mod.py:1", "import 'openlineage'"),
+            id="bare-relative-from-import-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.sub\n", "../../sub/__init__.py": _OL},
+            ("m.py: via mloda/enterprise/sub/__init__.py:1", "import 'openlineage'"),
+            id="package-init-as-the-import-target-is-followed",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "import mloda.enterprise.x\n",
+                "../../x.py": "def f() -> None:\n    import mloda.enterprise.y\n",
+                "../../y.py": _OL,
+            },
+            None,
+            id="followed-function-level-first-party-import-not-followed",
         ),
         pytest.param(
             _LICENSE_KIT_REL,
