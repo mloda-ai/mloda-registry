@@ -1,4 +1,4 @@
-"""Reusable result-type test mixin: each typed op's output column has the type its group declares.
+"""Reusable result-type test mixin: each op passes core's shape check, and its output type matches the group's declared type if any.
 
 Provides ``test_mixin_result_type``: runs core's ``check_feature_group_shape`` per case on source data with
 nulls and asserts the full shape check on every group; on a typed group also the declared output type
