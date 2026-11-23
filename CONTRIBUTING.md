@@ -81,6 +81,8 @@ For quick iteration during development, you can run only the tests. Note that th
 pytest -n 2
 ```
 
+`tox -e pyarrow14` runs all native PyArrow data-operation suites and the temporal timezone regression at the declared PyArrow 14.0.1 minimum. It uses Python 3.12 and NumPy 1.26.4 in an isolated environment; binary-model extras require newer Arrow and are covered by the regular gate.
+
 ## Ways to Contribute
 
 ### Improve a Community Plugin

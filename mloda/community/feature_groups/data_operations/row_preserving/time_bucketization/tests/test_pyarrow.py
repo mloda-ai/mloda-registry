@@ -11,13 +11,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     PyArrowTimeBucketization,
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTemporalTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
     TimeBucketizationTestBase,
 )
 
 
-class TestPyArrowTimeBucketization(PyArrowTestMixin, TimeBucketizationTestBase):
+class TestPyArrowTimeBucketization(PyArrowTemporalTestMixin, TimeBucketizationTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
