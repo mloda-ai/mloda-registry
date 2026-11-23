@@ -82,7 +82,7 @@ def test_adapter_round_trip() -> None:
 
 ## Hosts
 
-A host subclasses a suite and sets `adapter_class`; the suite builds its own `TypedTestData` and runs the contract through the adapter. Hosts must be named `Test*`. A host that omits `adapter_class` or a hook in the suite's `required_hooks` fails at class creation with `HookError`, as does a misspelled hook name.
+A host subclasses a suite and sets `adapter_class`; the suites share the typed host base `ComputeFrameworkSuite` (`mloda.testing.compute_framework.host`), which owns the adapter lifecycle, frame building and result reading; the suite builds its own `TypedTestData` and runs the contract through the adapter. Hosts must be named `Test*`. A host that omits `adapter_class` or a hook in the suite's `required_hooks` fails at class creation with `HookError`, as does a misspelled hook name.
 
 | Suite | Aspect, served when | The host sets |
 |-------|---------------------|---------------|
