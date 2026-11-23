@@ -69,7 +69,7 @@ A `ValueError` subclass raised by policy `raise`; the group exposes the class as
 product_code__lookup: 3 rows, 2 distinct keys not in the mapping. A sorted sample of up to 10 keys is on the error's sample attribute.
 ```
 
-The message names counts only, so no source value reaches a log; read the keys from `err.sample` and `err.reasons`.
+The message carries counts only, never a source value; read the keys from `err.sample` and `err.reasons`.
 
 ---
 

@@ -68,7 +68,7 @@ MAPPING_EXPECTED = (
 
 
 class LookupUnmatchedError(ValueError):
-    """Unmatched non-null source keys (policy ``raise``); the keys are on ``sample`` and ``reasons``, not in the message."""
+    """Unmatched non-null source keys (policy ``raise``); keys are on ``sample``/``reasons``, not in the message."""
 
     def __init__(
         self,
@@ -194,7 +194,7 @@ def build_unmatched_error(
     sample_reasons = {key: reasons[key] for key in sample if key in reasons}
     message = (
         f"{feature_name}: {_plural(unmatched_rows, 'row')}, {_plural(len(keys), 'distinct key')} not in the mapping. "
-        "A sorted sample of up to 10 keys is on the error's sample attribute."
+        f"A sorted sample of up to {SAMPLE_SIZE} keys is on the error's sample attribute."
     )
     return error_class(message, feature_name, unmatched_rows, len(keys), sample, sample_reasons)
 

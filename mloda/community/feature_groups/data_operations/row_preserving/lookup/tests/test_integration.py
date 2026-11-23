@@ -111,12 +111,13 @@ class TestLookupThroughMlodaApi:
 
     def test_unmatched_raise_is_reported(self) -> None:
         feature = Feature("region__lookup", options=Options(context={"lookup_mapping": _MAPPING}))
-        with pytest.raises(
-            LookupUnmatchedError, match=r"region__lookup: 3 rows, 1 distinct key not in the mapping"
-        ) as excinfo:
+        with pytest.raises(LookupUnmatchedError) as excinfo:
             self._run(feature, "region__lookup")
         assert excinfo.value.sample == ("C",)
-        assert "'C'" not in str(excinfo.value)
+        assert str(excinfo.value) == (
+            "region__lookup: 3 rows, 1 distinct key not in the mapping. "
+            "A sorted sample of up to 10 keys is on the error's sample attribute."
+        )
 
     def test_hook_subclass_end_to_end(self) -> None:
         feature = Feature("region__regions", options=Options(context={"on_unmatched": "null"}))

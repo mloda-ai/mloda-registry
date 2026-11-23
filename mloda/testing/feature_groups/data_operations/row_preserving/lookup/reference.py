@@ -52,7 +52,7 @@ def _unmatched_error(
     key_noun = f"{len(keys)} distinct key" if len(keys) == 1 else f"{len(keys)} distinct keys"
     message = (
         f"{feature_name}: {row_noun}, {key_noun} not in the mapping. "
-        "A sorted sample of up to 10 keys is on the error's sample attribute."
+        f"A sorted sample of up to {_SAMPLE_SIZE} keys is on the error's sample attribute."
     )
     error: Exception = group.UNMATCHED_ERROR(message, feature_name, rows, len(keys), sample, sample_reasons)
     return error

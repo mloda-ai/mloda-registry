@@ -209,7 +209,7 @@ class LookupTestBase(
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        """One mapping per value family, each read off ``product_code`` (holds a null)."""
+        """One mapping per value family read off ``product_code`` (holds a null), plus one raising case."""
         mappings = {
             "STRING": PARTIAL_STR_MAP,
             "INT64": STR_TO_INT_MAP,
@@ -220,7 +220,7 @@ class LookupTestBase(
             family: make_feature_set("product_code__lookup", lookup_mapping=mapping, on_unmatched="null")
             for family, mapping in mappings.items()
         }
-        # Exists so core's shape check inspects the raised error text (error_values).
+        # Every fixture key matches; core's perturbed run does not, so error_values inspects the raised text.
         cases["STRING_raise"] = make_feature_set(
             "product_code__lookup", lookup_mapping=FULL_STR_MAP, on_unmatched="raise"
         )
