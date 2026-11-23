@@ -46,6 +46,7 @@ from mloda.testing.feature_groups.data_operations.mixins.operation_group_integra
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 
@@ -357,6 +358,7 @@ class TestMixinIsolation:
             MaskTestMixin: DataOpsTestBase,
             OutputContractTestMixin: DataOpsTestBase,
             PinnedRowTestMixin: DataOpsTestBase,
+            ResultTypeTestMixin: DataOpsTestBase,
             MaskIntegrationTestMixin: DataOpsIntegrationTestBase,
             OperationGroupIntegrationTestMixin: DataOpsIntegrationTestBase,
         }
