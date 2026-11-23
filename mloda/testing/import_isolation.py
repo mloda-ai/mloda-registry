@@ -46,7 +46,11 @@ def _sibling_submodule_names(parent_name: str) -> set[str]:
 
 
 class _RootSnapshot(dict[str, None]):
-    """Restore a module namespace when MonkeyPatch removes its teardown sentinel."""
+    """Restore a module namespace when MonkeyPatch removes its teardown sentinel.
+
+    Relies on ``MonkeyPatch.undo`` deleting a key that ``setitem`` added (``del d[key]``); the import
+    isolation tests fail if that changes.
+    """
 
     def __init__(self, root: str) -> None:
         super().__init__()
@@ -70,7 +74,8 @@ def evict_root(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
     Used to simulate ``root`` being installed but missing one of its own transitive dependencies:
     the caller poisons that dependency's sys.modules entry separately, then this forces ``root`` to
     re-execute its own import machinery and hit that poison. Teardown restores pre-test module objects
-    and removes modules first imported during the test, including nested and namespace packages.
+    and removes modules first imported during the test, including nested and namespace packages. It does
+    not touch the parent's attribute of a dotted ``root``; ``evict_package`` also detaches that.
     """
     snapshot = _RootSnapshot(root)
     # Queue restoration before later patches, so undo restores snapshots in reverse eviction order.

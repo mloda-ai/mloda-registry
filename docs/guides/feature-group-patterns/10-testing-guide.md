@@ -589,7 +589,7 @@ A packaging check alongside Level 1: which plugin modules an import pulls in and
 | Helper | Effect |
 |--------|--------|
 | `block_root(monkeypatch, root)` | every import of `root` raises `ModuleNotFoundError` |
-| `evict_root(monkeypatch, root)` | drops `root` and its submodules, then restores prior modules and removes first imports on teardown |
+| `evict_root(monkeypatch, root)` | drops `root` and its submodules so the next import runs them; teardown restores the prior ones and removes new ones |
 | `evict_package(monkeypatch, dotted)` | the same for one package and its `manifest`, and removes what the test imports under it for the first time |
 | `evict_entry_points(monkeypatch, group)` | removes the entry-point modules of `group` that the test loads for the first time |
 
@@ -616,14 +616,14 @@ def acme(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_helper_import_loads_no_mloda(acme: None) -> None:
     with pytest.MonkeyPatch.context() as patch:
-        evict_root(patch, "acme")  # the import below runs the modules again
+        evict_root(patch, "acme")  # the import below runs the modules cold
         block_root(patch, "mloda")  # any mloda import now raises ModuleNotFoundError
         importlib.import_module("acme.core.parsers")
         loaded = sorted(m for m in sys.modules if m.startswith("acme."))
     assert loaded == ["acme.core", "acme.core.parsers"]
 ```
 
-The `with` block keeps mloda blocked only while the helper imports. `evict_root` restores modules that were imported before and removes modules first imported inside the block, at any depth. `block_root` does not catch an import the helper guards with `try` / `except ImportError`.
+The `with` block keeps mloda blocked only while the helper imports. On teardown `evict_root` restores the modules imported before and removes those first imported inside the block, at any depth; for a dotted package use `evict_package`, which also detaches it from its parent. `block_root` does not catch an import the helper guards with `try` / `except ImportError`.
 
 A missing optional backend must make the loader skip that manifest. This example runs against your installed package and its entry point. Block the backend and load the entry points cold:
 

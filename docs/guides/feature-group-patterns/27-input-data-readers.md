@@ -163,12 +163,6 @@ features = [Feature("pm10_value", options={"UbaAirFG": "https://api.example.org/
 
 `SourceMatch.source` is the credential-free label (equality and hash use it, never `access`). Several sources found for one name in one group abort, so keep `source` unique per access. A per-framework fast path is an `Implementation[UbaAirFG]` from `mloda.provider`, defined at module level; without one `load_neutral` runs and a transformer converts.
 
-The pinned core 0.21.0 does not export `source_identity`; this executable example
-retains its legacy `scrub_credentials(url)` recipe, which can mask a registered collection locator.
-On that version, use an explicit, unique, credential-free dataset label for
-identities inside registered credential scopes. See [Audit Identity](#audit-identity)
-for the public helper on versions that export it.
-
 `neutral_type` names the type `load_neutral` returns (default `None`). A run without `compute_frameworks` then prefers a framework that takes it as is (here `PythonDictFramework`), and the plan step says `loads natively`. Without it the first framework in default order is used, and its conversion can fail on mixed or nested cells. Runs that pass `compute_frameworks` are unaffected. `ApiDataFG` reports its own value type but returns `None` once a subclass overrides `load_neutral` or `api_values`, so such a subclass declares `neutral_type` itself.
 
 ### Binding a Collection Credential
@@ -247,17 +241,7 @@ class RotatingUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ### Audit Identity
 
-Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential.
-
-On core versions exporting `mloda.provider.source_identity`, use `source_identity(uri)`
-to build a URI-based `match.source` or `data_access_identity` override. It applies core's
-file-source recipe, including cutting URI path parameter regions (`;...`) to `;***`,
-and ignores registered credential literals. This keeps non-secret collection locators
-stable across credential scopes and feature-scoped pointers.
-
-Use `mloda.provider.scrub_credentials` for error and log text: it also masks every
-registered credential leaf, including a plugin's non-secret `locator`, which can
-reduce an identity to `***`.
+Extenders record the source through `data_access_identity(match)`, a classmethod whose default returns `match.source`. Override it for a finer identity (it names the dataset, not the login). Its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential. Scrub your own error text with `mloda.provider.scrub_credentials` before logging; it also masks every registered credential literal, so an identity built with it can collapse to `***` inside a credential scope (prefer a unique, credential-free dataset label there). Core's file groups cut a URI path parameter region (`;...`) to `;***` in `match.source`; a group that builds its own `source` from a URI, or an override that returns one, cuts it the same way.
 
 ## Credentials: Bound at Match Time or Read at Run Time
 
