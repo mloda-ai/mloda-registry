@@ -26,6 +26,10 @@ class TestDuckdbResample(DuckdbTestMixin, ResampleTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
+    def tz_aware_source_reads_utc(cls) -> bool:
+        return True
+
+    @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbResample
 

@@ -42,7 +42,7 @@ value__resample_1_day_count
 
 ## Semantics
 
-- **Bucket anchor.** The `time_column` is floored to its `n * unit` bucket using the same epoch-anchored fixed-frequency floor as [time bucketization](11-time-bucketization.md), so buckets align identically across backends.
+- **Bucket anchor.** The `time_column` is floored to its `n * unit` bucket using the same epoch-anchored fixed-frequency floor as [time bucketization](11-time-bucketization.md), so buckets align identically across backends for naive and UTC columns.
 - **One row per non-empty bucket.** Empty (gap) buckets are not emitted. The pandas backend groups by the floored timestamp rather than using `.resample()`, which would otherwise materialize gap rows that the group-by backends omit.
 - **Output columns.** The `partition_by` columns, the bucketed `time_column` (same name, holding the bucket start), and the aggregated column named exactly `{col}__resample_{n}_{unit}_{agg}`. Output row order is not guaranteed.
 - **Several features in one request.** Resample features sharing `partition_by`, `time_column` and bucket size are aggregated together (one output column each). Mixed bucket grids raise a `ValueError`; request them in separate `run_all` calls. Alternatively set the differing option in `Options(group=...)` so they compute separately. Different features that differ only in `data_type` or allowed frameworks batch into one step when one framework serves them all. The same name requested with two data types splits into two steps, and each reads the unreduced input.
@@ -50,7 +50,7 @@ value__resample_1_day_count
 
 The all-null `sum` cell is the one place backends disagree by default (pandas → `0.0`, PyArrow → `None`); the implementation forces every backend to the reference `None` (pandas `min_count=1`, polars `when(count > 0)` guard, DuckDB/SQL `SUM` returns `NULL` natively).
 
-The reference takes ms and us timestamps with no zone or UTC; other zones and ns are not judged.
+The reference takes ms and us timestamps with no zone or UTC; other zones and ns are not judged. DuckDB buckets a non-UTC zone on the UTC wall clock (see [known divergences](known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock)).
 
 ---
 

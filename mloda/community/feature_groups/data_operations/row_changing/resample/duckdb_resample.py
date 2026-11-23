@@ -3,17 +3,18 @@
 Floors the time column with the shared ``floor_expr`` epoch-anchored
 expression (``DATE_TRUNC`` for n=1, ``time_bucket`` with a
 ``DATE '1970-01-01'`` origin for n>1 -- NOT the native 2000-01-03 anchor) so
-buckets align with the reference. SQL ``SUM`` / ``AVG`` ignore nulls and
-return NULL for all-null groups, and ``COUNT(col)`` counts non-null values, so
-the null semantics already match the reference. Float ``max`` also skips NaN,
-matching PyArrow's ``pc.max``.
+buckets align with the reference. A tz-aware non-UTC column is bucketed on
+the UTC wall clock (a declared gap). SQL ``SUM`` / ``AVG`` ignore nulls and
+return NULL for all-null groups, and ``COUNT(col)`` counts non-null values,
+so the null semantics already match the reference. Float ``max`` also skips
+NaN, matching PyArrow's ``pc.max``.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework, FeatureSet, Implementation
+from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -45,6 +46,14 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
 
     feature_group = ResampleFeatureGroup
     compute_framework = DuckDBFramework
+    divergences = (
+        Divergence(
+            kind=DivergenceKind.GAP,
+            cause=Cause.BACKEND,
+            reason="a tz-aware column arrives as UTC, so a non-UTC zone is resampled on the UTC wall clock and returned in UTC",
+            docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock",
+        ),
+    )
 
     @classmethod
     def calculate(

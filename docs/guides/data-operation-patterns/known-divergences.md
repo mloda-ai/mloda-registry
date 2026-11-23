@@ -732,6 +732,26 @@ regression_test:
 - **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
 - **Regression signal**: `test_pinned_row` pins the UTC result; `test_divergent_flags_are_declared` checks the record.
 
+### DuckDB resample buckets a non-UTC zone on the UTC wall clock
+
+<!-- machine-checked
+operation: resample
+framework: duckdb
+condition: a tz-aware column arrives as UTC, so a non-UTC zone is resampled on the UTC wall clock and returned in UTC
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_changing/resample/duckdb_resample.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_duckdb.py::TestDuckdbResample::test_divergent_flags_are_declared
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_duckdb.py::TestDuckdbResample::test_non_utc_zone_bucket
+-->
+
+- **Operations**: `resample`.
+- **Reference behavior**: Bucket math runs on the column's own wall clock and the result keeps the zone.
+- **Native DuckDB behavior**: `DuckdbRelation.from_arrow` stores TIMESTAMPTZ and drops the zone, so the group sees a UTC column, buckets on the UTC wall clock and returns UTC.
+- **Scope**: The record has no subtype or output scope, so it also covers type checks on naive and UTC inputs (no record field scopes by input zone).
+- **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
+- **Regression signal**: `test_non_utc_zone_bucket` pins the UTC result; `test_divergent_flags_are_declared` checks the record.
+
 ### Polars lazy cannot hold a sub-hour fixed offset
 
 <!-- machine-checked
@@ -908,6 +928,7 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 |---|---|---|---|---|---|
 | Pandas | variant | `nan_as_null` | backend | `max`, `mean`, `min`, `sum` | skips NaN; null for an all-NaN bucket |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
+| DuckDB | gap |  | backend | (all) | a tz-aware column arrives as UTC, so a non-UTC zone is resampled on the UTC wall clock and returned in UTC ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock)) |
 
 <!-- END GENERATED: declared-divergences -->
 

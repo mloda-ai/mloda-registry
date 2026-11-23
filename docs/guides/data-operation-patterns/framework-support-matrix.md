@@ -86,7 +86,7 @@ Cells reflect each operation group's Implementations, queryable via `DataOperati
 | sessionization | full | full | full | full | full | full | none |
 | window_aggregation | partial (15/17) | full | full | full | partial (6/17) | full | Pandas, SQLite |
 | string | full | full | full | full | partial (2/5) | full | Polars lazy |
-| resample | full | full | full | full | -- | full | Pandas |
+| resample | full | full | full | full | -- | full | Pandas, DuckDB |
 
 ## Per-operation detail
 
