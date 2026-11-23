@@ -96,6 +96,42 @@ Options(context={"tenant": "acme"}, propagate_context_keys=frozenset({"tenant"})
 
 `inherit_context_keys` (child pull) and `propagate_context_keys` (consumer push) are symmetric; use whichever side owns the decision. See [Options: Context Propagation](11-options.md#context-propagation).
 
+## Hand-Set or Renamed Context Keys
+
+`split_context_keys` requires a core version containing
+[mloda #2961](https://github.com/mloda-ai/mloda/issues/2961). The registry currently locks
+`mloda==0.21.0`, which does not provide this argument; use a core release containing that change
+before applying the following declaration.
+
+The pull and push directives copy a context key under its existing name. If your consumer's
+`candidates_top_k` configures the input's `top_k`, set the input context yourself and mark the
+renamed key in your consumer's `input_features` method:
+
+```py
+from mloda.user import Feature, FeatureName, Options
+
+
+def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature]:
+    return {
+        Feature(
+            "candidates",
+            Options(context={"top_k": options.get("candidates_top_k")}),
+            split_context_keys={"top_k"},
+        )
+    }
+```
+
+The marker is a local declaration on this input feature; forwarding directives still decide which
+values move to its inputs. Once any copy in the group's call scope marks `top_k`, all copies split
+by that value, including plain direct requests. Thus a direct `candidates` request with `top_k=3`
+and this input with `top_k=2` run separately, while equal values share a call and keep the marker
+when their requests merge. This works for a fixed-name source with a declared `top_k` context option.
+
+Pass a set, frozenset, list or tuple of key names. Every key must already exist in the input's context;
+a missing key raises `ValueError`, and invalid containers or non-string names raise `TypeError`.
+See [Which Features Share a Call](12-calculate-feature.md#which-features-share-a-call) for the other
+grouping conditions.
+
 ## Consumer-Local Keys: forward_to_inputs=False
 
 The consumer that owns a key can declare it once instead of excluding it on every child with `forward_group_exclude`, as the example above does. It filters group keys only, so declare the spec with `context=False`; a child's explicit `forward_group` allowlist naming the key still brings it back. `child.options_forwarded_from(consumer_options, LocalTopKConnector)` previews what the child receives.

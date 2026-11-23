@@ -51,10 +51,21 @@ A feature requested directly and also as another requested feature's input reach
 
 One call receives the requested features of your group that agree on:
 
-- group options (context does not split, except a key a feature received from its consumer through `inherit_context_keys`, `propagate_context_keys` or `cascade_context_keys`, which splits all of the group's features by value)
+- group options and context keys selected for splitting, as described below
 - the compute framework they run on
 - the data source the group matched, and for API input data the API source
 - the variant of a source class their inputs read from
+
+Context keys received through `inherit_context_keys`, `propagate_context_keys` or `cascade_context_keys`
+split all features in the same group's call scope by value; equal values still share a call.
+
+On a core version containing [mloda #2961](https://github.com/mloda-ai/mloda/issues/2961),
+`Feature(..., split_context_keys={"top_k"})` also lets a plugin locally declare hand-set or renamed
+context keys as split keys. The same scope-wide rule applies to every copy, including an unmarked
+direct request: `top_k=2` and `top_k=3` produce separate calls, while equal values can merge.
+This API is not available in the registry's locked `mloda==0.21.0`.
+See [Hand-Set or Renamed Context Keys](26-input-feature-forwarding.md#hand-set-or-renamed-context-keys)
+for the version requirement and input declaration.
 
 Features that differ only in data type share a call when they carry the same filters, unless the group has an artifact or two of them share a name. A feature that needs another feature of the same group runs in a later call. A cache scoped to one call therefore shares work only within that call: to compute siblings once, make them [declared parts](05-multi-output-features.md#declaring-output-parts) of one feature (users then request `scan~label`; parts requested with differing data types still split, since they share the base name), or cache beyond the call, keyed by the inputs. `calculate_feature` may run concurrently in one process (`THREADING` steps, or `run_all` or `session.run` calls from several threads, as in a threading server), so replace such a cache whole (copy-on-write) or guard it with a lock.
 
