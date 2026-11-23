@@ -387,8 +387,8 @@ import:
    A module under `mloda/enterprise/licensing/testing/` that also imports `mloda.testing` needs no entry, because
    `scripts/verify_independent_installs.py` imports every module there with both distributions installed;
    the dependency-direction gate also checks that each third-party import there, and in the in-repo modules it
-   reaches through module-level imports, is declared by those two requirements, and that each in-repo module the
-   kit reaches ships in a distribution those two requirements install.
+   reaches through module-level imports, is declared by those two requirements.
+   It also checks that each in-repo module the kit reaches ships in a distribution they install.
 
 Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_extra_entry`
 enforces that pair for every nested leaf the bundle wheel ships (owned leaves ship their own wheel and are skipped).

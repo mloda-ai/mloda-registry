@@ -1348,9 +1348,7 @@ def _license_kit_third_party_import_violations(
 
 
 def _install_closure(requirements: Iterable[str], packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured distributions a pip install of `requirements` brings: dependencies plus each named extra's members.
-
-    `{published_children}` and shared default extras are not expanded. An undefined extra raises."""
+    """Configured distributions a pip install of `requirements` brings, including named extras. An undefined extra raises."""
     configured = {gen.normalize_package_name(name): name for name in packages}
     installed: set[str] = set()
     seen: set[tuple[str, str]] = set()
@@ -1380,7 +1378,7 @@ def _install_closure(requirements: Iterable[str], packages: dict[str, dict[str, 
 
 
 def _wheel_owners(packages: dict[str, dict[str, Any]]) -> dict[str, set[str]]:
-    """Dotted package -> configured distributions whose generated wheel lists it (reads paths from the cwd)."""
+    """Dotted package -> distributions whose wheel lists it (reads paths from the cwd)."""
     owners: dict[str, set[str]] = {}
     for name, cfg in packages.items():
         for dotted in gen.compute_wheel_packages(cfg, packages):
@@ -1395,9 +1393,9 @@ def _unshipped_reached_module_violations(
     import_root: Path,
     owners: dict[str, set[str]],
 ) -> list[str]:
-    """Kit modules, and the in-repo files they reach, whose package ships in no distribution `installed_for` installs.
+    """Kit modules and reached in-repo files whose package ships in no distribution `installed_for(rel_posix)` installs.
 
-    `installed_for(rel_posix)` gives the installed distributions and a label for one kit module."""
+    `installed_for` returns the installed distributions and a label for one kit module."""
     import_root = import_root.resolve()
     violations: list[str] = []
     for rel_path, _tree in _runtime_modules(root_dir):
