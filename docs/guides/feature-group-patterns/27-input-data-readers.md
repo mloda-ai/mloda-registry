@@ -351,7 +351,7 @@ class ScaledUbaAirFG(UbaAirFG):  # UbaAirFG from above
 
 ## Test
 
-Conformance suites for source groups live in `mloda.testing.source`. Mix in the one that fits the base class: `SourceFeatureGroupTestMixin` (`source_suite`), `ReadFileFGTestMixin` (`read_file_suite`), `ReadDBFGTestMixin` (`read_db_suite`) or `ReadDocumentFGTestMixin` (`read_document_suite`). A host for `SensorCsvFG` (its `load_neutral` must really parse the file; the sketch above stubs it):
+Conformance suites for source groups live in `mloda.testing.source`: `SourceFeatureGroupTestMixin` (`source_suite`), `ReadFileFGTestMixin` (`read_file_suite`), `ReadDBFGTestMixin` (`read_db_suite`) and `ReadDocumentFGTestMixin` (`read_document_suite`). Mix in the one that fits the base class. `source_applicability(group, has_pointer)` (`mloda.testing.source_applicability`) reports which source suite rules apply to a group, read from its claim routes. A host for `SensorCsvFG` (its `load_neutral` must really parse the file; the sketch above stubs it):
 
 ```py
 from pathlib import Path

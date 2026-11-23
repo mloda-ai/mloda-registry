@@ -22,7 +22,7 @@
 | Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
 | Compute framework | `assert_compute_framework_shape`, the suites, `TypedTestData`, `FrameworkAdapter` | `compute_framework_shape`, `compute_framework`, `typed_data`, `framework_adapter` | [Compute Framework Testing Guide](../compute-framework-patterns/09-testing-guide.md) |
 
-The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases: name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
+The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases (re-exported with `HookError` and `SwitchedOffError` from `mloda.testing.suite`): name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
 
 ## Testing Levels
 
@@ -75,7 +75,7 @@ class ScaledFeature(FeatureChainParserMixin, FeatureGroup):
 
 ## Level 1: Unit Test Example
 
-`assert_feature_group_shape` from `mloda.testing.feature_group_shape` checks the match contract of a plain FeatureGroup: the declared names match, a foreign name does not, `input_features()` resolves, required and strict options are enforced, no option is secret-shaped, and `version()` and `compute_framework_rule()` are well formed. It ships in `mloda-testing` 0.14+; on mloda 0.20 without it, import from core's `mloda._testing.feature_group_shape`. A pattern-matching group passes the names to probe as `requests=`. `check_feature_group_shape` returns the `CheckResult` (failures and notes) instead of failing. Keep hand asserts for what is specific to the group:
+`assert_feature_group_shape` from `mloda.testing.feature_group_shape` checks the match contract of a plain FeatureGroup: the declared names match, a foreign name does not, `input_features()` resolves, required and strict options are enforced, no option is secret-shaped, and `version()` and `compute_framework_rule()` are well formed. It ships in `mloda-testing` 0.14+; on mloda 0.20 without it, import from core's `mloda._testing.feature_group_shape`. A pattern-matching group passes the names to probe as `requests=`. `check_feature_group_shape` returns the `CheckResult` (`mloda.testing.result`; failures and notes) instead of failing. Keep hand asserts for what is specific to the group:
 
 ```python
 from mloda.testing.feature_group_shape import assert_feature_group_shape
