@@ -204,6 +204,14 @@ OFFSET_PINNING = PinningTable(
             context=_CTX,
         ),
         PinningRow(
+            case="dtype",
+            feature="v__pct_change_1_offset",
+            inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (DataType.UINT8, (5, 1))},
+            # (1 - 5) / 5 = -0.8: the uint8 subtraction must not wrap to 252
+            expected={"v__pct_change_1_offset": (_D, (None, -0.8))},
+            context=_CTX,
+        ),
+        PinningRow(
             case="empty",
             feature="v__lag_1_offset",
             inputs={"p": (_S, ()), "o": (_I, ()), "v": (_I, ())},
