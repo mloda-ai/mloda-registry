@@ -258,6 +258,13 @@ class PandasPythonStringTestMixin(PandasTestMixin):
     adapter_class = _PythonStringPandasAdapter
 
 
+def duckdb_below_2() -> bool:
+    """Whether the installed DuckDB is a 1.x release."""
+    import duckdb
+
+    return int(duckdb.__version__.split(".")[0]) < 2
+
+
 class DuckdbTestMixin(AdapterTestMixin):
     """Adapter methods for DuckDB; guard concrete modules with ``pytest.importorskip("duckdb")``.
 

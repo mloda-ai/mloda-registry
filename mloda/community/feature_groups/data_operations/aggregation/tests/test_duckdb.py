@@ -16,7 +16,7 @@ from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregati
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin, duckdb_below_2
 
 
 class TestDuckdbAggregation(DuckdbTestMixin, AggregationTestBase):
@@ -33,7 +33,7 @@ class TestDuckdbAggregation(DuckdbTestMixin, AggregationTestBase):
             # The NaN partition is returned after ordinary keys instead of in first-occurrence order.
             "8-partition_keys-val__sum_agg": {"grp": [1.0, 2.0, math.nan], "val__sum_agg": [100.0, 200.0, 30.0]},
         }
-        if int(duckdb.__version__.split(".")[0]) < 2:
+        if duckdb_below_2():
             # DuckDB 1.x loses the negative sign of the first-seen zero partition key.
             pins["6-signed_zero-v__count_agg"] = {"k": [0.0], "v__count_agg": [3]}
         return pins

@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
+from mloda.provider import Implementation
 from mloda.user import DataType
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -80,13 +81,15 @@ def _make_host(
     adapter: Any = None,
     seen_types: list[Any] | None = None,
     lazy_exc: type[Exception] | None = None,
+    override_f: list[Any] | None = None,
+    implementation: Any = None,
 ) -> Any:
     pinned = table or PinningTable(operation="op", rules={}, rows=(_ROW,))
 
     class Host(PinnedRowTestMixin, _StubBase):
         @classmethod
         def implementation_class(cls) -> Any:
-            return impl
+            return implementation if implementation is not None else impl
 
         @classmethod
         def pinning_table(cls) -> PinningTable:
@@ -113,7 +116,10 @@ def _make_host(
         def expected_values(self, row: PinningRow) -> Any:
             if expected_values_raises:
                 raise AssertionError("expected_values must not run")
-            return super().expected_values(row)
+            expected = super().expected_values(row)
+            if override_f is not None:
+                expected["f"] = override_f
+            return expected
 
         def rejection_match(self, row: PinningRow) -> str | None:
             return pattern
@@ -194,6 +200,11 @@ class TestPinnedDivergences:
         with pytest.raises(AssertionError):
             _make_host(_Computes, None, divergences=pins).test_mixin_pinned_row(_CASE_ID)
 
+    def test_pin_wins_over_a_host_override_of_the_column(self) -> None:
+        pins = {_CASE_ID: {"f": [10, 21]}}
+        host = _make_host(_ComputesWrong, None, divergences=pins, override_f=[10, 20])
+        host.test_mixin_pinned_row(_CASE_ID)
+
     def test_valid_pin_passes_the_guard(self) -> None:
         _make_host(_Computes, None, divergences={_CASE_ID: {"f": [1, 2]}}).test_mixin_pinned_divergences_name_rows()
 
@@ -261,13 +272,19 @@ class TestStrictComparison:
             _make_host(_returns({"f": [1]}), None, table=table, as_integers=False).test_mixin_pinned_row(_CASE_ID)
 
 
-def test_float_inputs_are_built_with_float32_arrow_type() -> None:
+@pytest.mark.parametrize(
+    ("values", "lossy"), [((1.5,), False), ((0.5, 1.5), False), ((0.1,), True), ((0.5, 0.1), True)]
+)
+def test_float_inputs_get_float32_arrow_type_only_when_lossy(values: tuple[float, ...], lossy: bool) -> None:
     pa = pytest.importorskip("pyarrow")
     seen: list[Any] = []
-    table = _one_row(DataType.FLOAT, (1.5,), DataType.INT64, (1,))
+    table = _one_row(DataType.FLOAT, values, DataType.INT64, (1,))
     _make_host(_returns({"f": [1]}), None, table=table, seen_types=seen).test_mixin_pinned_row(_CASE_ID)
-    assert seen[0] is not None
-    assert seen[0]["a"] == pa.float32()
+    if lossy:
+        assert seen[0] is not None
+        assert seen[0]["a"] == pa.float32()
+    else:
+        assert seen[0] is None
 
 
 class TestColumnSet:
@@ -291,3 +308,40 @@ class TestColumnSet:
 
     def test_without_an_adapter_no_column_check_runs(self) -> None:
         _make_host(_returns({"f": [10, 20], "x": [0, 0]}), None).test_mixin_pinned_row(_CASE_ID)
+
+
+class _FilterImpl(Implementation[Any]):
+    """Abstract (no calculate), so it needs no real group or framework; the subtype is the feature name."""
+
+    feature_group: ClassVar[Any] = object
+    supported: ClassVar[frozenset[str] | None] = frozenset({"keep", "refuse"})
+
+    @classmethod
+    def canonical_subtype(cls, group: Any, feature_name: str, options: Any) -> str | None:
+        return feature_name
+
+    @classmethod
+    def accepts(cls, feature_name: str, options: Any, *, part: str | None = None) -> bool:
+        return feature_name != "refuse"
+
+
+def _filter_row(case: str, feature: str) -> PinningRow:
+    return PinningRow(
+        case=case,
+        feature=feature,
+        inputs={"a": (DataType.INT64, (1,))},
+        expected={feature: (DataType.INT64, (1,))},
+    )
+
+
+class TestCollectionFilter:
+    def test_unsupported_and_refused_rows_are_dropped_keeping_the_original_index(self) -> None:
+        rows = (
+            _filter_row("c", "drop"),
+            _filter_row("c", "keep"),
+            _filter_row("c", "refuse"),
+            _filter_row("d", "keep"),
+        )
+        table = PinningTable(operation="op", rules={}, rows=rows)
+        host = _make_host(_Computes, None, table=table, implementation=_FilterImpl)
+        assert list(host.pinned_row_cases()) == ["1-c-keep", "3-d-keep"]

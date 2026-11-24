@@ -17,7 +17,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.duckdb
     DuckdbResample,
 )
 from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, calculate_with, make_feature_set
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin, duckdb_below_2
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     RESAMPLE_SORTED_BUCKET_DIVERGENCES,
     ResampleTestBase,
@@ -44,7 +44,7 @@ class TestDuckdbResample(DuckdbTestMixin, ResampleTestBase):
             "p": [math.nan, None],
             "v__resample_1_hour_sum": [10, 5],
         }
-        if int(duckdb.__version__.split(".")[0]) < 2:
+        if duckdb_below_2():
             # DuckDB 1.x loses the negative sign of the first-seen zero partition key.
             divergences["27-partition_keys-v__resample_1_hour_count"] = {"p": [0.0]}
         return divergences

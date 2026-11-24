@@ -121,7 +121,6 @@ class StringTestBase(
     def expected_values(self, row: PinningRow) -> dict[str, list[Any]]:
         """Hand-computed rows; a declared upper/lower divergence pins Python's full mapping on case_mapping rows."""
         op = self.feature_group_class().get_string_op(row.feature)
-        self._skip_if_unsupported(op)
         expected = super().expected_values(row)
         if row.case == "case_mapping" and self._full_case_mapping_declared(op):
             source = next(iter(row.inputs.values()))[1]

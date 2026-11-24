@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
@@ -40,6 +41,15 @@ def _integer_boolean(value: Any) -> bool:
     """Backends storing booleans as 0/1; reject every other integer instead of truthiness-casting it."""
     assert isinstance(value, (bool, int)) and value in (0, 1), f"invalid integer boolean {value!r}"
     return bool(value)
+
+
+def _is_float32_exact(value: float) -> bool:
+    """Whether a float survives a float32 round trip unchanged (NaN and infinities do)."""
+    try:
+        packed = struct.unpack("f", struct.pack("f", value))[0]
+    except OverflowError:
+        return False
+    return bool(packed == value or (value != value and packed != packed))
 
 
 _INTEGER_TYPES = (DataType.INT8, DataType.INT32, DataType.INT64, DataType.UINT8, DataType.UINT64)
@@ -86,11 +96,8 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         return next(row_id for row_id, candidate in self.pinned_row_cases().items() if candidate is row)
 
     def expected_values(self, row: PinningRow) -> dict[str, list[Any]]:
-        """Expected columns with pinned divergences overlaid; override to skip unsupported operations."""
-        expected = {column: list(values) for column, (_, values) in row.expected.items()}
-        for column, values in self.pinned_divergences().get(self._row_id(row), {}).items():
-            expected[column] = list(values)
-        return expected
+        """The hand-computed expected columns; override to adjust them (pinned divergences are applied after)."""
+        return {column: list(values) for column, (_, values) in row.expected.items()}
 
     def rejection_match(self, row: PinningRow) -> str | None:
         """Regex of the up-front error a declared rejection raises for this row; None computes it."""
@@ -127,7 +134,11 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
                 assert column in rows[row_id].expected, f"stale pinned divergence column {row_id!r}/{column!r}"
 
     def _create_pinned_data(self, row: PinningRow) -> Any:
-        float_inputs = [name for name, (data_type, _) in row.inputs.items() if data_type == DataType.FLOAT]
+        float_inputs = [
+            name
+            for name, (data_type, values) in row.inputs.items()
+            if data_type == DataType.FLOAT and any(v is not None and not _is_float32_exact(v) for v in values)
+        ]
         if not float_inputs:
             return self.create_test_data(TypedTestData(row.inputs))
         pytest.importorskip("pyarrow")
@@ -136,7 +147,7 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         return self.create_test_data(TypedTestData(row.inputs), arrow_types)
 
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
-        """A row matches the backend result; rejection_match takes precedence over expected_values."""
+        """A row matches the backend result (pins win over expected_values); rejection_match takes precedence."""
         row = self.pinned_row_cases()[pinned_row_case]
         fs = make_feature_set(row.feature, **row.context)
         pattern = self.rejection_match(row)
@@ -148,6 +159,8 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
                     self.extract_column(result, column)
             return
         expected = self.expected_values(row)
+        for column, values in self.pinned_divergences().get(pinned_row_case, {}).items():
+            expected[column] = list(values)
         result = calculate_with(self.implementation_class(), self._create_pinned_data(row), fs)
         for column, values in expected.items():
             self.assert_pinned_values(row, column, self.extract_column(result, column), values)

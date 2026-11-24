@@ -24,7 +24,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import DataType
 
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, divergent_subtypes
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null, divergent_subtypes
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     calculate_with,
@@ -114,7 +114,7 @@ class RankTestBase(
     @classmethod
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         pins: dict[str, Mapping[str, list[Any]]] = {}
-        if not cls.ranks_none_and_nan_apart():
+        if declares_nan_as_null(cls.implementation_class(), frozenset({"rank", "dense_rank"})):
             # NaN and None tie in order_by (declared nan_as_null for rank and dense_rank; row_number and top_N follow).
             pins["3-order_tiers-o__row_number_ranked"] = {"o__row_number_ranked": [2, 3, 1]}
             pins["4-order_tiers-o__rank_ranked"] = {"o__rank_ranked": [2, 1, 2, 2, 2]}
