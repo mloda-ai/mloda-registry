@@ -143,7 +143,9 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         if pattern is not None:
             data = self._create_pinned_data(row)
             with pytest.raises(self.rejection_type(row), match=pattern):
-                calculate_with(self.implementation_class(), data, fs)
+                result = calculate_with(self.implementation_class(), data, fs)
+                for column in row.expected:
+                    self.extract_column(result, column)
             return
         expected = self.expected_values(row)
         result = calculate_with(self.implementation_class(), self._create_pinned_data(row), fs)

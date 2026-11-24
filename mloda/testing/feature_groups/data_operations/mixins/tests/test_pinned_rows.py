@@ -80,6 +80,7 @@ def _make_host(
     as_integers: bool = False,
     adapter: Any = None,
     seen_types: list[Any] | None = None,
+    lazy_exc: type[Exception] | None = None,
 ) -> Any:
     pinned = table or PinningTable(operation="op", rules={}, rows=(_ROW,))
 
@@ -106,6 +107,11 @@ def _make_host(
             if seen_types is not None:
                 seen_types.append(arrow_types)
             return super().create_test_data(data, arrow_types)
+
+        def extract_column(self, result: Any, column_name: str) -> list[Any]:
+            if lazy_exc is not None:
+                raise lazy_exc("operation is not supported lazily")
+            return super().extract_column(result, column_name)
 
         def expected_values(self, row: PinningRow) -> Any:
             if expected_values_raises:
@@ -223,6 +229,9 @@ class TestOrderingAndRejectionType:
 
     def test_rejection_type_accepts_a_native_error(self) -> None:
         _make_host(_RaisesOtherError, "native", rejection_exc=_OtherError).test_mixin_pinned_row(_CASE_ID)
+
+    def test_lazy_rejection_raised_on_column_read_passes(self) -> None:
+        _make_host(_Computes, _PATTERN, rejection_exc=_OtherError, lazy_exc=_OtherError).test_mixin_pinned_row(_CASE_ID)
 
     def test_default_rejection_type_is_value_error(self) -> None:
         with pytest.raises(_OtherError):
