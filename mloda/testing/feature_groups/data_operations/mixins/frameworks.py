@@ -278,6 +278,10 @@ class SqliteTestMixin(AdapterTestMixin):
 
     adapter_class = _PlainSqliteAdapter
 
+    @classmethod
+    def booleans_as_integers(cls) -> bool:
+        return True
+
     def extract_column(self, result: Any, column_name: str) -> list[Any]:
         return [_maybe_parse_iso_datetime(v) for v in self.adapter.column_values(result, column_name)]
 

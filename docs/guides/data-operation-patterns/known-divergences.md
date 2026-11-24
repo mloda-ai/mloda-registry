@@ -702,7 +702,7 @@ condition: round_temporal to month or year on a non-UTC zone moves the midpoint 
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/pyarrow_time_bucketization.py
 regression_test:
-- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_mixin_pinned_row
 -->
 
 - **Operations**: `time_bucketization` (`round` to `month` or `year`).
@@ -710,7 +710,7 @@ regression_test:
 - **Native PyArrow behavior**: `pc.round_temporal` moves that midpoint by the UTC offset: at `+05:00` it rounds up from 07:00, at `-05:00` 12:00 still rounds down.
 - **Mitigation kind**: Implementation fix.
 - **How**: For month and year the implementation composes the result from the floor, the next boundary and a native comparison instead of calling `round_temporal`.
-- **Regression signal**: The fixed-offset `wall_clock` rows of `round_1_month` and `round_1_year` in `test_pinned_row` fail if `round_temporal` comes back.
+- **Regression signal**: The fixed-offset `wall_clock` rows of `round_1_month` and `round_1_year` in `test_mixin_pinned_row` fail if `round_temporal` comes back.
 
 ### Older PyArrow grouped extrema return infinities for all-NaN buckets
 
@@ -746,7 +746,7 @@ mitigation_location:
 regression_test:
 - mloda/community/feature_groups/data_operations/tests/test_pyarrow_temporal_zones.py::test_temporal_timezone_support
 - mloda/community/feature_groups/data_operations/tests/test_pyarrow_helpers.py::test_fixed_offset_unsupported_by_zone
-- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_pyarrow.py::TestPyArrowDateTimeExtraction::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_non_utc_zone_bucket
 -->
@@ -767,7 +767,7 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/duckdb_time_bucketization.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_duckdb.py::TestDuckdbTimeBucketization::test_divergent_flags_are_declared
-- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_duckdb.py::TestDuckdbTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_duckdb.py::TestDuckdbTimeBucketization::test_mixin_pinned_row
 -->
 
 - **Operations**: `time_bucketization` (`floor`, `ceil`, `round`).
@@ -775,7 +775,7 @@ regression_test:
 - **Native DuckDB behavior**: `DuckdbRelation.from_arrow` stores TIMESTAMPTZ and drops the zone, so the group sees a UTC column, buckets on the UTC wall clock and returns UTC.
 - **Scope**: The record has no subtype or output scope, so it also covers type checks on naive and UTC inputs (no record field scopes by input zone).
 - **Mitigation kind**: Accepted divergence, declared as a `GAP` record.
-- **Regression signal**: `test_pinned_row` pins the UTC result; `test_divergent_flags_are_declared` checks the record.
+- **Regression signal**: `test_mixin_pinned_row` pins the UTC result; `test_divergent_flags_are_declared` checks the record.
 
 ### DuckDB resample buckets a non-UTC zone on the UTC wall clock
 
@@ -807,14 +807,14 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/polars_lazy_time_bucketization.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_polars_lazy.py::TestPolarsLazyTimeBucketization::test_sub_hour_offset_still_unsupported
-- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_polars_lazy.py::TestPolarsLazyTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_polars_lazy.py::TestPolarsLazyTimeBucketization::test_mixin_pinned_row
 -->
 
 - **Operations**: `time_bucketization`.
 - **Reference behavior**: A half-hour offset is bucketed on its own wall clock.
 - **Native Polars behavior**: `pl.from_arrow` raises `ComputeError` for the offset in the framework transfer, before the group runs.
 - **Mitigation kind**: Accepted limitation. Not declared in `divergences`: the failure comes from ingest, not from the op.
-- **Regression signal**: `test_pinned_row` skips the sub-hour rows via `holds_sub_hour_offset()`; the sentinel test fails if Polars starts accepting them.
+- **Regression signal**: `test_mixin_pinned_row` skips the sub-hour rows via `holds_sub_hour_offset()`; the sentinel test fails if Polars starts accepting them.
 
 ### SQLite time bucketization rejects a non-UTC offset
 
@@ -826,14 +826,14 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/sqlite_time_bucketization.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite_result_type.py::TestSqliteResultTypeContract::test_non_utc_tz_aware_rejected
-- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite.py::TestSqliteTimeBucketization::test_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite.py::TestSqliteTimeBucketization::test_mixin_pinned_row
 -->
 
 - **Operations**: `time_bucketization`.
 - **Reference behavior**: A non-UTC zone is bucketed on its own wall clock and keeps its zone.
 - **Native SQLite behavior**: Only the numeric offset survives in TEXT, which is not enough for DST-correct bucket math.
 - **Mitigation kind**: Rejection with a `ValueError` that suggests converting to UTC or using another backend.
-- **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_pinned_row` asserts the up-front `ValueError` for non-UTC rows.
+- **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_mixin_pinned_row` asserts the up-front `ValueError` for non-UTC rows.
 - **Regression signal**: The rejection test fails if SQLite starts accepting such a column.
 
 ---

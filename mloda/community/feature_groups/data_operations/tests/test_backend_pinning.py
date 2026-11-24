@@ -37,10 +37,8 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
     make_feature_set,
 )
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import _instant_and_offset
 from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
-from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization import (
-    _instant_and_offset,
-)
 from mloda.testing.typed_data import TypedTestData
 
 

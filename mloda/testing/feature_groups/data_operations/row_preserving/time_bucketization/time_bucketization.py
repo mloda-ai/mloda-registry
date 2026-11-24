@@ -32,7 +32,7 @@ Fixture row layout::
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 from mloda.provider import DivergenceKind, FeatureSet, Implementation
@@ -52,7 +52,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
 )
@@ -72,14 +74,6 @@ _BUCKET_TIMESTAMPS: list[datetime | None] = [
     datetime(2024, 2, 29, 12, 0, 0, tzinfo=timezone.utc),  # 6 Thu, leap day
     None,  # 7 null
 ]
-
-
-def _instant_and_offset(value: Any) -> Any:
-    """Normalize a datetime-like value to (datetime, utcoffset) so instant and zone are both compared."""
-    if value is None:
-        return None
-    as_datetime = value.to_pydatetime() if hasattr(value, "to_pydatetime") else value
-    return (as_datetime, value.utcoffset())
 
 
 def _create_bucket_data() -> TypedTestData:
@@ -221,7 +215,7 @@ EXPECTED_ROUND_1_DAY: list[Any] = [
 
 
 class TimeBucketizationTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
 ):
     """Abstract base class for time-bucketization framework tests.
 
@@ -235,7 +229,9 @@ class TimeBucketizationTestBase(
     test classes may override to a subset.
     """
 
-    _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return TIME_BUCKETIZATION_PINNING
 
     @classmethod
     def tz_aware_source_reads_utc(cls) -> bool:
@@ -256,10 +252,6 @@ class TimeBucketizationTestBase(
     def holds_sub_hour_offset(cls) -> bool:
         """False when the framework cannot hold a fixed offset that is not a whole number of hours."""
         return True
-
-    @classmethod
-    def pinned_row_cases(cls) -> dict[str, Any]:
-        return {f"{i}-{row.case}": row for i, row in enumerate(TIME_BUCKETIZATION_PINNING.rows)}
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
@@ -390,38 +382,30 @@ class TimeBucketizationTestBase(
 
     # -- Pinned rows ---------------------------------------------------------
 
-    def test_pinned_row(self, pinned_row_case: str) -> None:
-        """Hand-computed rows; a declared deviation is pinned to the reference on the UTC instants."""
-        row = self.pinned_row_cases()[pinned_row_case]
+    def rejection_match(self, row: PinningRow) -> str | None:
+        """Sub-hour rows skip where unholdable, then the declared non-UTC and numeric-offset rejections."""
         column = next(iter(row.inputs))
-        data_type, values = row.inputs[column]
-        non_null = [v for v in values if v is not None]
-        offsets = [v.utcoffset() for v in non_null if v.utcoffset() is not None]
-        fs = make_feature_set(row.feature, **row.context)
+        values = row.inputs[column][1]
+        offsets = [v.utcoffset() for v in values if v is not None and v.utcoffset() is not None]
         if not self.holds_sub_hour_offset() and any(o.total_seconds() % 3600 for o in offsets):
             pytest.skip("framework cannot hold a sub-hour fixed offset")
         if self.rejects_non_utc_source() and any(o != timedelta(0) for o in offsets):
-            with pytest.raises(ValueError, match="non-UTC"):
-                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
-            return
+            return "non-UTC"
         if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
-            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
-                calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
-            return
-        expected = row.expected[row.feature][1]
+            return r"(?i)fixed.offset"
+        return super().rejection_match(row)
+
+    def expected_values(self, row: PinningRow) -> dict[str, list[Any]]:
+        """Hand-computed rows; a UTC-reading backend is pinned to the reference on the UTC instants."""
+        expected = super().expected_values(row)
+        column = next(iter(row.inputs))
+        data_type, values = row.inputs[column]
         if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
             utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
+            fs = make_feature_set(row.feature, **row.context)
             ref = self.reference_calculate(arrow_table_of(TypedTestData({column: (data_type, utc_values)})), fs)
-            expected = _extract_column(ref, row.feature)
-        result = calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
-        col = self.extract_column(result, row.feature)
-        assert_values_with_nulls(
-            col,
-            [_instant_and_offset(v) for v in expected],
-            strict=True,
-            parse_iso=True,
-            cast=_instant_and_offset,
-        )
+            expected[row.feature] = _extract_column(ref, row.feature)
+        return expected
 
     def test_divergent_flags_are_declared(self) -> None:
         impl = self.implementation_class()
