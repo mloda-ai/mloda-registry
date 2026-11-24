@@ -102,11 +102,7 @@ def coerce_count_dtype(data: Any, feature_name: str, agg_type: str) -> None:
 
 
 def coerce_spread_dtype(data: Any, feature_name: str, agg_type: str) -> None:
-    """Cast an integer or object *feature_name* column to float in-place for std/var variants.
-
-    A zero-row group-by leaves the integer dtype of the source, and a nullable source with
-    single-row groups yields object; rows of plain data give a float column.
-    """
+    """Cast *feature_name* to float in place for std/var: zero rows keep the integer dtype, nullable singletons give object."""
     column = data[feature_name]
     if agg_type not in _DDOF_BY_AGG_TYPE:
         return

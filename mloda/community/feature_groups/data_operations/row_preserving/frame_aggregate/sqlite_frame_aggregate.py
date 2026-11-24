@@ -275,8 +275,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             # The fetch path has no declared type on zero rows; a typed raw select keeps count integer.
             return data.select(_raw_sql=f"*, CAST(0 AS INTEGER) AS {quoted_feature}")
         if not rows and (agg_func == "AVG" or pa.types.is_integer(source_type) or pa.types.is_floating(source_type)):
-            # Same for the numeric aggregates: AVG is real, SUM/MIN/MAX keep the source type. No row exists
-            # to carry the 0, but a non-null value lets the relation infer the type.
+            # AVG is real, SUM/MIN/MAX keep the source type; a non-null value lets the relation infer it.
             sql_type = "INTEGER" if pa.types.is_integer(source_type) and agg_func != "AVG" else "REAL"
             return data.select(_raw_sql=f"*, CAST(0 AS {sql_type}) AS {quoted_feature}")
         result_values = [row[0] for row in rows]

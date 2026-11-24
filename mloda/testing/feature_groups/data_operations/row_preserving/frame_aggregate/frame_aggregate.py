@@ -333,8 +333,7 @@ class FrameAggregateTestBase(
             "rolling": "value_int__{}_rolling_3",
             "time": "value_int__{}_2_day_window",
         }
-        # Some frameworks (polars lazy) support std/var/median only on the sized frames; every
-        # untyped agg must use a frame all frameworks of the family support.
+        # Some frameworks (polars lazy) support std/var/median only on the sized frames.
         sized_only = {"median", "std", "var"}
         untyped = sorted(set(cls.feature_group_class().subtype_universe()) - {"count"})
         frames = [f for f in templates if f in cls.supported_frame_types()]

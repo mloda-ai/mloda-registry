@@ -90,7 +90,7 @@ class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
             )
 
         if result is pd.NA:
-            # A nullable null scalar broadcasts as object; keep the source dtype (sum/min/max) or float.
+            # A null scalar would broadcast as object.
             keeps_dtype = agg_type in ("sum", "min", "max")
             result = pd.Series(pd.NA, index=data.index, dtype=col.dtype if keeps_dtype else "float64")
         data[feature_name] = result
