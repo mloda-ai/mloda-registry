@@ -17,7 +17,7 @@ import ast
 import importlib
 import re
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -1234,6 +1234,28 @@ def _files_of_dotted_module(dotted: str, import_root: Path) -> list[Path]:
     return [f for f in files if f.is_file()]
 
 
+def _reached_files(kit_file: Path, import_root: Path) -> Iterator[tuple[Path, ast.Module]]:
+    """`kit_file`, its ancestor packages and every in-repo file they reach through module-level imports.
+
+    Function-level and TYPE_CHECKING imports never make a file reached."""
+    kit_dotted = ".".join(kit_file.relative_to(import_root).with_suffix("").parts)
+    queue = [kit_file, *(f for f in _files_of_dotted_module(kit_dotted, import_root) if f != kit_file)]
+    seen = set(queue)
+    while queue:
+        current = queue.pop(0)
+        package = list(current.relative_to(import_root).with_suffix("").parts[:-1])
+        tree = ast.parse(current.read_text(encoding="utf-8"))
+        yield current, tree
+        for node, fn in _walk_with_scope(tree, skip_type_checking=True):
+            if fn is not None:
+                continue
+            for dotted in _dotted_import_targets(node, package):
+                for target in _files_of_dotted_module(dotted, import_root):
+                    if target not in seen:
+                        seen.add(target)
+                        queue.append(target)
+
+
 def _followed_import_violations(
     kit_file: Path,
     kit_rel: str,
@@ -1248,28 +1270,17 @@ def _followed_import_violations(
     Conservative: a followed file's own distribution dependencies do not count; guarded module-level imports
     are still flagged."""
     violations: list[str] = []
-    kit_dotted = ".".join(kit_file.relative_to(import_root).with_suffix("").parts)
-    queue = [kit_file, *(f for f in _files_of_dotted_module(kit_dotted, import_root) if f != kit_file)]
-    seen = set(queue)
-    while queue:
-        current = queue.pop(0)
-        rel_parts = current.relative_to(import_root).with_suffix("").parts
-        package = list(rel_parts[:-1])
-        tree = ast.parse(current.read_text(encoding="utf-8"))
+    for current, tree in _reached_files(kit_file, import_root):
+        if current == kit_file:
+            continue
         for node, fn in _walk_with_scope(tree, skip_type_checking=True):
             if fn is not None:
                 continue
-            if current != kit_file:
-                for root in _import_roots_of(node):
-                    text = _import_violation_text(root, node, fn, declared, label, author_backends)
-                    if text is not None:
-                        where = f"{current.relative_to(import_root).as_posix()}:{getattr(node, 'lineno', 0)}"
-                        violations.append(f"{kit_rel}: via {where}: {text}")
-            for dotted in _dotted_import_targets(node, package):
-                for target in _files_of_dotted_module(dotted, import_root):
-                    if target not in seen:
-                        seen.add(target)
-                        queue.append(target)
+            for root in _import_roots_of(node):
+                text = _import_violation_text(root, node, fn, declared, label, author_backends)
+                if text is not None:
+                    where = f"{current.relative_to(import_root).as_posix()}:{getattr(node, 'lineno', 0)}"
+                    violations.append(f"{kit_rel}: via {where}: {text}")
     return violations
 
 
@@ -1336,10 +1347,135 @@ def _license_kit_third_party_import_violations(
     )
 
 
+def _install_closure(requirements: Iterable[str], packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Configured distributions a pip install of `requirements` brings, including named extras.
+
+    An undefined extra raises. Shared default extras are not expanded."""
+    configured = {gen.normalize_package_name(name): name for name in packages}
+    installed: set[str] = set()
+    seen: set[tuple[str, str]] = set()
+
+    def visit(spec: str) -> None:
+        name = gen.sibling_dependency_name(spec, packages, configured)
+        if name is None:
+            return
+        extras = Requirement(spec.split(";", 1)[0].replace(gen.VERSION_PLACEHOLDER, "0.0")).extras
+        if name not in installed:
+            installed.add(name)
+            for dep in packages[name].get("dependencies", []):
+                visit(dep)
+        for extra in sorted(gen.normalize_package_name(e) for e in extras):
+            if (name, extra) in seen:
+                continue
+            seen.add((name, extra))
+            members = {
+                gen.normalize_package_name(key): value
+                for key, value in gen.expand_published_children(packages[name], packages).items()
+            }
+            if extra not in members:
+                raise ValueError(f"{name} defines no extra {extra!r} (named in {spec!r})")
+            for member in members[extra]:
+                visit(member)
+
+    for requirement in requirements:
+        visit(requirement)
+    return installed
+
+
+def _wheel_owners(packages: dict[str, dict[str, Any]]) -> dict[str, set[str]]:
+    """Dotted package -> distributions whose wheel lists it (reads paths from the cwd)."""
+    owners: dict[str, set[str]] = {}
+    for name, cfg in packages.items():
+        for dotted in gen.compute_wheel_packages(cfg, packages):
+            owners.setdefault(dotted, set()).add(name)
+    return owners
+
+
+def _packages_and_owners(
+    packages: dict[str, dict[str, Any]] | None, owners: dict[str, set[str]] | None
+) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
+    """Default `packages` from the config and `owners` from their wheels."""
+    packages = load_toml(_PACKAGES_CONFIG).get("packages", {}) if packages is None else packages
+    return packages, _wheel_owners(packages) if owners is None else owners
+
+
+def _unshipped_reached_module_violations(
+    root_dir: Path,
+    installed_for: Callable[[str], tuple[set[str], str]],
+    *,
+    import_root: Path,
+    owners: dict[str, set[str]],
+) -> list[str]:
+    """Kit modules and reached in-repo files whose package ships in no distribution `installed_for(rel_posix)` installs.
+
+    `installed_for` returns the installed distributions and a label for one kit module.
+    Conservative like `_followed_import_violations`: spec markers are ignored, guarded module-level imports count."""
+    import_root = import_root.resolve()
+    violations: list[str] = []
+    for rel_path, _tree in _runtime_modules(root_dir):
+        installed, label = installed_for(rel_path.as_posix())
+        for current, _reached_tree in _reached_files((root_dir / rel_path).resolve(), import_root):
+            rel = current.relative_to(import_root)
+            shipping = owners.get(".".join(rel.parts[:-1]), set())
+            if shipping & installed:
+                continue
+            ships = ", ".join(sorted(shipping)) or "no configured distribution"
+            violations.append(
+                f"{rel_path.as_posix()}: via {rel.as_posix()}: ships in {ships}, none installed by {label};"
+                " add its distribution to the job"
+            )
+    return violations
+
+
+def _license_kit_unshipped_violations(
+    root_dir: Path,
+    packages: dict[str, dict[str, Any]] | None = None,
+    import_root: Path = _REPO_ROOT,
+    owners: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """License kit modules that reach a file shipped by no distribution its job installs."""
+    packages, owners = _packages_and_owners(packages, owners)
+    installed = _install_closure(verify.LICENSE_KIT_REQUIREMENTS, packages)
+    label = " + ".join(verify.LICENSE_KIT_REQUIREMENTS)
+    return _unshipped_reached_module_violations(
+        root_dir, lambda _rel: (installed, label), import_root=import_root, owners=owners
+    )
+
+
+def _kit_unshipped_violations(
+    root_dir: Path,
+    packages: dict[str, dict[str, Any]] | None = None,
+    import_root: Path = _REPO_ROOT,
+    owners: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """mloda.testing kit modules that reach a file shipped by no distribution their gate's job installs."""
+    packages, owners = _packages_and_owners(packages, owners)
+    closures: dict[str | None, set[str]] = {}
+
+    def installed_for(rel_posix: str) -> tuple[set[str], str]:
+        gate = kit_map.kit_gate(rel_posix)
+        if gate not in closures:
+            closures[gate] = _install_closure([f"mloda-testing[{gate}]" if gate else "mloda-testing"], packages)
+        return closures[gate], f"gate {gate!r}"
+
+    return _unshipped_reached_module_violations(root_dir, installed_for, import_root=import_root, owners=owners)
+
+
 def test_kit_imports_only_third_party_distributions_mloda_testing_declares() -> None:
     assert _KIT_ROOT.is_dir(), f"expected {_KIT_ROOT} to exist"
     violations = _kit_third_party_import_violations(_KIT_ROOT)
     assert violations == [], f"mloda/testing imports a distribution it does not declare for that module: {violations}"
+
+
+def test_kit_reaches_only_modules_its_gate_job_installs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(_REPO_ROOT)
+    assert _KIT_ROOT.is_dir(), f"expected {_KIT_ROOT} to exist"
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    owners = _wheel_owners(packages)
+    assert "mloda-testing" in owners["mloda.testing.binary_model"]
+    assert owners["mloda.community.feature_groups.binary_model"] == {"mloda-community-binary-model"}
+    violations = _kit_unshipped_violations(_KIT_ROOT, packages, owners=owners)
+    assert violations == [], f"mloda/testing reaches a module that its gate's job does not install: {violations}"
 
 
 _SKIP_THEN_IMPORT = (
@@ -1475,6 +1611,19 @@ def test_license_kit_imports_only_third_party_distributions_its_job_declares() -
     assert violations == [], f"the license kit imports a distribution its job does not declare: {violations}"
 
 
+def test_license_kit_reaches_only_modules_its_job_installs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(_REPO_ROOT)
+    license_kit_root = _REPO_ROOT / verify.LICENSE_KIT_PATH
+    assert license_kit_root.is_dir(), f"expected {license_kit_root} to exist"
+    packages: dict[str, dict[str, Any]] = load_toml(_PACKAGES_CONFIG).get("packages", {})
+    owners = _wheel_owners(packages)
+    assert owners["mloda.enterprise.licensing"] == {"mloda-enterprise"}
+    assert owners["mloda.community.feature_groups.binary_model"] == {"mloda-community-binary-model"}
+    assert "mloda-community-extenders-shared" in _install_closure(verify.LICENSE_KIT_REQUIREMENTS, packages)
+    violations = _license_kit_unshipped_violations(license_kit_root, packages, owners=owners)
+    assert violations == [], f"the license kit reaches a module that its job does not install: {violations}"
+
+
 @pytest.mark.parametrize(
     ("body", "fragments"),
     [
@@ -1512,6 +1661,13 @@ def test_license_kit_declared_set_follows_the_job_requirements(tmp_path: Path, m
     assert any("via mloda/enterprise/licensing/license_token.py" in v and "import 'cryptography'" in v for v in real), (
         real
     )
+
+
+def test_license_kit_unshipped_check_follows_the_job_requirements(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(_REPO_ROOT)
+    monkeypatch.setattr(verify, "LICENSE_KIT_REQUIREMENTS", ("mloda-testing[binary-model]",))
+    real = _license_kit_unshipped_violations(_REPO_ROOT / verify.LICENSE_KIT_PATH)
+    assert any("via mloda/enterprise/licensing/license_token.py" in v and "mloda-enterprise" in v for v in real), real
 
 
 _LICENSE_KIT_REL = "mloda/enterprise/licensing/testing"
@@ -1692,3 +1848,239 @@ def test_kit_third_party_import_follower(
         assert violations == []
     else:
         assert len(violations) == 1 and all(f in violations[0] for f in fragments), violations
+
+
+_PKG_KIT = "mloda.enterprise.licensing.testing"
+_UNSHIPPED_PACKAGES: dict[str, dict[str, Any]] = {
+    "kit-dist": {"dependencies": []},
+    "other-dist": {"dependencies": []},
+    "gate-dist": {"dependencies": []},
+    "mloda-testing": {"dependencies": [], "optional_dependencies": {"binary-model": ["gate-dist>={version}"]}},
+}
+_LICENSE_OWNERS = {_PKG_KIT: {"kit-dist"}, "mloda.enterprise": {"kit-dist"}}
+_TESTING_OWNERS = {
+    "mloda.testing": {"mloda-testing"},
+    "mloda.testing.binary_model": {"mloda-testing"},
+    "mloda.shared": {"gate-dist"},
+}
+
+
+@pytest.mark.parametrize(
+    ("kit_rel", "files", "owners", "fragments"),
+    [
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": ""},
+            _LICENSE_OWNERS,
+            None,
+            id="reached-file-owned-by-an-installed-distribution",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": ""},
+            {_PKG_KIT: {"kit-dist"}, "mloda.enterprise": {"other-dist"}},
+            ("m.py: via mloda/enterprise/x.py", "ships in other-dist", "add its distribution"),
+            id="reached-file-owned-only-by-a-distribution-the-job-does-not-install",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.x\n", "../../x.py": ""},
+            {_PKG_KIT: {"kit-dist"}},
+            ("m.py: via mloda/enterprise/x.py", "no configured distribution"),
+            id="reached-file-in-no-wheel",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {
+                "m.py": "import mloda.enterprise.x\n",
+                "../../x.py": "import mloda.community.y\n",
+                "../../../community/y.py": "",
+            },
+            {**_LICENSE_OWNERS, "mloda.community": {"other-dist"}},
+            ("m.py: via mloda/community/y.py", "ships in other-dist"),
+            id="transitively-reached-file-is-checked",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "", "../__init__.py": ""},
+            {_PKG_KIT: {"kit-dist"}},
+            ("m.py: via mloda/enterprise/licensing/__init__.py", "no configured distribution"),
+            id="ancestor-package-init-outside-the-kit-root-is-checked",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": ""},
+            {},
+            (f"m.py: via {_LICENSE_KIT_REL}/m.py", "no configured distribution"),
+            id="kit-files-own-package-unowned",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "def f() -> None:\n    import mloda.enterprise.x\n", "../../x.py": ""},
+            {_PKG_KIT: {"kit-dist"}},
+            None,
+            id="function-level-import-of-an-unshipped-module-is-clean",
+        ),
+        pytest.param(
+            _LICENSE_KIT_REL,
+            {"m.py": "import mloda.enterprise.sub.z\n", "../../sub/z.py": ""},
+            _LICENSE_OWNERS,
+            ("m.py: via mloda/enterprise/sub/z.py", "no configured distribution"),
+            id="reached-file-in-a-subdirectory-no-owner-lists",
+        ),
+        pytest.param(
+            _TESTING_KIT_REL,
+            {"m.py": "import mloda.shared.x\n", "../shared/x.py": ""},
+            _TESTING_OWNERS,
+            ("m.py: via mloda/shared/x.py", "ships in gate-dist"),
+            id="ungated-module-reaching-a-gate-extras-file-is-flagged",
+        ),
+        pytest.param(
+            _TESTING_KIT_REL,
+            {"binary_model/m.py": "import mloda.shared.x\n", "../shared/x.py": ""},
+            _TESTING_OWNERS,
+            None,
+            id="gated-module-reaching-a-gate-extras-file-is-clean",
+        ),
+    ],
+)
+def test_unshipped_reached_module_collector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kit_rel: str,
+    files: dict[str, str],
+    owners: dict[str, set[str]],
+    fragments: tuple[str, ...] | None,
+) -> None:
+    kit_dir = tmp_path / kit_rel
+    for rel, body in files.items():
+        _write((kit_dir / rel).resolve(), body)
+    if kit_rel == _LICENSE_KIT_REL:
+        monkeypatch.setattr(verify, "LICENSE_KIT_REQUIREMENTS", ("kit-dist",))
+        violations = _license_kit_unshipped_violations(
+            kit_dir, _UNSHIPPED_PACKAGES, import_root=tmp_path, owners=owners
+        )
+    else:
+        violations = _kit_unshipped_violations(kit_dir, _UNSHIPPED_PACKAGES, import_root=tmp_path, owners=owners)
+    if fragments is None:
+        assert violations == []
+    else:
+        assert len(violations) == 1 and all(f in violations[0] for f in fragments), violations
+
+
+@pytest.mark.parametrize(
+    ("requirements", "packages", "expected"),
+    [
+        pytest.param(
+            ["a"],
+            {"a": {"dependencies": ["b>={version}"]}, "b": {"dependencies": ["c>={version}"]}, "c": {}},
+            {"a", "b", "c"},
+            id="dependencies-are-transitive",
+        ),
+        pytest.param(
+            ["a"],
+            {"a": {"optional_dependencies": {"x": ["b>={version}"]}}, "b": {}},
+            {"a"},
+            id="unnamed-extra-members-are-not-installed",
+        ),
+        pytest.param(
+            ["a[x]"],
+            {"a": {"optional_dependencies": {"x": ["b>={version}"]}}, "b": {}},
+            {"a", "b"},
+            id="named-extra-members-are-installed",
+        ),
+        pytest.param(
+            ["a[x]"],
+            {
+                "a": {"optional_dependencies": {"x": ["b[y]>={version}"]}},
+                "b": {"optional_dependencies": {"y": ["c>={version}"]}},
+                "c": {},
+            },
+            {"a", "b", "c"},
+            id="extra-named-on-a-sibling-spec-expands-transitively",
+        ),
+        pytest.param(
+            ["my_pkg"],
+            {"my-pkg": {"dependencies": ["My_Dep>={version}"]}, "my-dep": {}},
+            {"my-pkg", "my-dep"},
+            id="underscore-and-hyphen-spellings-are-normalized",
+        ),
+        pytest.param(
+            ["a"],
+            {
+                "a": {"dependencies": ["b[y]>={version}; sys_platform == 'linux'"]},
+                "b": {"optional_dependencies": {"y": ["c>={version}"]}},
+                "c": {},
+            },
+            {"a", "b", "c"},
+            id="marker-on-a-spec-is-ignored-for-parsing",
+        ),
+        pytest.param(
+            ["a"],
+            {"a": {"dependencies": ["requests>=2", "{core_dependency}"]}},
+            {"a"},
+            id="third-party-and-core-placeholder-are-ignored",
+        ),
+        pytest.param(
+            ["a"],
+            {"a": {"dependencies": ["b>={version}"]}, "b": {"dependencies": ["a>={version}"]}},
+            {"a", "b"},
+            id="cycle-terminates",
+        ),
+        pytest.param(
+            ["a[x]"],
+            {
+                "a": {"optional_dependencies": {"x": ["b[y]>={version}"]}},
+                "b": {"optional_dependencies": {"y": ["a[x]>={version}"]}},
+            },
+            {"a", "b"},
+            id="extras-naming-each-other-terminate",
+        ),
+        pytest.param(
+            ["a"],
+            {
+                "a": {"dependencies": ["b[x]~={version}"]},
+                "b": {"optional_dependencies": {"x": ["c>={version}"]}},
+                "c": {},
+            },
+            {"a", "b", "c"},
+            id="compatible-release-sibling-spec-parses",
+        ),
+        pytest.param(
+            ["a[x_y]"],
+            {"a": {"optional_dependencies": {"x-y": ["b>={version}"]}}, "b": {}},
+            {"a", "b"},
+            id="extra-names-are-normalized",
+        ),
+        pytest.param(
+            ["a[all]"],
+            {
+                "a": {"path": "p", "optional_dependencies": {"all": ["{published_children}"]}},
+                "b": {"path": "p/b", "published": True},
+                "c": {"path": "p/c"},
+            },
+            {"a", "b"},
+            id="published-children-placeholder-expands",
+        ),
+    ],
+)
+def test_install_closure(requirements: list[str], packages: dict[str, dict[str, Any]], expected: set[str]) -> None:
+    assert _install_closure(requirements, packages) == expected
+
+
+@pytest.mark.parametrize(
+    ("requirements", "packages"),
+    [
+        pytest.param(["a[nope]"], {"a": {"optional_dependencies": {"x": []}}}, id="extra-on-the-requirement"),
+        pytest.param(
+            ["a"],
+            {"a": {"dependencies": ["b[nope]>={version}"]}, "b": {"optional_dependencies": {"x": []}}},
+            id="extra-on-a-sibling-spec",
+        ),
+    ],
+)
+def test_install_closure_raises_on_an_undefined_extra(
+    requirements: list[str], packages: dict[str, dict[str, Any]]
+) -> None:
+    with pytest.raises(ValueError, match="defines no extra"):
+        _install_closure(requirements, packages)
