@@ -140,7 +140,13 @@ class StringTestBase(
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        return {"length": make_feature_set("name__length")}
+        return {op: make_feature_set(f"name__{op}") for op in ("length", *cls._UNTYPED_STRING_OPS)}
+
+    _UNTYPED_STRING_OPS = ("lower", "reverse", "trim", "upper")
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        return frozenset(cls._UNTYPED_STRING_OPS)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

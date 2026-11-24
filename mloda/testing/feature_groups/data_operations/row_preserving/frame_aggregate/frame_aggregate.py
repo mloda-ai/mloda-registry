@@ -314,11 +314,35 @@ class FrameAggregateTestBase(
             "cumulative": "value_int__cumcount",
             "expanding": "value_int__expanding_count",
         }
-        return {
+        cases = {
             frame: make_feature_set(name, ["region"], "ts")
             for frame, name in names.items()
             if frame in cls.supported_frame_types()
         }
+        cases.update(
+            {case_id: make_feature_set(name, ["region"], "ts") for case_id, name in cls._untyped_names().items()}
+        )
+        return cases
+
+    @classmethod
+    def _untyped_names(cls) -> dict[str, str]:
+        """One case per untyped aggregation type; the frame kind rotates so each appears at least once."""
+        templates = {
+            "rolling": "value_int__{}_rolling_3",
+            "time": "value_int__{}_2_day_window",
+            "cumulative": "value_int__cum{}",
+            "expanding": "value_int__expanding_{}",
+        }
+        untyped = sorted(set(cls.feature_group_class().subtype_universe()) - {"count"})
+        frames = [f for f in templates if f in cls.supported_frame_types()]
+        return {
+            f"untyped_{agg}_{frames[i % len(frames)]}": templates[frames[i % len(frames)]].format(agg)
+            for i, agg in enumerate(untyped)
+        }
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        return frozenset(cls._untyped_names())
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
