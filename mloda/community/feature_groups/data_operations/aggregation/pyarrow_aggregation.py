@@ -20,7 +20,11 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import MASKED_SOURCE_HELPER, apply_pyarrow_mask
-from mloda.community.feature_groups.data_operations.pyarrow_helpers import rename_aggregates_by_position
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
+    needs_all_nan_repair,
+    rename_aggregates_by_position,
+    restore_all_nan_extrema,
+)
 
 # Aggregation types with direct PyArrow group_by support.
 _PA_AGG_FUNCS: dict[str, str] = {
@@ -72,6 +76,7 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
         # Each masked source is a copy under a temp name, its mask built from the original table.
         taken = set(table.column_names) | {spec.feature_name for spec in specs}
         entries: list[tuple[Any, ...]] = []
+        sources: list[str] = []
         for spec in specs:
             source = spec.source_col
             if spec.mask_spec is not None:
@@ -79,6 +84,7 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
                 source = unique_helper_name(MASKED_SOURCE_HELPER, taken)
                 taken.add(source)
                 table = table.append_column(source, masked)
+            sources.append(source)
 
             if spec.agg_type in _PA_AGG_FUNCS:
                 entries.append((source, _PA_AGG_FUNCS[spec.agg_type]))
@@ -88,7 +94,28 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
             else:
                 entries.append((source, _ORDERED_FUNCS[spec.agg_type]))
 
+        # Older Arrow returns +/-inf for all-NaN extrema: a grouped all(is_nan) flag marks those groups.
+        nan_helpers: dict[str, str] = {}
+        for spec, source in zip(specs, sources):
+            if needs_all_nan_repair(spec.agg_type, table.column(source).type) and source not in nan_helpers:
+                helper = unique_helper_name("__mloda_agg_nan__", taken)
+                taken.add(helper)
+                nan_helpers[source] = helper
+                table = table.append_column(helper, pc.is_nan(table.column(source)))
+        entries.extend((helper, "all") for helper in nan_helpers.values())
+
         ordered = any(spec.agg_type in _ORDERED_FUNCS for spec in specs)
         grouped = table.group_by(partition_by, use_threads=not ordered).aggregate(entries)
+        names = [spec.feature_name for spec in specs]
+        result = rename_aggregates_by_position(grouped, partition_by, [*names, *nan_helpers.values()])
 
-        return rename_aggregates_by_position(grouped, partition_by, [spec.feature_name for spec in specs])
+        for spec, source in zip(specs, sources):
+            if source in nan_helpers and needs_all_nan_repair(spec.agg_type, table.column(source).type):
+                corrected = restore_all_nan_extrema(
+                    result.column(spec.feature_name), result.column(nan_helpers[source])
+                )
+                result = result.set_column(
+                    result.schema.get_field_index(spec.feature_name), spec.feature_name, corrected
+                )
+
+        return result.drop_columns(list(nan_helpers.values()))

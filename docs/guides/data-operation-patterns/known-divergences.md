@@ -715,22 +715,28 @@ regression_test:
 ### Older PyArrow grouped extrema return infinities for all-NaN buckets
 
 <!-- machine-checked
-operation: resample
+operation: resample, aggregation, window_aggregation, scalar_aggregate
 framework: pyarrow
-condition: PyArrow releases before 26 (14.0.1, 21.0.0 and 22.0.0 verified; 26.0.0 returns NaN) grouped min and max return positive and negative infinity when every non-null value in a bucket is NaN
+condition: PyArrow releases before 26 (14.0.1, 21.0.0 and 22.0.0 verified; 26.0.0 returns NaN) min and max, grouped or over the whole column, return positive and negative infinity when every non-null value in a bucket, group, partition or column is NaN
 mitigation_location:
+- mloda/community/feature_groups/data_operations/pyarrow_helpers.py
 - mloda/community/feature_groups/data_operations/row_changing/resample/pyarrow_resample.py
+- mloda/community/feature_groups/data_operations/aggregation/pyarrow_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pyarrow_window_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pyarrow_scalar_aggregate.py
 regression_test:
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_min_max_nan_and_infinity_multi_aggregation
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pyarrow.py::TestPyArrowAggregation::test_min_max_all_nan_group
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pyarrow.py::TestPyArrowWindowAggregation::test_min_max_all_nan_partition
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_pyarrow.py::TestPyArrowScalarAggregate::test_min_max_all_nan_column
 -->
 
-- **Operations**: `resample` (`min` and `max`).
-- **Reference behavior**: Mixed buckets ignore NaN; an all-NaN bucket keeps NaN, and an all-null bucket stays null. Real infinities remain valid extrema.
+- **Operations**: `resample`, `aggregation` and `window_aggregation` (`min` and `max` per bucket, group or partition); `scalar_aggregate` (`min` and `max` over the whole column).
+- **Reference behavior**: Mixed buckets, groups and columns ignore NaN; an all-NaN one keeps NaN, and an all-null one stays null. Real infinities remain valid extrema.
 - **Native PyArrow behavior**: All-NaN `min` returns `+inf` and all-NaN `max` returns `-inf`.
-- **Mitigation kind**: Implementation fix. A native grouped `all(is_nan(value))` flag identifies only the all-NaN buckets, and `if_else` restores NaN without changing genuine infinities, other aggregates or the float width.
-- **Not repaired**: PyArrow aggregation, window aggregation and scalar aggregate `min`/`max` share the upstream behaviour, but their shared NaN fixtures have no all-NaN group, so they are not repaired yet.
-- **Regression signal**: The multi-aggregation test covers float32 and float64 with NaN, null and infinity mixtures.
+- **Mitigation kind**: Implementation fix. A native `all(is_nan(value))` flag (grouped, or over the column for `scalar_aggregate`) identifies only the all-NaN cases, and the shared `restore_all_nan_extrema` in `pyarrow_helpers.py` restores NaN with `if_else` without changing genuine infinities, other aggregates or the float width.
+- **Regression signal**: The resample multi-aggregation test and the aggregation, window aggregation and scalar aggregate `all_nan` tests cover float32 and float64 with NaN, null and infinity mixtures; `tox -e pyarrow14` runs them on the declared minimum.
 
 ### PyArrow before 22 cannot run temporal kernels on numeric fixed-offset zones
 
