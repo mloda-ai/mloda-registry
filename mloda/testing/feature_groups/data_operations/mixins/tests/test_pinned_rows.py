@@ -1,4 +1,4 @@
-"""Tests for ``mixins/pinned_rows.py``: a declared rejection hook versus the default compare path."""
+"""Tests for ``mixins/pinned_rows.py``: rejection, divergence, ordering, strict comparison and column sets."""
 
 from __future__ import annotations
 
@@ -76,7 +76,6 @@ def _make_host(
     table: PinningTable | None = None,
     divergences: Mapping[str, Mapping[str, list[Any]]] | None = None,
     rejection_exc: type[Exception] | None = None,
-    create_raises: bool = False,
     as_integers: bool = False,
     adapter: Any = None,
     seen_types: list[Any] | None = None,
@@ -102,8 +101,6 @@ def _make_host(
             return as_integers
 
         def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, Any] | None = None) -> Any:
-            if create_raises:
-                raise AssertionError("create_test_data must not run")
             if seen_types is not None:
                 seen_types.append(arrow_types)
             return super().create_test_data(data, arrow_types)
