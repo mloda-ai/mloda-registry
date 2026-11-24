@@ -8,6 +8,7 @@ Generic match-validation tests live in ``test_base.py`` via
 from __future__ import annotations
 
 import importlib
+import re
 from typing import Any
 
 import pytest
@@ -301,6 +302,7 @@ class TestConstantTypeValidation:
         import sqlite3
 
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.sqlite_scalar_arithmetic import (
             SqliteScalarArithmetic,
         )
@@ -310,7 +312,11 @@ class TestConstantTypeValidation:
         try:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant", constant=constant)
-            with pytest.raises(ValueError, match="finite"):
+            pattern = (
+                rf"SQLite cannot .*{re.escape(repr(constant))} for feature 'value_int__add_constant'"
+                r".*another compute framework"
+            )
+            with pytest.raises(ValueError, match=pattern):
                 calculate_with(SqliteScalarArithmetic, relation, fs)
         finally:
             conn.close()

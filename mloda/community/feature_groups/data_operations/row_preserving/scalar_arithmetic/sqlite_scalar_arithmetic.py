@@ -61,7 +61,10 @@ class SqliteScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
             raise unsupported_op_error(op, SQL_ARITHMETIC_OPS, framework="SQLite")
 
         if isinstance(constant, float) and not math.isfinite(constant):
-            raise ValueError(f"constant must be a finite number, got {constant!r}")
+            raise ValueError(
+                f"SQLite cannot write non-finite constant {constant!r} for feature {feature_name!r} "
+                "as a SQL literal; use a finite constant or another compute framework (e.g. DuckDB, PyArrow)"
+            )
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
