@@ -2,7 +2,8 @@
 
 Provides ``test_mixin_result_type``: runs core's ``check_feature_group_shape`` per case on source data with
 nulls and asserts the full shape check on every group; on a typed group also the declared output type
-(exact on typed frameworks, value fits elsewhere).
+(exact on typed frameworks, value fits elsewhere). Ops a typed group leaves untyped are marked in
+``untyped_result_type_ids()`` and still run the shape check.
 """
 
 from __future__ import annotations
@@ -61,8 +62,21 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        """Case id -> one-feature FeatureSet: one per typed op, or per op if the group is untyped. Required."""
+        """Case id -> one-feature FeatureSet: one per typed op, or per op if untyped.
+
+        Ops a typed group leaves untyped are also listed in ``untyped_result_type_ids()``.
+        """
         raise NotImplementedError("Subclass must override result_type_cases")
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        """Case ids whose op declares no output type on a typed group. Default: none."""
+        return frozenset()
+
+    @classmethod
+    def result_type_known_findings(cls) -> dict[str, str]:
+        """Case id -> reason (with an issue URL) for a finding that is neither fixable now nor a type property."""
+        return {}
 
     @classmethod
     def result_type_data(cls) -> TypedTestData:
@@ -73,14 +87,34 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         """The shape check passes; a typed output has its declared type unless a ``type`` record excuses it."""
         cases = self.result_type_cases()
         assert cases, f"{type(self).__name__}.result_type_cases() is empty"
+        marked = self.untyped_result_type_ids()
+        unknown_marked = sorted(marked - cases.keys())
+        assert not unknown_marked, f"untyped_result_type_ids() names ids outside result_type_cases(): {unknown_marked}"
+        findings = self.result_type_known_findings()
+        unknown_findings = sorted(findings.keys() - cases.keys())
+        assert not unknown_findings, (
+            f"result_type_known_findings() names ids outside result_type_cases(): {unknown_findings}"
+        )
         feature = next(iter(cases[result_type_case].features))
         name = str(feature.name)
         group = self.feature_group_class()
         impl = self.implementation_class()
-        if inspect.getattr_static(group, "return_data_type_rule") is not inspect.getattr_static(
+        typed_group = inspect.getattr_static(group, "return_data_type_rule") is not inspect.getattr_static(
             FeatureGroup, "return_data_type_rule"
-        ):
-            assert group.return_data_type_rule(feature) is not None, f"{name} has no return_data_type_rule"
+        )
+        assert typed_group or not marked, (
+            "untyped_result_type_ids() is non-empty but the group declares no return_data_type_rule"
+        )
+        if typed_group:
+            rule = group.return_data_type_rule(feature)
+            if result_type_case in marked:
+                assert rule is None, (
+                    f"{result_type_case} ({name}) declares {rule}: move it out of untyped_result_type_ids()"
+                )
+            else:
+                assert rule is not None, f"{name} has no return_data_type_rule"
+        if result_type_case in findings:
+            pytest.skip(findings[result_type_case])
 
         subtype = impl.canonical_subtype(group, name, feature.options)
         subtypes = frozenset({subtype}) if subtype else frozenset()

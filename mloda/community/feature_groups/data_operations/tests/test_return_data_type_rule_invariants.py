@@ -79,6 +79,7 @@ from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_co
     generate_valid_names,
 )
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import AggregationTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import ResampleTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import BinningTestBase
@@ -481,14 +482,47 @@ KIT_RESULT_TYPE_BASES: dict[str, type[Any]] = {
 _TYPED_SPECS = [spec for spec in FAMILIES if spec.key in KIT_RESULT_TYPE_BASES]
 
 
+def _canonical_subtype(group: Any, name: str, options: Options) -> str | None:
+    """Canonical subtype of a feature name, or None when the family has no subtype universe."""
+    subtype = group.resolve_subtype(name, options)
+    canonical = group.canonical_subtype(subtype) if subtype is not None else None
+    return canonical if canonical in group.subtype_universe() else None
+
+
 def _typed_pair(group: Any, name: str, options: Options) -> tuple[str | None, DataType] | None:
     """(canonical subtype, declared DataType) of a feature, or None when its rule returns no type."""
     declared = group.return_data_type_rule(Feature(name, options=options))
     if declared is None:
         return None
-    subtype = group.resolve_subtype(name, options)
-    canonical = group.canonical_subtype(subtype) if subtype is not None else None
-    return (canonical if canonical in group.subtype_universe() else None), declared
+    return _canonical_subtype(group, name, options), declared
+
+
+def _probe(spec: Any, group: Any) -> type[ResultTypeTestMixin]:
+    """The spec's kit base bound to ``group``, so its ``result_type_cases()`` can be read."""
+    return type(
+        "_ResultTypeProbe", (KIT_RESULT_TYPE_BASES[spec.key],), {"feature_group_class": classmethod(lambda c: group)}
+    )
+
+
+def _generated_options(spec: Any) -> Options:
+    return Options(group=dict(PERMISSIVE_OPTIONS.group), context={**PERMISSIVE_OPTIONS.context, **spec.options})
+
+
+def _untyped_gaps(group: Any, names: list[str], options: Options, cases: dict[str, Any], marked: frozenset[str]) -> Any:
+    """(subtypes of untyped generated names without a marked case, marked features whose rule returns a type)."""
+    covered: set[str | None] = set()
+    typed_marked: list[str] = []
+    for case_id in sorted(marked):
+        for feature in cases[case_id].features:
+            if group.return_data_type_rule(feature) is not None:
+                typed_marked.append(f"{case_id}:{feature.name}")
+            covered.add(_canonical_subtype(group, str(feature.name), feature.options))
+    required = {
+        _canonical_subtype(group, name, options)
+        for name in names
+        if group.return_data_type_rule(Feature(name, options=options)) is None
+    }
+    return sorted(required - covered, key=repr), typed_marked
 
 
 def test_result_type_bases_cover_every_typed_family() -> None:
@@ -501,18 +535,68 @@ def test_result_type_bases_cover_every_typed_family() -> None:
 def test_every_typed_generated_name_is_covered_by_the_kit_result_type_cases(spec: Any) -> None:
     """Each typed generated name has its (subtype, DataType) among its kit base's ``result_type_cases()``."""
     group = _load_class(spec)
-    probe: type[ResultTypeTestMixin] = type(
-        "_ResultTypeProbe", (KIT_RESULT_TYPE_BASES[spec.key],), {"feature_group_class": classmethod(lambda c: group)}
-    )
+    probe = _probe(spec, group)
+    marked = probe.untyped_result_type_ids()
     covered: set[tuple[str | None, DataType]] = set()
-    for feature_set in probe.result_type_cases().values():
+    for case_id, feature_set in probe.result_type_cases().items():
+        if case_id in marked:
+            continue
         for feature in feature_set.features:
             pair = _typed_pair(group, str(feature.name), feature.options)
             assert pair is not None, f"{spec.key}: case {feature.name} names an op without a type rule"
             covered.add(pair)
 
-    options = Options(group=dict(PERMISSIVE_OPTIONS.group), context={**PERMISSIVE_OPTIONS.context, **spec.options})
+    options = _generated_options(spec)
     required = {pair for name in generate_valid_names(spec) if (pair := _typed_pair(group, name, options)) is not None}
     assert required, f"{spec.key}: no generated name has a typed rule; the guard is vacuous"
     missing = sorted(required - covered, key=repr)
     assert not missing, f"{spec.key}: typed (subtype, DataType) pairs without a result_type_cases() entry: {missing}"
+
+
+@pytest.mark.parametrize("spec", _TYPED_SPECS, ids=[spec.key for spec in _TYPED_SPECS])
+def test_every_untyped_generated_name_has_a_marked_kit_result_type_case(spec: Any) -> None:
+    """Each untyped generated name has its canonical subtype among its kit base's ``untyped_result_type_ids()`` cases."""
+    group = _load_class(spec)
+    probe = _probe(spec, group)
+    names = list(generate_valid_names(spec))
+    missing, typed_marked = _untyped_gaps(
+        group, names, _generated_options(spec), probe.result_type_cases(), probe.untyped_result_type_ids()
+    )
+    assert not missing, (
+        f"{spec.key}: untyped ops without a marked result_type_cases() entry (missing canonical subtypes): {missing}; "
+        "add a case per subtype and list its id in untyped_result_type_ids()"
+    )
+    assert not typed_marked, f"{spec.key}: cases in untyped_result_type_ids() whose rule returns a type: {typed_marked}"
+
+
+class _PlantedUntypedFamily:
+    """Two subtypes, both untyped; names end in the subtype."""
+
+    @classmethod
+    def subtype_universe(cls) -> tuple[str, ...]:
+        return ("a", "b")
+
+    @classmethod
+    def resolve_subtype(cls, name: str, options: Options) -> str:
+        return name.rsplit("_", 1)[-1]
+
+    @classmethod
+    def canonical_subtype(cls, subtype: str) -> str:
+        return subtype
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        return DataType.INT64 if str(feature.name).endswith("_typed_a") else None
+
+
+def test_untyped_guard_detects_a_family_with_an_uncovered_untyped_op() -> None:
+    """The shared check flags a subtype without a marked case and a marked case that carries a type."""
+    cases = {"case_a": make_feature_set("x_a"), "case_typed": make_feature_set("x_typed_a")}
+    missing, typed_marked = _untyped_gaps(
+        _PlantedUntypedFamily, ["x_a", "x_b"], Options(), cases, frozenset({"case_a"})
+    )
+    assert missing == ["b"]
+    assert typed_marked == []
+    assert _untyped_gaps(_PlantedUntypedFamily, ["x_a", "x_b"], Options(), cases, frozenset({"case_typed"}))[1] == [
+        "case_typed:x_typed_a"
+    ]
