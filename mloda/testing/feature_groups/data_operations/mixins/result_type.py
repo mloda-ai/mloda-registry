@@ -27,6 +27,11 @@ _ZERO_ROWS_RETYPE = re.compile(r"^zero_rows: column '(.*)' changes type on zero 
 _INPUT_CHANGED = re.compile(r"^outputs: input column '(.*)' was changed$")
 _VALUE_ONLY = "checked by value only"
 
+PANDAS_INPUT_DTYPE_FINDING = (
+    "Pandas keeps the input dtype: the null-bearing int64 source is float64 with rows and int64 on zero rows "
+    "(https://github.com/mloda-ai/mloda-registry/issues/1671)"
+)
+
 
 def _blocking(
     failures: list[str],

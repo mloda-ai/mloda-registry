@@ -17,6 +17,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.mixins.result_type import PANDAS_INPUT_DTYPE_FINDING
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -29,9 +30,17 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
     def implementation_class(cls) -> Any:
         return PandasWindowAggregation
 
+    @classmethod
+    def result_type_known_findings(cls) -> dict[str, str]:
+        return dict.fromkeys(("first", "last", "max", "min", "sum"), PANDAS_INPUT_DTYPE_FINDING)
+
 
 class TestPandasWindowAggregationNullableInt(PandasNullableIntTestMixin, TestPandasWindowAggregation):
     """Runs the window_aggregation suite on nullable pandas int columns."""
+
+    @classmethod
+    def result_type_known_findings(cls) -> dict[str, str]:
+        return {}
 
 
 class TestPandasWindowModeVectorized:
