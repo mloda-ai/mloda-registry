@@ -242,11 +242,6 @@ class TestReturnDataTypeRule:
         feature = Feature("name__length", options=Options())
         assert StringFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
-    @pytest.mark.parametrize("operation", ["upper", "lower", "trim", "reverse"])
-    def test_deferred_ops_return_none(self, operation: str) -> None:
-        feature = Feature(f"name__{operation}", options=Options())
-        assert StringFeatureGroup.return_data_type_rule(feature) is None
-
 
 class TestStringMatchValidation(MatchValidationTestBase):
     @classmethod

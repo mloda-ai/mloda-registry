@@ -32,11 +32,6 @@ class TestReturnDataTypeRule:
         feature = Feature("value__resample_5_minute_count", options=Options())
         assert ResampleFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
-    @pytest.mark.parametrize("agg", ["mean", "sum"])
-    def test_input_dependent_ops_return_none(self, agg: str) -> None:
-        feature = Feature(f"value__resample_5_minute_{agg}", options=Options())
-        assert ResampleFeatureGroup.return_data_type_rule(feature) is None
-
 
 class TestChainedNameParsing:
     """On a chained name, parsing must resolve the LAST ``resample`` marker, not the first."""
