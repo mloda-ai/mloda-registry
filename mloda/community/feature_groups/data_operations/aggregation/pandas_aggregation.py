@@ -19,6 +19,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
+    coerce_spread_dtype,
     compute_mode_winners,
     null_safe_groupby,
 )
@@ -111,6 +112,7 @@ class PandasAggregation(Implementation[AggregationFeatureGroup]):
             result = result.rename(columns={agg_source: feature_name})
 
             coerce_count_dtype(result, feature_name, agg_type)
+            coerce_spread_dtype(result, feature_name, agg_type)
 
         if helper_col is not None:
             result = result.drop(columns=[helper_col])

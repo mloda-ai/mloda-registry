@@ -45,32 +45,33 @@ class PyArrowScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
             column = table.column(source_col)
 
         if agg_type == "sum":
-            result = pc.sum(column).as_py()
+            result = pc.sum(column)
         elif agg_type == "min":
-            result = pc.min(column).as_py()
+            result = pc.min(column)
         elif agg_type == "max":
-            result = pc.max(column).as_py()
+            result = pc.max(column)
         elif agg_type in ("avg", "mean"):
-            result = pc.mean(column).as_py()
+            result = pc.mean(column)
         elif agg_type == "count":
-            result = pc.count(column).as_py()
+            result = pc.count(column)
         elif agg_type in ("std", "std_pop"):
-            result = pc.stddev(column).as_py()
+            result = pc.stddev(column)
         elif agg_type in ("var", "var_pop"):
-            result = pc.variance(column).as_py()
+            result = pc.variance(column)
         elif agg_type == "std_samp":
-            result = pc.stddev(column, ddof=1).as_py()
+            result = pc.stddev(column, ddof=1)
         elif agg_type == "var_samp":
-            result = pc.variance(column, ddof=1).as_py()
+            result = pc.variance(column, ddof=1)
         elif agg_type == "median":
             q_result = pc.quantile(column, q=0.5)
             if len(q_result) == 0:
                 raise ValueError("pc.quantile returned an empty result for median computation")
-            result = q_result[0].as_py()
+            result = q_result[0]
         else:
             raise unsupported_agg_type_error(
                 agg_type, ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, framework="PyArrow"
             )
 
-        repeated = pa.array([result] * table.num_rows, type=pa.int64() if agg_type == "count" else None)
+        # The scalar's own type keeps the output type on zero rows, where an untyped empty array is null-typed.
+        repeated = pa.array([result.as_py()] * table.num_rows, type=result.type)
         return table.append_column(feature_name, repeated)

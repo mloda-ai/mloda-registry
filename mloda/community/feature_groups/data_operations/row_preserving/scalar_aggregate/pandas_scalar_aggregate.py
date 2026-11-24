@@ -89,6 +89,10 @@ class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
                 agg_type, ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, framework="Pandas"
             )
 
+        if result is pd.NA:
+            # A nullable null scalar broadcasts as object; keep the source dtype (sum/min/max) or float.
+            keeps_dtype = agg_type in ("sum", "min", "max")
+            result = pd.Series(pd.NA, index=data.index, dtype=col.dtype if keeps_dtype else "float64")
         data[feature_name] = result
         if mask_spec is not None:
             data = data.drop(columns=[agg_source])

@@ -101,6 +101,22 @@ def coerce_count_dtype(data: Any, feature_name: str, agg_type: str) -> None:
         data[feature_name] = data[feature_name].astype("int64")
 
 
+def coerce_spread_dtype(data: Any, feature_name: str, agg_type: str) -> None:
+    """Cast an integer or object *feature_name* column to float in-place for std/var variants.
+
+    A zero-row group-by leaves the integer dtype of the source, and a nullable source with
+    single-row groups yields object; rows of plain data give a float column.
+    """
+    column = data[feature_name]
+    if agg_type not in _DDOF_BY_AGG_TYPE:
+        return
+    if pd.api.types.is_integer_dtype(column):
+        nullable = isinstance(column.dtype, pd.api.extensions.ExtensionDtype)
+        data[feature_name] = column.astype("Float64" if nullable else "float64")
+    elif column.dtype == object:
+        data[feature_name] = column.astype("Float64")
+
+
 _MODE_IDX_COL = "__mloda_mode_row_idx__"
 _MODE_COUNT_COL = "__mloda_mode_count__"
 _MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"

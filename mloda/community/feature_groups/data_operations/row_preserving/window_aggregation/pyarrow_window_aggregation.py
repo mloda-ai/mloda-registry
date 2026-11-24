@@ -172,4 +172,6 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
             for idx in indices:
                 result_values[idx] = agg_val
 
+        # The aggregate's own type keeps the output type on zero rows, where inference gives a null type.
+        result_type = result_type or grouped.schema.field(agg_col).type
         return original_table.append_column(feature_name, pa.array(result_values, type=result_type))

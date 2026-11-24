@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -64,6 +65,7 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
 
         partition_cols = ", ".join(quote_ident(col) for col in partition_by)
 
+        source_types = dict(zip(data.columns, data.types, strict=True))
         agg_parts: list[str] = []
         for spec in specs:
             source_sql = quote_ident(spec.source_col)
@@ -72,6 +74,13 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
             agg_expr = f"{_SQLITE_AGG_FUNCS[spec.agg_type]}({source_sql})"
             if spec.agg_type == "count":
                 agg_expr = f"CAST({agg_expr} AS INTEGER)"  # the declared type survives zero rows
+            elif spec.agg_type == "avg" or spec.agg_type == "mean":
+                agg_expr = f"CAST({agg_expr} AS REAL)"  # the declared type survives zero rows
+            else:
+                source_type = source_types[spec.source_col]
+                if pa.types.is_integer(source_type) or pa.types.is_floating(source_type):
+                    sql_type = "INTEGER" if pa.types.is_integer(source_type) else "REAL"
+                    agg_expr = f"CAST({agg_expr} AS {sql_type})"  # the declared type survives zero rows
             agg_parts.append(f"{agg_expr} AS {quote_ident(spec.feature_name)}")
 
         select_cols = f"{partition_cols}, " if partition_cols else ""

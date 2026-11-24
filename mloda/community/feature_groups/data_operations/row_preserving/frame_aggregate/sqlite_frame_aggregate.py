@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import pyarrow as pa
 from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
@@ -118,6 +119,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 data=data,
                 feature_name=feature_name,
                 quoted_source=quoted_source,
+                source_type=dict(zip(data.columns, data.types, strict=True))[source_col],
                 partition_by=partition_by,
                 quoted_order=quoted_order,
                 agg_func=agg_func,
@@ -161,6 +163,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         data: SqliteRelation,
         feature_name: str,
         quoted_source: str,
+        source_type: pa.DataType,
         partition_by: list[str],
         quoted_order: str,
         agg_func: str,
@@ -271,5 +274,10 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         if not rows and agg_func == "COUNT":
             # The fetch path has no declared type on zero rows; a typed raw select keeps count integer.
             return data.select(_raw_sql=f"*, CAST(0 AS INTEGER) AS {quoted_feature}")
+        if not rows and (agg_func == "AVG" or pa.types.is_integer(source_type) or pa.types.is_floating(source_type)):
+            # Same for the numeric aggregates: AVG is real, SUM/MIN/MAX keep the source type. No row exists
+            # to carry the 0, but a non-null value lets the relation infer the type.
+            sql_type = "INTEGER" if pa.types.is_integer(source_type) and agg_func != "AVG" else "REAL"
+            return data.select(_raw_sql=f"*, CAST(0 AS {sql_type}) AS {quoted_feature}")
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

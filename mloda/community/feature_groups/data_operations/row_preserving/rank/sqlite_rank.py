@@ -27,7 +27,13 @@ class _BoolCastRelation(SqliteRelation):
     """
 
     def __init__(self, base: SqliteRelation, bool_columns: set[str]) -> None:
-        super().__init__(base.connection, base.table_name, _is_view=True)
+        super().__init__(
+            base.connection,
+            base.table_name,
+            _is_view=True,
+            _types=base.type_hints,
+            _fallback_types=base._fallback_types,
+        )
         self._bool_columns = bool_columns
 
     def to_arrow_table(self) -> pa.Table:
@@ -35,7 +41,7 @@ class _BoolCastRelation(SqliteRelation):
         for col_name in self._bool_columns:
             if col_name in table.column_names:
                 idx = table.column_names.index(col_name)
-                bool_array = pa.array([bool(v) for v in table.column(col_name).to_pylist()])
+                bool_array = pa.array([bool(v) for v in table.column(col_name).to_pylist()], type=pa.bool_())
                 table = table.set_column(idx, col_name, bool_array)
         return table
 
@@ -97,11 +103,9 @@ class SqliteRank(Implementation[RankFeatureGroup]):
                 order_by=[OrderBy(order_by, descending=is_top, nulls="last")],
             )
             qhelper = quote_ident(helper)
-            proj = (
-                ", ".join(quote_ident(c) for c in original_cols)
-                + f", ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}"
-            )
-            result = rel.select(_raw_sql=proj)
+            # A projection starting with ``*`` keeps the source column types (timestamp, date, bool).
+            flagged = rel.select(_raw_sql=f"*, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}")
+            result = flagged.select(*original_cols, feature_name)
             return _BoolCastRelation(result, {feature_name})
 
         if rank_type.startswith("ntile_"):
