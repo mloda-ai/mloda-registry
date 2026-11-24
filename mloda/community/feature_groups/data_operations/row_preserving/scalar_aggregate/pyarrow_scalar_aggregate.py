@@ -11,6 +11,10 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
+    needs_all_nan_repair,
+    restore_all_nan_extrema,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -46,10 +50,12 @@ class PyArrowScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
 
         if agg_type == "sum":
             result = pc.sum(column).as_py()
-        elif agg_type == "min":
-            result = pc.min(column).as_py()
-        elif agg_type == "max":
-            result = pc.max(column).as_py()
+        elif agg_type in ("min", "max"):
+            extreme = pc.min(column) if agg_type == "min" else pc.max(column)
+            # Older Arrow returns +/-inf for an all-NaN column.
+            if needs_all_nan_repair(agg_type, column.type):
+                extreme = restore_all_nan_extrema(extreme, pc.all(pc.is_nan(column)))
+            result = extreme.as_py()
         elif agg_type in ("avg", "mean"):
             result = pc.mean(column).as_py()
         elif agg_type == "count":

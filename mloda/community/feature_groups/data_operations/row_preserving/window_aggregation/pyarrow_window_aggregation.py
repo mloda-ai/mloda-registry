@@ -18,6 +18,10 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import MASKED_SOURCE_HELPER, apply_pyarrow_mask
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
+    needs_all_nan_repair,
+    restore_all_nan_extrema,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -94,13 +98,18 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
 
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]
-            grouped = t_with_idx.group_by(partition_by).aggregate(
-                [
-                    (agg_source, pa_func),
-                    (idx_col, "list"),
-                ]
-            )
+            entries: list[tuple[str, str]] = [(agg_source, pa_func), (idx_col, "list")]
+            # Older Arrow returns +/-inf for all-NaN extrema: a grouped all(is_nan) flag marks those groups.
+            nan_col = None
+            if needs_all_nan_repair(agg_type, t_with_idx.column(agg_source).type):
+                nan_col = unique_helper_name("__mloda_wa_nan__", set(t_with_idx.column_names) | {feature_name})
+                t_with_idx = t_with_idx.append_column(nan_col, pc.is_nan(t_with_idx.column(agg_source)))
+                entries.append((nan_col, "all"))
+            grouped = t_with_idx.group_by(partition_by).aggregate(entries)
             agg_col = f"{agg_source}_{pa_func}"
+            if nan_col is not None:
+                corrected = restore_all_nan_extrema(grouped.column(agg_col), grouped.column(f"{nan_col}_all"))
+                grouped = grouped.set_column(grouped.schema.get_field_index(agg_col), agg_col, corrected)
 
         elif agg_type in _VARIANCE_FUNCS:
             pa_func, ddof = _VARIANCE_FUNCS[agg_type]

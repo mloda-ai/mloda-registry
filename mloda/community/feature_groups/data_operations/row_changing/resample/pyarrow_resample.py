@@ -17,7 +17,9 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
     assert_temporal_timezone_supported,
+    needs_all_nan_repair,
     rename_aggregates_by_position,
+    restore_all_nan_extrema,
 )
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
@@ -74,11 +76,7 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
         taken = set(data.column_names) | set(names)
         nan_helpers: dict[str, str] = {}
         for spec in aggs:
-            if (
-                spec.agg in {"min", "max"}
-                and pa.types.is_floating(data.column(spec.source_col).type)
-                and spec.source_col not in nan_helpers
-            ):
+            if needs_all_nan_repair(spec.agg, data.column(spec.source_col).type) and spec.source_col not in nan_helpers:
                 helper = unique_helper_name("__mloda_resample_nan__", taken)
                 taken.add(helper)
                 nan_helpers[spec.source_col] = helper
@@ -92,9 +90,9 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
         # Older Arrow returns +/-inf for all-NaN extrema; repair only those buckets.
         for spec in aggs:
             if spec.agg in {"min", "max"} and spec.source_col in nan_helpers:
-                values = result.column(spec.feature_name)
-                all_nan = pc.fill_null(result.column(nan_helpers[spec.source_col]), False)
-                corrected = pc.if_else(all_nan, pa.scalar(float("nan"), type=values.type), values)
+                corrected = restore_all_nan_extrema(
+                    result.column(spec.feature_name), result.column(nan_helpers[spec.source_col])
+                )
                 result = result.set_column(
                     result.schema.get_field_index(spec.feature_name), spec.feature_name, corrected
                 )
