@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.sqlite_rank import (
     SqliteRank,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
@@ -47,3 +49,12 @@ class TestSqliteRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, SqliteTe
     @classmethod
     def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:
         return ("value_int__top_3_ranked", "value_int__bottom_2_ranked")
+
+    def test_bool_flag_column_is_reported_as_bool(self) -> None:
+        """The relation's reported type of the top-n flag matches its arrow table."""
+        fs = make_feature_set("value_int__top_3_ranked", ["region"], "value_int")
+        result = calculate_with(self.implementation_class(), self.test_data, fs)
+        name = "value_int__top_3_ranked"
+        reported = result.types[result.columns.index(name)]
+        assert reported == pa.bool_()
+        assert result.to_arrow_table().schema.field(name).type == reported

@@ -14,15 +14,16 @@ from mloda.user import Options
 from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
     PandasAggregation,
 )
+from mloda.community.feature_groups.data_operations.tests.pandas_findings import PANDAS_INPUT_DTYPE_FINDING
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
-    PANDAS_INPUT_DTYPE_FINDING,
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding
 
 
 class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, AggregationTestBase):
@@ -33,7 +34,7 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
         return PandasAggregation
 
     @classmethod
-    def result_type_known_findings(cls) -> dict[str, str]:
+    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
         return dict.fromkeys(("first", "last", "max", "min", "sum"), PANDAS_INPUT_DTYPE_FINDING)
 
     @classmethod
@@ -48,7 +49,7 @@ class TestPandasAggregationNullableInt(PandasNullableIntTestMixin, TestPandasAgg
     """Runs the aggregation suite on nullable pandas int columns."""
 
     @classmethod
-    def result_type_known_findings(cls) -> dict[str, str]:
+    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
         return {}
 
 

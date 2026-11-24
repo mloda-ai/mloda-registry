@@ -27,11 +27,14 @@ class _BoolCastRelation(SqliteRelation):
     """
 
     def __init__(self, base: SqliteRelation, bool_columns: set[str]) -> None:
+        hints = base.type_hints
+        if hints is not None:
+            hints = [pa.bool_() if name in bool_columns else hint for name, hint in zip(base.columns, hints)]
         super().__init__(
             base.connection,
             base.table_name,
             _is_view=True,
-            _types=base.type_hints,
+            _types=hints,
             _fallback_types=base._fallback_types,
         )
         self._bool_columns = bool_columns

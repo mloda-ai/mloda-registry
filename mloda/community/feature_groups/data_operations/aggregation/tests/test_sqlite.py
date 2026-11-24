@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.user import Options
+import pyarrow as pa
+from mloda.user import DataType, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
     SqliteAggregation,
@@ -12,8 +13,10 @@ from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregati
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin
+from mloda.testing.typed_data import TypedTestData
 
 
 class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, AggregationTestBase):
@@ -45,3 +48,11 @@ class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, Aggregatio
                 ),
             ),
         )
+
+    def test_float_source_keeps_double_on_zero_rows(self) -> None:
+        """Aggregating a float64 source over zero rows keeps the REAL type."""
+        table = TypedTestData({"region": (DataType.STRING, []), "value": (DataType.DOUBLE, [])})
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__sum_agg", ["region"])
+        result = calculate_with(self.implementation_class(), data, fs)
+        assert result.types[result.columns.index("value__sum_agg")] == pa.float64()

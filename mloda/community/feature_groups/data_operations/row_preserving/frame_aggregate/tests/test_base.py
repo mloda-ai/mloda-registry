@@ -923,7 +923,9 @@ class _KitProbe(FrameAggregateTestBase):
 
 class TestFrameAggregateKitUntypedCases:
     def test_untyped_cases_use_every_frame_kind(self) -> None:
-        names = _KitProbe._untyped_names().values()
+        cases = _KitProbe.result_type_cases()
+        names = [str(next(iter(cases[i].features)).name) for i in _KitProbe.untyped_result_type_ids()]
+        assert set(_KitProbe.untyped_result_type_ids()) <= set(cases)
         kinds = {
             "rolling": any("_rolling_" in n for n in names),
             "time": any("_day_window" in n for n in names),
@@ -931,10 +933,6 @@ class TestFrameAggregateKitUntypedCases:
             "expanding": any("__expanding_" in n for n in names),
         }
         assert kinds == dict.fromkeys(("rolling", "time", "cumulative", "expanding"), True)
-
-    def test_untyped_cases_are_marked_untyped(self) -> None:
-        assert _KitProbe.untyped_result_type_ids() == frozenset(_KitProbe._untyped_names())
-        assert set(_KitProbe._untyped_names()) <= set(_KitProbe.result_type_cases())
 
 
 class TestFrameAggregateMatchValidation(MatchValidationTestBase):

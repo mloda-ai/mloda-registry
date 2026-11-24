@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
-from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null, two_pass_variance
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     ModeHelperCols,
     add_mode_helper_cols,
@@ -21,15 +21,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     WindowAggregationFeatureGroup,
 )
 
-
-def _variance(col: str, ddof: int, sqrt: bool) -> pl.Expr:
-    # Two-pass formula: Polars var/std is nondeterministic in the last bit across runs.
-    f = pl.col(col).cast(pl.Float64)
-    n = f.count()
-    var = pl.when(n > ddof).then(((f - f.mean()) ** 2).sum() / (n - ddof)).otherwise(None)
-    return var.sqrt() if sqrt else var
-
-
 # Mapping from aggregation type to a Polars expression builder.
 # Each callable takes a column name and returns a Polars Expr.
 _POLARS_AGG_EXPRS: dict[str, Any] = {
@@ -39,12 +30,12 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "count": lambda col: pl.col(col).count().cast(pl.Int64),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),
-    "std": lambda col: _variance(col, 0, True),
-    "var": lambda col: _variance(col, 0, False),
-    "std_pop": lambda col: _variance(col, 0, True),
-    "std_samp": lambda col: _variance(col, 1, True),
-    "var_pop": lambda col: _variance(col, 0, False),
-    "var_samp": lambda col: _variance(col, 1, False),
+    "std": lambda col: two_pass_variance(pl.col(col), 0, True),
+    "var": lambda col: two_pass_variance(pl.col(col), 0, False),
+    "std_pop": lambda col: two_pass_variance(pl.col(col), 0, True),
+    "std_samp": lambda col: two_pass_variance(pl.col(col), 1, True),
+    "var_pop": lambda col: two_pass_variance(pl.col(col), 0, False),
+    "var_samp": lambda col: two_pass_variance(pl.col(col), 1, False),
     "nunique": lambda col: pl.col(col).drop_nulls().n_unique().cast(pl.Int64),
 }
 

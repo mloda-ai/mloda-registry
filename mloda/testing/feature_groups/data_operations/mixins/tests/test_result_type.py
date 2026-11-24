@@ -29,7 +29,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     SqliteComputedColumnTestMixin,
     SqliteTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin, _blocking
+from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding, ResultTypeTestMixin, _blocking
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 from mloda.testing.typed_data import TypedTestData
 
@@ -136,7 +136,7 @@ def _run(
     typed: bool = True,
     untyped: bool = False,
     extra_untyped_ids: frozenset[str] = frozenset(),
-    known_findings: dict[str, str] | None = None,
+    known_findings: dict[str, KnownFinding] | None = None,
 ) -> _Outcome:
     """Run ``test_mixin_result_type`` on a stub host over stub plugins, then remove every trace of them."""
     seen: list[Options] = []
@@ -465,21 +465,30 @@ class TestHookContract:
         assert outcome.state == "failed"
         assert "untyped_result_type_ids" in outcome.message
 
-    def test_known_finding_on_a_failing_case_xfails_with_its_reason(self) -> None:
+    def test_known_finding_whose_match_covers_the_failure_xfails_with_its_reason(self) -> None:
         reason = "stub finding https://example.invalid/issues/1"
-        outcome = _run("pyarrow", kind="narrow", known_findings={_CASE: reason})
+        finding = KnownFinding("int32", reason)
+        outcome = _run("pyarrow", kind="narrow", known_findings={_CASE: finding})
         assert outcome.state == "xfailed"
         assert reason in outcome.message
 
+    def test_known_finding_whose_match_does_not_cover_the_failure_fails(self) -> None:
+        finding = KnownFinding("changes type on zero rows", "stub finding https://example.invalid/issues/1")
+        outcome = _run("pyarrow", kind="narrow", known_findings={_CASE: finding})
+        assert outcome.state == "failed"
+        assert "int32" in outcome.message
+
     def test_known_finding_on_a_clean_case_fails_naming_the_case(self) -> None:
-        outcome = _run("pyarrow", known_findings={_CASE: "stub finding https://example.invalid/issues/1"})
+        finding = KnownFinding("int32", "stub finding https://example.invalid/issues/1")
+        outcome = _run("pyarrow", known_findings={_CASE: finding})
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
         assert "no longer reproduces" in outcome.message
         assert "remove" in outcome.message
 
     def test_known_finding_outside_the_cases_fails(self) -> None:
-        outcome = _run("pyarrow", known_findings={"out_ghost": "stub finding https://example.invalid/issues/1"})
+        finding = KnownFinding("int32", "stub finding https://example.invalid/issues/1")
+        outcome = _run("pyarrow", known_findings={"out_ghost": finding})
         assert outcome.state == "failed"
         assert "out_ghost" in outcome.message
 

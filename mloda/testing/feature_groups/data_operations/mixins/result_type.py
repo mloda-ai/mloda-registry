@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import ClassVar
+from typing import ClassVar, NamedTuple
 
 import pytest
 from mloda.provider import DivergenceKind, FeatureGroup, FeatureSet
@@ -26,6 +26,13 @@ from mloda.testing.typed_data import TypedTestData
 _ZERO_ROWS_RETYPE = re.compile(r"^zero_rows: column '(.*)' changes type on zero rows$")
 _INPUT_CHANGED = re.compile(r"^outputs: input column '(.*)' was changed$")
 _VALUE_ONLY = "checked by value only"
+
+
+class KnownFinding(NamedTuple):
+    """A known failure of one case: ``match`` is a substring every blocking message contains, ``reason`` links the issue."""
+
+    match: str
+    reason: str
 
 
 def _blocking(
@@ -74,8 +81,11 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         return frozenset()
 
     @classmethod
-    def result_type_known_findings(cls) -> dict[str, str]:
-        """Case id -> reason (with an issue URL); the case runs and xfails while it fails, fails once it passes."""
+    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
+        """Case id -> ``KnownFinding``; the case xfails while it fails only with the named failure.
+
+        Any blocking message that does not contain ``match`` fails the test, and so does a case that passes.
+        """
         return {}
 
     @classmethod
@@ -178,8 +188,11 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             adapter_rewrites=adapter_rewrites,
         )
         if result_type_case in findings:
+            finding = findings[result_type_case]
+            if bad and all(finding.match in b for b in bad):
+                pytest.xfail(finding.reason)
             if bad:
-                pytest.xfail(findings[result_type_case])
+                raise AssertionError(f"{name}: known finding expects only {finding.match!r}, got: " + "; ".join(bad))
             raise AssertionError(
                 f"{result_type_case} ({name}) is a known finding but no longer reproduces: "
                 "remove it from result_type_known_findings()"

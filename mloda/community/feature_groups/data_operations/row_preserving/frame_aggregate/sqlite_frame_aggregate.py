@@ -27,6 +27,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_sql_
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.sqlite_helpers import sqlite_numeric_type
 
 _SQLITE_AGG_FUNCS: dict[str, str] = {
     "sum": "SUM",
@@ -274,9 +275,9 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         if not rows and agg_func == "COUNT":
             # The fetch path has no declared type on zero rows; a typed raw select keeps count integer.
             return data.select(_raw_sql=f"*, CAST(0 AS INTEGER) AS {quoted_feature}")
-        if not rows and (agg_func == "AVG" or pa.types.is_integer(source_type) or pa.types.is_floating(source_type)):
+        sql_type = sqlite_numeric_type(source_type, real=agg_func == "AVG")
+        if not rows and sql_type is not None:
             # AVG is real, SUM/MIN/MAX keep the source type; a non-null value lets the relation infer it.
-            sql_type = "INTEGER" if pa.types.is_integer(source_type) and agg_func != "AVG" else "REAL"
             return data.select(_raw_sql=f"*, CAST(0 AS {sql_type}) AS {quoted_feature}")
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

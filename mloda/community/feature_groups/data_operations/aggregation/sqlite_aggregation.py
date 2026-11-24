@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
 from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -16,6 +15,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+from mloda.community.feature_groups.data_operations.sqlite_helpers import sqlite_numeric_type
 
 # Aggregation types that SQLite supports natively.
 _SQLITE_AGG_FUNCS: dict[str, str] = {
@@ -78,8 +78,8 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
                 agg_expr = f"CAST({agg_expr} AS REAL)"  # the declared type survives zero rows
             else:
                 source_type = source_types[spec.source_col]
-                if pa.types.is_integer(source_type) or pa.types.is_floating(source_type):
-                    sql_type = "INTEGER" if pa.types.is_integer(source_type) else "REAL"
+                sql_type = sqlite_numeric_type(source_type)
+                if sql_type is not None:
                     agg_expr = f"CAST({agg_expr} AS {sql_type})"  # the declared type survives zero rows
             agg_parts.append(f"{agg_expr} AS {quote_ident(spec.feature_name)}")
 

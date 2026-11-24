@@ -38,23 +38,27 @@ class TestPandasScalarAggregate(CapabilityHookTestMixin, PandasTestMixin, Scalar
 class TestPandasScalarAggregateNullableInt(PandasNullableIntTestMixin, TestPandasScalarAggregate):
     """Runs the scalar_aggregate suite on nullable pandas int columns."""
 
+    @pytest.mark.parametrize("values", [[None, None, None], [1, None, 3]], ids=["all_null", "with_values"])
     @pytest.mark.parametrize(
         ("agg_type", "expected_dtype"),
         [
             ("sum", "Int64"),
             ("min", "Int64"),
             ("max", "Int64"),
-            ("avg", "float64"),
-            ("std", "float64"),
-            ("var", "float64"),
-            ("median", "float64"),
+            ("avg", "Float64"),
+            ("std", "Float64"),
+            ("var", "Float64"),
+            ("median", "Float64"),
         ],
     )
-    def test_all_null_int64_source_keeps_the_aggregate_dtype(self, agg_type: str, expected_dtype: str) -> None:
-        """An all-null Int64 column aggregates to the aggregate's dtype, never object."""
-        data = pd.DataFrame({"v": pd.Series([None, None, None], dtype="Int64")})
+    def test_nullable_int64_source_keeps_the_aggregate_dtype(
+        self, agg_type: str, expected_dtype: str, values: list[int | None]
+    ) -> None:
+        """A nullable Int64 column aggregates to Int64 (sum, min, max) or Float64, null or not, never object."""
+        data = pd.DataFrame({"v": pd.Series(values, dtype="Int64")})
         fs = make_feature_set(f"v__{agg_type}_scalar")
         result = calculate_with(self.implementation_class(), data, fs)
         column = result[f"v__{agg_type}_scalar"]
         assert str(column.dtype) == expected_dtype
-        assert column.isna().all()
+        if values[0] is None:
+            assert column.isna().all()

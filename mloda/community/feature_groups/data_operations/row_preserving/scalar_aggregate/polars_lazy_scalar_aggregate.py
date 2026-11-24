@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
-from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null, two_pass_variance
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -59,12 +59,8 @@ class PolarsLazyScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
         elif agg_type == "count":
             expr = col.count().cast(pl.Int64)
         elif agg_type in ("std", "std_pop", "std_samp", "var", "var_pop", "var_samp"):
-            # Two-pass formula: Polars var/std is nondeterministic in the last bit across runs.
-            fcol = col.cast(pl.Float64)
             ddof = 1 if agg_type.endswith("_samp") else 0
-            n = fcol.count()
-            variance = pl.when(n > ddof).then(((fcol - fcol.mean()) ** 2).sum() / (n - ddof)).otherwise(None)
-            expr = variance.sqrt() if agg_type.startswith("std") else variance
+            expr = two_pass_variance(col, ddof, agg_type.startswith("std"))
         elif agg_type == "median":
             dtype = data.collect_schema()[actual_source]
             expr = nan_to_null(col, dtype).median()
