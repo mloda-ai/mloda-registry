@@ -26,6 +26,7 @@ from mloda.testing.feature_groups.data_operations.helpers import load_implementa
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.testing.feature_groups.data_operations.operation_group import ImplSpec, OperationGroupTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
+    FrameAggregateTestBase,
     config_frame_options,
     time_frame_options,
 )
@@ -913,12 +914,27 @@ class TestReturnDataTypeRule:
         )
         assert FrameAggregateFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
-    def test_sum_returns_none(self) -> None:
-        feature = Feature(
-            "sales__sum_rolling_3",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        assert FrameAggregateFeatureGroup.return_data_type_rule(feature) is None
+
+class _KitProbe(FrameAggregateTestBase):
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return FrameAggregateFeatureGroup
+
+
+class TestFrameAggregateKitUntypedCases:
+    def test_untyped_cases_use_every_frame_kind(self) -> None:
+        names = _KitProbe._untyped_names().values()
+        kinds = {
+            "rolling": any("_rolling_" in n for n in names),
+            "time": any("_day_window" in n for n in names),
+            "cumulative": any("__cum" in n for n in names),
+            "expanding": any("__expanding_" in n for n in names),
+        }
+        assert kinds == dict.fromkeys(("rolling", "time", "cumulative", "expanding"), True)
+
+    def test_untyped_cases_are_marked_untyped(self) -> None:
+        assert _KitProbe.untyped_result_type_ids() == frozenset(_KitProbe._untyped_names())
+        assert set(_KitProbe._untyped_names()) <= set(_KitProbe.result_type_cases())
 
 
 class TestFrameAggregateMatchValidation(MatchValidationTestBase):

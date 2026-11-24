@@ -25,6 +25,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
     make_feature_set,
     typed_data_without,
+    untyped_agg_types,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -167,19 +168,14 @@ class WindowAggregationTestBase(
                 t: make_feature_set(
                     f"value_int__{t}_window", ["region"], order_by="value_int" if t in order_dependent else None
                 )
-                for t in sorted(cls._untyped_agg_types())
+                for t in sorted(untyped_agg_types(cls.feature_group_class()))
             }
         )
         return cases
 
     @classmethod
-    def _untyped_agg_types(cls) -> set[str]:
-        group = cls.feature_group_class()
-        return set(group.AGGREGATION_TYPES) - set(group._COUNTING_AGG_TYPES)
-
-    @classmethod
     def untyped_result_type_ids(cls) -> frozenset[str]:
-        return frozenset(cls._untyped_agg_types())
+        return frozenset(untyped_agg_types(cls.feature_group_class()))
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

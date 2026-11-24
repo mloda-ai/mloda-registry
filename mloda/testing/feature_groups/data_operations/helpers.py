@@ -328,3 +328,8 @@ def feature_set_for(feature_name: str, options: Options) -> FeatureSet:
     fs = FeatureSet()
     fs.add(Feature(feature_name, options=options))
     return fs
+
+
+def untyped_agg_types(group: Any) -> set[str]:
+    """Aggregation types of ``group`` that are not counting types, so the group leaves their output untyped."""
+    return set(group.AGGREGATION_TYPES) - set(group._COUNTING_AGG_TYPES)

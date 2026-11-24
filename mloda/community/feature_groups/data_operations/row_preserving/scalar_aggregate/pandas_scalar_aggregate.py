@@ -92,7 +92,11 @@ class PandasScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
         if result is pd.NA:
             # A null scalar would broadcast as object.
             keeps_dtype = agg_type in ("sum", "min", "max")
-            result = pd.Series(pd.NA, index=data.index, dtype=col.dtype if keeps_dtype else "float64")
+            result = (
+                pd.Series(pd.NA, index=data.index, dtype=col.dtype)
+                if keeps_dtype
+                else pd.Series(float("nan"), index=data.index, dtype="float64")
+            )
         data[feature_name] = result
         if mask_spec is not None:
             data = data.drop(columns=[agg_source])

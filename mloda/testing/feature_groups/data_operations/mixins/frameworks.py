@@ -229,6 +229,12 @@ class PolarsLazyTestMixin(AdapterTestMixin):
         return pl.LazyFrame
 
 
+PANDAS_INPUT_DTYPE_FINDING = (
+    "Pandas keeps the input dtype: the null-bearing int64 source is float64 with rows and int64 on zero rows "
+    "(https://github.com/mloda-ai/mloda-registry/issues/1671)"
+)
+
+
 class PandasTestMixin(AdapterTestMixin):
     """Adapter methods for Pandas; guard concrete modules with ``pytest.importorskip("pandas")``."""
 

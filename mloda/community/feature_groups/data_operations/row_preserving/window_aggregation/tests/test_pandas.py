@@ -13,11 +13,12 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
     PandasWindowAggregation,
 )
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
+    PANDAS_INPUT_DTYPE_FINDING,
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import PANDAS_INPUT_DTYPE_FINDING
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -41,6 +42,24 @@ class TestPandasWindowAggregationNullableInt(PandasNullableIntTestMixin, TestPan
     @classmethod
     def result_type_known_findings(cls) -> dict[str, str]:
         return {}
+
+    @pytest.mark.parametrize("agg_type", ["std_samp", "var_samp"])
+    def test_sample_spread_of_single_row_partitions_is_float64_with_na(self, agg_type: str) -> None:
+        """Single-row partitions give NA in a Float64 column; the two-row partition keeps its value."""
+        data = pd.DataFrame(
+            {
+                "region": ["A", "A", "B", "C"],
+                "v": pd.Series([1, 3, 5, None], dtype="Int64"),
+            }
+        )
+        fs = make_feature_set(f"v__{agg_type}_window", ["region"])
+        result = calculate_with(self.implementation_class(), data, fs)
+        column = result[f"v__{agg_type}_window"]
+        assert str(column.dtype) == "Float64"
+        expected = 2**0.5 if agg_type == "std_samp" else 2.0
+        assert column.iloc[0] == pytest.approx(expected)
+        assert column.iloc[1] == pytest.approx(expected)
+        assert column.iloc[2:].isna().all()
 
 
 class TestPandasWindowModeVectorized:

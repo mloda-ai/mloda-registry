@@ -111,7 +111,7 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
 
 @dataclass
 class _Outcome:
-    """What the test method did on a stub host: passed, failed with a message, or skipped."""
+    """What the test method did on a stub host: passed, failed with a message, skipped or xfailed."""
 
     state: str
     message: str = ""
@@ -211,6 +211,8 @@ def _run(
             state, message = "failed", str(error)
         except pytest.skip.Exception as skipped:
             state, message = "skipped", str(skipped)
+        except pytest.xfail.Exception as xfailed:
+            state, message = "xfailed", str(xfailed)
         finally:
             host.teardown_method()
     finally:
@@ -463,11 +465,18 @@ class TestHookContract:
         assert outcome.state == "failed"
         assert "untyped_result_type_ids" in outcome.message
 
-    def test_known_finding_skips_the_case_with_its_reason(self) -> None:
+    def test_known_finding_on_a_failing_case_xfails_with_its_reason(self) -> None:
         reason = "stub finding https://example.invalid/issues/1"
         outcome = _run("pyarrow", kind="narrow", known_findings={_CASE: reason})
-        assert outcome.state == "skipped"
+        assert outcome.state == "xfailed"
         assert reason in outcome.message
+
+    def test_known_finding_on_a_clean_case_fails_naming_the_case(self) -> None:
+        outcome = _run("pyarrow", known_findings={_CASE: "stub finding https://example.invalid/issues/1"})
+        assert outcome.state == "failed"
+        assert "out_cnt" in outcome.message
+        assert "no longer reproduces" in outcome.message
+        assert "remove" in outcome.message
 
     def test_known_finding_outside_the_cases_fails(self) -> None:
         outcome = _run("pyarrow", known_findings={"out_ghost": "stub finding https://example.invalid/issues/1"})

@@ -27,11 +27,6 @@ _ZERO_ROWS_RETYPE = re.compile(r"^zero_rows: column '(.*)' changes type on zero 
 _INPUT_CHANGED = re.compile(r"^outputs: input column '(.*)' was changed$")
 _VALUE_ONLY = "checked by value only"
 
-PANDAS_INPUT_DTYPE_FINDING = (
-    "Pandas keeps the input dtype: the null-bearing int64 source is float64 with rows and int64 on zero rows "
-    "(https://github.com/mloda-ai/mloda-registry/issues/1671)"
-)
-
 
 def _blocking(
     failures: list[str],
@@ -80,7 +75,7 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def result_type_known_findings(cls) -> dict[str, str]:
-        """Case id -> reason (with an issue URL) for a finding that is neither fixable now nor a type property."""
+        """Case id -> reason (with an issue URL); the case runs and xfails while it fails, fails once it passes."""
         return {}
 
     @classmethod
@@ -118,9 +113,6 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
                 )
             else:
                 assert rule is not None, f"{name} has no return_data_type_rule"
-        if result_type_case in findings:
-            pytest.skip(findings[result_type_case])
-
         subtype = impl.canonical_subtype(group, name, feature.options)
         subtypes = frozenset({subtype}) if subtype else frozenset()
         if subtype is not None and subtype not in self.declared_supported(set()):
@@ -185,4 +177,11 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             adapter_retypes=adapter_retypes,
             adapter_rewrites=adapter_rewrites,
         )
+        if result_type_case in findings:
+            if bad:
+                pytest.xfail(findings[result_type_case])
+            raise AssertionError(
+                f"{result_type_case} ({name}) is a known finding but no longer reproduces: "
+                "remove it from result_type_known_findings()"
+            )
         assert not bad, f"{name}: " + "; ".join(bad)

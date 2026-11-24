@@ -35,6 +35,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     make_multi_feature_set,
     result_column_names,
     typed_data_without,
+    untyped_agg_types,
 )
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
@@ -292,17 +293,17 @@ class AggregationTestBase(
     def result_type_cases(cls) -> dict[str, FeatureSet]:
         counting = cls.feature_group_class()._COUNTING_AGG_TYPES
         cases = {t: make_feature_set(f"value_int__{t}_agg", ["region"]) for t in sorted(counting)}
-        cases.update({t: make_feature_set(f"value_int__{t}_agg", ["region"]) for t in sorted(cls._untyped_agg_types())})
+        cases.update(
+            {
+                t: make_feature_set(f"value_int__{t}_agg", ["region"])
+                for t in sorted(untyped_agg_types(cls.feature_group_class()))
+            }
+        )
         return cases
 
     @classmethod
-    def _untyped_agg_types(cls) -> set[str]:
-        group = cls.feature_group_class()
-        return set(group.AGGREGATION_TYPES) - set(group._COUNTING_AGG_TYPES)
-
-    @classmethod
     def untyped_result_type_ids(cls) -> frozenset[str]:
-        return frozenset(cls._untyped_agg_types())
+        return frozenset(untyped_agg_types(cls.feature_group_class()))
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
