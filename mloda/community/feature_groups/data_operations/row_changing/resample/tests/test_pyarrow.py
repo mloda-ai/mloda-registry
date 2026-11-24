@@ -14,18 +14,14 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.pyarro
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.temporal import PyArrowTemporalSourceTestMixin
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import (
     ResampleTestBase,
 )
 
 
-class TestPyArrowResample(PyArrowTestMixin, ResampleTestBase):
+class TestPyArrowResample(PyArrowTemporalSourceTestMixin, PyArrowTestMixin, ResampleTestBase):
     """All tests inherited from the base class."""
-
-    @classmethod
-    def rejects_numeric_offset_source(cls) -> bool:
-        """PyArrow before 22 cannot handle numeric fixed-offset zones."""
-        return bool(pa.cpp_version_info.major < 22)
 
     @classmethod
     def implementation_class(cls) -> Any:

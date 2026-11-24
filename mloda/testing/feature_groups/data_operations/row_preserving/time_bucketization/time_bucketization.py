@@ -35,7 +35,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar
 
 import pytest
-from mloda.provider import DivergenceKind, FeatureSet, Implementation
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -43,7 +43,6 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
-    has_numeric_fixed_offset,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
@@ -53,6 +52,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.temporal import TemporalSourceTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
 )
@@ -221,7 +221,7 @@ EXPECTED_ROUND_1_DAY: list[Any] = [
 
 
 class TimeBucketizationTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, TemporalSourceTestMixin, DataOpsTestBase
 ):
     """Abstract base class for time-bucketization framework tests.
 
@@ -238,18 +238,8 @@ class TimeBucketizationTestBase(
     _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
 
     @classmethod
-    def tz_aware_source_reads_utc(cls) -> bool:
-        """True when a tz-aware source column is bucketed on its UTC instant, not its own zone (a declared GAP)."""
-        return False
-
-    @classmethod
     def rejects_non_utc_source(cls) -> bool:
         """True when a tz-aware source with a non-zero offset is rejected with a ValueError."""
-        return False
-
-    @classmethod
-    def rejects_numeric_offset_source(cls) -> bool:
-        """True when a source with a numeric fixed-offset timezone is rejected with a ValueError."""
         return False
 
     @classmethod
@@ -404,8 +394,9 @@ class TimeBucketizationTestBase(
             with pytest.raises(ValueError, match="non-UTC"):
                 calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
-        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
-            with pytest.raises(ValueError, match=r"(?i)fixed.offset"):
+        pattern = self.numeric_offset_rejection_match(values)
+        if pattern is not None:
+            with pytest.raises(ValueError, match=pattern):
                 calculate_with(self.implementation_class(), self.create_test_data(TypedTestData(row.inputs)), fs)
             return
         expected = row.expected[row.feature][1]
@@ -422,13 +413,6 @@ class TimeBucketizationTestBase(
             parse_iso=True,
             cast=_instant_and_offset,
         )
-
-    def test_divergent_flags_are_declared(self) -> None:
-        impl = self.implementation_class()
-        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
-            pytest.skip("implementation under test is not an Implementation class")
-        if self.tz_aware_source_reads_utc():
-            assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
 
     # -- Cross-cutting semantics --------------------------------------------
 

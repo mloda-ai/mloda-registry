@@ -745,6 +745,7 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_changing/resample/pyarrow_resample.py
 regression_test:
 - mloda/community/feature_groups/data_operations/tests/test_pyarrow_temporal_zones.py::test_temporal_timezone_support
+- mloda/community/feature_groups/data_operations/tests/test_pyarrow_temporal_zones.py::test_resample_timezone_support
 - mloda/community/feature_groups/data_operations/tests/test_pyarrow_helpers.py::test_fixed_offset_unsupported_by_zone
 - mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_pyarrow.py::TestPyArrowTimeBucketization::test_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/datetime/tests/test_pyarrow.py::TestPyArrowDateTimeExtraction::test_mixin_pinned_row
