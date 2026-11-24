@@ -92,4 +92,8 @@ class SqliteSessionization(Implementation[SessionizationFeatureGroup]):
         finally:
             tagged.drop()
 
+        if not values:
+            # The fetch path has no declared type on zero rows; a typed raw select keeps the id integer.
+            data._ensure_column_absent(feature_name)
+            return data.select(_raw_sql=f"*, CAST(0 AS INTEGER) AS {quote_ident(feature_name)}")
         return data.append_column(feature_name, values)

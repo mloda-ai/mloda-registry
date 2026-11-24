@@ -96,5 +96,9 @@ class SqlitePointArithmetic(Implementation[PointArithmeticFeatureGroup]):
         cursor = data.connection.execute(sql)
         rows = cursor.fetchall()
 
+        if not rows:
+            # The fetch path has no declared type on zero rows; a typed raw select keeps the output type.
+            data._ensure_column_absent(feature_name)
+            return data.select(_raw_sql=f"*, ({left} {sql_op} {right}) AS {quoted_feature}")
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

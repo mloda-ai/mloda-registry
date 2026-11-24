@@ -30,6 +30,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -75,7 +76,12 @@ NAN_POLICY_P50: list[float] = [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0]
 
 
 class PercentileTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    NanPolicyTestMixin,
+    MaskTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for percentile framework tests."""
 
@@ -83,6 +89,12 @@ class PercentileTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__p50_percentile", ["region"])
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"p50": make_feature_set("value_int__p50_percentile", ["region"])}
 
     # -- InputValidationTestMixin configuration ---------------------------------
 
@@ -347,14 +359,6 @@ class PercentileTestBase(
         self._compare_with_reference(feature_name, partition_by=["region"], use_approx=use_approx)
 
     # -- Edge case tests -------------------------------------------------------
-
-    def test_empty_data_returns_zero_rows(self) -> None:
-        """Percentile on an empty table (0 rows) should return 0 rows with the new column."""
-        empty_arrow = TypedTestData({"region": (DataType.STRING, []), "value_int": (DataType.INT64, [])})
-        empty_data = self.create_test_data(empty_arrow)
-        fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = calculate_with(self.implementation_class(), empty_data, fs)
-        assert self.get_row_count(result) == 0
 
     def test_single_row_partitions_return_own_value(self) -> None:
         """Each partition has 1 row: percentile at any level equals the single value."""

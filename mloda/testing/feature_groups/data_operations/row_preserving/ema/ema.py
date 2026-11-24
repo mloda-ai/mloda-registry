@@ -89,6 +89,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.pinning_rows import (
     EMA_IDS,
     EMA_REGIONS,
@@ -129,7 +130,9 @@ def _create_ema_data() -> TypedTestData:
 # ---------------------------------------------------------------------------
 
 
-class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class EmaTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Reusable test base for EMA on backends that compute it NATIVELY.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -146,6 +149,12 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
 
     def output_contract_feature_set(self) -> FeatureSet:
         return self._ema_feature_set(2)
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"ema": make_feature_set("value__ema_2", partition_by=["region"], order_by="ts")}
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 

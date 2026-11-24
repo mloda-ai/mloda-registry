@@ -89,6 +89,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
 
@@ -162,7 +163,11 @@ EXPECTED_SESSION_30_MINUTE_WHOLE: list[int] = [2, 0, 1, 2, 1, 1, 2, 1, 1]
 
 
 class SessionizationTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ReservedColumnsTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for sessionization framework tests.
 
@@ -179,6 +184,12 @@ class SessionizationTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return self._session_feature_set(30, "minute")
+
+    # -- ResultTypeTestMixin configuration --------------------------------------
+
+    @classmethod
+    def result_type_cases(cls) -> dict[str, FeatureSet]:
+        return {"sessionize": make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")}
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 

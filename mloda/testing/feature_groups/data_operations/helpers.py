@@ -177,6 +177,14 @@ def is_null(value: Any) -> bool:
     return False
 
 
+def same_values(actual: Sequence[Any], expected: Sequence[Any]) -> bool:
+    """True when both lists hold equal cells in order; NaN equals NaN and None equals None."""
+    return len(actual) == len(expected) and all(
+        a is e or (isinstance(a, float) and isinstance(e, float) and a != a and e != e) or bool((a == e) is True)
+        for a, e in zip(actual, expected)
+    )
+
+
 def sort_none_last(values: list[Any]) -> list[Any]:
     """Sort values with ``None`` ordered last."""
     return sorted(values, key=lambda x: (x is None, x))
