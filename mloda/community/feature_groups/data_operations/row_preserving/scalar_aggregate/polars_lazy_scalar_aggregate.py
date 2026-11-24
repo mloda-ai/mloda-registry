@@ -58,14 +58,13 @@ class PolarsLazyScalarAggregate(Implementation[ScalarAggregateFeatureGroup]):
             expr = col.mean()
         elif agg_type == "count":
             expr = col.count().cast(pl.Int64)
-        elif agg_type in ("std", "std_pop"):
-            expr = col.std(ddof=0)
-        elif agg_type in ("var", "var_pop"):
-            expr = col.var(ddof=0)
-        elif agg_type == "std_samp":
-            expr = col.std(ddof=1)
-        elif agg_type == "var_samp":
-            expr = col.var(ddof=1)
+        elif agg_type in ("std", "std_pop", "std_samp", "var", "var_pop", "var_samp"):
+            # Two-pass formula: Polars var/std is nondeterministic in the last bit across runs.
+            fcol = col.cast(pl.Float64)
+            ddof = 1 if agg_type.endswith("_samp") else 0
+            n = fcol.count()
+            variance = pl.when(n > ddof).then(((fcol - fcol.mean()) ** 2).sum() / (n - ddof)).otherwise(None)
+            expr = variance.sqrt() if agg_type.startswith("std") else variance
         elif agg_type == "median":
             dtype = data.collect_schema()[actual_source]
             expr = nan_to_null(col, dtype).median()

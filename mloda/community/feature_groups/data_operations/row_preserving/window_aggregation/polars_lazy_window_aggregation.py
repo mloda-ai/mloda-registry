@@ -21,6 +21,15 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     WindowAggregationFeatureGroup,
 )
 
+
+def _variance(col: str, ddof: int, sqrt: bool) -> pl.Expr:
+    # Two-pass formula: Polars var/std is nondeterministic in the last bit across runs.
+    f = pl.col(col).cast(pl.Float64)
+    n = f.count()
+    var = pl.when(n > ddof).then(((f - f.mean()) ** 2).sum() / (n - ddof)).otherwise(None)
+    return var.sqrt() if sqrt else var
+
+
 # Mapping from aggregation type to a Polars expression builder.
 # Each callable takes a column name and returns a Polars Expr.
 _POLARS_AGG_EXPRS: dict[str, Any] = {
@@ -30,12 +39,12 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "count": lambda col: pl.col(col).count().cast(pl.Int64),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),
-    "std": lambda col: pl.col(col).std(ddof=0),
-    "var": lambda col: pl.col(col).var(ddof=0),
-    "std_pop": lambda col: pl.col(col).std(ddof=0),
-    "std_samp": lambda col: pl.col(col).std(ddof=1),
-    "var_pop": lambda col: pl.col(col).var(ddof=0),
-    "var_samp": lambda col: pl.col(col).var(ddof=1),
+    "std": lambda col: _variance(col, 0, True),
+    "var": lambda col: _variance(col, 0, False),
+    "std_pop": lambda col: _variance(col, 0, True),
+    "std_samp": lambda col: _variance(col, 1, True),
+    "var_pop": lambda col: _variance(col, 0, False),
+    "var_samp": lambda col: _variance(col, 1, False),
     "nunique": lambda col: pl.col(col).drop_nulls().n_unique().cast(pl.Int64),
 }
 
