@@ -34,7 +34,7 @@ class TestPandasResample(PandasTestMixin, ResampleTestBase):
     @classmethod
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         divergences: dict[str, Mapping[str, list[Any]]] = dict(RESAMPLE_SORTED_BUCKET_DIVERGENCES)
-        # The sorted-bucket pin for row 24 lists NaN first only for DuckDB; pandas returns the NaN key as None.
+        # The sorted-bucket pin lists NaN first only for DuckDB; pandas returns the NaN key as None.
         divergences["24-partition_keys-v__resample_1_hour_sum"] = {
             "p": [1.0, None],
             "v__resample_1_hour_sum": [2, 5],

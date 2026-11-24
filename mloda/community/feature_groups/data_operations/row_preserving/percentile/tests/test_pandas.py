@@ -35,7 +35,7 @@ class TestPandasPercentile(PandasTestMixin, PercentileTestBase):
             "5-endpoints-v__p100_percentile": {"v__p100_percentile": [None, None, None]},
             "6-endpoints-v__p50_percentile": {"v__p50_percentile": [None, None, None]},
             "7-endpoints-v__p50_percentile": {"v__p50_percentile": [None, None]},
-            # NaN and None partition keys merge, yielding a shared median of 6.5 instead of 2 and 15.
+            # NaN and None partition keys merge, sharing one median.
             "16-partition_keys-v__p50_percentile": {"v__p50_percentile": [6.5, 6.5, 6.5, 6.5]},
         }
 

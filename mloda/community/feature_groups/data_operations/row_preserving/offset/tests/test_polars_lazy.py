@@ -23,7 +23,7 @@ class TestPolarsLazyOffset(PolarsLazyTestMixin, OffsetTestBase):
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         return {
             **super().pinned_divergences(),
-            # Narrow integer subtraction wraps before widening: UINT8 gives 252 instead of -4; INT8 gives -56 instead of 200.
+            # Narrow integer subtraction wraps before widening.
             "20-dtype-v__diff_1_offset": {"v__diff_1_offset": [None, 252]},
             "21-dtype-v__diff_1_offset": {"v__diff_1_offset": [None, -56]},
         }
