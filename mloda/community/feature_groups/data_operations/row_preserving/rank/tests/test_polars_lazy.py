@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -27,6 +28,14 @@ class TestPolarsLazyRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, Pola
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyRank
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        return {
+            **super().pinned_divergences(),
+            # top_N selects the earlier tied maximum; the pinned rule reverses the stable ascending order.
+            "13-top_bottom-o__top_2_ranked": {"o__top_2_ranked": [False, True, True, False, False]},
+        }
 
     @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:

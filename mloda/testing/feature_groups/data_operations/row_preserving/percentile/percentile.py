@@ -30,7 +30,10 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.percentile.pinning_rows import PERCENTILE_PINNING
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -76,6 +79,7 @@ NAN_POLICY_P50: list[float] = [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0]
 
 
 class PercentileTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
@@ -84,6 +88,10 @@ class PercentileTestBase(
     DataOpsTestBase,
 ):
     """Abstract base class for percentile framework tests."""
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return PERCENTILE_PINNING
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

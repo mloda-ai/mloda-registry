@@ -16,6 +16,7 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
@@ -23,7 +24,8 @@ from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.aggregation_pinning_rows import AGGREGATION_PINNING
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
     assert_values_with_nulls,
@@ -43,12 +45,14 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -191,6 +195,7 @@ def _build_result_map(
 
 
 class AggregationTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
@@ -208,6 +213,25 @@ class AggregationTestBase(
     Connection-based frameworks (DuckDB, SQLite) need ~25 lines
     (add setup_method/teardown_method for connection lifecycle).
     """
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return AGGREGATION_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        pins: dict[str, Mapping[str, list[Any]]] = {}
+        if not cls.merges_signed_zero_keys():
+            # The backend groups -0.0 and +0.0 apart as partition keys and unique values.
+            pins["6-signed_zero-v__count_agg"] = {"k": [-0.0, 0.0], "v__count_agg": [1, 2]}
+            pins["7-signed_zero-v__nunique_agg"] = {"v__nunique_agg": [2]}
+        impl = cls.implementation_class()
+        # Declared nan_as_null: NaN is excluded from nunique and a leading NaN is skipped by first.
+        if declares_nan_as_null(impl, frozenset({"nunique"})):
+            pins["0-nan-v__nunique_agg"] = {"v__nunique_agg": [1]}
+        if declares_nan_as_null(impl, frozenset({"first"})):
+            pins["1-nan-val__first_agg"] = {"val__first_agg": [1.0]}
+        return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

@@ -12,6 +12,7 @@ methods. This follows the same pattern as mloda core's ``DataFrameTestBase`` in
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -19,6 +20,7 @@ from mloda.provider import FeatureSet
 from mloda.user import DataType, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+from mloda.testing.feature_groups.data_operations.aggregation_pinning_rows import WINDOW_AGGREGATION_PINNING
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase, declares_nan_as_null
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
@@ -33,6 +35,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
@@ -40,6 +43,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 from mloda.testing.typed_data import TypedTestData
 
@@ -139,6 +143,7 @@ SINGLE_VALUE_STD_VAR_WINDOW: dict[str, list[float]] = {
 
 
 class WindowAggregationTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
@@ -149,6 +154,24 @@ class WindowAggregationTestBase(
     DataOpsTestBase,
 ):
     """Abstract base class for window aggregation framework tests."""
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return WINDOW_AGGREGATION_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        pins: dict[str, Mapping[str, list[Any]]] = {}
+        if not cls.merges_signed_zero_keys():
+            # The backend groups -0.0 and +0.0 apart as partition keys and unique values.
+            pins["4-signed_zero-v__count_window"] = {"v__count_window": [1, 2, 2]}
+            pins["5-signed_zero-v__nunique_window"] = {"v__nunique_window": [2, 2, 2]}
+        if not cls.orders_nan_before_none():
+            # Declared nan_as_null: first skips a leading NaN, and NaN and None tie in order_by.
+            pins["3-nan-v__first_window"] = {"v__first_window": [1.0, 1.0]}
+            pins["6-order-v__last_window"] = {"v__last_window": [20, 20, 20]}
+            pins["7-order-v__first_window"] = {"v__first_window": [10, 10]}
+        return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

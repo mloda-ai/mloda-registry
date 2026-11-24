@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.sqlite_sessionization import (
@@ -19,6 +20,11 @@ class TestSqliteSessionization(SqliteTestMixin, SessionizationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteSessionization
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        # NaN and None partition keys merge, changing session boundaries and IDs.
+        return {"8-nan_none_keys-ts__sessionize_30_minute": {"ts__sessionize_30_minute": [1, 1, 0, 1, 1]}}
 
 
 class TestSqliteSessionizationViewInput(SqliteViewTestMixin, TestSqliteSessionization):

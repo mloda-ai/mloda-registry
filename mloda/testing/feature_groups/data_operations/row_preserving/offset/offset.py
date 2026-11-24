@@ -12,6 +12,7 @@ Group compositions (ordered by value_int, nulls last):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -32,8 +33,11 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.pinning_rows import OFFSET_PINNING
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 from mloda.testing.typed_data import TypedTestData
 
@@ -84,9 +88,32 @@ _TIE_NULL_ORDER = (["a"] * 4, [None, None, 1, 1], [1.0, 2.0, 3.0, 4.0])
 
 
 class OffsetTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    PinnedRowTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ReservedColumnsTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for offset framework tests."""
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return OFFSET_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if cls.orders_nan_before_none():
+            return {}
+        # Declared nan_as_null: NaN and None tie in order_by, and a NaN source value is treated as null.
+        return {
+            "3-order_tiers-v__lag_1_offset": {"v__lag_1_offset": [30, 10, None]},
+            "4-order_tiers-v__lead_1_offset": {"v__lead_1_offset": [20, None, 10]},
+            "7-nan-v__lag_1_offset": {"v__lag_1_offset": [None, None, 1.5]},
+            "8-nan-v__diff_1_offset": {"v__diff_1_offset": [None, 2.5, None]},
+            "14-nan-v__first_value_offset": {"v__first_value_offset": [1.0, 1.0, 1.0]},
+            "15-nan-v__last_value_offset": {"v__last_value_offset": [1.0, 1.0, 1.0]},
+        }
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

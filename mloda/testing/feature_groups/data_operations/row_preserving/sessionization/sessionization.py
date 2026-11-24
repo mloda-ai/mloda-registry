@@ -88,8 +88,13 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.pinning_rows import (
+    SESSIONIZATION_PINNING,
+)
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
 
@@ -163,6 +168,7 @@ EXPECTED_SESSION_30_MINUTE_WHOLE: list[int] = [2, 0, 1, 2, 1, 1, 2, 1, 1]
 
 
 class SessionizationTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     ReservedColumnsTestMixin,
@@ -179,6 +185,10 @@ class SessionizationTestBase(
     there is no ``supported_ops`` machinery here. All five backends support
     sessionization natively; there are no rejections of supported inputs.
     """
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return SESSIONIZATION_PINNING
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

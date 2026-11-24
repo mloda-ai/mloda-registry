@@ -17,6 +17,7 @@ the abstract adapter methods from ``DataOpsTestBase``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
@@ -35,7 +36,10 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.pinning_rows import RANK_PINNING
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -94,12 +98,32 @@ EXPECTED_NONE_NAN_PERCENT_RANK_TIED = [1 / 3, 1 / 3, 1 / 3, 0.0]
 # ---------------------------------------------------------------------------
 
 
-class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase):
+class RankTestBase(
+    PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+):
     """Abstract base class for rank framework tests.
 
     Subclasses implement the abstract adapter methods from ``DataOpsTestBase``
     to wire up their framework, then inherit concrete test methods for free.
     """
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return RANK_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        pins: dict[str, Mapping[str, list[Any]]] = {}
+        if not cls.ranks_none_and_nan_apart():
+            # NaN and None tie in order_by (declared nan_as_null for rank and dense_rank; row_number and top_N follow).
+            pins["3-order_tiers-o__row_number_ranked"] = {"o__row_number_ranked": [2, 3, 1]}
+            pins["4-order_tiers-o__rank_ranked"] = {"o__rank_ranked": [2, 1, 2, 2, 2]}
+            pins["5-order_tiers-o__dense_rank_ranked"] = {"o__dense_rank_ranked": [2, 1, 2, 2, 2]}
+            pins["17-top_bottom-o__top_2_ranked"] = {"o__top_2_ranked": [True, False, True]}
+        if cls.merges_none_and_nan_partition_keys():
+            # NaN and None partition keys merge, so row_number crosses the reference partition boundary.
+            pins["20-partition_keys-o__row_number_ranked"] = {"o__row_number_ranked": [3, 4, 1, 2]}
+        return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

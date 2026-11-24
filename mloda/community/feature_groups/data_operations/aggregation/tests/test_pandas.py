@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -37,6 +38,14 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
             ("value__median_agg", Options()),
             ("value__mode_agg", Options()),
         )
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        return {
+            **super().pinned_divergences(),
+            # The NaN partition is returned last, as a null key, instead of in first-occurrence order.
+            "8-partition_keys-val__sum_agg": {"grp": [1.0, 2.0, None], "val__sum_agg": [100.0, 200.0, 30.0]},
+        }
 
 
 class TestPandasAggregationNullableInt(PandasNullableIntTestMixin, TestPandasAggregation):
