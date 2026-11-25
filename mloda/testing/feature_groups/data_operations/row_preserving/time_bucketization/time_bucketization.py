@@ -372,7 +372,7 @@ class TimeBucketizationTestBase(
 
     @classmethod
     def checks_pinned_types(cls) -> bool:
-        """Every pinned row keeps the declared output type (unit and zone survive)."""
+        """Every pinned row keeps its declared type: the unit and tz-awareness; the zone is compared by value."""
         return True
 
     def rejection_match(self, row: PinningRow) -> str | None:
