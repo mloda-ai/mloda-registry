@@ -722,7 +722,7 @@ class ResampleTestBase(
         return make_multi_feature_set(specs)
 
     def test_multiple_features_same_grid(self) -> None:
-        """Features sharing a bucket grid are aggregated together from the original input, incl. a time-column source."""
+        """Features sharing a bucket grid are aggregated together from the original input, including a time-column source."""
         names = ["value__resample_1_hour_mean", "value__resample_1_hour_sum", "value__resample_1_hour_count"]
         ts_name = "ts__resample_1_hour_max"
         fs = self._multi_feature_set([*names, ts_name], ["region"])
