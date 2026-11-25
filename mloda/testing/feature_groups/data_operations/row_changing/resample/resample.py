@@ -478,7 +478,7 @@ class ResampleTestBase(
         ids=["fixed_plus_05", "named_asia_kolkata"],
     )
     def test_non_utc_zone_bucket(self, tz: tzinfo) -> None:
-        """A non-UTC zone buckets on its own wall clock (on UTC when the hook is True)."""
+        """A non-UTC zone buckets on its own wall clock (UTC wall clock, source-zone labels, when the hook is True)."""
         rows = [datetime(2024, 1, 1, 2, 0, tzinfo=tz), datetime(2024, 1, 1, 7, 0, tzinfo=tz)]
         feature_name = "value__resample_1_day_count"
         fs = make_feature_set(feature_name, partition_by=[], time_column="ts")
@@ -497,7 +497,8 @@ class ResampleTestBase(
         if self.tz_aware_source_reads_utc():
             utc_rows = [v.astimezone(timezone.utc) for v in rows]
             ref = self.reference_calculate(arrow_table_of(typed(utc_rows)), fs)
-            expected = self._build_resample_map(ref, feature_name, "ts", [], column=_extract_column)
+            utc_expected = self._build_resample_map(ref, feature_name, "ts", [], column=_extract_column)
+            expected = {(*k[:-1], k[-1].astimezone(tz)): v for k, v in utc_expected.items()}
         result = calculate_with(self.implementation_class(), self.create_test_data(typed(rows)), fs)
         actual = self._build_resample_map(result, feature_name, "ts", [])
         self._assert_map_equals(actual, expected)

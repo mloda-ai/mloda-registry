@@ -10,7 +10,6 @@ import pytest
 pytest.importorskip("polars")
 
 from mloda.user import DataType
-from polars.exceptions import ComputeError
 
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.polars_lazy_time_bucketization import (
     PolarsLazyTimeBucketization,
@@ -39,7 +38,7 @@ class TestPolarsLazyTimeBucketization(PolarsLazyTestMixin, TimeBucketizationTest
         return False
 
     def test_sub_hour_offset_still_unsupported(self) -> None:
-        """Flags when Polars can hold a -03:30 offset, so the skip can go."""
+        """Pins core's ValueError for a -03:30 offset; flags when Polars can hold it, so the skip can go."""
         data = TypedTestData(
             {
                 "ts": (
@@ -48,7 +47,7 @@ class TestPolarsLazyTimeBucketization(PolarsLazyTestMixin, TimeBucketizationTest
                 )
             }
         )
-        with pytest.raises(ComputeError):
+        with pytest.raises(ValueError, match=r"Column 'ts' has time zone '-03:30'"):
             built = self.create_test_data(data)
             if hasattr(built, "collect"):
                 built.collect()

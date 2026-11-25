@@ -15,7 +15,6 @@ from mloda.user import Options
 from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
     PandasAggregation,
 )
-from mloda.community.feature_groups.data_operations.tests.pandas_findings import PANDAS_INPUT_DTYPE_FINDING
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
@@ -24,7 +23,6 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding
 
 
 class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, AggregationTestBase):
@@ -33,10 +31,6 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasAggregation
-
-    @classmethod
-    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
-        return dict.fromkeys(("first", "last", "max", "min", "sum"), PANDAS_INPUT_DTYPE_FINDING)
 
     @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
@@ -56,10 +50,6 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
 
 class TestPandasAggregationNullableInt(PandasNullableIntTestMixin, TestPandasAggregation):
     """Runs the aggregation suite on nullable pandas int columns."""
-
-    @classmethod
-    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
-        return {}
 
 
 class TestPandasModeVectorized:

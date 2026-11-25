@@ -13,13 +13,11 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
     PandasWindowAggregation,
 )
-from mloda.community.feature_groups.data_operations.tests.pandas_findings import PANDAS_INPUT_DTYPE_FINDING
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -32,17 +30,9 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
     def implementation_class(cls) -> Any:
         return PandasWindowAggregation
 
-    @classmethod
-    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
-        return dict.fromkeys(("first", "last", "max", "min", "sum"), PANDAS_INPUT_DTYPE_FINDING)
-
 
 class TestPandasWindowAggregationNullableInt(PandasNullableIntTestMixin, TestPandasWindowAggregation):
     """Runs the window_aggregation suite on nullable pandas int columns."""
-
-    @classmethod
-    def result_type_known_findings(cls) -> dict[str, KnownFinding]:
-        return {}
 
     @pytest.mark.parametrize("agg_type", ["std_samp", "var_samp"])
     def test_sample_spread_of_single_row_partitions_is_float64_with_na(self, agg_type: str) -> None:
