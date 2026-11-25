@@ -12,7 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types
+from mloda.community.feature_groups.data_operations.duckdb_helpers import NARROW_INTEGER_TYPES, column_types
 from mloda.community.feature_groups.data_operations.row_preserving.lookup.base import (
     LookupFeatureGroup,
     LookupUnmatchedError,
@@ -25,7 +25,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.base i
 _VALUE_SQL_TYPES: dict[str, str] = {"str": "VARCHAR", "int": "BIGINT"}
 
 # UBIGINT, HUGEINT and UHUGEINT cannot be compared at int64 width and fall to "other".
-_INT_TYPES = frozenset({"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER"})
+_INT_TYPES = NARROW_INTEGER_TYPES | {"BIGINT"}
 
 
 def _source_family(duckdb_type: str) -> str:

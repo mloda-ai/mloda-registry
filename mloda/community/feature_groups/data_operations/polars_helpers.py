@@ -12,7 +12,7 @@ from typing import Callable
 
 import polars as pl
 
-# Integer dtypes narrower than 64 bits.
+# Integer dtypes narrower than 64 bits: they widen to Int64 without overflow and fit exactly in a float64.
 NARROW_INTEGERS = (pl.Int8, pl.Int16, pl.Int32, pl.UInt8, pl.UInt16, pl.UInt32)
 
 # Polars duration aliases for each unit. Polars' ``dt.truncate('1w')`` is

@@ -70,6 +70,9 @@ def column_types(data: "DuckdbRelation") -> dict[str, str]:
 
 _FLOAT_TYPES = ("FLOAT", "DOUBLE")
 
+# DuckDB integer types narrower than 64 bits: they widen to BIGINT without overflow and fit exactly in a DOUBLE.
+NARROW_INTEGER_TYPES = frozenset({"TINYINT", "SMALLINT", "INTEGER", "UTINYINT", "USMALLINT", "UINTEGER"})
+
 
 def _is_float(data: "DuckdbRelation", source_col: str) -> bool:
     """Whether ``source_col`` is a DuckDB FLOAT/DOUBLE column."""

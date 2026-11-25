@@ -14,13 +14,14 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, with_input_position
+from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    NARROW_INTEGER_TYPES,
+    column_types,
+    with_input_position,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
-
-# Integer types that fit in BIGINT; diff and pct_change widen them first so the subtraction cannot overflow.
-_NARROW_INTEGER_TYPES = ("TINYINT", "SMALLINT", "INTEGER", "UTINYINT", "USMALLINT", "UINTEGER")
 
 
 class DuckdbOffset(Implementation[OffsetFeatureGroup]):
@@ -63,7 +64,7 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
     ) -> DuckdbRelation:
         quoted_source = quote_ident(source_col)
         numeric_source = quoted_source
-        if column_types(data).get(source_col, "").upper() in _NARROW_INTEGER_TYPES:
+        if column_types(data).get(source_col, "").upper() in NARROW_INTEGER_TYPES:
             numeric_source = f"CAST({quoted_source} AS BIGINT)"
         order_spec: list[str | OrderBy] = [OrderBy(order_by, nulls="last"), rn]
 
