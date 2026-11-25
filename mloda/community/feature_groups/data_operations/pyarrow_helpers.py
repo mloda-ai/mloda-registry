@@ -52,11 +52,7 @@ def needs_all_nan_repair(agg: str, arrow_type: pa.DataType) -> bool:
 def restore_all_nan_extrema(
     values: pa.Array | pa.ChunkedArray | pa.Scalar, all_nan: pa.Array | pa.ChunkedArray | pa.Scalar
 ) -> pa.Array | pa.ChunkedArray | pa.Scalar:
-    """Put NaN back where ``all_nan`` holds; PyArrow before 26 returns ``+inf`` (min) / ``-inf`` (max) there.
-
-    ``all_nan`` is the native ``all(is_nan(source))`` of the same group (or the whole column). It is null
-    for an all-null group, which keeps its null. Genuine infinities and the float width are unchanged.
-    """
+    """Put NaN back where ``all_nan`` holds (PyArrow before 26 returns an infinity there)."""
     flag = pc.fill_null(all_nan, False)
     return pc.if_else(flag, pa.scalar(float("nan"), type=values.type), values)
 

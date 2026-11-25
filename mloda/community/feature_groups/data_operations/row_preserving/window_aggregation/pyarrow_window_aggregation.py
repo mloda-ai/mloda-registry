@@ -80,7 +80,7 @@ class PyArrowWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
         # ``idx_col`` itself is collision-free, but the group-by below derives
-        # ``f"{idx_col}_list"`` (and ``agg_col = f"{source_col}_{pa_func}"``) on the
+        # ``f"{idx_col}_list"`` (and ``agg_col = f"{source_col}_{pa_func}"``, ``f"{nan_col}_all"``) on the
         # grouped table without re-checking. These derived names are assumed absent
         # from the input; a user column named exactly ``{idx_col}_list`` could shadow
         # the list column. This is the same naming assumption as the pre-existing
