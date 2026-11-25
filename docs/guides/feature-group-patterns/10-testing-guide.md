@@ -19,7 +19,7 @@
 | Binary-backed group | simulated binary, simulated license, `BinaryModelConformanceBase` (extra `mloda-testing[binary-model]`) | `binary_model` | [Binary-Backed Features: Test](29-binary-backed-features.md#test) |
 | Extender package | `ExtenderContractTestMixin` (extra `mloda-testing[pyarrow]`) | `extenders` | [Create an Extender: Testing](../11-create-extender.md#testing) |
 | Extender package with an optional dependency | `OptionalDependencyPackageTestMixin` | `optional_dependency` | [Create an Extender: Optional dependency packages](../11-create-extender.md#optional-dependency-packages) |
-| Any package: what an import loads, a missing dependency | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
+| Any package: what an import loads, a missing dependency, a base install | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report`, `assert_imports_with_base_deps` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
 | Compute framework | `assert_compute_framework_shape`, the suites, `TypedTestData`, `FrameworkAdapter` | `compute_framework_shape`, `compute_framework`, `typed_data`, `framework_adapter` | [Compute Framework Testing Guide](../compute-framework-patterns/09-testing-guide.md) |
 
 The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases (re-exported with `HookError` and `SwitchedOffError` from `mloda.testing.suite`): name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
@@ -667,6 +667,16 @@ def test_imports_load_only_their_groups(acme_plugin: None) -> None:
 ```
 
 The report lists abstract bases too, so include them in the expected groups.
+
+`assert_imports_with_base_deps(package, allowed)` checks a base install. A fresh interpreter allows only the stdlib, `allowed` and the package, imports every module, and reports each failing one with its traceback. `tests` subpackages are skipped; pass `exclude` for modules that need an extra (see [Optional Backends](../04-create-plugin-package.md#optional-backends)). A dotted entry such as `mloda.core` admits that subpackage and its parents only, so a `mloda.*` namespace plugin can keep `mloda.testing` out.
+
+```python
+from mloda.testing.import_isolation import assert_imports_with_base_deps
+
+
+def test_base_install_imports(acme_plugin: None) -> None:
+    assert_imports_with_base_deps("acme", {"mloda"})
+```
 
 ## Testing by Pattern
 
