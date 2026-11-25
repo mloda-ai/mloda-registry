@@ -109,6 +109,11 @@ class TestSqliteSourceShapes:
             ),
             pytest.param(_string_source("14:00"), r"value '14:00'", id="time-only"),
             pytest.param(_string_source("now"), r"value 'now'", id="now"),
+            pytest.param(
+                _string_source("2024-01-01 14:00:00+01:00 "),
+                r"value '2024-01-01 14:00:00\+01:00 '",
+                id="trailing-space",
+            ),
             pytest.param(_blob_source, r"storage class 'blob'", id="blob"),
             pytest.param(_julian_integer_source, r"storage class 'integer'", id="julian-integer"),
         ],

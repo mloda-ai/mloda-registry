@@ -72,9 +72,7 @@ from mloda.community.feature_groups.data_operations.sqlite_helpers import (
 # Affinity strings (from PRAGMA table_info) that imply a timestamp source.
 # ``SqliteRelation.from_arrow`` maps a tz-aware ``pa.timestamp(..., tz="UTC")``
 # arrow type to SQLite ``TEXT`` (see ``_arrow_type_to_sqlite``), and the
-# stored content is the ISO-8601 representation. We accept TEXT as a
-# candidate timestamp affinity and let the SQL functions surface any
-# parse-time error from non-timestamp text.
+# stored content is the ISO-8601 representation, so TEXT is a candidate.
 _SQLITE_TIMESTAMP_AFFINITIES: frozenset[str] = frozenset({"TEXT", "DATETIME", "TIMESTAMP", "DATE"})
 _TIMESTAMP_STORAGE_CLASSES: frozenset[str] = frozenset({"text"})
 
@@ -172,9 +170,9 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     def _assert_source_column_is_timestamp(cls, data: SqliteRelation, source_col: str) -> None:
         """Reject non-timestamp and non-UTC tz-aware source columns.
 
-        1. Storage class text for every column, declared affinity TEXT-like.
-        2. Every value parses and has a time of day, so date-only, time-only
-           and 'now' are rejected.
+        1. Storage class text for every value, declared affinity TEXT-like.
+        2. Every value parses, has a time of day and ends in a digit or ``Z``,
+           so date-only, time-only, 'now' and trailing characters are rejected.
         3. No non-UTC offset (``+00:00`` and naive pass, ``Z`` is read as UTC).
         """
         affinity = column_affinities(data)[source_col]
@@ -193,7 +191,8 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             f"SELECT {quoted_source} "  # nosec
             f"FROM {quoted_table} "
             f"WHERE {quoted_source} IS NOT NULL AND (julianday({quoted_source}) IS NULL "
-            f"OR NOT (substr({wall}, 11, 1) IN (' ', 'T') AND substr({wall}, 14, 1) = ':')) "
+            f"OR NOT (substr({wall}, 11, 1) IN (' ', 'T') AND substr({wall}, 14, 1) = ':' "
+            f"AND substr({quoted_source}, -1) GLOB '[0-9Zz]')) "
             f"LIMIT 1"
         )
         cursor = data.connection.execute(probe_sql)
