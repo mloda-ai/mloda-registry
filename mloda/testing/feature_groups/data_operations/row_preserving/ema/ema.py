@@ -164,11 +164,13 @@ class EmaTestBase(
             return {}
         # The framework holds NaN as null: partition keys merge (EMA state shared across reference partitions),
         # NaN and None tie in order_by, and a NaN source value is null instead of propagating through the recurrence.
-        return {
-            "14-partition_keys-v__ema_3": {"v__ema_3": [2.0, 3.0, 4.5, 6.25]},
-            "8-order_tiers-v__ema_3": {"v__ema_3": [3.0, 4.5, 4.0]},
-            "12-nan-v__ema_2": {"v__ema_2": [10.0, None, 23.333333333333336, None, 41.11111111111111]},
-        }
+        return cls.served_pins(
+            {
+                "14-partition_keys-v__ema_3": {"v__ema_3": [2.0, 3.0, 4.5, 6.25]},
+                "8-order_tiers-v__ema_3": {"v__ema_3": [3.0, 4.5, 4.0]},
+                "12-nan-v__ema_2": {"v__ema_2": [10.0, None, 23.333333333333336, None, 41.11111111111111]},
+            }
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
@@ -341,7 +343,7 @@ class EmaTestBase(
     # -- NaN in order_by and in the source -----------------------------------
 
     def test_nan_orders_before_none(self) -> None:
-        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a framework holding NaN as null ties them."""
         table = TypedTestData(
             {
                 "g": (DataType.STRING, ["g"] * 3),
@@ -356,7 +358,7 @@ class EmaTestBase(
         self._assert_nan_case(table, fs, "v__ema_2", reference, tied, approx=True)
 
     def test_nan_source_value_propagates(self) -> None:
-        """The reference lets a NaN input poison the state; a backend declaring nan_as_null treats it as null."""
+        """The reference lets a NaN input poison the state; a framework holding NaN as null treats it as null."""
         nan = float("nan")
         table = TypedTestData(
             {

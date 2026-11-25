@@ -129,10 +129,12 @@ class ScalarAggregateTestBase(
         if not cls.framework_nan_is_null():
             return {}
         # The framework holds NaN as null: an all-NaN min or max reads back as null.
-        return {
-            "1-all_nan-v__min_scalar": {"v__min_scalar": [None, None]},
-            "2-all_nan-v__max_scalar": {"v__max_scalar": [None, None]},
-        }
+        return cls.served_pins(
+            {
+                "1-all_nan-v__min_scalar": {"v__min_scalar": [None, None]},
+                "2-all_nan-v__max_scalar": {"v__max_scalar": [None, None]},
+            }
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

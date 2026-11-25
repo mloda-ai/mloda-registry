@@ -117,14 +117,17 @@ class RankTestBase(
         if cls.framework_nan_is_null() or declares_nan_as_null(
             cls.implementation_class(), frozenset({"rank", "dense_rank"})
         ):
-            # NaN and None tie in order_by (the framework holds NaN as null, or the operation declares it; row_number and top_N follow).
+            # NaN and None tie in order_by (the framework holds NaN as null, or the operation declares it;
+            # row_number and top_N follow).
             pins["3-order_tiers-o__row_number_ranked"] = {"o__row_number_ranked": [2, 3, 1]}
             pins["4-order_tiers-o__rank_ranked"] = {"o__rank_ranked": [2, 1, 2, 2, 2]}
             pins["5-order_tiers-o__dense_rank_ranked"] = {"o__dense_rank_ranked": [2, 1, 2, 2, 2]}
             pins["17-top_bottom-o__top_2_ranked"] = {"o__top_2_ranked": [True, False, True]}
         if cls.framework_nan_is_null():
             # NaN and None partition keys merge, so row_number crosses the reference partition boundary.
-            pins["20-partition_keys-o__row_number_ranked"] = {"o__row_number_ranked": [3, 4, 1, 2]}
+            pins.update(
+                cls.served_pins({"20-partition_keys-o__row_number_ranked": {"o__row_number_ranked": [3, 4, 1, 2]}})
+            )
         return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------

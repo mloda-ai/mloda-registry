@@ -463,8 +463,6 @@ class TestDivergences:
                 assert sorted(tuple(sorted(r.subtypes)) for r in variants) == sorted(
                     expected.get((info.name, framework), [])
                 ), (info.name, framework)
-        resample_records = DataOperationsCatalog.get("resample").divergences["PandasDataFrame"]
-        assert all("tie" not in r.reason for r in resample_records)
 
     def test_python_dict_rank_keeps_its_tie_record(self) -> None:
         """PythonDict ties NaN with null by choice, so it stays an operation-level record."""

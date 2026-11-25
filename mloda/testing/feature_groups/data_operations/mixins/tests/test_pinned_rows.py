@@ -345,3 +345,10 @@ class TestCollectionFilter:
         table = PinningTable(operation="op", rules={}, rows=rows)
         host = _make_host(_Computes, None, table=table, implementation=_FilterImpl)
         assert list(host.pinned_row_cases()) == ["1-c-keep", "3-d-keep"]
+
+    def test_served_pins_drops_a_pin_on_an_unsupported_row_and_keeps_a_served_one(self) -> None:
+        rows = (_filter_row("c", "drop"), _filter_row("c", "keep"))
+        table = PinningTable(operation="op", rules={}, rows=rows)
+        host = _make_host(_Computes, None, table=table, implementation=_FilterImpl)
+        pins = {"0-c-drop": {"drop": [2]}, "1-c-keep": {"keep": [2]}}
+        assert host.served_pins(pins) == {"1-c-keep": {"keep": [2]}}

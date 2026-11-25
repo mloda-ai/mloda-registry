@@ -300,10 +300,12 @@ class FrameAggregateTestBase(
             return {}
         # The framework holds NaN as null: NaN and None tie in order_by, changing the cumulative sums,
         # and NaN and None partition keys merge into one group.
-        return {
-            "8-order-v__cumsum": {"v__cumsum": [40, 60, 30]},
-            "15-partition_keys-v__cumsum": {"v__cumsum": [1, 3, 7]},
-        }
+        return cls.served_pins(
+            {
+                "8-order-v__cumsum": {"v__cumsum": [40, 60, 30]},
+                "15-partition_keys-v__cumsum": {"v__cumsum": [1, 3, 7]},
+            }
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

@@ -99,7 +99,7 @@ class PercentileTestBase(
         if not cls.framework_nan_is_null():
             return {}
         # The framework holds NaN as null: NaN and None partition keys merge, sharing one median.
-        return {"16-partition_keys-v__p50_percentile": {"v__p50_percentile": [6.5, 6.5, 6.5, 6.5]}}
+        return cls.served_pins({"16-partition_keys-v__p50_percentile": {"v__p50_percentile": [6.5, 6.5, 6.5, 6.5]}})
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

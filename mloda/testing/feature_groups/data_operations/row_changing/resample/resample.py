@@ -332,16 +332,18 @@ class ResampleTestBase(
             return {}
         # The framework holds NaN as null: an all-NaN min or max is null, the NaN partition key reads back as None,
         # and NaN and None partition keys merge, collapsing two output buckets into one.
-        return {
-            "20-nan-v__resample_1_hour_min": {"v__resample_1_hour_min": [None]},
-            "21-nan-v__resample_1_hour_max": {"v__resample_1_hour_max": [None]},
-            "24-partition_keys-v__resample_1_hour_sum": {"p": [1.0, None], "v__resample_1_hour_sum": [2, 5]},
-            "25-partition_keys-v__resample_1_hour_sum": {
-                "p": [None],
-                "ts": [datetime(2023, 1, 1, 8, 0, tzinfo=timezone.utc)],
-                "v__resample_1_hour_sum": [15],
-            },
-        }
+        return cls.served_pins(
+            {
+                "20-nan-v__resample_1_hour_min": {"v__resample_1_hour_min": [None]},
+                "21-nan-v__resample_1_hour_max": {"v__resample_1_hour_max": [None]},
+                "24-partition_keys-v__resample_1_hour_sum": {"p": [1.0, None], "v__resample_1_hour_sum": [2, 5]},
+                "25-partition_keys-v__resample_1_hour_sum": {
+                    "p": [None],
+                    "ts": [datetime(2023, 1, 1, 8, 0, tzinfo=timezone.utc)],
+                    "v__resample_1_hour_sum": [15],
+                },
+            }
+        )
 
     @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:

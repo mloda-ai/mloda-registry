@@ -172,17 +172,19 @@ class WindowAggregationTestBase(
             pins["3-nan-v__first_window"] = {"v__first_window": [1.0, 1.0]}
         if cls.framework_nan_is_null():
             # The framework holds NaN as null: NaN and None tie in order_by (pins on unserved rows are dropped).
-            served = cls.pinned_row_cases()
-            tied = {
-                "6-order-v__last_window": {"v__last_window": [20, 20, 20]},
-                "7-order-v__first_window": {"v__first_window": [10, 10]},
-            }
-            pins.update({row_id: columns for row_id, columns in tied.items() if row_id in served})
-            # NaN and None partition keys merge into one group.
-            pins["8-partition_keys-v__max_window"] = {"v__max_window": [4, 4, 4]}
-            # An all-NaN min or max reads back as null.
-            pins["9-all_nan-val__min_window"] = {"val__min_window": [None, None]}
-            pins["10-all_nan-val__max_window"] = {"val__max_window": [None, None]}
+            pins.update(
+                cls.served_pins(
+                    {
+                        "6-order-v__last_window": {"v__last_window": [20, 20, 20]},
+                        "7-order-v__first_window": {"v__first_window": [10, 10]},
+                        # NaN and None partition keys merge into one group.
+                        "8-partition_keys-v__max_window": {"v__max_window": [4, 4, 4]},
+                        # An all-NaN min or max reads back as null.
+                        "9-all_nan-val__min_window": {"val__min_window": [None, None]},
+                        "10-all_nan-val__max_window": {"val__max_window": [None, None]},
+                    }
+                )
+            )
         return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------

@@ -33,6 +33,7 @@ class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, Aggregatio
             **super().pinned_divergences(),
             # SQLite loses the negative sign of the first-seen zero partition key.
             "6-signed_zero-v__count_agg": {"k": [0.0], "v__count_agg": [3]},
+            # Stays a twin pin: the NaN-key-as-null result combines with this backend's own group order.
             # sqlite3 stores the NaN partition key as NULL.
             "8-partition_keys-val__sum_agg": {"grp": [None, 1.0, 2.0], "val__sum_agg": [30.0, 100.0, 200.0]},
         }

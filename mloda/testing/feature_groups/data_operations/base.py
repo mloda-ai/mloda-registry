@@ -304,8 +304,8 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def orders_nan_before_none(cls) -> bool:
-        """False exactly when the compute framework holds NaN as null, so NaN and None tie in ``order_by``."""
-        return not cls.framework_nan_is_null()
+        """False when the framework holds NaN as null or the Implementation declares a scopeless ``nan_as_null``."""
+        return not (cls.framework_nan_is_null() or declares_nan_as_null(cls.implementation_class()))
 
     def _assert_nan_case(
         self,
@@ -316,7 +316,7 @@ class DataOpsTestBase(ABC):
         tied: list[Any],
         approx: bool = False,
     ) -> None:
-        """Backend column equals ``reference`` (or ``tied`` for nan_as_null), then the reference column equals ``reference``."""
+        """Backend column equals ``reference`` (``tied`` for a framework holding NaN as null), then the reference does."""
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         col = self.extract_column(result, feature_name)
         expected = reference if self.orders_nan_before_none() else tied
