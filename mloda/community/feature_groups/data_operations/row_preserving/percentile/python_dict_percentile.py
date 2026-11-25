@@ -88,4 +88,8 @@ class PythonDictPercentile(Implementation[PercentileFeatureGroup]):
         hi = math.ceil(idx)
         if lo == hi:
             return float(non_null[lo])
+        if non_null[lo] == non_null[hi]:
+            return float(non_null[lo])
+        if math.isinf(non_null[lo]) or math.isinf(non_null[hi]):
+            return float((1 - (idx - lo)) * non_null[lo] + (idx - lo) * non_null[hi])
         return float(non_null[lo] + (idx - lo) * (non_null[hi] - non_null[lo]))
