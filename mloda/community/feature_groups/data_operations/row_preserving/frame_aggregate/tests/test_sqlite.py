@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import pyarrow as pa
 from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
@@ -100,6 +101,23 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col, f"got {result_col}, expected {ref_col}"
+
+    def test_time_frame_avg_keeps_double_on_zero_rows(self) -> None:
+        """A time-frame avg over an integer source keeps the double type on zero rows."""
+        table = TypedTestData(
+            {
+                "region": (DataType.STRING, []),
+                "ts": (DataType.TIMESTAMP_MICROS_TZ, []),
+                "value": (DataType.INT64, []),
+            }
+        )
+        data = self.create_test_data(table)
+        fs = FeatureSet()
+        fs.add(
+            Feature("value__avg_3_day_window", options=Options(context={"partition_by": ["region"], "order_by": "ts"}))
+        )
+        result = calculate_with(self.implementation_class(), data, fs)
+        assert result.types[result.columns.index("value__avg_3_day_window")] == pa.float64()
 
 
 class TestSqliteFrameAggregateViewInput(SqliteViewTestMixin, TestSqliteFrameAggregate):

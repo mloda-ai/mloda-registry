@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
-from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null, two_pass_variance
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     ModeHelperCols,
     add_mode_helper_cols,
@@ -30,12 +30,12 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "count": lambda col: pl.col(col).count().cast(pl.Int64),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),
-    "std": lambda col: pl.col(col).std(ddof=0),
-    "var": lambda col: pl.col(col).var(ddof=0),
-    "std_pop": lambda col: pl.col(col).std(ddof=0),
-    "std_samp": lambda col: pl.col(col).std(ddof=1),
-    "var_pop": lambda col: pl.col(col).var(ddof=0),
-    "var_samp": lambda col: pl.col(col).var(ddof=1),
+    "std": lambda col: two_pass_variance(pl.col(col), 0, True),
+    "var": lambda col: two_pass_variance(pl.col(col), 0, False),
+    "std_pop": lambda col: two_pass_variance(pl.col(col), 0, True),
+    "std_samp": lambda col: two_pass_variance(pl.col(col), 1, True),
+    "var_pop": lambda col: two_pass_variance(pl.col(col), 0, False),
+    "var_samp": lambda col: two_pass_variance(pl.col(col), 1, False),
     "nunique": lambda col: pl.col(col).drop_nulls().n_unique().cast(pl.Int64),
 }
 

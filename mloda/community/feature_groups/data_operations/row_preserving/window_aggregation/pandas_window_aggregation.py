@@ -15,6 +15,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
+    coerce_spread_dtype,
     compute_mode_winners,
     null_safe_groupby,
 )
@@ -117,6 +118,7 @@ class PandasWindowAggregation(Implementation[WindowAggregationFeatureGroup]):
         data[feature_name] = result_series
 
         coerce_count_dtype(data, feature_name, agg_type)
+        coerce_spread_dtype(data, feature_name, agg_type)
 
         return data
 

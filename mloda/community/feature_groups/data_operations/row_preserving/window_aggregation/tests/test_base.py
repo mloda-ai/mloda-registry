@@ -341,13 +341,6 @@ class TestReturnDataTypeRule:
         )
         assert WindowAggregationFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
-    def test_avg_returns_none(self) -> None:
-        feature = Feature(
-            "value_int__avg_window",
-            options=Options(context={"partition_by": ["region"]}),
-        )
-        assert WindowAggregationFeatureGroup.return_data_type_rule(feature) is None
-
 
 class TestWindowAggregationMatchValidation(MatchValidationTestBase):
     @classmethod

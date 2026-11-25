@@ -10,6 +10,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
+    coerce_spread_dtype,
     null_safe_groupby,
 )
 
@@ -142,3 +143,34 @@ class TestCoerceCountDtype:
         original_dtype = df["feature"].dtype
         coerce_count_dtype(df, "feature", "sum")
         assert df["feature"].dtype == original_dtype
+
+
+class TestCoerceSpreadDtype:
+    @pytest.mark.parametrize(
+        ("values", "source_dtype", "expected_dtype"),
+        [
+            pytest.param([1, 2], "int64", "float64", id="int64"),
+            pytest.param([1, None], "Int64", "Float64", id="nullable_int"),
+            pytest.param([1.5, None], "object", "Float64", id="object"),
+        ],
+    )
+    @pytest.mark.parametrize("agg_type", ["std", "std_pop", "std_samp", "var", "var_pop", "var_samp"])
+    def test_coerce_spread_dtype_casts_std_var_columns_to_float(
+        self, values: list[object], source_dtype: str, expected_dtype: str, agg_type: str
+    ) -> None:
+        df = pd.DataFrame({"feature": pd.Series(values, dtype=source_dtype)})
+        coerce_spread_dtype(df, "feature", agg_type)
+        assert str(df["feature"].dtype) == expected_dtype
+
+    @pytest.mark.parametrize("agg_type", ["sum", "min", "max", "avg", "count"])
+    @pytest.mark.parametrize(
+        ("values", "source_dtype"),
+        [([1, 2], "int64"), ([1, None], "Int64"), ([1.5, None], "object")],
+        ids=["int64", "nullable_int", "object"],
+    )
+    def test_coerce_spread_dtype_noop_for_other_agg_types(
+        self, values: list[object], source_dtype: str, agg_type: str
+    ) -> None:
+        df = pd.DataFrame({"feature": pd.Series(values, dtype=source_dtype)})
+        coerce_spread_dtype(df, "feature", agg_type)
+        assert str(df["feature"].dtype) == source_dtype

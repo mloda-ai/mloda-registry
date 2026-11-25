@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import pyarrow as pa
 from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
 from mloda.user import Options
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
@@ -26,6 +27,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_sql_
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.sqlite_helpers import sqlite_numeric_type
 
 _SQLITE_AGG_FUNCS: dict[str, str] = {
     "sum": "SUM",
@@ -118,6 +120,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
                 data=data,
                 feature_name=feature_name,
                 quoted_source=quoted_source,
+                source_type=dict(zip(data.columns, data.types, strict=True))[source_col],
                 partition_by=partition_by,
                 quoted_order=quoted_order,
                 agg_func=agg_func,
@@ -161,6 +164,7 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         data: SqliteRelation,
         feature_name: str,
         quoted_source: str,
+        source_type: pa.DataType,
         partition_by: list[str],
         quoted_order: str,
         agg_func: str,
@@ -271,5 +275,9 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
         if not rows and agg_func == "COUNT":
             # The fetch path has no declared type on zero rows; a typed raw select keeps count integer.
             return data.select(_raw_sql=f"*, CAST(0 AS INTEGER) AS {quoted_feature}")
+        sql_type = sqlite_numeric_type(source_type, real=agg_func == "AVG")
+        if not rows and sql_type is not None:
+            # AVG is real, SUM/MIN/MAX keep the source type; a non-null value lets the relation infer it.
+            return data.select(_raw_sql=f"*, CAST(0 AS {sql_type}) AS {quoted_feature}")
         result_values = [row[0] for row in rows]
         return data.append_column(feature_name, result_values)

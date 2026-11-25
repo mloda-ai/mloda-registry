@@ -15,6 +15,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+from mloda.community.feature_groups.data_operations.sqlite_helpers import sqlite_numeric_type
 
 # Aggregation types that SQLite supports natively.
 _SQLITE_AGG_FUNCS: dict[str, str] = {
@@ -64,6 +65,7 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
 
         partition_cols = ", ".join(quote_ident(col) for col in partition_by)
 
+        source_types = dict(zip(data.columns, data.types, strict=True))
         agg_parts: list[str] = []
         for spec in specs:
             source_sql = quote_ident(spec.source_col)
@@ -72,6 +74,13 @@ class SqliteAggregation(Implementation[AggregationFeatureGroup]):
             agg_expr = f"{_SQLITE_AGG_FUNCS[spec.agg_type]}({source_sql})"
             if spec.agg_type == "count":
                 agg_expr = f"CAST({agg_expr} AS INTEGER)"  # the declared type survives zero rows
+            elif spec.agg_type == "avg" or spec.agg_type == "mean":
+                agg_expr = f"CAST({agg_expr} AS REAL)"  # the declared type survives zero rows
+            else:
+                source_type = source_types[spec.source_col]
+                sql_type = sqlite_numeric_type(source_type)
+                if sql_type is not None:
+                    agg_expr = f"CAST({agg_expr} AS {sql_type})"  # the declared type survives zero rows
             agg_parts.append(f"{agg_expr} AS {quote_ident(spec.feature_name)}")
 
         select_cols = f"{partition_cols}, " if partition_cols else ""

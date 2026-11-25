@@ -484,14 +484,6 @@ class TestReturnDataTypeRule:
         )
         assert RankFeatureGroup.return_data_type_rule(feature) == DataType.DOUBLE
 
-    @pytest.mark.parametrize("rank_type", ["top_3", "bottom_3"])
-    def test_deferred_ops_return_none(self, rank_type: str) -> None:
-        feature = Feature(
-            f"value_int__{rank_type}_ranked",
-            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
-        )
-        assert RankFeatureGroup.return_data_type_rule(feature) is None
-
 
 class TestForwardedRankTypeMismatch:
     """A group-forwarded ``rank_type`` that contradicts the name-parsed type must be rejected, not silently ignored."""

@@ -428,7 +428,16 @@ class ResampleTestBase(
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        return {"count": make_feature_set("value__resample_1_hour_count", ["region"], time_column="ts")}
+        return {
+            agg: make_feature_set(f"value__resample_1_hour_{agg}", ["region"], time_column="ts")
+            for agg in ("count", *cls._UNTYPED_RESAMPLE_AGGS)
+        }
+
+    _UNTYPED_RESAMPLE_AGGS = ("max", "mean", "min", "sum")
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        return frozenset(cls._UNTYPED_RESAMPLE_AGGS)
 
     # -- NanPolicyTestMixin configuration ---------------------------------------
 

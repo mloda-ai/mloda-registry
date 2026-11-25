@@ -4,10 +4,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 if TYPE_CHECKING:
     from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
+
+def sqlite_numeric_type(arrow_type: pa.DataType, *, real: bool = False) -> str | None:
+    """``INTEGER`` for an integer arrow type, ``REAL`` for a float (or when ``real``), else ``None``."""
+    if real:
+        return "REAL"
+    if pa.types.is_integer(arrow_type):
+        return "INTEGER"
+    if pa.types.is_floating(arrow_type):
+        return "REAL"
+    return None
 
 
 def column_affinities(data: "SqliteRelation") -> dict[str, str]:

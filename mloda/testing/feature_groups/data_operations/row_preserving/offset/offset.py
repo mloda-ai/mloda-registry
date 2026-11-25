@@ -124,7 +124,26 @@ class OffsetTestBase(
 
     @classmethod
     def result_type_cases(cls) -> dict[str, FeatureSet]:
-        return {"pct_change": make_feature_set("value_float__pct_change_1_offset", ["region"], "value_int")}
+        cases = {"pct_change": make_feature_set("value_float__pct_change_1_offset", ["region"], "value_int")}
+        cases.update(
+            {
+                op: make_feature_set(f"value_float__{name}_offset", ["region"], "value_int")
+                for op, name in cls._UNTYPED_OFFSET_NAMES.items()
+            }
+        )
+        return cases
+
+    _UNTYPED_OFFSET_NAMES = {
+        "diff": "diff_1",
+        "first_value": "first_value",
+        "lag": "lag_1",
+        "last_value": "last_value",
+        "lead": "lead_1",
+    }
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        return frozenset(cls._UNTYPED_OFFSET_NAMES)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

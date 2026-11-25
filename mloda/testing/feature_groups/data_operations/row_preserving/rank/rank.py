@@ -143,7 +143,14 @@ class RankTestBase(
             "percent_rank": "value_float__percent_rank_ranked",
             "ntile": "value_float__ntile_4_ranked",
         }
+        names.update({rank_type: f"value_float__{rank_type}_2_ranked" for rank_type in cls._UNTYPED_RANK_TYPES})
         return {rank_type: make_feature_set(name, ["region"], "value_int") for rank_type, name in names.items()}
+
+    _UNTYPED_RANK_TYPES = ("bottom", "top")
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        return frozenset(cls._UNTYPED_RANK_TYPES)
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

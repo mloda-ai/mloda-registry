@@ -330,11 +330,38 @@ class FrameAggregateTestBase(
             "cumulative": "value_int__cumcount",
             "expanding": "value_int__expanding_count",
         }
-        return {
+        cases = {
             frame: make_feature_set(name, ["region"], "ts")
             for frame, name in names.items()
             if frame in cls.supported_frame_types()
         }
+        cases.update(
+            {case_id: make_feature_set(name, ["region"], "ts") for case_id, name in cls._untyped_names().items()}
+        )
+        return cases
+
+    @classmethod
+    def _untyped_names(cls) -> dict[str, str]:
+        """One case per untyped aggregation type; the frame kind rotates so each appears at least once."""
+        templates = {
+            "cumulative": "value_int__cum{}",
+            "expanding": "value_int__expanding_{}",
+            "rolling": "value_int__{}_rolling_3",
+            "time": "value_int__{}_2_day_window",
+        }
+        # Some frameworks (polars lazy) support std/var/median only on the sized frames.
+        sized_only = {"median", "std", "var"}
+        untyped = sorted(set(cls.feature_group_class().subtype_universe()) - {"count"})
+        frames = [f for f in templates if f in cls.supported_frame_types()]
+        sized = [f for f in frames if f in ("rolling", "time")] or frames
+        free = [a for a in untyped if a not in sized_only]
+        chosen = {a: frames[i % len(frames)] for i, a in enumerate(free)}
+        chosen.update({a: sized[i % len(sized)] for i, a in enumerate(a for a in untyped if a in sized_only)})
+        return {f"untyped_{a}_{chosen[a]}": templates[chosen[a]].format(a) for a in untyped}
+
+    @classmethod
+    def untyped_result_type_ids(cls) -> frozenset[str]:
+        return frozenset(cls._untyped_names())
 
     # -- InputValidationTestMixin configuration ---------------------------------
 

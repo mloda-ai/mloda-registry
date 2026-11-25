@@ -454,14 +454,6 @@ class TestReturnDataTypeRule:
         )
         assert AggregationFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
-    @pytest.mark.parametrize("operation", ["sum", "avg"])
-    def test_input_dependent_ops_return_none(self, operation: str) -> None:
-        feature = Feature(
-            f"value_int__{operation}_agg",
-            options=Options(context={"partition_by": ["region"]}),
-        )
-        assert AggregationFeatureGroup.return_data_type_rule(feature) is None
-
 
 class TestAggregationMatchValidation(MatchValidationTestBase):
     @classmethod

@@ -36,6 +36,14 @@ def nan_to_null(expr: pl.Expr, dtype: pl.DataType) -> pl.Expr:
     return expr
 
 
+def two_pass_variance(expr: pl.Expr, ddof: int, sqrt: bool = False) -> pl.Expr:
+    """Variance (or std) by the two-pass formula: Polars var/std is nondeterministic in the last bit across runs."""
+    f = expr.cast(pl.Float64)
+    n = f.count()
+    var = pl.when(n > ddof).then(((f - f.mean()) ** 2).sum() / (n - ddof)).otherwise(None)
+    return var.sqrt() if sqrt else var
+
+
 def nan_skipping_extreme(expr_fn: Callable[[pl.Expr], pl.Expr], col: pl.Expr, dtype: pl.DataType) -> pl.Expr:
     """``expr_fn(col)`` with NaN skipped like pc.min/pc.max, an all-NaN window staying NaN.
 

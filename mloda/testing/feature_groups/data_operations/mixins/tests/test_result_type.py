@@ -29,7 +29,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     SqliteComputedColumnTestMixin,
     SqliteTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin, _blocking
+from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding, ResultTypeTestMixin, _blocking
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 from mloda.testing.typed_data import TypedTestData
 
@@ -111,7 +111,7 @@ def _with_column(framework: str, data: Any, kind: str) -> Any:
 
 @dataclass
 class _Outcome:
-    """What the test method did on a stub host: passed, failed with a message, or skipped."""
+    """What the test method did on a stub host: passed, failed with a message, skipped or xfailed."""
 
     state: str
     message: str = ""
@@ -134,6 +134,9 @@ def _run(
     writes: bool = True,
     matches_any: bool = False,
     typed: bool = True,
+    untyped: bool = False,
+    extra_untyped_ids: frozenset[str] = frozenset(),
+    known_findings: dict[str, KnownFinding] | None = None,
 ) -> _Outcome:
     """Run ``test_mixin_result_type`` on a stub host over stub plugins, then remove every trace of them."""
     seen: list[Options] = []
@@ -194,6 +197,9 @@ def _run(
             )
         ),
     }
+    marked = frozenset({_CASE} if untyped else ()) | extra_untyped_ids
+    namespace["untyped_result_type_ids"] = classmethod(lambda cls: marked)
+    namespace["result_type_known_findings"] = classmethod(lambda cls: dict(known_findings or {}))
     if data is not None:
         namespace["result_type_data"] = classmethod(lambda cls: data)
     host: Any = type("_ResultTypeHost", (mixin, ResultTypeTestMixin, _StubTeardownBase), namespace)()
@@ -203,8 +209,10 @@ def _run(
             host.test_mixin_result_type(_CASE)
         except AssertionError as error:
             state, message = "failed", str(error)
-        except pytest.skip.Exception:
-            state = "skipped"
+        except pytest.skip.Exception as skipped:
+            state, message = "skipped", str(skipped)
+        except pytest.xfail.Exception as xfailed:
+            state, message = "xfailed", str(xfailed)
         finally:
             host.teardown_method()
     finally:
@@ -334,23 +342,28 @@ class TestRunsThatDoNotHappen:
 
 class TestShapeFailuresBeyondTheType:
     @pytest.mark.parametrize(
-        ("kind", "matches_any", "expected", "typed"),
+        ("kind", "matches_any", "expected", "typed", "marked"),
         [
-            pytest.param("zero_type", False, "zero_rows", True, id="zero_rows_type_change_on_output"),
-            pytest.param("rewrite", False, "was changed", True, id="input_column_changed"),
-            pytest.param("exact", True, "foreign", True, id="match_time_foreign_name"),
+            pytest.param("zero_type", False, "zero_rows", True, False, id="zero_rows_type_change_on_output"),
+            pytest.param("rewrite", False, "was changed", True, False, id="input_column_changed"),
+            pytest.param("exact", True, "foreign", True, False, id="match_time_foreign_name"),
             pytest.param(
                 "zero_retype",
                 False,
                 "column 'value_int' changes type on zero rows",
                 True,
+                False,
                 id="group_retypes_input_on_zero_rows",
             ),
-            pytest.param("zero_type", False, "zero_rows", False, id="untyped_group_zero_rows_type_change"),
+            pytest.param("zero_type", False, "zero_rows", False, False, id="untyped_group_zero_rows_type_change"),
+            pytest.param("zero_type", False, "zero_rows", True, True, id="marked_case_zero_rows_type_change"),
         ],
     )
-    def test_failure_fails_the_test(self, kind: str, matches_any: bool, expected: str, typed: bool) -> None:
-        outcome = _run("pyarrow", kind=kind, matches_any=matches_any, typed=typed)
+    def test_failure_fails_the_test(
+        self, kind: str, matches_any: bool, expected: str, typed: bool, marked: bool
+    ) -> None:
+        rule = None if marked else DataType.INT64
+        outcome = _run("pyarrow", kind=kind, matches_any=matches_any, typed=typed, rule=rule, untyped=marked)
         assert outcome.state == "failed"
         assert expected in outcome.message
 
@@ -432,6 +445,52 @@ class TestHookContract:
         outcome = _run("pyarrow", rule=None)
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
+
+    def test_marked_case_without_a_type_rule_passes_a_clean_run(self) -> None:
+        assert _run("pyarrow", rule=None, untyped=True).state == "passed"
+
+    def test_marked_case_whose_rule_returns_a_type_fails_naming_the_case(self) -> None:
+        outcome = _run("pyarrow", untyped=True)
+        assert outcome.state == "failed"
+        assert "out_cnt" in outcome.message
+        assert "untyped_result_type_ids" in outcome.message
+
+    def test_marked_id_outside_the_cases_fails(self) -> None:
+        outcome = _run("pyarrow", extra_untyped_ids=frozenset({"out_ghost"}))
+        assert outcome.state == "failed"
+        assert "out_ghost" in outcome.message
+
+    def test_marked_ids_on_an_untyped_group_fail(self) -> None:
+        outcome = _run("pyarrow", typed=False, untyped=True)
+        assert outcome.state == "failed"
+        assert "untyped_result_type_ids" in outcome.message
+
+    def test_known_finding_whose_match_covers_the_failure_xfails_with_its_reason(self) -> None:
+        reason = "stub finding https://example.invalid/issues/1"
+        finding = KnownFinding("int32", reason)
+        outcome = _run("pyarrow", kind="narrow", known_findings={_CASE: finding})
+        assert outcome.state == "xfailed"
+        assert reason in outcome.message
+
+    def test_known_finding_whose_match_does_not_cover_the_failure_fails(self) -> None:
+        finding = KnownFinding("changes type on zero rows", "stub finding https://example.invalid/issues/1")
+        outcome = _run("pyarrow", kind="narrow", known_findings={_CASE: finding})
+        assert outcome.state == "failed"
+        assert "int32" in outcome.message
+
+    def test_known_finding_on_a_clean_case_fails_naming_the_case(self) -> None:
+        finding = KnownFinding("int32", "stub finding https://example.invalid/issues/1")
+        outcome = _run("pyarrow", known_findings={_CASE: finding})
+        assert outcome.state == "failed"
+        assert "out_cnt" in outcome.message
+        assert "no longer reproduces" in outcome.message
+        assert "remove" in outcome.message
+
+    def test_known_finding_outside_the_cases_fails(self) -> None:
+        finding = KnownFinding("int32", "stub finding https://example.invalid/issues/1")
+        outcome = _run("pyarrow", known_findings={"out_ghost": finding})
+        assert outcome.state == "failed"
+        assert "out_ghost" in outcome.message
 
     def test_empty_case_dict_fails(self) -> None:
         outcome = _run("pyarrow", empty_cases=True)
