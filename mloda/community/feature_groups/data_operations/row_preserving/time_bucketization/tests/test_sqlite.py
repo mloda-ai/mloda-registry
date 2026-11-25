@@ -63,11 +63,6 @@ class TestSqliteTimeBucketizationComputedInput(SqliteComputedColumnTestMixin, Te
     """Runs the TimeBucketization suite on computed (empty declared type) input columns."""
 
 
-def _text_date_source() -> SqliteRelation:
-    tbl = pa.table({"timestamp": pa.array(["2024-01-01"], type=pa.string())})
-    return SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
-
-
 def _date_affinity_source() -> SqliteRelation:
     con = sqlite3.connect(":memory:")
     con.execute('CREATE TABLE t ("timestamp" DATE)')
@@ -106,7 +101,7 @@ class TestSqliteSourceShapes:
     @pytest.mark.parametrize(
         "build_source, match",
         [
-            pytest.param(_text_date_source, r"value '2024-01-01'", id="date-text"),
+            pytest.param(_string_source("2024-01-01"), r"value '2024-01-01'", id="date-text"),
             pytest.param(_date_affinity_source, r"value '2024-01-01'", id="date-affinity"),
             pytest.param(_date32_source, r"value '2024-01-01'", id="date32"),
             pytest.param(

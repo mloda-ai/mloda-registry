@@ -150,7 +150,7 @@ class TestSqliteResultTypeContract:
         rel = SqliteRelation.from_arrow(con, tbl)
         con.execute(f'INSERT INTO "{rel.table_name}" VALUES (?)', ("not-a-date",))  # nosec
         fs = make_feature_set("timestamp__floor_1_day")
-        with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|parse"):
+        with pytest.raises(ValueError, match=r"value 'not-a-date'"):
             calculate_with(SqliteTimeBucketization, rel, fs)
 
     def test_null_propagates(self) -> None:
