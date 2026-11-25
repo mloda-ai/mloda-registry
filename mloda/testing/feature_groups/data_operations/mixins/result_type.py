@@ -1,8 +1,8 @@
 """Reusable result-type test mixin: each op passes core's shape check.
 
 Provides ``test_mixin_result_type``: runs core's ``check_feature_group_shape`` per case on source data with
-nulls and fails on its failures; core's divergence records decide what is excused. Ops a typed group leaves
-untyped are marked in ``untyped_result_type_ids()`` and still run the shape check.
+nulls and fails on its failures; core decides what the group's and Implementation's divergence records excuse.
+Ops a typed group leaves untyped are marked in ``untyped_result_type_ids()`` and still run the shape check.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class KnownFinding(NamedTuple):
 
 
 class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
-    """Mixin failing on core's shape-check failures; core's divergence records decide what is excused."""
+    """Mixin failing each case on core's shape-check failures."""
 
     _case_fixtures: ClassVar[dict[str, str]] = {"result_type_case": "result_type_cases"}
 
@@ -59,7 +59,7 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         return cls.source_data()
 
     def test_mixin_result_type(self, result_type_case: str) -> None:
-        """Core's shape check has no failures; core's divergence records decide what is excused."""
+        """Core's shape check reports no failures for the case."""
         cases = self.result_type_cases()
         assert cases, f"{type(self).__name__}.result_type_cases() is empty"
         marked = self.untyped_result_type_ids()

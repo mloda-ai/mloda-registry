@@ -269,6 +269,12 @@ class TestDivergenceRecords:
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
 
+    def test_type_record_excuses_a_column_that_lost_its_type(self) -> None:
+        assert (
+            _run("pandas", kind="text", rule=DataType.INT64, impl_records=(_record(DivergenceKind.TYPE),)).state
+            == "passed"
+        )
+
 
 class TestUnresolvedType:
     @pytest.mark.parametrize("framework", ["pandas", "pandas_object_string"])
