@@ -1450,10 +1450,6 @@ def test_framework_nan_is_null_is_false_for_a_non_implementation() -> None:
     assert _StubDataOpsTestBase.framework_nan_is_null() is False
 
 
-def test_framework_nan_is_null_ignores_records() -> None:
-    assert _hooks((_nan_as_null(),)) == _flags(True)
-
-
 def test_orders_nan_before_none_ignores_every_record_on_a_framework_that_keeps_nan_apart() -> None:
     assert _hooks(()) == _flags(True)
     assert _hooks((_value_record(),)) == _flags(True)

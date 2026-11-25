@@ -463,13 +463,8 @@ class TestDivergences:
                 assert sorted(tuple(sorted(r.subtypes)) for r in variants) == sorted(
                     expected.get((info.name, framework), [])
                 ), (info.name, framework)
-
-    def test_pandas_resample_nan_as_null_names_only_sum_and_mean_besides_count(self) -> None:
-        pytest.importorskip("pandas")
-        records = DataOperationsCatalog.get("resample").divergences["PandasDataFrame"]
-        skipped = [r for r in records if r.kind is DivergenceKind.VARIANT and r.subtypes != frozenset({"count"})]
-        assert [r.subtypes for r in skipped] == [frozenset({"sum", "mean"})]
-        assert all("tie" not in r.reason for r in records)
+        resample_records = DataOperationsCatalog.get("resample").divergences["PandasDataFrame"]
+        assert all("tie" not in r.reason for r in resample_records)
 
     def test_python_dict_rank_keeps_its_tie_record(self) -> None:
         """PythonDict ties NaN with null by choice, so it stays an operation-level record."""
