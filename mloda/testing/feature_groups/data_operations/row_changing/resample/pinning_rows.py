@@ -363,7 +363,6 @@ RESAMPLE_PINNING = PinningTable(
                 "key_source",
                 f"ts__resample_1_hour_{agg}",
                 {"p": (_S, ("a",) * 3), "ts": (_TS, (_t(8, 10), _t(8, 50), _t(9, 5)))},
-                # min and max of the time column are the floored bucket start, not 08:10 / 09:05
                 {
                     "p": (_S, ("a", "a")),
                     "ts": (_TS, (_t(8), _t(9))),
