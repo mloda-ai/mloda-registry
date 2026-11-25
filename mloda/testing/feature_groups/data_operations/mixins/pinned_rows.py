@@ -92,6 +92,12 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             cases[f"{i}-{row.case}-{row.feature}"] = row
         return cases
 
+    @classmethod
+    def served_pins(cls, pins: Mapping[str, Mapping[str, list[Any]]]) -> dict[str, Mapping[str, list[Any]]]:
+        """Keep only the pins whose row id is in ``pinned_row_cases()`` (an unsupported row is dropped there)."""
+        served = cls.pinned_row_cases()
+        return {row_id: columns for row_id, columns in pins.items() if row_id in served}
+
     def _row_id(self, row: PinningRow) -> str:
         return next(row_id for row_id, candidate in self.pinned_row_cases().items() if candidate is row)
 

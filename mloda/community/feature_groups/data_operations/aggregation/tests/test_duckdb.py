@@ -32,6 +32,8 @@ class TestDuckdbAggregation(DuckdbTestMixin, AggregationTestBase):
             **super().pinned_divergences(),
             # The NaN partition is returned after ordinary keys instead of in first-occurrence order.
             "8-partition_keys-val__sum_agg": {"grp": [1.0, 2.0, math.nan], "val__sum_agg": [100.0, 200.0, 30.0]},
+            # The NaN partition is emitted before the first-seen None partition.
+            "11-partition_keys-v__sum_agg": {"k": [math.nan, None], "v__sum_agg": [2, 5]},
         }
         if duckdb_below_2():
             # DuckDB 1.x loses the negative sign of the first-seen zero partition key.

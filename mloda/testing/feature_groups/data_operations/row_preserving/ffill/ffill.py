@@ -49,6 +49,7 @@ Fixture row layout (``id`` is the passthrough row-order witness)::
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -196,6 +197,21 @@ class FfillTestBase(
     def pinning_table(cls) -> PinningTable:
         return FFILL_PINNING
 
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: partition keys merge, carrying a value across the reference
+        # partition boundary; NaN and None tie in order_by; a NaN source value is filled instead of carried.
+        return cls.served_pins(
+            {
+                "10-partition_keys-v__ffill": {"v__ffill": [1, 1, 1, 1]},
+                "3-order_tiers-v__ffill": {"v__ffill": [None, 20, None]},
+                "7-nan-v__ffill": {"v__ffill": [1.0, 1.0, 1.0]},
+                "8-nan-v__ffill": {"v__ffill": [None, None, None]},
+            }
+        )
+
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
@@ -334,7 +350,7 @@ class FfillTestBase(
     # -- NaN in order_by and in the source -----------------------------------
 
     def test_nan_orders_before_none(self) -> None:
-        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a framework holding NaN as null ties them."""
         table = TypedTestData(
             {
                 "g": (DataType.STRING, ["g"] * 3),
@@ -346,7 +362,7 @@ class FfillTestBase(
         self._assert_nan_case(table, fs, "v__ffill", [10, 30, 30], [10, 10, 30])
 
     def test_nan_source_value_is_carried(self) -> None:
-        """The reference carries a NaN value into the following null; a backend declaring nan_as_null treats it as null."""
+        """The reference carries a NaN value into the following null; a framework holding NaN as null treats it as null."""
         nan = float("nan")
         table = TypedTestData(
             {

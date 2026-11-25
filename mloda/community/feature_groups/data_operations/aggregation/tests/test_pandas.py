@@ -43,6 +43,7 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         return {
             **super().pinned_divergences(),
+            # Stays a twin pin: the NaN-key-as-null result combines with this backend's own group order.
             # The NaN partition is returned last, as a null key, instead of in first-occurrence order.
             "8-partition_keys-val__sum_agg": {"grp": [1.0, 2.0, None], "val__sum_agg": [100.0, 200.0, 30.0]},
         }

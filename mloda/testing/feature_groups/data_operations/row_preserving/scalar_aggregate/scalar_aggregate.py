@@ -12,6 +12,7 @@ Non-null values: [10, -5, 0, 20, 50, 30, 60, 15, 15, 40, -10] (11 values)
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -122,6 +123,18 @@ class ScalarAggregateTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return SCALAR_AGGREGATE_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: an all-NaN min or max reads back as null.
+        return cls.served_pins(
+            {
+                "1-all_nan-v__min_scalar": {"v__min_scalar": [None, None]},
+                "2-all_nan-v__max_scalar": {"v__max_scalar": [None, None]},
+            }
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

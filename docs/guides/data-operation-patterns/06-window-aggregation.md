@@ -70,7 +70,7 @@ Because window aggregation must preserve input order (see [row-preserving contra
 | Polars lazy | `col.{agg}().over(partition_by)` |
 | DuckDB / SQLite | `{AGG}(col) OVER (PARTITION BY ...)` (no `ORDER BY` when not needed) |
 
-On Pandas, `nunique`, `first` and `last` are `nan_as_null` variants too (Pandas drops or skips NaN in them, and NaN and null tie in `order_by`), so Pandas alone needs `allow_variants: "nan_as_null"` in its group options; PyArrow and the other frameworks do not.
+On Pandas, `nunique`, `first` and `last` are `nan_as_null` variants too (Pandas drops or skips NaN in them), so Pandas alone needs `allow_variants: "nan_as_null"` in its group options; PyArrow and the other frameworks do not. A NaN and null tie in `order_by` is not a variant: Pandas and SQLite declare it through `nan_is_null()`.
 
 The DuckDB/SQLite form omits `ORDER BY` for non-ordered aggregates (`sum`, `avg`, etc.). DuckDB tags rows only where the aggregate needs input position (`mode`, `first`, `last`).
 

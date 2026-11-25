@@ -210,6 +210,24 @@ class TestTableGuards:
         ]
         assert bad == []
 
+    def test_partitioning_table_pins_none_and_nan_partition_keys(self, group: type, table: PinningTable) -> None:
+        """A table with a partitioned row holds a row whose partition column mixes None and NaN."""
+
+        def key_columns(row: PinningRow) -> list[str]:
+            keys = row.context.get("partition_by") or []
+            return [keys] if isinstance(keys, str) else list(keys)
+
+        def mixes_none_and_nan(row: PinningRow) -> bool:
+            values = [row.inputs[name][1] for name in key_columns(row) if name in row.inputs]
+            return any(
+                any(v is None for v in column) and any(isinstance(v, float) and v != v for v in column)
+                for column in values
+            )
+
+        if not any(key_columns(row) for row in table.rows):
+            pytest.skip("the operation does not partition")
+        assert any(mixes_none_and_nan(row) for row in table.rows)
+
     def test_operation_is_known_and_matches_the_group(self, group: Any, table: PinningTable) -> None:
         assert table.operation in OPERATIONS
         assert DataOperationsCatalog.get(table.operation).prefix_pattern == group.PREFIX_PATTERN

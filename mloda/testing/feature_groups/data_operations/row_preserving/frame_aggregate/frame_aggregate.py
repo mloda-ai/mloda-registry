@@ -296,10 +296,16 @@ class FrameAggregateTestBase(
 
     @classmethod
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
-        if cls.orders_nan_before_none():
+        if not cls.framework_nan_is_null():
             return {}
-        # Declared nan_as_null: NaN and None tie in order_by, changing the cumulative sums.
-        return {"8-order-v__cumsum": {"v__cumsum": [40, 60, 30]}}
+        # The framework holds NaN as null: NaN and None tie in order_by, changing the cumulative sums,
+        # and NaN and None partition keys merge into one group.
+        return cls.served_pins(
+            {
+                "8-order-v__cumsum": {"v__cumsum": [40, 60, 30]},
+                "15-partition_keys-v__cumsum": {"v__cumsum": [1, 3, 7]},
+            }
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

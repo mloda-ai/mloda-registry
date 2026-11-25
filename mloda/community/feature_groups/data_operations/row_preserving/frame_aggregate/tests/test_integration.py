@@ -132,18 +132,26 @@ class TestFrameAggregateIntegration(
                 f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
                 PYTHON_DICT_FRAMEWORK,
             ),
+            # max skips no NaN, so Pandas and SQLite serve it on their own data without allow_variants.
             RoutingCase(
                 "value_int__max_rolling_3",
                 options,
-                f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
-                PYTHON_DICT_FRAMEWORK,
+                f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
+                PANDAS_DATAFRAME,
             ),
-            # SQLite-held data without allow_variants is served by the PythonDict Implementation.
+            # SQLite-held data without allow_variants is served by the PythonDict Implementation for sum.
             RoutingCase(
                 "value_int__sum_rolling_3",
                 options,
                 f"{package}.python_dict_frame_aggregate:PythonDictFrameAggregate",
                 PYTHON_DICT_FRAMEWORK,
+                SQLITE_DATA_CREATOR,
+            ),
+            RoutingCase(
+                "value_int__max_rolling_3",
+                options,
+                f"{package}.sqlite_frame_aggregate:SqliteFrameAggregate",
+                SQLITE_FRAMEWORK,
                 SQLITE_DATA_CREATOR,
             ),
         ]
@@ -154,13 +162,13 @@ class TestFrameAggregateIntegration(
         options = {"partition_by": ["region"], "order_by": "value_int"}
         return [
             RoutingCase(
-                "value_int__max_rolling_3",
+                "value_int__sum_rolling_3",
                 options,
                 f"{package}.pandas_frame_aggregate:PandasFrameAggregate",
                 PANDAS_DATAFRAME,
             ),
             RoutingCase(
-                "value_int__max_rolling_3",
+                "value_int__sum_rolling_3",
                 options,
                 f"{package}.sqlite_frame_aggregate:SqliteFrameAggregate",
                 SQLITE_FRAMEWORK,

@@ -9,6 +9,7 @@ Uses PERCENTILE_CONT with linear interpolation.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -92,6 +93,13 @@ class PercentileTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return PERCENTILE_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: NaN and None partition keys merge, sharing one median.
+        return cls.served_pins({"16-partition_keys-v__p50_percentile": {"v__p50_percentile": [6.5, 6.5, 6.5, 6.5]}})
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

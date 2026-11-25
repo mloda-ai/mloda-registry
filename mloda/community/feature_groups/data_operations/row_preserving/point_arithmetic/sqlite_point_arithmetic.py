@@ -11,7 +11,6 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
-    NAN_AS_NULL_DIVERGENCE,
     OVERFLOW_SQLITE_REAL,
     SQL_ARITHMETIC_OPS,
 )
@@ -27,7 +26,6 @@ class SqlitePointArithmetic(Implementation[PointArithmeticFeatureGroup]):
     feature_group = PointArithmeticFeatureGroup
     compute_framework = SqliteFramework
     divergences = (
-        NAN_AS_NULL_DIVERGENCE,
         OVERFLOW_SQLITE_REAL,
         Divergence(
             kind=DivergenceKind.VALUE,

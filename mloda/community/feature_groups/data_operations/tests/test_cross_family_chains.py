@@ -135,7 +135,7 @@ class TestSqliteComputedColumnChains:
     def _run(name: str, context: dict[str, Any]) -> list[Any]:
         conn = sqlite3.connect(":memory:")
         try:
-            options = Options(group=NAN_AS_NULL, context=context, cascade_context_keys=frozenset(context))
+            options = Options(context=context, cascade_context_keys=frozenset(context))
             plugin_collector = enabled_with_implementations(
                 {SqliteDataOpsTestDataCreator, OffsetFeatureGroup, ScalarArithmeticFeatureGroup}
             )

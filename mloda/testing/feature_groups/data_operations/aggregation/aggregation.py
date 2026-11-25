@@ -232,6 +232,18 @@ class AggregationTestBase(
             pins["0-nan-v__nunique_agg"] = {"v__nunique_agg": [1]}
         if declares_nan_as_null(impl, frozenset({"first"})):
             pins["1-nan-val__first_agg"] = {"val__first_agg": [1.0]}
+        if cls.framework_nan_is_null():
+            # The framework holds NaN as null: NaN and None partition keys merge into one group, and an
+            # all-NaN min or max reads back as null.
+            pins.update(
+                cls.served_pins(
+                    {
+                        "11-partition_keys-v__sum_agg": {"k": [None], "v__sum_agg": [7]},
+                        "12-all_nan-val__min_agg": {"val__min_agg": [None]},
+                        "13-all_nan-val__max_agg": {"val__max_agg": [None]},
+                    }
+                )
+            )
         return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------

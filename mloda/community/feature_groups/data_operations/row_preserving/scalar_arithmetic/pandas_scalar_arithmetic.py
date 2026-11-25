@@ -10,7 +10,6 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
-    NAN_AS_NULL_DIVERGENCE,
     OVERFLOW_WRAPS_OPERAND_WIDTH,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pandas_numeric_source import (
@@ -25,10 +24,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 class PandasScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
     feature_group = ScalarArithmeticFeatureGroup
     compute_framework = PandasDataFrame
-    divergences = (
-        NAN_AS_NULL_DIVERGENCE,
-        OVERFLOW_WRAPS_OPERAND_WIDTH,
-    )
+    divergences = (OVERFLOW_WRAPS_OPERAND_WIDTH,)
 
     @classmethod
     def calculate(

@@ -40,7 +40,6 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
-    PYTHON_DICT_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
@@ -91,13 +90,8 @@ class TestEmaIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationT
         return PandasDataFrame
 
     @classmethod
-    def group_options(cls) -> dict[str, Any]:
-        # Pandas ties NaN and null in order_by and treats a NaN source as null: it serves only with this variant.
-        return {"allow_variants": "nan_as_null"}
-
-    @classmethod
     def routing_frameworks(cls) -> list[type[Any]]:
-        # Pandas data without the option is served by the PythonDict Implementation.
+        # PythonDict is enabled too, so the Pandas Implementation must win on Pandas data.
         return [PythonDictFramework]
 
     @classmethod
@@ -107,20 +101,10 @@ class TestEmaIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrationT
             RoutingCase(
                 "value_float__ema_2",
                 {"partition_by": ["region"], "order_by": "timestamp"},
-                f"{package}.python_dict_ema:PythonDictEma",
-                PYTHON_DICT_FRAMEWORK,
+                f"{package}.pandas_ema:PandasEma",
+                PANDAS_DATAFRAME,
             )
         ]
-
-    @classmethod
-    def variant_required_case(cls) -> RoutingCase | None:
-        package = "mloda.community.feature_groups.data_operations.row_preserving.ema"
-        return RoutingCase(
-            "value_float__ema_2",
-            {"partition_by": ["region"], "order_by": "timestamp"},
-            f"{package}.pandas_ema:PandasEma",
-            PANDAS_DATAFRAME,
-        )
 
     @classmethod
     def several_frameworks(cls) -> list[type[Any]]:
@@ -203,10 +187,7 @@ class TestEmaRejectionRouting:
         plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, EmaFeatureGroup})
         feature = Feature(
             "value_float__ema_0",
-            options=Options(
-                group={"allow_variants": "nan_as_null"},
-                context={"order_by": "timestamp", "partition_by": ["region"]},
-            ),
+            options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}),
         )
 
         with pytest.raises(Exception, match="span"):

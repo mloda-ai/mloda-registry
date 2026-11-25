@@ -54,6 +54,7 @@ partitions ``region`` A / B)::
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import TYPE_CHECKING, Any, Callable
 from zoneinfo import ZoneInfo
@@ -324,6 +325,31 @@ class ResampleTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return RESAMPLE_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: an all-NaN min or max is null, the NaN partition key reads back as None,
+        # and NaN and None partition keys merge, collapsing two output buckets into one.
+        return cls.served_pins(
+            {
+                "20-nan-v__resample_1_hour_min": {"v__resample_1_hour_min": [None]},
+                "21-nan-v__resample_1_hour_max": {"v__resample_1_hour_max": [None]},
+                "24-partition_keys-v__resample_1_hour_sum": {"p": [1.0, None], "v__resample_1_hour_sum": [2, 5]},
+                "25-partition_keys-v__resample_1_hour_sum": {
+                    "p": [None],
+                    "ts": [datetime(2023, 1, 1, 8, 0, tzinfo=timezone.utc)],
+                    "v__resample_1_hour_sum": [15],
+                },
+            }
+        )
+
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """The default plus ``min`` and ``max``, which a framework holding NaN as null returns as null for 1-day buckets."""
+        divergent = super().nan_divergent_agg_types()
+        return divergent | {"min", "max"} if cls.framework_nan_is_null() else divergent
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

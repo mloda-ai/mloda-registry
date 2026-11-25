@@ -17,7 +17,8 @@ AGGREGATION_RULES: Mapping[str, str] = MappingProxyType(
         "nan": "NaN is a value: nunique counts it once, min and max skip it, first keeps a leading NaN.",
         "mean": "mean is avg.",
         "signed_zero": "0.0 and -0.0 are one partition key and one nunique value; the key keeps its first-seen sign.",
-        "partition_keys": "NaN partition keys form one group; groups come in first-occurrence order.",
+        "partition_keys": "NaN partition keys form one group, a None key its own group; groups come in first-occurrence order.",
+        "all_nan": "min and max of an all-NaN group are NaN.",
         "mask": "A row failing the mask is skipped; a group with no row left aggregates to None.",
         "none": "A None source value is skipped by the aggregate.",
         "order": "order_by sorts real values ascending, then NaN, then None.",
@@ -147,6 +148,27 @@ AGGREGATION_PINNING = PinningTable(
             expected={"g": (_S, ("a",)), "v__sum_agg": (DataType.UINT64, (300,))},
             context=_BY_G,
         ),
+        PinningRow(
+            case="partition_keys",
+            feature="v__sum_agg",
+            inputs={"k": (_D, (None, NAN, None)), "v": (_I, (1, 2, 4))},
+            expected={"k": (_D, (None, NAN)), "v__sum_agg": (_I, (5, 2))},
+            context={"partition_by": ["k"]},
+        ),
+        PinningRow(
+            case="all_nan",
+            feature="val__min_agg",
+            inputs={"grp": (_S, ("A",) * 2), "val": (_D, (NAN, NAN))},
+            expected={"grp": (_S, ("A",)), "val__min_agg": (_D, (NAN,))},
+            context={"partition_by": ["grp"]},
+        ),
+        PinningRow(
+            case="all_nan",
+            feature="val__max_agg",
+            inputs={"grp": (_S, ("A",) * 2), "val": (_D, (NAN, NAN))},
+            expected={"grp": (_S, ("A",)), "val__max_agg": (_D, (NAN,))},
+            context={"partition_by": ["grp"]},
+        ),
     ),
 )
 
@@ -209,6 +231,27 @@ WINDOW_AGGREGATION_PINNING = PinningTable(
             inputs={"g": (_S, ("a",) * 2), "o": (_D, (None, NAN)), "v": (_I, (10, 20))},
             expected={"v__first_window": (_I, (20, 20))},
             context=_BY_G_ORDER_O,
+        ),
+        PinningRow(
+            case="partition_keys",
+            feature="v__max_window",
+            inputs={"k": (_D, (None, NAN, None)), "v": (_I, (1, 2, 4))},
+            expected={"v__max_window": (_I, (4, 2, 4))},
+            context={"partition_by": ["k"]},
+        ),
+        PinningRow(
+            case="all_nan",
+            feature="val__min_window",
+            inputs={"grp": (_S, ("A",) * 2), "val": (_D, (NAN, NAN))},
+            expected={"val__min_window": (_D, (NAN, NAN))},
+            context={"partition_by": ["grp"]},
+        ),
+        PinningRow(
+            case="all_nan",
+            feature="val__max_window",
+            inputs={"grp": (_S, ("A",) * 2), "val": (_D, (NAN, NAN))},
+            expected={"val__max_window": (_D, (NAN, NAN))},
+            context={"partition_by": ["grp"]},
         ),
     ),
 )
@@ -313,6 +356,13 @@ FRAME_AGGREGATE_PINNING = PinningTable(
             expected={"v__sum_rolling_3": (_I, tuple(sum(range(max(0, i - 2), i + 1)) for i in range(25)))},
             context=_BY_G_ORDER_O,
         ),
+        PinningRow(
+            case="partition_keys",
+            feature="v__cumsum",
+            inputs={"g": (_D, (None, NAN, None)), "o": (_I, (1, 2, 3)), "v": (_I, (1, 2, 4))},
+            expected={"v__cumsum": (_I, (1, 2, 5))},
+            context=_BY_G_ORDER_O,
+        ),
     ),
 )
 
@@ -325,6 +375,18 @@ SCALAR_AGGREGATE_PINNING = PinningTable(
             feature="v__sum_scalar",
             inputs={"v": (DataType.BOOLEAN, (True, False, True))},
             expected={"v__sum_scalar": (DataType.UINT64, (2, 2, 2))},
+        ),
+        PinningRow(
+            case="all_nan",
+            feature="v__min_scalar",
+            inputs={"v": (_D, (NAN, NAN))},
+            expected={"v__min_scalar": (_D, (NAN, NAN))},
+        ),
+        PinningRow(
+            case="all_nan",
+            feature="v__max_scalar",
+            inputs={"v": (_D, (NAN, NAN))},
+            expected={"v__max_scalar": (_D, (NAN, NAN))},
         ),
     ),
 )

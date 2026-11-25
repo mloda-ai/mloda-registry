@@ -68,6 +68,7 @@ SQL backends get a deterministic whole-table sort::
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -189,6 +190,15 @@ class SessionizationTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return SESSIONIZATION_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: NaN and None partition keys merge, changing session boundaries and IDs.
+        return cls.served_pins(
+            {"8-nan_none_keys-ts__sessionize_30_minute": {"ts__sessionize_30_minute": [1, 1, 0, 1, 1]}}
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

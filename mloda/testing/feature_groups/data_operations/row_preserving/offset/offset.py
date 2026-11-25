@@ -103,17 +103,21 @@ class OffsetTestBase(
 
     @classmethod
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
-        if cls.orders_nan_before_none():
+        if not cls.framework_nan_is_null():
             return {}
-        # Declared nan_as_null: NaN and None tie in order_by, and a NaN source value is treated as null.
-        return {
-            "3-order_tiers-v__lag_1_offset": {"v__lag_1_offset": [30, 10, None]},
-            "4-order_tiers-v__lead_1_offset": {"v__lead_1_offset": [20, None, 10]},
-            "7-nan-v__lag_1_offset": {"v__lag_1_offset": [None, None, 1.5]},
-            "8-nan-v__diff_1_offset": {"v__diff_1_offset": [None, 2.5, None]},
-            "14-nan-v__first_value_offset": {"v__first_value_offset": [1.0, 1.0, 1.0]},
-            "15-nan-v__last_value_offset": {"v__last_value_offset": [1.0, 1.0, 1.0]},
-        }
+        # The framework holds NaN as null: NaN and None tie in order_by, a NaN source value reads as null,
+        # and NaN and None partition keys merge so lag crosses the reference partition boundary.
+        return cls.served_pins(
+            {
+                "17-partition_keys-v__lag_1_offset": {"v__lag_1_offset": [None, 1, 2, 3]},
+                "3-order_tiers-v__lag_1_offset": {"v__lag_1_offset": [30, 10, None]},
+                "4-order_tiers-v__lead_1_offset": {"v__lead_1_offset": [20, None, 10]},
+                "7-nan-v__lag_1_offset": {"v__lag_1_offset": [None, None, 1.5]},
+                "8-nan-v__diff_1_offset": {"v__diff_1_offset": [None, 2.5, None]},
+                "14-nan-v__first_value_offset": {"v__first_value_offset": [1.0, 1.0, 1.0]},
+                "15-nan-v__last_value_offset": {"v__last_value_offset": [1.0, 1.0, 1.0]},
+            }
+        )
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
@@ -401,7 +405,7 @@ class OffsetTestBase(
     # -- NaN in order_by and in the source -----------------------------------
 
     def test_nan_orders_before_none(self) -> None:
-        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a backend declaring nan_as_null ties them."""
+        """order_by [None, NaN, 1.0]: the reference puts NaN before None; a framework holding NaN as null ties them."""
         self._skip_if_unsupported("lag")
         table = TypedTestData(
             {
@@ -421,7 +425,7 @@ class OffsetTestBase(
         ],
     )
     def test_nan_source_value(self, op: str, values: list[float], reference: list[float], as_null: list[float]) -> None:
-        """The reference keeps a NaN first/last value; a backend declaring nan_as_null skips it like a null."""
+        """The reference keeps a NaN first/last value; a framework holding NaN as null skips it like a null."""
         self._skip_if_unsupported(op)
         table = TypedTestData(
             {

@@ -438,11 +438,39 @@ class TestDivergences:
         pytest.importorskip("polars")
         assert DataOperationsCatalog.get("aggregation").divergences["PolarsLazyDataFrame"] == ()
 
-    def test_pandas_frame_aggregate_holds_a_scopeless_record(self) -> None:
-        """A record without subtypes covers every subtype."""
+    def test_pandas_and_sqlite_declare_only_operation_level_nan_as_null_records(self) -> None:
+        """The framework flag covers tie, merge and null-reading; only skip, count and drop records remain."""
         pytest.importorskip("pandas")
-        records = DataOperationsCatalog.get("frame_aggregate").divergences["PandasDataFrame"]
-        assert any(not r.subtypes for r in records)
+        skip = ("avg", "first", "last", "mean", "std", "std_pop", "std_samp", "sum", "var", "var_pop", "var_samp")
+        scalar_skip = tuple(name for name in skip if name not in ("first", "last"))
+        sqlite_skip = [("avg", "mean", "sum"), ("count",)]
+        expected: dict[tuple[str, str], list[tuple[str, ...]]] = {
+            ("aggregation", "PandasDataFrame"): [skip, ("count",), ("mode", "nunique")],
+            ("aggregation", "SqliteFramework"): sqlite_skip,
+            ("frame_aggregate", "PandasDataFrame"): [("avg", "std", "sum", "var"), ("count",)],
+            ("frame_aggregate", "SqliteFramework"): [("avg", "sum"), ("count",)],
+            ("resample", "PandasDataFrame"): [("count",), ("mean", "sum")],
+            ("scalar_aggregate", "PandasDataFrame"): [scalar_skip, ("count",)],
+            ("scalar_aggregate", "SqliteFramework"): sqlite_skip,
+            ("window_aggregation", "PandasDataFrame"): [skip, ("count",), ("mode", "nunique")],
+            ("window_aggregation", "SqliteFramework"): sqlite_skip,
+        }
+        for info in DataOperationsCatalog.list():
+            for framework in ("PandasDataFrame", "SqliteFramework"):
+                if framework not in info.divergences:
+                    continue
+                variants = [r for r in info.divergences[framework] if r.kind is DivergenceKind.VARIANT]
+                assert sorted(tuple(sorted(r.subtypes)) for r in variants) == sorted(
+                    expected.get((info.name, framework), [])
+                ), (info.name, framework)
+
+    def test_python_dict_rank_keeps_its_tie_record(self) -> None:
+        """PythonDict ties NaN with null by choice, so it stays an operation-level record."""
+        records = DataOperationsCatalog.get("rank").divergences["PythonDictFramework"]
+        variants = [r for r in records if r.kind is DivergenceKind.VARIANT]
+        assert [(r.variant, r.subtypes) for r in variants] == [
+            ("nan_as_null", frozenset({"rank", "dense_rank", "percent_rank"}))
+        ]
 
     def test_python_dict_frame_aggregate_declares_none(self) -> None:
         assert DataOperationsCatalog.get("frame_aggregate").divergences["PythonDictFramework"] == ()
@@ -451,18 +479,6 @@ class TestDivergences:
         records = DataOperationsCatalog.get("point_arithmetic").divergences["SqliteFramework"]
         value_records = [r for r in records if r.kind is DivergenceKind.VALUE]
         assert [r.subtypes for r in value_records] == [frozenset({"divide"})]
-
-    @pytest.mark.parametrize("operation", ["point_arithmetic", "scalar_arithmetic"])
-    @pytest.mark.parametrize(("framework", "requires"), [("PandasDataFrame", "pandas"), ("SqliteFramework", None)])
-    def test_pandas_and_sqlite_arithmetic_declare_scopeless_nan_as_null(
-        self, operation: str, framework: str, requires: str | None
-    ) -> None:
-        if requires:
-            pytest.importorskip(requires)
-        info = DataOperationsCatalog.get(operation)
-        variants = [r for r in info.divergences[framework] if r.kind is DivergenceKind.VARIANT]
-        assert [r.variant for r in variants] == ["nan_as_null"], framework
-        assert not variants[0].subtypes, framework
 
     @pytest.mark.parametrize("operation", ["point_arithmetic", "scalar_arithmetic"])
     def test_arithmetic_overflow_gap_on_non_raising_backends_only(self, operation: str) -> None:
