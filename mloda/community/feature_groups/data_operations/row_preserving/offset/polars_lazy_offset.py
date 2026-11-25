@@ -9,6 +9,7 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+from mloda.community.feature_groups.data_operations.polars_helpers import NARROW_INTEGERS
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -36,7 +37,11 @@ class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
     ) -> pl.LazyFrame:
         """PyArrow parity: offset requires sorting by order_by, which reorders rows.
         Tag rows with an index before sorting and restore input order afterward."""
-        orig_idx_col = unique_helper_name("__mloda_orig_idx", set(data.collect_schema().names()) | {feature_name})
+        schema = data.collect_schema()
+        orig_idx_col = unique_helper_name("__mloda_orig_idx", set(schema.names()) | {feature_name})
+        numeric_source = pl.col(source_col)
+        if schema[source_col] in NARROW_INTEGERS:
+            numeric_source = numeric_source.cast(pl.Int64)
 
         # Track original row order
         data = data.with_row_index(orig_idx_col)
@@ -52,13 +57,13 @@ class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
             expr = pl.col(source_col).shift(-offset_n).over(partition_by).alias(feature_name)
         elif offset_type.startswith("diff_"):
             offset_n = int(offset_type[len("diff_") :])
-            expr = (pl.col(source_col) - pl.col(source_col).shift(offset_n)).over(partition_by).alias(feature_name)
+            expr = (numeric_source - numeric_source.shift(offset_n)).over(partition_by).alias(feature_name)
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
-            prev = pl.col(source_col).shift(offset_n)
+            prev = numeric_source.shift(offset_n)
             expr = (
                 pl.when(prev.is_not_null() & (prev != 0))
-                .then((pl.col(source_col) - prev) / prev)
+                .then((numeric_source - prev) / prev)
                 .otherwise(pl.lit(None))
                 .over(partition_by)
                 .alias(feature_name)
