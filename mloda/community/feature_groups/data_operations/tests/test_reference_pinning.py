@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -49,6 +50,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import OPERATIONS
+from mloda.community.feature_groups.data_operations.tests.test_twin_catalog_consistency import TWIN_SPECS
 from mloda.testing.feature_groups.data_operations.aggregation.reference import reference_aggregation
 from mloda.testing.feature_groups.data_operations.aggregation_pinning_rows import (
     AGGREGATION_PINNING,
@@ -62,6 +64,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     make_feature_set,
     make_multi_feature_set,
 )
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import (
     PinningRow,
     PinningTable,
@@ -210,6 +213,13 @@ class TestTableGuards:
     def test_operation_is_known_and_matches_the_group(self, group: Any, table: PinningTable) -> None:
         assert table.operation in OPERATIONS
         assert DataOperationsCatalog.get(table.operation).prefix_pattern == group.PREFIX_PATTERN
+
+    def test_twin_base_runs_the_table_through_the_mixin(self, group: Any, table: PinningTable) -> None:
+        spec = TWIN_SPECS.get(table.operation)
+        assert spec is not None, f"{table.operation} has no TWIN_SPECS entry"
+        base = getattr(importlib.import_module(spec.base_module), spec.base_class)
+        assert issubclass(base, PinnedRowTestMixin)
+        assert base.pinning_table() is table
 
 
 _FLOAT_TYPES = (DataType.FLOAT, DataType.DOUBLE)

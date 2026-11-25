@@ -13,7 +13,7 @@ framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 from mloda.provider import FeatureSet
@@ -22,18 +22,18 @@ from mloda.user import DataType
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
-    assert_values_with_nulls,
     calculate_with,
     make_feature_set,
     typed_data_without,
 )
-from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
     InputValidationCase,
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.binning.pinning_rows import BINNING_PINNING
 from mloda.testing.typed_data import TypedTestData
 
@@ -85,37 +85,17 @@ EXPECTED_QBIN_5: list[Any] = [1, 0, 0, 2, None, 4, 3, 4, 1, 2, 3, 0]
 
 
 class BinningTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     ResultTypeTestMixin,
     DataOpsTestBase,
-    CaseParametrizationTestMixin,
 ):
     """Abstract base class for binning framework tests."""
 
-    _case_fixtures: ClassVar[dict[str, str]] = {"pinned_row_case": "pinned_row_cases"}
-
     @classmethod
-    def pinned_row_cases(cls) -> dict[str, Any]:
-        return {f"{i}-{row.case}": row for i, row in enumerate(BINNING_PINNING.rows)}
-
-    def test_pinned_row(self, pinned_row_case: str) -> None:
-        """Every hand-computed pinning row holds on the backend under test."""
-        row = self.pinned_row_cases()[pinned_row_case]
-        op, _ = self.feature_group_class().get_binning_params(row.feature)
-        self._skip_if_unsupported(op)
-        if any(data_type == DataType.FLOAT for data_type, _ in row.inputs.values()):
-            pytest.importorskip("pyarrow")
-        # A Python dict cannot hold float32, so Arrow gives it the float32-rounded values a float32 column holds.
-        arrow_types = {
-            name: DataType.to_arrow_type(DataType.FLOAT)
-            for name, (data_type, _) in row.inputs.items()
-            if data_type == DataType.FLOAT
-        }
-        data = self.create_test_data(TypedTestData(row.inputs), arrow_types or None)
-        result = calculate_with(self.implementation_class(), data, make_feature_set(row.feature, **row.context))
-        for name, (_, values) in row.expected.items():
-            assert_values_with_nulls(self.extract_column(result, name), list(values), strict=True)
+    def pinning_table(cls) -> PinningTable:
+        return BINNING_PINNING
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

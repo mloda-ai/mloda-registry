@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
@@ -21,6 +22,14 @@ class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteOffset
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        return {
+            **super().pinned_divergences(),
+            # NaN and None partition keys merge, so lag crosses the reference partition boundary.
+            "17-partition_keys-v__lag_1_offset": {"v__lag_1_offset": [None, 1, 2, 3]},
+        }
 
     @pytest.mark.parametrize("source_type", [pa.int64(), pa.float64()])
     @pytest.mark.parametrize("op", ["first_value", "last_value"])

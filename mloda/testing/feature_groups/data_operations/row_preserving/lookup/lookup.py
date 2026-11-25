@@ -39,8 +39,11 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.lookup.pinning_rows import LOOKUP_PINNING
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
 
@@ -164,9 +167,18 @@ VALUE_CASES: list[Any] = [
 
 
 class LookupTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    PinnedRowTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ReservedColumnsTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for key-lookup framework tests."""
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return LOOKUP_PINNING
 
     # -- Hook path configuration -------------------------------------------------
 

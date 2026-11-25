@@ -258,6 +258,13 @@ class PandasPythonStringTestMixin(PandasTestMixin):
     adapter_class = _PythonStringPandasAdapter
 
 
+def duckdb_below_2() -> bool:
+    """Whether the installed DuckDB is a 1.x release."""
+    import duckdb
+
+    return int(duckdb.__version__.split(".")[0]) < 2
+
+
 class DuckdbTestMixin(AdapterTestMixin):
     """Adapter methods for DuckDB; guard concrete modules with ``pytest.importorskip("duckdb")``.
 
@@ -277,6 +284,10 @@ class SqliteTestMixin(AdapterTestMixin):
     """Adapter methods for SQLite; ``self.conn`` is created in ``setup_method``."""
 
     adapter_class = _PlainSqliteAdapter
+
+    @classmethod
+    def booleans_as_integers(cls) -> bool:
+        return True
 
     def extract_column(self, result: Any, column_name: str) -> list[Any]:
         return [_maybe_parse_iso_datetime(v) for v in self.adapter.column_values(result, column_name)]

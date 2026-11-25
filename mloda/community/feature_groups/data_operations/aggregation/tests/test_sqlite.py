@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from mloda.user import Options
@@ -22,6 +23,16 @@ class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, Aggregatio
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteAggregation
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        return {
+            **super().pinned_divergences(),
+            # SQLite loses the negative sign of the first-seen zero partition key.
+            "6-signed_zero-v__count_agg": {"k": [0.0], "v__count_agg": [3]},
+            # sqlite3 stores the NaN partition key as NULL.
+            "8-partition_keys-val__sum_agg": {"grp": [None, 1.0, 2.0], "val__sum_agg": [30.0, 100.0, 200.0]},
+        }
 
     @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:

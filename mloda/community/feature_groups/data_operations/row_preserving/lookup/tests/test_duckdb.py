@@ -15,7 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.lookup.tests.
     _EmptyMappingHookLookup,
     _HookLookup,
 )
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import DuckdbTestMixin, duckdb_below_2
 from mloda.testing.feature_groups.data_operations.row_preserving.lookup.lookup import (
     LookupTestBase,
 )
@@ -39,4 +39,4 @@ class TestDuckdbLookup(DuckdbTestMixin, LookupTestBase):
     @classmethod
     def untyped_null_source_becomes_int(cls) -> bool:
         # DuckDB 1.x turns an Arrow null column into INTEGER; 2.x keeps the NULL type.
-        return int(duckdb.__version__.split(".")[0]) < 2
+        return duckdb_below_2()

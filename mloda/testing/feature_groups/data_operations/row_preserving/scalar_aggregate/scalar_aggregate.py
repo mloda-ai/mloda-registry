@@ -19,6 +19,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+from mloda.testing.feature_groups.data_operations.aggregation_pinning_rows import SCALAR_AGGREGATE_PINNING
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     calculate_with,
@@ -32,7 +33,9 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.reference import (
     SUPPORTED_SCALAR_AGG_TYPES,
 )
@@ -105,6 +108,7 @@ NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
 
 
 class ScalarAggregateTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
@@ -113,6 +117,10 @@ class ScalarAggregateTestBase(
     DataOpsTestBase,
 ):
     """Abstract base class for scalar aggregate framework tests."""
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return SCALAR_AGGREGATE_PINNING
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

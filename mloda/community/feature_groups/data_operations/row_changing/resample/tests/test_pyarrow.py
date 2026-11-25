@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
@@ -30,6 +31,23 @@ class TestPyArrowResample(PyArrowTestMixin, ResampleTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PyArrowResample
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        utc_hour = datetime(2023, 1, 1, 8, 0, tzinfo=timezone.utc)
+        # Arrow groups -0.0 and +0.0 separately, creating two buckets instead of one.
+        return {
+            "26-partition_keys-v__resample_1_hour_count": {
+                "p": [0.0, -0.0],
+                "ts": [utc_hour, utc_hour],
+                "v__resample_1_hour_count": [1, 2],
+            },
+            "27-partition_keys-v__resample_1_hour_count": {
+                "p": [-0.0, 0.0],
+                "ts": [utc_hour, utc_hour],
+                "v__resample_1_hour_count": [1, 1],
+            },
+        }
 
     @classmethod
     def merges_signed_zero_keys(cls) -> bool:

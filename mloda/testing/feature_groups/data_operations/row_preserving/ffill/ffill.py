@@ -68,8 +68,11 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_preserving.ffill.pinning_rows import FFILL_PINNING
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -171,7 +174,12 @@ NAIVE_WHOLE_TABLE_FFILL: list[Any] = [
 
 
 class FfillTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    PinnedRowTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ReservedColumnsTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for ffill-by-time framework tests.
 
@@ -183,6 +191,10 @@ class FfillTestBase(
     ``supported_ops`` machinery here. All five backends support ffill
     natively; there are no rejections of supported inputs.
     """
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return FFILL_PINNING
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

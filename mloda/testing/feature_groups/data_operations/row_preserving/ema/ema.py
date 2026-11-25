@@ -88,10 +88,13 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.pinning_rows import (
     EMA_IDS,
+    EMA_PINNING,
     EMA_REGIONS,
     EMA_TIMESTAMPS,
     EMA_VALUES,
@@ -131,7 +134,12 @@ def _create_ema_data() -> TypedTestData:
 
 
 class EmaTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    PinnedRowTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    ReservedColumnsTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Reusable test base for EMA on backends that compute it NATIVELY.
 
@@ -144,6 +152,10 @@ class EmaTestBase(
     backends (pyarrow, duckdb, sqlite) ship no backend at all (absence), so there is no value-test base
     for them here.
     """
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return EMA_PINNING
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

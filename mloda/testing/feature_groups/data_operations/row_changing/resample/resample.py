@@ -77,7 +77,10 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 )
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.row_changing.resample.pinning_rows import RESAMPLE_PINNING
 from mloda.testing.typed_data import TypedTestData
 
 if TYPE_CHECKING:
@@ -277,8 +280,32 @@ NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
 # ---------------------------------------------------------------------------
 
 
+# Pandas and DuckDB sort buckets and partitions instead of keeping their first-occurrence order.
+RESAMPLE_SORTED_BUCKET_DIVERGENCES: dict[str, dict[str, list[Any]]] = {
+    "1-bucket-v__resample_1_hour_sum": {
+        "ts": [datetime(2023, 1, 1, 7, 0, tzinfo=timezone.utc), datetime(2023, 1, 1, 8, 0, tzinfo=timezone.utc)],
+        "v__resample_1_hour_sum": [2, 1],
+    },
+    "7-rows-v__resample_1_hour_sum": {
+        "p": ["a", "a", "b"],
+        "ts": [
+            datetime(2023, 1, 1, 9, 0, tzinfo=timezone.utc),
+            datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc),
+            datetime(2023, 1, 1, 8, 0, tzinfo=timezone.utc),
+        ],
+        "v__resample_1_hour_sum": [4, 5, 6],
+    },
+    "24-partition_keys-v__resample_1_hour_sum": {"p": [1.0, math.nan], "v__resample_1_hour_sum": [2, 5]},
+}
+
+
 class ResampleTestBase(
-    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    PinnedRowTestMixin,
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    NanPolicyTestMixin,
+    ResultTypeTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for resample framework tests.
 
@@ -291,6 +318,10 @@ class ResampleTestBase(
     ``PolarsLazyResample`` and ``DuckdbResample``. SQLite is deferred to a
     later version and is intentionally not tested here.
     """
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return RESAMPLE_PINNING
 
     @classmethod
     def tz_aware_source_reads_utc(cls) -> bool:

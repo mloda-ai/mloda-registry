@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -23,3 +24,8 @@ class TestPolarsLazyResample(PolarsLazyTestMixin, ResampleTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyResample
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        # The first-seen negative zero partition key loses its sign.
+        return {"27-partition_keys-v__resample_1_hour_count": {"p": [0.0]}}

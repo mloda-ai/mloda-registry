@@ -13,6 +13,7 @@ small set of abstract methods. This follows the same pattern as
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,7 @@ from mloda.provider import FeatureSet, Implementation
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+from mloda.testing.feature_groups.data_operations.aggregation_pinning_rows import FRAME_AGGREGATE_PINNING
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     arrow_table_of,
@@ -40,6 +42,7 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
@@ -47,6 +50,7 @@ from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var im
     SINGLE_VALUE_VAR,
     SingleValueStdVarTestMixin,
 )
+from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.import_isolation import require_pyarrow
 from mloda.testing.typed_data import TypedTestData
 
@@ -274,6 +278,7 @@ def config_frame_options(agg_type: str, frame_type: str, frame_size: int = 3) ->
 
 
 class FrameAggregateTestBase(
+    PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
@@ -284,6 +289,17 @@ class FrameAggregateTestBase(
     DataOpsTestBase,
 ):
     """Abstract base class for frame aggregate framework tests."""
+
+    @classmethod
+    def pinning_table(cls) -> PinningTable:
+        return FRAME_AGGREGATE_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if cls.orders_nan_before_none():
+            return {}
+        # Declared nan_as_null: NaN and None tie in order_by, changing the cumulative sums.
+        return {"8-order-v__cumsum": {"v__cumsum": [40, 60, 30]}}
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
