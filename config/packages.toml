@@ -360,7 +360,7 @@ py_typed = true
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
 keywords = ["testing", "pytest"]
-dependencies = ["{core_dependency}", "pytest>=9.0.3"]
+dependencies = ["{core_dependency}", "pytest>=9.0.3", "packaging>=22"]
 path = "mloda/testing"
 published = true
 optional_dependencies = { dev = ["pytest>=9.0.3", "pyarrow>=14.0.1"], pyarrow = ["pyarrow>=14.0.1"], otel = ["opentelemetry-sdk>=1.30,<2", "pyarrow>=14.0.1"], openlineage = ["openlineage-python>=1.36,<2", "pyarrow>=14.0.1"], binary-model = ["pyarrow>=25", "mloda-community-binary-model>={version}"] }

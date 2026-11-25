@@ -19,7 +19,7 @@
 | Binary-backed group | simulated binary, simulated license, `BinaryModelConformanceBase` (extra `mloda-testing[binary-model]`) | `binary_model` | [Binary-Backed Features: Test](29-binary-backed-features.md#test) |
 | Extender package | `ExtenderContractTestMixin` (extra `mloda-testing[pyarrow]`) | `extenders` | [Create an Extender: Testing](../11-create-extender.md#testing) |
 | Extender package with an optional dependency | `OptionalDependencyPackageTestMixin` | `optional_dependency` | [Create an Extender: Optional dependency packages](../11-create-extender.md#optional-dependency-packages) |
-| Any package: what an import loads, a missing dependency, a base install | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report`, `assert_imports_with_base_deps` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
+| Any package: what an import loads, a missing dependency, a base install | `block_root`, `evict_root`, `evict_package`, `evict_entry_points`, `fresh_import_report`, `base_import_names`, `assert_imports_with_base_deps` | `import_isolation` | [Testing What an Import Loads](#testing-what-an-import-loads) |
 | Compute framework | `assert_compute_framework_shape`, the suites, `TypedTestData`, `FrameworkAdapter` | `compute_framework_shape`, `compute_framework`, `typed_data`, `framework_adapter` | [Compute Framework Testing Guide](../compute-framework-patterns/09-testing-guide.md) |
 
 The source suites (including column discovery and loads-into-framework), `ExtenderContractTestMixin` and `BinaryModelConformanceBase` are `ConformanceSuite` bases (re-exported with `HookError` and `SwitchedOffError` from `mloda.testing.suite`): name your host class `Test*`, set its hooks, and switch an inherited test off only through `switched_off` (see [ExtenderContractTestMixin](../11-create-extender.md#extendercontracttestmixin)). `FeatureGroupTestBase` (`mloda.testing.base`) only carries a `feature_group_class` attribute and adds no tests.
@@ -670,12 +670,22 @@ The report lists abstract bases too, so include them in the expected groups.
 
 `assert_imports_with_base_deps(package, allowed)` checks a base install. A fresh interpreter allows only the stdlib, `allowed` (top-level import names, not distribution names, of the whole base dependency closure) and the package, imports every module, and reports each failure with its traceback. `tests` subpackages are skipped, and directories without `__init__.py` are walked as namespace packages, so `exclude` data or template directories that hold `.py` files; pass `exclude` for modules that need an extra (see [Optional Backends](../04-create-plugin-package.md#optional-backends)). A dotted entry such as `mloda.core` admits only that subpackage and its parents, so a `mloda.*` namespace plugin can keep `mloda.testing` out.
 
+`base_import_names(distribution)` builds `allowed` from installed metadata: the top-level import names of the distribution and its transitive requirements, extra-gated requirements excluded, markers evaluated for the running interpreter. A distribution whose metadata lists no top-level names (some editable installs) contributes none. A top-level name shared as a namespace, such as `mloda`, admits every distribution installed under it, so a `mloda.*` plugin that must keep `mloda.testing` and sibling plugins out replaces it with dotted entries, e.g. `base_import_names("acme") - {"mloda"} | {"mloda.core", "mloda.provider", "mloda.steward"}`.
+
 ```python
-from mloda.testing.import_isolation import assert_imports_with_base_deps
+from mloda.testing.import_isolation import assert_imports_with_base_deps, base_import_names
 
 
-def test_base_install_imports(acme_plugin: None) -> None:
-    assert_imports_with_base_deps("acme", {"mloda", "mloda_plugins"})
+@pytest.fixture
+def acme_dist(acme_plugin: None, tmp_path: Path) -> None:
+    """Stand-in for your distribution's installed metadata."""
+    dist_info = tmp_path / "acme-0.1.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text("Metadata-Version: 2.1\nName: acme\nVersion: 0.1\nRequires-Dist: mloda\n")
+
+
+def test_base_install_imports(acme_dist: None) -> None:
+    assert_imports_with_base_deps("acme", base_import_names("acme"))
 ```
 
 ## Testing by Pattern
