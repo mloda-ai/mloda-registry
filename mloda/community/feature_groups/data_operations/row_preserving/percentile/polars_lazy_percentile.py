@@ -46,7 +46,7 @@ class PolarsLazyPercentile(Implementation[PercentileFeatureGroup]):
             return col.quantile(percentile, interpolation=interpolation).over(partition_by)
 
         if dtype.is_float():
-            # Linear interpolation next to an infinity gives NaN; the reference gives the infinite neighbour (lo + hi).
+            # Linear interpolation next to an infinity can give NaN; the reference gives the infinite neighbour (lo + hi).
             lo, hi, lin = quantile("lower"), quantile("higher"), quantile("linear")
             either_inf = lo.is_infinite() | hi.is_infinite()
             expr = pl.when(lo == hi).then(lo).when(either_inf).then(lo + hi).otherwise(lin).alias(feature_name)

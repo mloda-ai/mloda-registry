@@ -45,7 +45,7 @@ class PandasPercentile(Implementation[PercentileFeatureGroup]):
         lo = grouped.transform("quantile", percentile, interpolation="lower")
         hi = grouped.transform("quantile", percentile, interpolation="higher")
         lin = grouped.transform("quantile", percentile, interpolation="linear")
-        # Linear interpolation next to an infinity gives NaN; the reference gives the infinite neighbour (lo + hi).
+        # Linear interpolation next to an infinity can give NaN; the reference gives the infinite neighbour (lo + hi).
         either_inf = np.isinf(lo) | np.isinf(hi)
         data[feature_name] = np.where(lo == hi, lo, np.where(either_inf, lo + hi, lin))
         if mask_spec is not None:
