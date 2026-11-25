@@ -354,6 +354,8 @@ class DateTimeTestBase(
         """The varied dataset has non-zero hours, minutes and seconds."""
         self._compare_varied_with_reference(feature_name)
 
+    # -- DATE source guard ---------------------------------------------------
+
     @pytest.mark.parametrize(
         "op",
         [

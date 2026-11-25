@@ -89,9 +89,9 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     Null input gives null output; the pure Python reference in mloda-testing is the reference. Row count and order are
     preserved. ``dayofweek`` uses 0=Monday, 6=Sunday. Every op declares INT64. Each implementation passes
-    ``compute_datetime(data, feature_name, source_col, op)`` and ``is_date_source(data, source_col)`` to the group;
-    it returns the input with the new column appended. ``hour``, ``minute`` and ``second`` on a DATE source raise
-    ValueError.
+    ``compute_datetime(data, feature_name, source_col, op)`` to the group, and typed backends also pass
+    ``is_date_source(data, source_col)``; it returns the input with the new column appended. ``hour``, ``minute``
+    and ``second`` on a DATE source raise ValueError.
     """
 
     CONTRACT_VERSION = 1
