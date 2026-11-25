@@ -23,6 +23,7 @@ RESAMPLE_RULES: Mapping[str, str] = MappingProxyType(
         "whole_table": "Without partition_by the buckets alone group the rows.",
         "dtype": "count is int64, mean is float64, sum widens ints to int64, uint64 to uint64 and floats to float64, min and max keep the source type.",
         "empty": "An empty input gives empty columns: the partition columns, the time column, then the feature.",
+        "key_source": "A source column equal to time_column aggregates the floored bucket start, so min and max equal the bucket label; a partition column aggregates its own values.",
     }
 )
 
@@ -356,6 +357,29 @@ RESAMPLE_PINNING = PinningTable(
             "v__resample_1_hour_sum",
             {"p": (_S, ()), "ts": (DataType.TIMESTAMP_MICROS, ()), "v": (_D, ())},
             {"p": (_S, ()), "ts": (DataType.TIMESTAMP_MICROS, ()), "v__resample_1_hour_sum": (_D, ())},
+        ),
+        *(
+            _row(
+                "key_source",
+                f"ts__resample_1_hour_{agg}",
+                {"p": (_S, ("a",) * 3), "ts": (_TS, (_t(8, 10), _t(8, 50), _t(9, 5)))},
+                {
+                    "p": (_S, ("a", "a")),
+                    "ts": (_TS, (_t(8), _t(9))),
+                    f"ts__resample_1_hour_{agg}": (out_type, values),
+                },
+            )
+            for agg, out_type, values in (
+                ("min", _TS, (_t(8), _t(9))),
+                ("max", _TS, (_t(8), _t(9))),
+                ("count", _I, (2, 1)),
+            )
+        ),
+        _row(
+            "key_source",
+            "p__resample_1_hour_count",
+            {"p": (_S, ("a", "a", "b")), "ts": (_TS, (_t(8, 10), _t(8, 50), _t(8, 20)))},
+            {"p": (_S, ("a", "b")), "ts": (_TS, (_t(8), _t(8))), "p__resample_1_hour_count": (_I, (2, 1))},
         ),
     ),
 )

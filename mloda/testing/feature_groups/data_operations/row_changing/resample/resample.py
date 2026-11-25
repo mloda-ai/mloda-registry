@@ -722,9 +722,10 @@ class ResampleTestBase(
         return make_multi_feature_set(specs)
 
     def test_multiple_features_same_grid(self) -> None:
-        """Features sharing a bucket grid are aggregated together from the original input."""
+        """Features sharing a bucket grid are aggregated together from the original input, including a time-column source."""
         names = ["value__resample_1_hour_mean", "value__resample_1_hour_sum", "value__resample_1_hour_count"]
-        fs = self._multi_feature_set(names, ["region"])
+        ts_name = "ts__resample_1_hour_max"
+        fs = self._multi_feature_set([*names, ts_name], ["region"])
         result = calculate_with(self.implementation_class(), self.test_data, fs)
 
         assert self.get_row_count(result) == len(EXPECTED_1_HOUR_MEAN)
@@ -736,6 +737,10 @@ class ResampleTestBase(
         for name, exp, approx in expected:
             result_map = self._build_resample_map(result, name, "ts", ["region"])
             self._assert_map_equals(result_map, exp, use_approx=approx)
+        # A time-column source aggregates its own bucket start and stays aligned with the value sources.
+        ts_map = self._build_resample_map(result, ts_name, "ts", ["region"])
+        ts_map = {k: self._normalize_bucket_key(v) for k, v in ts_map.items()}
+        self._assert_map_equals(ts_map, {k: k[-1] for k in EXPECTED_1_HOUR_MEAN})
 
     def test_empty_feature_set_returns_input(self) -> None:
         """A FeatureSet without features returns the input unchanged and never calls compute_resample."""

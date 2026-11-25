@@ -11,6 +11,7 @@ This operation CHANGES the row count: the output has exactly one row per
 NON-EMPTY ``(partition, bucket)`` pair. Empty gap buckets are NOT emitted. A
 bucket that has rows but whose source values are ALL null still emits a row,
 with ``count = 0`` and ``mean / sum / min / max = None`` (the reference contract).
+A source column equal to ``time_column`` aggregates the bucket start.
 
 Pattern: ``{src}__resample_{n}_{unit}_{agg}``
 
