@@ -14,10 +14,13 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import with_input_position
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, with_input_position
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
+
+# Integer types that fit in BIGINT; diff and pct_change widen them first so the subtraction cannot overflow.
+_NARROW_INTEGER_TYPES = ("TINYINT", "SMALLINT", "INTEGER", "UTINYINT", "USMALLINT", "UINTEGER")
 
 
 class DuckdbOffset(Implementation[OffsetFeatureGroup]):
@@ -59,6 +62,9 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         offset_type: str,
     ) -> DuckdbRelation:
         quoted_source = quote_ident(source_col)
+        numeric_source = quoted_source
+        if column_types(data).get(source_col, "").upper() in _NARROW_INTEGER_TYPES:
+            numeric_source = f"CAST({quoted_source} AS BIGINT)"
         order_spec: list[str | OrderBy] = [OrderBy(order_by, nulls="last"), rn]
 
         offset_expr: str
@@ -73,7 +79,7 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         elif offset_type.startswith("diff_"):
             offset_n = int(offset_type[len("diff_") :])
             # SQL binds OVER to the LAG term only, matching the original behaviour.
-            offset_expr = f"{quoted_source} - LAG({quoted_source}, {offset_n})"
+            offset_expr = f"{numeric_source} - LAG({numeric_source}, {offset_n})"
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
 
@@ -83,14 +89,14 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
             prev = pick_helper_column_name(taken=set(data.columns) | {feature_name})
             qprev = quote_ident(prev)
             rel = data.window(
-                f"LAG({quoted_source}, {offset_n})",
+                f"LAG({numeric_source}, {offset_n})",
                 prev,
                 partition_by=partition_by,
                 order_by=order_spec,
             )
             case_expr = (
                 f"CASE WHEN {qprev} IS NOT NULL AND {qprev} != 0 "
-                f"THEN ({quoted_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
+                f"THEN ({numeric_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
             )
             keep = ", ".join(quote_ident(c) for c in rel.columns if c != prev)
             return rel.project(f"{keep}, {case_expr} AS {quote_ident(feature_name)}")

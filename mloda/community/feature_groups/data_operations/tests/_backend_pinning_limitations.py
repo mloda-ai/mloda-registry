@@ -130,19 +130,6 @@ LIMITATIONS: tuple[PinningLimitation, ...] = (
         "NaN and None partition keys merge, so lag crosses the reference partition boundary.",
     ),
     PinningLimitation(
-        "offset",
-        ("polars_lazy",),
-        ("20-dtype-v__diff_1_offset", "21-dtype-v__diff_1_offset"),
-        "Narrow integer subtraction wraps before widening: UINT8 gives 252 instead of -4; INT8 gives -56 instead of 200.",
-    ),
-    PinningLimitation(
-        "offset",
-        ("duckdb",),
-        ("20-dtype-v__diff_1_offset", "21-dtype-v__diff_1_offset"),
-        "Narrow integer subtraction raises on UINT8 1 - 5 and INT8 100 - -100 before widening.",
-        raises="duckdb.OutOfRangeException",
-    ),
-    PinningLimitation(
         "percentile",
         ("pandas",),
         (
