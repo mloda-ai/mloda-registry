@@ -29,7 +29,7 @@ from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     SqliteComputedColumnTestMixin,
     SqliteTestMixin,
 )
-from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding, ResultTypeTestMixin, _blocking
+from mloda.testing.feature_groups.data_operations.mixins.result_type import KnownFinding, ResultTypeTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.tests.test_frameworks import _StubTeardownBase
 from mloda.testing.typed_data import TypedTestData
 
@@ -269,6 +269,12 @@ class TestDivergenceRecords:
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
 
+    def test_type_record_excuses_a_column_that_lost_its_type(self) -> None:
+        assert (
+            _run("pandas", kind="text", rule=DataType.INT64, impl_records=(_record(DivergenceKind.TYPE),)).state
+            == "passed"
+        )
+
 
 class TestUnresolvedType:
     @pytest.mark.parametrize("framework", ["pandas", "pandas_object_string"])
@@ -312,12 +318,24 @@ class TestValueFit:
             pytest.param({"impl_records": (_record(DivergenceKind.GAP),)}, id="gap_on_implementation"),
             pytest.param({"group_records": (_record(DivergenceKind.GAP),)}, id="gap_on_group"),
             pytest.param({"impl_records": (_record(DivergenceKind.GAP, "cnt"),)}, id="gap_for_the_subtype"),
+            pytest.param({"impl_records": (_record(DivergenceKind.TYPE, "other"),)}, id="type_for_another_subtype"),
         ],
     )
-    def test_gap_record_does_not_excuse_values_that_do_not_fit(self, records: dict[str, Any]) -> None:
+    def test_gap_or_unrelated_record_does_not_excuse_values_that_do_not_fit(self, records: dict[str, Any]) -> None:
         outcome = _run("python_dict", kind="text", rule=DataType.INT64, **records)
         assert outcome.state == "failed"
         assert "out_cnt" in outcome.message
+
+    @pytest.mark.parametrize("framework", ["python_dict", "sqlite"])
+    @pytest.mark.parametrize(
+        "records",
+        [
+            pytest.param({"impl_records": (_record(DivergenceKind.TYPE),)}, id="type_on_implementation"),
+            pytest.param({"group_records": (_record(DivergenceKind.TYPE),)}, id="type_on_group"),
+        ],
+    )
+    def test_type_record_excuses_values_that_do_not_fit(self, framework: str, records: dict[str, Any]) -> None:
+        assert _run(framework, kind="text", rule=DataType.INT64, **records).state == "passed"
 
 
 class TestRunsThatDoNotHappen:
@@ -367,63 +385,8 @@ class TestShapeFailuresBeyondTheType:
         assert outcome.state == "failed"
         assert expected in outcome.message
 
-    @pytest.mark.parametrize(
-        ("failure", "keyword", "columns", "blocks"),
-        [
-            pytest.param(
-                "zero_rows: column 'c' changes type on zero rows",
-                "adapter_retypes",
-                frozenset({"c"}),
-                False,
-                id="retype_by_the_adapter_is_excused",
-            ),
-            pytest.param(
-                "zero_rows: column 'c' changes type on zero rows",
-                "adapter_retypes",
-                frozenset({"other"}),
-                True,
-                id="retype_of_another_column_blocks",
-            ),
-            pytest.param(
-                "zero_rows: column 'c' changes type on zero rows",
-                "adapter_retypes",
-                frozenset(),
-                True,
-                id="no_adapter_retype_blocks",
-            ),
-            pytest.param(
-                "outputs: input column 'c' was changed",
-                "adapter_rewrites",
-                frozenset({"c"}),
-                False,
-                id="rewrite_by_the_adapter_is_excused",
-            ),
-            pytest.param(
-                "outputs: input column 'c' was changed",
-                "adapter_rewrites",
-                frozenset({"other"}),
-                True,
-                id="rewrite_of_another_column_blocks",
-            ),
-            pytest.param(
-                "outputs: input column 'c' was changed",
-                "adapter_rewrites",
-                frozenset(),
-                True,
-                id="no_adapter_rewrite_blocks",
-            ),
-        ],
-    )
-    def test_failure_is_excused_only_for_columns_the_adapter_alters(
-        self, failure: str, keyword: str, columns: frozenset[str], blocks: bool
-    ) -> None:
-        """A zero-row retype or a changed input blocks unless the adapter itself alters that column."""
-        excuse: Any = {keyword: columns}
-        bad = _blocking([failure], [], readback=False, gap_covers=False, **excuse)
-        assert bad == ([failure] if blocks else [])
-
     def test_sqlite_computed_adapter_timestamp_readback_is_not_a_changed_input(self) -> None:
-        """The adapter reads a TIMESTAMP passenger column back as ISO text; a clean stub still passes."""
+        """The adapter reads a TIMESTAMP passenger column back as ISO text; core's readback of the input covers it."""
         assert _run("sqlite_computed", data=_TIMESTAMP_PASSENGER).state == "passed"
 
     @pytest.mark.parametrize(
