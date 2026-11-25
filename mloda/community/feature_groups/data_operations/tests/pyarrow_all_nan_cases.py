@@ -11,6 +11,7 @@ ALL_NAN_EXTREMA_CASES = [
     pytest.param([math.nan] * 3, math.nan, math.nan, id="all-nan"),
     pytest.param([math.nan, None, math.nan], math.nan, math.nan, id="nan-and-null"),
     pytest.param([math.nan, math.inf, None], math.inf, math.inf, id="nan-and-positive-infinity"),
+    pytest.param([math.nan, -math.inf, None], -math.inf, -math.inf, id="nan-and-negative-infinity"),
     pytest.param([-math.inf, math.nan, math.inf], -math.inf, math.inf, id="both-infinities-and-nan"),
     pytest.param([math.nan, 3.0, -2.0], -2.0, 3.0, id="nan-and-finite"),
     pytest.param([None] * 3, None, None, id="all-null"),

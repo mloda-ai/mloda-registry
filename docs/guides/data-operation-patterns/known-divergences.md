@@ -728,6 +728,8 @@ regression_test:
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_min_max_nan_and_infinity_multi_aggregation
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pyarrow.py::TestPyArrowResample::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_pyarrow.py::TestPyArrowAggregation::test_min_max_all_nan_group
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pyarrow.py::TestPyArrowAggregation::test_min_max_all_nan_under_mask
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pyarrow.py::TestPyArrowAggregation::test_min_max_repair_survives_helper_name_collision_across_sources
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pyarrow.py::TestPyArrowWindowAggregation::test_min_max_all_nan_partition
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_pyarrow.py::TestPyArrowScalarAggregate::test_min_max_all_nan_column
 -->
