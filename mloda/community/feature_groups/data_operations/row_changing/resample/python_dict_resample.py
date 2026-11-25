@@ -85,7 +85,8 @@ class PythonDictResample(Implementation[ResampleFeatureGroup]):
         for spec in aggs:
             result[spec.feature_name] = []
 
-        sources = [data[spec.source_col] for spec in aggs]
+        columns = {**data, time_column: buckets}
+        sources = [columns[spec.source_col] for spec in aggs]
         for key, indices in groups.items():
             first_idx = indices[0]
             for col_name, col in zip(partition_by, partition_cols):

@@ -81,8 +81,11 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
         result: pd.DataFrame | None = None
         for spec in aggs:
             grouped = null_safe_groupby(data, keys, spec.source_col)
-            part = apply_null_safe_agg(grouped, PANDAS_AGG_FUNCS[spec.agg], spec.agg).reset_index()
-            part = part.rename(columns={spec.source_col: spec.feature_name})
+            part = (
+                apply_null_safe_agg(grouped, PANDAS_AGG_FUNCS[spec.agg], spec.agg)
+                .rename(spec.feature_name)
+                .reset_index()
+            )
             coerce_count_dtype(part, spec.feature_name, spec.agg)
 
             if spec.agg != "count":
