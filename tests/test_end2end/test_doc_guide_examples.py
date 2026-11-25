@@ -549,6 +549,8 @@ def test_conformance_section_test_passes_against_the_operation_group_example(tmp
         (TESTING_GUIDE, "mloda.testing.operation_group_shape", ("assert_operation_group_shape",)),
         (TESTING_GUIDE, "mloda.testing.subclass_scope", ("assert_subclass_scope",)),
         (TESTING_GUIDE, "mloda.testing.value_fit", ("check_values_fit",)),
+        (TESTING_GUIDE, "mloda.testing.time_rule", ("assert_time_rule",)),
+        (TESTING_GUIDE, "mloda.testing.compute_framework.time_window_suite", ("TimeWindowRuleSuite",)),
         (BACKEND_FAMILIES_GUIDE, "mloda.testing.subclass_scope", ("assert_sibling_scope",)),
         (
             TESTING_GUIDE,
@@ -587,6 +589,8 @@ def test_conformance_section_test_passes_against_the_operation_group_example(tmp
         "testing-operation-group-shape",
         "testing-subclass-scope",
         "testing-value-fit",
+        "testing-time-rule",
+        "testing-time-window-suite",
         "backend-families-sibling-scope",
         "testing-import-isolation",
         "readers-column-discovery",
