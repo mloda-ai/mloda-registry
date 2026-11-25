@@ -21,7 +21,13 @@ class PolarsLazyDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
     def calculate(
         cls, group: type[DateTimeFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.extract_datetime(data, features, compute_datetime=cls._compute_datetime)
+        return group.extract_datetime(
+            data, features, compute_datetime=cls._compute_datetime, is_date_source=cls._is_date_source
+        )
+
+    @staticmethod
+    def _is_date_source(data: Any, source_col: str) -> bool:
+        return bool(data.collect_schema()[source_col] == pl.Date)
 
     @classmethod
     def _compute_datetime(

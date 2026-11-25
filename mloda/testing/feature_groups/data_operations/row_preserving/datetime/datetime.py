@@ -354,6 +354,23 @@ class DateTimeTestBase(
         """The varied dataset has non-zero hours, minutes and seconds."""
         self._compare_varied_with_reference(feature_name)
 
+    # -- DATE source guard ---------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "op",
+        [
+            pytest.param("hour", id="hour"),
+            pytest.param("minute", id="minute"),
+            pytest.param("second", id="second"),
+        ],
+    )
+    def test_time_of_day_op_on_date_source_raises_value_error(self, op: str) -> None:
+        """A time-of-day op on a DATE source is rejected with a ValueError."""
+        fs = make_feature_set(f"event_date__{op}")
+
+        with pytest.raises(ValueError, match="needs a time of day"):
+            calculate_with(self.implementation_class(), self.test_data, fs)
+
     # -- All-null column tests -----------------------------------------------
 
     def test_all_null_timestamp_column(self) -> None:

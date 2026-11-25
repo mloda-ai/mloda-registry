@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DateTimeFeatureGroup,
 )
@@ -46,7 +47,13 @@ class DuckdbDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
     def calculate(
         cls, group: type[DateTimeFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.extract_datetime(data, features, compute_datetime=cls._compute_datetime)
+        return group.extract_datetime(
+            data, features, compute_datetime=cls._compute_datetime, is_date_source=cls._is_date_source
+        )
+
+    @staticmethod
+    def _is_date_source(data: Any, source_col: str) -> bool:
+        return column_types(data)[source_col] == "DATE"
 
     @classmethod
     def _compute_datetime(

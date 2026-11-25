@@ -89,8 +89,9 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
 
     Null input gives null output; the pure Python reference in mloda-testing is the reference. Row count and order are
     preserved. ``dayofweek`` uses 0=Monday, 6=Sunday. Every op declares INT64. Each implementation passes
-    ``compute_datetime(data, feature_name, source_col, op)`` to the group; it returns the input with the new
-    column appended.
+    ``compute_datetime(data, feature_name, source_col, op)`` to the group, and typed backends also pass
+    ``is_date_source(data, source_col)``; it returns the input with the new column appended. ``hour``, ``minute``
+    and ``second`` on a DATE source raise ValueError.
     """
 
     CONTRACT_VERSION = 1
@@ -154,6 +155,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
         features: FeatureSet,
         *,
         compute_datetime: Callable[[Any, str, str, str], Any],
+        is_date_source: Callable[[Any, str], bool] | None = None,
     ) -> Any:
         """Shared loop: extract params from each feature, delegate to ``compute_datetime``."""
         table = data
@@ -164,6 +166,11 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, OperationFeatureGroup):
             source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             op = cls._extract_datetime_op(feature)
+            if op in TIME_OF_DAY_OPS and is_date_source is not None and is_date_source(table, source_col):
+                raise ValueError(
+                    f"Datetime operation {op!r} needs a time of day, but {source_col!r} is a DATE; "
+                    "cast it to a timestamp"
+                )
 
             table = compute_datetime(table, feature_name, source_col, op)
 
