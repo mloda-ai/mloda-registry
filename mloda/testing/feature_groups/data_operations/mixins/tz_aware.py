@@ -26,7 +26,7 @@ class TzAwareSourceTestMixin(DataOpsTestBase):
 
     @classmethod
     def tz_aware_source_reads_utc(cls) -> bool:
-        """True when a tz-aware source column is read on its UTC instant, not its own zone (a declared GAP)."""
+        """True when a tz-aware source is computed on the UTC wall clock, not its own zone (a declared GAP)."""
         return False
 
     @classmethod

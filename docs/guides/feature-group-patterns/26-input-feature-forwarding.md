@@ -207,8 +207,8 @@ def test_consumer_local_key_stays_off_the_input():
 |------|-------------|
 | [test_input_features_forward_group_defaults.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_plugins/feature_group/experimental/test_input_features_forward_group_defaults.py) | Plugin `input_features()` leaving children at the default sentinel; explicit directives preserved |
 | [test_feature_collection_forwarding.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_core/test_abstract_plugins/test_components/test_feature_collection_forwarding.py) | `forward_group` / `forward_group_exclude` allowlist and carve-out semantics |
-| [property_spec.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda/core/abstract_plugins/components/property_spec.py) | `property_spec(..., forward_to_inputs=False)`: consumer-local keys |
-| [feature.py](https://github.com/mloda-ai/mloda/blob/0.21.0/mloda/core/abstract_plugins/components/feature.py) | `Feature.options_forwarded_from`: preview what an input receives |
+| [property_spec.py](https://github.com/mloda-ai/mloda/blob/0.22.0/mloda/core/abstract_plugins/components/property_spec.py) | `property_spec(..., forward_to_inputs=False)`: consumer-local keys |
+| [feature.py](https://github.com/mloda-ai/mloda/blob/0.22.0/mloda/core/abstract_plugins/components/feature.py) | `Feature.options_forwarded_from`: preview what an input receives |
 | [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) | Group vs context, propagation |
 
 ## Combines With

@@ -37,7 +37,7 @@ class DuckdbDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
         Divergence(
             kind=DivergenceKind.GAP,
             cause=Cause.BACKEND,
-            reason="a tz-aware column arrives as UTC, so a non-UTC zone gives the UTC fields",
+            reason="DuckDB computes a tz-aware column in the UTC session zone, so a non-UTC zone gives the UTC fields",
             docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-datetime-extraction-reads-a-non-utc-zone-as-utc",
         ),
     )

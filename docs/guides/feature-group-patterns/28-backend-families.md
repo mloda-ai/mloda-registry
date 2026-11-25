@@ -114,7 +114,7 @@ Feature("retrieved_passages", options=Options(group={"retrieve_backend": "faiss"
 
 Rules:
 
-- **Keep the value sets disjoint.** Two siblings claiming `"faiss"` fail with `Multiple feature groups found`. Pin this with a test that enables every sibling at once.
+- **Keep the value sets disjoint.** Two siblings claiming `"faiss"` fail with `Multiple feature groups found`. Pin this with a test that enables every sibling at once, or with `assert_sibling_scope(BaseRetriever, {Bm25Retriever: Bm25Retriever.BACKENDS, FaissRetriever: FaissRetriever.BACKENDS}, "retrieve_backend")` from `mloda.testing.subclass_scope`.
 - **Only the discriminator stays required.** Core's presence guard keeps an override's `False` and records nothing, so the matcher above records the absent key itself; that is why the error names it. Declare every other key with `default=None` ([Options](11-options.md#validation-and-conditional-requirements)).
 - **Know what `PROPERTY_MAPPING` still does.** An override replaces the matcher, so `strict` / `allowed_values` / `element_validator` and `match_guard` only run if it calls `super().match_feature_group_criteria()` or `cls.passes_option_declarations(options)` (mloda 0.15.1+): no declaration here validates `retrieve_backend`, so only the matcher's own record reports `"fiass"`. Required presence applies only when the override returns `True`; defaults, `required_when`, and option attribution still apply (see the note in [Custom Matching Override](14-feature-matching.md#custom-matching-override)).
 - **Record why a sibling declined.** The matcher above ends this way, so the error lists each sibling's reason (a matching sibling hides them):

@@ -159,7 +159,7 @@ class StubExample(BinaryExampleFeatureGroup):
     LICENSE_KEY_OVERRIDE = simulated_license("example_binary")
 ```
 
-A subclass that matches the same features takes over its parent wherever its module is imported ([matching process](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/feature-group-matching.md#matching-process)); an entry point imports it in every environment that installs the package. Keep stubs in test modules and name the class a test means with `PluginCollector.enabled_feature_groups`. This also matters because the `mloda-enterprise` bundle, wherever it is installed, registers its FeatureGroups through entry points: a copy of the Complete Example would otherwise match alongside the real group (`Multiple feature groups found`).
+A subclass that matches the same features takes over its parent wherever its module is imported ([matching process](https://github.com/mloda-ai/mloda/blob/0.22.0/docs/docs/in_depth/feature-group-matching.md#matching-process)); an entry point imports it in every environment that installs the package. Keep stubs in test modules and name the class a test means with `PluginCollector.enabled_feature_groups`. This also matters because the `mloda-enterprise` bundle, wherever it is installed, registers its FeatureGroups through entry points: a copy of the Complete Example would otherwise match alongside the real group (`Multiple feature groups found`).
 
 Other license states come from the same function: `simulated_license(plugin_id, "expired")` and `simulated_license(plugin_id, "in_grace")`.
 

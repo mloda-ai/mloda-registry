@@ -50,7 +50,7 @@ value__resample_1_day_count
 
 The all-null `sum` cell is the one place backends disagree by default (pandas → `0.0`, PyArrow → `None`); the implementation forces every backend to the reference `None` (pandas `min_count=1`, polars `when(count > 0)` guard, DuckDB/SQL `SUM` returns `NULL` natively).
 
-The reference takes ms and us timestamps with no zone or UTC; other zones and ns are not judged. DuckDB buckets a non-UTC zone on the UTC wall clock (see [known divergences](known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock)).
+The reference takes ms and us timestamps with no zone or UTC; other zones and ns are not judged. DuckDB buckets a non-UTC zone on the UTC wall clock and labels the buckets in the column's zone (see [known divergences](known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock)).
 
 ---
 
