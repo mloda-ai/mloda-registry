@@ -172,7 +172,7 @@ def test_my_feature_within_budget():
         assert entry.duration_seconds < BUDGET_SECONDS[name], name
 ```
 
-The duration covers the `calculate_feature` call only, so on a lazy framework such as `PolarsLazyDataFrame` or `DuckDBFramework` it measures building the frame, not executing it; see [the mloda API doc](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/mloda-api.md#explain-and-resolved_plan).
+The duration covers the `calculate_feature` call only, so on a lazy framework such as `PolarsLazyDataFrame` or `DuckDBFramework` it measures building the frame, not executing it; see [the mloda API doc](https://github.com/mloda-ai/mloda/blob/0.22.0/docs/docs/in_depth/mloda-api.md#explain-and-resolved_plan).
 
 ### Level 3 Only: The Empty-Result Contract
 
@@ -208,7 +208,7 @@ def test_empty_source_keeps_schema():
 
 ## Subclasses That Take Over on an Option
 
-`assert_subclass_scope(Subclass, Parent, selecting)` from `mloda.testing.subclass_scope` checks that the parent resolves without the selecting options, the subclass resolves with them, and another value of a selecting key does not select the subclass (gating on the key's mere presence fails as a steal). With `input_data=` (a `TypedTestData`) it also runs both groups and compares the output columns; a changed column passes only when a divergence record the subclass declares covers it, and a comparison that cannot run fails unless `require_run=False`; details in [core's doc](https://github.com/mloda-ai/mloda/blob/0.21.0/docs/docs/in_depth/troubleshooting/feature-group-resolution-errors.md#a-loaded-subclass-replaces-its-parent). A pattern-matching parent needs `requests=`. A selecting key that configures the subclass without selecting it also goes in `free=`, which skips its other-value probe.
+`assert_subclass_scope(Subclass, Parent, selecting)` from `mloda.testing.subclass_scope` checks that the parent resolves without the selecting options, the subclass resolves with them, and another value of a selecting key does not select the subclass (gating on the key's mere presence fails as a steal). With `input_data=` (a `TypedTestData`) it also runs both groups and compares the output columns; a changed column passes only when a divergence record the subclass declares covers it, and a comparison that cannot run fails unless `require_run=False`; details in [core's doc](https://github.com/mloda-ai/mloda/blob/0.22.0/docs/docs/in_depth/troubleshooting/feature-group-resolution-errors.md#a-loaded-subclass-replaces-its-parent). A pattern-matching parent needs `requests=`. A selecting key that configures the subclass without selecting it also goes in `free=`, which skips its other-value probe.
 
 ```python
 from mloda.testing.subclass_scope import assert_subclass_scope
@@ -472,7 +472,7 @@ def test_column_total_shape():
 
 `assert_operation_group_shape` (`mloda.testing.operation_group_shape`) checks that the group declares a `CONTRACT_VERSION`, that each Implementation's `supported` and `divergences` stay inside the subtype universe, that every divergence record gives a reason, and that unsupported subtypes are declined; pass `alias_pairs=` to check that two aliased subtypes declare the same divergences and `probe=` for a group that resolves subtypes without an option key. A data-operation family gets the shape check from `OperationGroupTestBase` and the reference comparison from its family test base (see [adding an operation](../data-operation-patterns/10-adding-new-operation.md)).
 
-Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.21.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
+Assert the chosen implementation with `mloda.explain(...)` (`step.implementation`). See mloda's own [test_aggregated_subtype_declaration.py](https://github.com/mloda-ai/mloda/blob/0.22.0/tests/test_plugins/feature_group/experimental/test_base_aggregated_feature_group/test_aggregated_subtype_declaration.py).
 
 ## Locking a Shipped Plan
 
