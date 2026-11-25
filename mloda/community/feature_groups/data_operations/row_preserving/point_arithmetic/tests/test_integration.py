@@ -134,21 +134,13 @@ class TestPointArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOps
                 implementation=f"{package}.pyarrow_point_arithmetic:PyArrowPointArithmetic",
                 compute_framework=PYARROW_TABLE,
             ),
+            # add has no record left, so SQLite keeps its own data without allow_variants.
             RoutingCase(
                 "value_int&amount__add_point",
-                implementation=f"{package}.pyarrow_point_arithmetic:PyArrowPointArithmetic",
-                compute_framework=PYARROW_TABLE,
+                implementation=f"{package}.sqlite_point_arithmetic:SqlitePointArithmetic",
+                compute_framework=SQLITE_FRAMEWORK,
             ),
         ]
-
-    @classmethod
-    def variant_required_case(cls) -> RoutingCase | None:
-        package = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic"
-        return RoutingCase(
-            "value_int&amount__add_point",
-            implementation=f"{package}.sqlite_point_arithmetic:SqlitePointArithmetic",
-            compute_framework=SQLITE_FRAMEWORK,
-        )
 
     def test_match_rejects_missing_config(self) -> None:
         """Override: the name carries the operation and both source columns, so no config is needed."""

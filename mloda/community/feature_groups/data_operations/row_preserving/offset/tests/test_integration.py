@@ -26,7 +26,6 @@ from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
-    PYTHON_DICT_FRAMEWORK,
     SQLITE_DATA_CREATOR,
     SQLITE_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
@@ -58,37 +57,12 @@ class TestOffsetIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegrati
         return PandasDataFrame
 
     @classmethod
-    def group_options(cls) -> dict[str, Any]:
-        # Pandas ties NaN and null in order_by and treats a NaN source as null: it serves only with this variant.
-        return {"allow_variants": "nan_as_null"}
-
-    @classmethod
     def routing_frameworks(cls) -> list[type[Any]]:
-        # Pandas data without the option is served by the PythonDict Implementation.
+        # PythonDict is enabled too, so the Pandas and SQLite Implementations must win on their own data.
         return [PythonDictFramework]
 
     @classmethod
     def divergent_routing_cases(cls) -> list[RoutingCase]:
-        package = "mloda.community.feature_groups.data_operations.row_preserving.offset"
-        return [
-            RoutingCase(
-                "value_int__lag_1_offset",
-                {"partition_by": ["region"], "order_by": "value_int"},
-                f"{package}.python_dict_offset:PythonDictOffset",
-                PYTHON_DICT_FRAMEWORK,
-            ),
-            # SQLite-held data without allow_variants is served by the PythonDict Implementation.
-            RoutingCase(
-                "value_int__lag_1_offset",
-                {"partition_by": ["region"], "order_by": "value_int"},
-                f"{package}.python_dict_offset:PythonDictOffset",
-                PYTHON_DICT_FRAMEWORK,
-                SQLITE_DATA_CREATOR,
-            ),
-        ]
-
-    @classmethod
-    def variant_required_cases(cls) -> list[RoutingCase]:
         package = "mloda.community.feature_groups.data_operations.row_preserving.offset"
         options = {"partition_by": ["region"], "order_by": "value_int"}
         return [

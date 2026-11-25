@@ -49,6 +49,7 @@ Fixture row layout (``id`` is the passthrough row-order witness)::
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -195,6 +196,19 @@ class FfillTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return FFILL_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: partition keys merge, carrying a value across the reference
+        # partition boundary; NaN and None tie in order_by; a NaN source value is filled instead of carried.
+        return {
+            "10-partition_keys-v__ffill": {"v__ffill": [1, 1, 1, 1]},
+            "3-order_tiers-v__ffill": {"v__ffill": [None, 20, None]},
+            "7-nan-v__ffill": {"v__ffill": [1.0, 1.0, 1.0]},
+            "8-nan-v__ffill": {"v__ffill": [None, None, None]},
+        }
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

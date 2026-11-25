@@ -56,7 +56,6 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 
 class ScalarArithmeticFeatureGroup(ArithmeticOpMixin, OperationFeatureGroup):
     CONTRACT_VERSION = 1
-    VARIANTS = frozenset({"nan_as_null"})
     SUBTYPES = SubtypeDeclaration(key=ArithmeticOpMixin.ARITHMETIC_OP)
 
     PREFIX_PATTERN = r".*__([\w]+)_constant$"

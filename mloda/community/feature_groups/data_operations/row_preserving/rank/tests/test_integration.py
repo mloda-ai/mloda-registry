@@ -23,7 +23,6 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
     PANDAS_DATAFRAME,
-    POLARS_LAZY_DATAFRAME,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
 )
@@ -51,11 +50,6 @@ class TestRankIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegration
     @classmethod
     def compute_framework_class(cls) -> type:
         return PandasDataFrame
-
-    @classmethod
-    def group_options(cls) -> dict[str, Any]:
-        # Pandas serves rank and dense_rank only when the feature allows the NaN variant.
-        return {"allow_variants": "nan_as_null"}
 
     @classmethod
     def several_frameworks(cls) -> list[type[Any]]:
@@ -117,8 +111,8 @@ class TestRankIntegration(OperationGroupIntegrationTestMixin, DataOpsIntegration
             RoutingCase(
                 "value_int__rank_ranked",
                 options,
-                f"{package}.polars_lazy_rank:PolarsLazyRank",
-                POLARS_LAZY_DATAFRAME,
+                f"{package}.pandas_rank:PandasRank",
+                PANDAS_DATAFRAME,
             ),
             RoutingCase(
                 "value_int__row_number_ranked",

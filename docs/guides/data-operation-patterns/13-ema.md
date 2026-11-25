@@ -71,10 +71,7 @@ PluginLoader.all()
 data = {"ts": [1, 2, 3, 4], "symbol": ["A", "A", "B", "B"], "price": [1.0, 2.0, None, 4.0]}
 
 features = [
-    Feature(
-        "price__ema_10",
-        Options(group={"allow_variants": "nan_as_null"}, context={"order_by": "ts", "partition_by": ["symbol"]}),
-    ),
+    Feature("price__ema_10", Options(context={"order_by": "ts", "partition_by": ["symbol"]})),
 ]
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"], api_data={"Src": data})
 ```

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import Cause, ComputeFramework, Divergence, DivergenceKind, FeatureSet, Implementation
+from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -18,14 +18,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 class SqliteOffset(Implementation[OffsetFeatureGroup]):
     feature_group = OffsetFeatureGroup
     compute_framework = SqliteFramework
-    divergences = (
-        Divergence(
-            kind=DivergenceKind.VARIANT,
-            variant="nan_as_null",
-            cause=Cause.BACKEND,
-            reason="sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null",
-        ),
-    )
 
     @classmethod
     def calculate(

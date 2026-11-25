@@ -62,7 +62,6 @@ class FfillFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operation
     """
 
     CONTRACT_VERSION = 1
-    VARIANTS = frozenset({"nan_as_null"})
 
     KEY_COLUMN_OPTIONS = ("partition_by", "order_by")
 

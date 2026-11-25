@@ -31,10 +31,6 @@ class TestPandasRank(CapabilityHookTestMixin, PandasTestMixin, RankTestBase):
         return PandasRank
 
     @classmethod
-    def merges_none_and_nan_partition_keys(cls) -> bool:
-        return True
-
-    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value__percent_rank_ranked", Options()),

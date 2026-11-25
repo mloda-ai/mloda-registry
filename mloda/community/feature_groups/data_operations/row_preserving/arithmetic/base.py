@@ -17,14 +17,6 @@ ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", 
 #: Shared SQL operator map, imported by the DuckDB and SQLite Implementations.
 SQL_ARITHMETIC_OPS: dict[str, str] = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
-#: Shared NaN-as-null variant record for the Pandas and SQLite Implementations.
-NAN_AS_NULL_DIVERGENCE = Divergence(
-    kind=DivergenceKind.VARIANT,
-    variant="nan_as_null",
-    cause=Cause.BACKEND,
-    reason="turns a NaN operand or result into null",
-)
-
 
 def _overflow_gap(reason: str) -> Divergence:
     return Divergence(

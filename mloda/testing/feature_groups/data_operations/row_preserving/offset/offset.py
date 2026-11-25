@@ -105,8 +105,10 @@ class OffsetTestBase(
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         if cls.orders_nan_before_none():
             return {}
-        # Declared nan_as_null: NaN and None tie in order_by, and a NaN source value is treated as null.
+        # The framework holds NaN as null: NaN and None tie in order_by, a NaN source value reads as null,
+        # and NaN and None partition keys merge so lag crosses the reference partition boundary.
         return {
+            "17-partition_keys-v__lag_1_offset": {"v__lag_1_offset": [None, 1, 2, 3]},
             "3-order_tiers-v__lag_1_offset": {"v__lag_1_offset": [30, 10, None]},
             "4-order_tiers-v__lead_1_offset": {"v__lead_1_offset": [20, None, 10]},
             "7-nan-v__lag_1_offset": {"v__lag_1_offset": [None, None, 1.5]},

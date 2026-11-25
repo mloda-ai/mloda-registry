@@ -52,17 +52,6 @@ class ArithmeticPinningTestMixin(PinnedRowTestMixin):
         return {row.case: row for row in cls.arithmetic_overflow_rows()}
 
     @classmethod
-    def _nan_as_null_applies(cls, op: str) -> bool:
-        """Whether a ``nan_as_null`` VARIANT record covers ``op``."""
-        return any(
-            record.kind is DivergenceKind.VARIANT
-            and record.variant == "nan_as_null"
-            and not record.outputs
-            and (not record.subtypes or op in record.subtypes)
-            for record in getattr(cls.implementation_class(), "divergences", ())
-        )
-
-    @classmethod
     def _divide_is_null_where_non_finite(cls) -> bool:
         """Whether a non-GAP record names ``divide`` (non-finite quotient comes back as None)."""
         return "divide" in divergent_subtypes(cls.implementation_class(), named_only=True)
@@ -81,7 +70,7 @@ class ArithmeticPinningTestMixin(PinnedRowTestMixin):
         op = self.feature_group_class().get_arithmetic_op(row.feature)
         data_type, values = row.expected[row.feature]
         is_float = data_type in (DataType.FLOAT, DataType.DOUBLE)
-        nan_to_null = self._nan_as_null_applies(op)
+        nan_to_null = self.framework_nan_is_null()
         non_finite_to_null = op == "divide" and self._divide_is_null_where_non_finite()
 
         def expect(value: Any) -> Any:

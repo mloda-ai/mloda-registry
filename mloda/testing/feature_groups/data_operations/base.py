@@ -295,9 +295,17 @@ class DataOpsTestBase(ABC):
         return default
 
     @classmethod
+    def framework_nan_is_null(cls) -> bool:
+        """Whether the compute framework under test cannot hold NaN apart from null (``nan_is_null()``)."""
+        impl = cls.implementation_class()
+        if isinstance(impl, type) and issubclass(impl, Implementation):
+            return bool(impl.compute_framework.nan_is_null())
+        return False
+
+    @classmethod
     def orders_nan_before_none(cls) -> bool:
-        """False exactly when the Implementation declares a scopeless, outputless ``nan_as_null`` VARIANT record."""
-        return not declares_nan_as_null(cls.implementation_class())
+        """False exactly when the compute framework holds NaN as null, so NaN and None tie in ``order_by``."""
+        return not cls.framework_nan_is_null()
 
     def _assert_nan_case(
         self,

@@ -429,9 +429,9 @@ regression_test:
 ### Pandas and SQLite cannot tell NaN from null
 
 <!-- machine-checked
-operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate, point_arithmetic, scalar_arithmetic
+operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate
 framework: pandas, sqlite
-condition: pandas and SQLite turn a NaN operand or result into null in point and scalar arithmetic, skip NaN in sum/avg/count (pandas also in mode and std/var, drops it in nunique and skips it in first/last), pandas resample returns null for an all-NaN bucket
+condition: pandas and SQLite skip NaN in sum/avg/count (pandas also in mode and std/var, drops it in nunique and skips it in first/last), pandas resample skips it in sum/mean
 mitigation_location:
 - mloda/community/feature_groups/data_operations/pandas_helpers.py
 - mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py
@@ -443,10 +443,6 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/sqlite_scalar_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/pandas_point_arithmetic.py
-- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py
-- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/pandas_scalar_arithmetic.py
-- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/sqlite_scalar_arithmetic.py
 regression_test:
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_pandas.py::TestPandasAggregation::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_sqlite.py::TestSqliteAggregation::test_mixin_nan_policy
@@ -457,21 +453,17 @@ regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_sqlite.py::TestSqliteScalarAggregate::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_pandas.py::TestPandasFrameAggregate::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_sqlite.py::TestSqliteFrameAggregate::test_mixin_nan_policy
-- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_pandas.py::TestPandasPointArithmetic::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_pandas.py::TestPandasScalarArithmetic::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_pandas.py::TestPandasAggregation::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_sqlite.py::TestSqliteAggregation::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pandas.py::TestPandasWindowAggregation::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pandas.py::TestPandasResample::test_mixin_pinned_row
 -->
 
-- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp`/`nunique`/`first`/`last` (Pandas only); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only); `point_arithmetic` and `scalar_arithmetic` `add`/`subtract`/`multiply`/`divide` (Pandas and SQLite, a NaN operand or result becomes null).
-- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`; the Pandas and SQLite point and scalar arithmetic Implementations.
-- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. `nunique` counts NaN as one value and `first`/`last` skip only None. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max/std/var.
-- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null. Pandas' `nunique` also drops NaN, `first`/`last` skip it like null, and pandas resample returns null (count 0) for an all-NaN bucket. Aggregation partition key row 8 (a NaN key, no None key) reads back as a null key on Pandas and SQLite. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
-- **Mitigation kind**: Accepted divergence. Neither pandas nor SQLite can represent NaN separately from null. The records are `DivergenceKind.VARIANT` records named `nan_as_null`: those Implementations run only for a feature whose group options set `allow_variants: "nan_as_null"`; otherwise another framework serves the step, or resolution fails naming the option.
+- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp`/`nunique`/`first`/`last` (Pandas only); `resample` `sum`/`mean`/`count` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var`/`std_pop`/`var_pop`/`std_samp`/`var_samp` (Pandas only); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only).
+- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`.
+- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. `nunique` counts NaN as one value and `first`/`last` skip only None. An all-NaN resample bucket keeps NaN for `sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max/std/var.
+- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null. Pandas' `nunique` also drops NaN, `first`/`last` skip it like null, and pandas resample `sum`/`mean` return null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
+- **Mitigation kind**: Accepted divergence. These are what the operation chooses to do with a missing value, so they stay records; what only follows from the framework holding NaN as null is not a record (see [Pandas and SQLite hold NaN as null](#pandas-and-sqlite-hold-nan-as-null)). The records are `DivergenceKind.VARIANT` records named `nan_as_null`: those Implementations run only for a feature whose group options set `allow_variants: "nan_as_null"`; otherwise another framework serves the step, or resolution fails naming the option.
 - **How**: The divergences are declared as `nan_as_null` variant records on the Implementations, listed under [Declared divergence records](#declared-divergence-records). `nan_divergent_agg_types()` reads them, so declaration and test cannot drift. With several frameworks enabled, the step runs on an Implementation without the record.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
 
@@ -583,41 +575,74 @@ regression_test:
 - **Mitigation kind**: Accepted divergence. A branch on the hot grouping path for a sign-of-zero edge case the canonical fixture does not exercise is not worth it. It is not a `divergences` record: a `value` record would penalize every PyArrow aggregation, and this key and value level edge case stays an entry ([When to add](#when-to-add-to-this-page)).
 - **Regression signal**: the reference's merge is pinned by rows in `aggregation_pinning_rows.py`; `test_signed_zero_partition_keys` and `test_signed_zero_nunique_values` (in both `AggregationTestBase` and `WindowAggregationTestBase`) and `ResampleTestBase.test_signed_zero_partition_keys` pin each backend through `merges_signed_zero_keys()` (default `True`; `TestPyArrowAggregation`, `TestPyArrowWindowAggregation` and `TestPyArrowResample` override to `False`).
 
-### Pandas and SQLite tie NaN and None in `order_by`; the reference orders NaN before None
+### Pandas and SQLite hold NaN as null
 
 <!-- machine-checked
-operation: window_aggregation, frame_aggregate, offset, ffill, ema
+operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate, point_arithmetic, scalar_arithmetic, rank, offset, ffill, ema, percentile, sessionization
 framework: pandas, sqlite
-condition: window first/last, frame aggregates, offset, ffill and ema tie NaN and None order keys, while the reference orders real values, then NaN, then None; a NaN source value counts as null for offset, ffill and ema
+condition: a float64 pandas column and the sqlite3 driver cannot hold NaN apart from null, so NaN and None tie in order_by, NaN and None partition keys merge, a NaN value or key reads back as null, a NaN operand or result becomes null and an all-NaN min/max returns null; the reference keeps NaN apart and returns NaN
 mitigation_location:
-- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pandas_window_aggregation.py
+- mloda/community/feature_groups/data_operations/pandas_helpers.py
+- mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py
+- mloda/community/feature_groups/data_operations/aggregation/sqlite_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/ema/pandas_ema.py
+- mloda/community/feature_groups/data_operations/row_preserving/ffill/pandas_ffill.py
+- mloda/community/feature_groups/data_operations/row_preserving/ffill/sqlite_ffill.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/offset/pandas_offset.py
 - mloda/community/feature_groups/data_operations/row_preserving/offset/sqlite_offset.py
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/pandas_ffill.py
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/sqlite_ffill.py
-- mloda/community/feature_groups/data_operations/row_preserving/ema/pandas_ema.py
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/pandas_percentile.py
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/pandas_point_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/sqlite_rank.py
+- mloda/community/feature_groups/data_operations/row_changing/resample/pandas_resample.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pandas_scalar_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/sqlite_scalar_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/pandas_scalar_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/sqlite_scalar_arithmetic.py
+- mloda/community/feature_groups/data_operations/row_preserving/sessionization/pandas_sessionization.py
+- mloda/community/feature_groups/data_operations/row_preserving/sessionization/sqlite_sessionization.py
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pandas_window_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/sqlite_window_aggregation.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_nan_orders_before_none
 - mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_nan_orders_before_none
 - mloda/testing/feature_groups/data_operations/row_preserving/offset/offset.py::OffsetTestBase::test_nan_orders_before_none
 - mloda/testing/feature_groups/data_operations/row_preserving/ffill/ffill.py::FfillTestBase::test_nan_orders_before_none
 - mloda/testing/feature_groups/data_operations/row_preserving/ema/ema.py::EmaTestBase::test_nan_orders_before_none
-- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pandas.py::TestPandasWindowAggregation::test_mixin_pinned_row
+- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_nan_and_none_partition_keys
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pandas.py::TestPandasAggregation::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_sqlite.py::TestSqliteAggregation::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/ema/tests/test_pandas.py::TestPandasEma::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/ffill/tests/test_pandas.py::TestPandasFfill::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/ffill/tests/test_sqlite.py::TestSqliteFfill::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_pandas.py::TestPandasFrameAggregate::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_sqlite.py::TestSqliteFrameAggregate::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/offset/tests/test_pandas.py::TestPandasOffset::test_mixin_pinned_row
 - mloda/community/feature_groups/data_operations/row_preserving/offset/tests/test_sqlite.py::TestSqliteOffset::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/tests/test_pandas.py::TestPandasFfill::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/tests/test_sqlite.py::TestSqliteFfill::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/ema/tests/test_pandas.py::TestPandasEma::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_pandas.py::TestPandasPercentile::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_pandas.py::TestPandasPointArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_sqlite.py::TestSqlitePointArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_pandas.py::TestPandasRank::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_sqlite.py::TestSqliteRank::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pandas.py::TestPandasResample::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_pandas.py::TestPandasScalarAggregate::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_sqlite.py::TestSqliteScalarAggregate::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_pandas.py::TestPandasScalarArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/tests/test_sqlite.py::TestSqliteScalarArithmetic::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/sessionization/tests/test_pandas.py::TestPandasSessionization::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/sessionization/tests/test_sqlite.py::TestSqliteSessionization::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pandas.py::TestPandasWindowAggregation::test_mixin_pinned_row
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_sqlite.py::TestSqliteWindowAggregation::test_mixin_pinned_row
 -->
 
-- **Operations**: `window_aggregation` (`first`, `last`, Pandas only), `frame_aggregate` (every frame type, Pandas and SQLite), `offset` and `ffill` (Pandas and SQLite), `ema` (Pandas only).
-- **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`. Pandas (window and frame) and SQLite (frame) tie NaN and None, giving window `last` `[20, 20, 20]` and frame `cumsum` `[40, 60, 30]`, because both store NaN as null. Offset, ffill and ema tie them the same way on those backends, and they also treat a NaN source value as null there. PythonDict orders like the reference.
-- **Mitigation kind**: Accepted divergence, declared as `nan_as_null` variant records on the Implementations (see [Declared divergence records](#declared-divergence-records)).
-- **Regression signal**: the reference value is pinned by rows in `aggregation_pinning_rows.py` and in the offset, ffill and ema `pinning_rows.py`; `test_nan_orders_before_none` in each test base asserts the backend value through `orders_nan_before_none()`, which reads the records.
+- **Operations**: every operation above on Pandas and SQLite (`ema` and `percentile` on Pandas only; `resample` on Pandas only).
+- **Native behavior**: on `order_by = [None, nan, 1.0]` the reference gives window `last` `[10, 10, 10]` and frame `cumsum` `[60, 50, 30]`; Pandas and SQLite tie NaN and None, giving `[20, 20, 20]` and `[40, 60, 30]`. On rank partition keys `[None, NaN, None]` ordered by `[1, 2, 3]`, `row_number`, `rank` and `dense_rank` give `[1, 1, 2]` on the reference and `[1, 2, 3]` merged. A NaN value (offset, ffill, ema) or a NaN partition key (aggregation row 8, resample row 24) reads back as null, a NaN operand or result of point and scalar arithmetic becomes null, and an all-NaN `min`/`max` (aggregation, window aggregation, scalar aggregate, resample) returns null where the reference returns NaN. PythonDict, DuckDB, Polars and the reference keep NaN apart from None.
+- **Where it lives**: Pandas (a float64 column cannot tell NaN from null) and SQLite (the driver coerces NaN to NULL on ingest).
+- **Mitigation kind**: Accepted divergence, declared on the framework, not per operation: `ComputeFramework.nan_is_null()` is `True` for `PandasDataFrame` and `SqliteFramework`. It replaces the former per-operation records, so explain, the plan lock and lineage no longer list these behaviours per operation; the planner marks `potential_nan_null_loss` on a transfer into such a framework. No `allow_variants` opt-in is needed. What an operation chooses to do with a missing value (skip NaN, not count it) stays a `nan_as_null` record, see [Pandas and SQLite cannot tell NaN from null](#pandas-and-sqlite-cannot-tell-nan-from-null).
+- **Regression signal**: `DataOpsTestBase.framework_nan_is_null()` reads the flag, and `orders_nan_before_none()` is its negation. The family bases gate their pins on it, so each twin's `test_mixin_pinned_row` pins the null reading and the reference result is pinned everywhere else. `test_nan_orders_before_none` and `RankTestBase.test_nan_and_none_partition_keys` assert the tie and the merge per family.
 
 ### PythonDict, Pandas and SQLite rank tie None and NaN in order-value runs; PyArrow >= 25, DuckDB, and Polars rank them apart
 
@@ -641,48 +666,10 @@ regression_test:
 - **Operations**: `rank` (`rank`, `dense_rank`, `percent_rank`; the same tiering also reaches `row_number`/`ntile_N`/`top_N`/`bottom_N`, but only these three collapse ties into one shared output value).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`is_null_like`, `nulls_last_sort_key`, `order_values_equal`), consumed by `PythonDictRank`. `reference_rank` orders through the kit kernel's `order_key`, not PythonDict's helpers.
 - **Reference behavior**: PyArrow >= 25.0's `pc.rank` ranks NaN as a distinct value ahead of null under any `null_placement` (PyArrow < 25.0 tied them); DuckDB's `RANK()` and Polars' `.rank()` do the same. On `order_by = [None, nan, None, 1.0]` all three, and `reference_rank`, give `[3, 2, 3, 1]`.
-- **Cross-framework check**: PythonDict, pandas and SQLite give `[2, 2, 2, 1]` (None and NaN tied). Pandas ties because a float64 column cannot distinguish NaN from null; SQLite ties because the sqlite3 driver coerces NaN to NULL on ingest, so `RANK()` never sees a NaN. PythonDict is the only backend that can represent both and chooses to tie them. The three Implementations declare this as `nan_as_null` variant records, see [Declared divergence records](#declared-divergence-records); they run only for a feature whose group options set `allow_variants: "nan_as_null"`, otherwise another framework serves the step, or resolution fails naming the option.
+- **Cross-framework check**: PythonDict, pandas and SQLite give `[2, 2, 2, 1]` (None and NaN tied). Pandas and SQLite tie because they hold NaN as null (see [Pandas and SQLite hold NaN as null](#pandas-and-sqlite-hold-nan-as-null)), a framework flag, not a record. PythonDict is the only backend that can represent both and chooses to tie them, so only `PythonDictRank` declares a `nan_as_null` variant record, see [Declared divergence records](#declared-divergence-records); it runs only for a feature whose group options set `allow_variants: "nan_as_null"`, otherwise another framework serves the step, or resolution fails naming the option.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted).
 - **How**: `nulls_last_sort_key` and `order_values_equal` fold NaN and `None` into one null-like tier (`is_null_like`) on purpose: this fixes a tie-run-splitting bug where a NaN row could sort between two None rows and break the run. Splitting them would trade agreement with pandas for agreement with PyArrow 25/DuckDB/Polars, a lateral move, and reopen that bug, so the divergence is documented instead of mitigated.
-- **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` returns `"rank" not in divergent_subtypes(implementation_class())` (the kit helper), so it is `False` exactly for the three divergent implementations. The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run.
-
-### Pandas and SQLite merge None and NaN partition keys
-
-<!-- machine-checked
-operation: rank, offset, ffill, ema, percentile, sessionization, resample
-framework: pandas, sqlite
-condition: a float partition column holding None and NaN collapses both into one group on Pandas and SQLite (resample on Pandas); the reference, PythonDict, DuckDB and Polars keep None as its own group and merge NaN keys with each other
-mitigation_location:
-- mloda/community/feature_groups/data_operations/row_preserving/rank/pandas_rank.py
-- mloda/community/feature_groups/data_operations/row_preserving/rank/sqlite_rank.py
-- mloda/community/feature_groups/data_operations/row_preserving/offset/pandas_offset.py
-- mloda/community/feature_groups/data_operations/row_preserving/offset/sqlite_offset.py
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/pandas_ffill.py
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/sqlite_ffill.py
-- mloda/community/feature_groups/data_operations/row_preserving/ema/pandas_ema.py
-- mloda/community/feature_groups/data_operations/row_preserving/percentile/pandas_percentile.py
-- mloda/community/feature_groups/data_operations/row_preserving/sessionization/pandas_sessionization.py
-- mloda/community/feature_groups/data_operations/row_preserving/sessionization/sqlite_sessionization.py
-- mloda/community/feature_groups/data_operations/row_changing/resample/pandas_resample.py
-regression_test:
-- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_nan_and_none_partition_keys
-- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_pandas.py::TestPandasRank::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_sqlite.py::TestSqliteRank::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/offset/tests/test_pandas.py::TestPandasOffset::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/offset/tests/test_sqlite.py::TestSqliteOffset::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/tests/test_pandas.py::TestPandasFfill::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/ffill/tests/test_sqlite.py::TestSqliteFfill::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/ema/tests/test_pandas.py::TestPandasEma::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_pandas.py::TestPandasPercentile::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/sessionization/tests/test_pandas.py::TestPandasSessionization::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/sessionization/tests/test_sqlite.py::TestSqliteSessionization::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pandas.py::TestPandasResample::test_mixin_pinned_row
--->
-
-- **Operations**: `rank` (every rank type), `offset`, `ffill`, `ema` (Pandas only), `percentile` (Pandas only), `sessionization` and `resample`. On rank partition keys `[None, NaN, None]` ordered by `[1, 2, 3]`, `row_number`, `rank` and `dense_rank` give `[1, 1, 2]` on the reference and `[1, 2, 3]` merged.
-- **Where it lives**: Pandas (a float64 column cannot tell NaN from null) and SQLite (the driver coerces NaN to NULL on ingest). Pandas `resample` returns it as null (row 24) or merges it with None (row 25).
-- **Mitigation kind**: Accepted divergence. For `offset`, `ffill`, `ema` and `resample` `sum` the merge is already behind the `nan_as_null` variant opt-in (see [Pandas and SQLite cannot tell NaN from null](#pandas-and-sqlite-cannot-tell-nan-from-null)). It also reaches features that never opted in (`percentile`, `sessionization`, rank `row_number`), so a record would move every such Pandas/SQLite feature for a rare data condition.
-- **Regression signal**: `RankTestBase.merges_none_and_nan_partition_keys()` is overridden to `True` in `TestPandasRank` (inherited by the nullable-int class) and `TestSqliteRank`; `test_nan_and_none_partition_keys` pins the merged result there and the reference result everywhere else. Each other twin's `test_mixin_pinned_row` pins its merged partition-key row.
+- **Regression signal**: `RankTestBase.ranks_none_and_nan_apart()` is `False` exactly for the three tying implementations: PythonDict (its record) and Pandas and SQLite (`framework_nan_is_null()`). The three shared tests `test_none_and_nan_order_by_rank` / `_dense_rank` / `_percent_rank` in `mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py` pin `reference_rank` at `[3, 2, 3, 1]` and each backend at its own choice, so a change in any backend's or the reference's tie behavior fails that backend's run.
 
 ### Pandas and DuckDB return aggregation and resample groups in sorted order
 
@@ -765,7 +752,7 @@ regression_test:
 
 - **Operations**: `rank` `top_N` on a float column holding NaN. `top_2` over `[1.0, NaN, 3.0, None, 2.0]` selects NaN and 3.0 instead of 3.0 and 2.0.
 - **Native behavior**: both engines order NaN as the largest value, so a descending sort puts it first.
-- **Mitigation kind**: Accepted divergence, not a `divergences` record: a record would move every `top_N` feature off both backends for a rare input (same reasoning as [the partition-key merge](#pandas-and-sqlite-merge-none-and-nan-partition-keys)).
+- **Mitigation kind**: Accepted divergence, not a `divergences` record: a record would move every `top_N` feature off both backends for a rare input (same reasoning as [the partition-key merge](#pandas-and-sqlite-hold-nan-as-null)).
 - **Regression signal**: each twin's `test_mixin_pinned_row` pins the selection.
 
 ### Integer arithmetic does not raise on overflow
@@ -998,24 +985,13 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 |---|---|---|---|---|---|
 | Pandas | variant | `nan_as_null` | backend | `avg`, `std`, `sum`, `var` | skips NaN |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
-| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null, so they tie in order_by |
 | SQLite | variant | `nan_as_null` | backend | `avg`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
-| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL, so they tie in order_by |
-
-### offset
-
-| Framework | Kind | Variant | Cause | Applies to | Reason |
-|---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
-| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null |
 
 ### rank
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | `dense_rank`, `percent_rank`, `rank` | float64 cannot tell NaN from null, so they tie |
-| SQLite | variant | `nan_as_null` | backend | `dense_rank`, `percent_rank`, `rank` | sqlite3 stores NaN as NULL, so they tie |
 | Python dict | variant | `nan_as_null` | other | `dense_rank`, `percent_rank`, `rank` | ties NaN with null in order_by ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#pythondict-pandas-and-sqlite-rank-tie-none-and-nan-in-order-value-runs-pyarrow--25-duckdb-and-polars-rank-them-apart)) |
 
 ### scalar_aggregate
@@ -1032,10 +1008,8 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
 | PyArrow | gap |  | backend | `add`, `multiply`, `subtract` | wraps an int64 overflow and widens a narrower result instead of raising |
-| Pandas | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
 | Pandas | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
 | Polars lazy | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
-| SQLite | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
 | SQLite | gap |  | backend | `add`, `multiply`, `subtract` | keeps 64-bit integers and turns an int64 overflow into REAL instead of raising |
 | Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
 
@@ -1044,10 +1018,8 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
 | PyArrow | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
-| Pandas | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
 | Pandas | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
 | Polars lazy | gap |  | backend | `add`, `multiply`, `subtract` | wraps an integer overflow at the operand width instead of raising |
-| SQLite | variant | `nan_as_null` | backend | (all) | turns a NaN operand or result into null |
 | SQLite | gap |  | backend | `add`, `multiply`, `subtract` | keeps 64-bit integers and turns an int64 overflow into REAL instead of raising |
 | SQLite | value |  | backend | `divide` | returns NULL on divide by zero |
 | Python dict | gap |  | backend | `add`, `multiply`, `subtract` | returns the unbounded integer result because rows carry no integer width instead of raising |
@@ -1058,13 +1030,6 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 |---|---|---|---|---|---|
 | DuckDB | gap |  | backend | (all) | DuckDB computes a tz-aware column in the UTC session zone, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-time-bucketization-buckets-a-non-utc-zone-on-the-utc-wall-clock)) |
 
-### ffill
-
-| Framework | Kind | Variant | Cause | Applies to | Reason |
-|---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
-| SQLite | variant | `nan_as_null` | backend | (all) | sqlite3 stores NaN as NULL: ties them in order_by and treats a NaN value as null |
-
 ### lookup
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
@@ -1074,12 +1039,6 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | DuckDB | gap |  | backend | (all) | on DuckDB < 2 a null-typed source arrives as INTEGER ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-1x-reads-a-null-typed-lookup-source-as-integer)) |
 | Python dict | gap |  | backend | (all) | rows carry no dtype: a typed all-null column is untyped and skips the key check, in-range uint64 values serve int keys ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#python-dict-treats-a-typed-all-null-lookup-source-as-untyped)) |
 
-### ema
-
-| Framework | Kind | Variant | Cause | Applies to | Reason |
-|---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | (all) | float64 cannot tell NaN from null: ties them in order_by and treats a NaN value as null |
-
 ### window_aggregation
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
@@ -1087,7 +1046,6 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 | Pandas | variant | `nan_as_null` | backend | `avg`, `first`, `last`, `mean`, `std`, `std_pop`, `std_samp`, `sum`, `var`, `var_pop`, `var_samp` | skips NaN |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
 | Pandas | variant | `nan_as_null` | backend | `mode`, `nunique` | does not count NaN as a value |
-| Pandas | variant | `nan_as_null` | backend | `first`, `last` | float64 cannot tell NaN from null, so they tie in order_by |
 | SQLite | variant | `nan_as_null` | backend | `avg`, `mean`, `sum` | skips NaN |
 | SQLite | variant | `nan_as_null` | backend | `count` | does not count NaN |
 
@@ -1101,7 +1059,7 @@ Rendered from each Implementation's `divergences`, queryable through `DataOperat
 
 | Framework | Kind | Variant | Cause | Applies to | Reason |
 |---|---|---|---|---|---|
-| Pandas | variant | `nan_as_null` | backend | `max`, `mean`, `min`, `sum` | skips NaN; null for an all-NaN bucket |
+| Pandas | variant | `nan_as_null` | backend | `mean`, `sum` | skips NaN |
 | Pandas | variant | `nan_as_null` | backend | `count` | does not count NaN |
 | DuckDB | gap |  | backend | (all) | DuckDB computes a tz-aware column in the UTC session zone, so a non-UTC zone is resampled on the UTC wall clock and labelled in the column's zone ([details](https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock)) |
 
@@ -1118,6 +1076,8 @@ Add a new entry here if and only if all three hold:
 3. The decision (fix vs. document vs. exclude) has been made and landed in code.
 
 A divergence the planner, `explain`, the plan lock and lineage should see is declared as a `Divergence` record on the Implementation, and the generated "Declared divergence records" section is then regenerated (the drift check fails until it is). Divergences deliberately not records (signed zero, float tolerance) stay entries only. An edge case that is not an opt-in `variant` is a `value` record while its ranking penalty stays proportionate (SQLite `divide`, scoped to one subtype). When the penalty would move features that never hit the condition off the backend wholesale (an operation without subtypes, or a condition every subtype shares), it is a `gap` record: shown in explain, the plan lock and lineage, not in ranking. Its reason names the input condition, since records carry no input scope. In the shape check a `gap` record excuses every type failure it covers and, unlike a `type` record, is never reported stale, so an edge case whose `gap` would excuse unrelated failures stays an entry. The lookup and integer-overflow records are examples.
+
+A difference that exists only because the framework holds NaN as null (an order_by tie, a merged partition key, a NaN value or result read as null, an all-NaN min/max returning null) is not a record: `ComputeFramework.nan_is_null()` declares it for the whole framework. Only what an operation chooses to do with a missing value (skip NaN, not count it) is a `nan_as_null` record.
 
 A `pinned_divergences()` pin on a test twin needs an entry whose `regression_test` names that twin's `::test_mixin_pinned_row`; `test_every_pinned_twin_is_declared` enforces it. An identical-pins subclass (nullable-int, view-input) is covered by naming its parent `Test*` class; name a subclass itself only when its pins differ.
 

@@ -55,12 +55,6 @@ class PandasFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             subtypes=frozenset({"count"}),
             reason="does not count NaN",
         ),
-        Divergence(
-            kind=DivergenceKind.VARIANT,
-            variant="nan_as_null",
-            cause=Cause.BACKEND,
-            reason="float64 cannot tell NaN from null, so they tie in order_by",
-        ),
     )
 
     @classmethod

@@ -64,12 +64,6 @@ class SqliteFrameAggregate(Implementation[FrameAggregateFeatureGroup]):
             subtypes=frozenset({"count"}),
             reason="does not count NaN",
         ),
-        Divergence(
-            kind=DivergenceKind.VARIANT,
-            variant="nan_as_null",
-            cause=Cause.BACKEND,
-            reason="sqlite3 stores NaN as NULL, so they tie in order_by",
-        ),
     )
 
     @classmethod

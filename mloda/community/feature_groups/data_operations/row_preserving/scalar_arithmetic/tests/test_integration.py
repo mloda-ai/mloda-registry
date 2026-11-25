@@ -25,7 +25,6 @@ from mloda.testing.data_creator.sqlite import SqliteDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import arrow_table_of, make_feature_set
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.operation_group_integration import (
-    PYARROW_TABLE,
     SQLITE_FRAMEWORK,
     OperationGroupIntegrationTestMixin,
     RoutingCase,
@@ -122,24 +121,15 @@ class TestScalarArithmeticIntegration(OperationGroupIntegrationTestMixin, DataOp
     @classmethod
     def divergent_routing_cases(cls) -> list[RoutingCase]:
         package = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic"
+        # No record is left, so SQLite keeps its own data without allow_variants.
         return [
             RoutingCase(
                 "value_int__add_constant",
                 {"constant": 5},
-                f"{package}.pyarrow_scalar_arithmetic:PyArrowScalarArithmetic",
-                PYARROW_TABLE,
+                f"{package}.sqlite_scalar_arithmetic:SqliteScalarArithmetic",
+                SQLITE_FRAMEWORK,
             ),
         ]
-
-    @classmethod
-    def variant_required_case(cls) -> RoutingCase | None:
-        package = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic"
-        return RoutingCase(
-            "value_int__add_constant",
-            {"constant": 5},
-            f"{package}.sqlite_scalar_arithmetic:SqliteScalarArithmetic",
-            SQLITE_FRAMEWORK,
-        )
 
     def test_match_rejects_missing_config(self) -> None:
         """Override: CONSTANT is permissive at match time (strict_validation=False) and fails at compute time."""

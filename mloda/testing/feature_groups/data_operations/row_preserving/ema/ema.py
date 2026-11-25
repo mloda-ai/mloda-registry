@@ -69,6 +69,7 @@ UNIQUE so SQL backends get a deterministic whole-table sort::
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -156,6 +157,18 @@ class EmaTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return EMA_PINNING
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        if not cls.framework_nan_is_null():
+            return {}
+        # The framework holds NaN as null: partition keys merge (EMA state shared across reference partitions),
+        # NaN and None tie in order_by, and a NaN source value is null instead of propagating through the recurrence.
+        return {
+            "14-partition_keys-v__ema_3": {"v__ema_3": [2.0, 3.0, 4.5, 6.25]},
+            "8-order_tiers-v__ema_3": {"v__ema_3": [3.0, 4.5, 4.0]},
+            "12-nan-v__ema_2": {"v__ema_2": [10.0, None, 23.333333333333336, None, 41.11111111111111]},
+        }
 
     # -- OutputContractTestMixin configuration ----------------------------------
 

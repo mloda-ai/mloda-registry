@@ -35,7 +35,7 @@ All rows of the same `service` share the same P95 value. Percentiles use the fra
 
 ## Rank
 
-`RankFeatureGroup` assigns each row a rank within its partition. It is one `OperationFeatureGroup` (shared `rank` loop, `SUBTYPES` on `rank_type`) with `Implementation` classes such as `PandasRank`; there is no PyArrow implementation. `PandasRank`, `SqliteRank` and `PythonDictRank` declare `divergences` for `rank`, `dense_rank` and `percent_rank` (None and NaN `order_by` values tie), as `nan_as_null` variants (see [known divergences](known-divergences.md)).
+`RankFeatureGroup` assigns each row a rank within its partition. It is one `OperationFeatureGroup` (shared `rank` loop, `SUBTYPES` on `rank_type`) with `Implementation` classes such as `PandasRank`; there is no PyArrow implementation. `PythonDictRank` declares `divergences` for `rank`, `dense_rank` and `percent_rank` (None and NaN `order_by` values tie) as a `nan_as_null` variant; Pandas and SQLite tie them through `nan_is_null()` instead (see [known divergences](known-divergences.md)).
 
 | Pattern | Example |
 |---|---|
@@ -66,7 +66,7 @@ Feature(
 
 ## Offset
 
-`OffsetFeatureGroup` shifts a column by a fixed number of rows inside each partition. It is one `OperationFeatureGroup` (shared `offset` loop, `SUBTYPES` on `offset_type`) with `Implementation` classes such as `PandasOffset`; there is no PyArrow implementation. Pandas and SQLite serve offset only with `allow_variants: "nan_as_null"` in the group options (they tie NaN and null in `order_by` and treat a NaN value as null), see [known divergences](known-divergences.md).
+`OffsetFeatureGroup` shifts a column by a fixed number of rows inside each partition. It is one `OperationFeatureGroup` (shared `offset` loop, `SUBTYPES` on `offset_type`) with `Implementation` classes such as `PandasOffset`; there is no PyArrow implementation. Pandas and SQLite tie NaN and null in `order_by` and treat a NaN value as null because they hold NaN as null (`nan_is_null()`), see [known divergences](known-divergences.md).
 
 | Pattern | Example |
 |---|---|

@@ -1416,30 +1416,60 @@ def _hooks(records: tuple[Any, ...]) -> dict[str, bool]:
 _ALL = ("ema", "ffill", "frame", "offset", "window")
 
 
-def _flags(**overrides: bool) -> dict[str, bool]:
-    return {label: overrides.get(label, True) for label in _ALL}
+def _flags(value: bool) -> dict[str, bool]:
+    return {label: value for label in _ALL}
 
 
-def test_orders_nan_before_none_ignores_a_scopeless_value_record() -> None:
-    assert _hooks((_value_record(),)) == _flags()
+def _framework_flag(impl: Any) -> bool:
+    class _Probe(_StubDataOpsTestBase):
+        @classmethod
+        def implementation_class(cls) -> Any:
+            return impl
+
+    return _Probe.framework_nan_is_null()
 
 
-def test_orders_nan_before_none_window_ignores_a_value_record_naming_first() -> None:
-    assert _hooks((_value_record(subtypes=frozenset({"first"})),))["window"] is True
+def test_framework_nan_is_null_is_true_for_pandas_and_sqlite_implementations() -> None:
+    from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import PandasRank
+    from mloda.community.feature_groups.data_operations.row_preserving.rank.sqlite_rank import SqliteRank
+
+    assert _framework_flag(PandasRank) is True
+    assert _framework_flag(SqliteRank) is True
 
 
-def test_orders_nan_before_none_flips_on_a_scopeless_nan_as_null_variant() -> None:
-    assert _hooks((_nan_as_null(),)) == _flags(**{label: False for label in _ALL})
+def test_framework_nan_is_null_is_false_for_pyarrow_and_python_dict_implementations() -> None:
+    from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
+    from mloda.community.feature_groups.data_operations.row_preserving.rank.python_dict_rank import PythonDictRank
+
+    assert _framework_flag(PythonDictRank) is False
+    assert _framework_flag(PyArrowFfill) is False
 
 
-def test_orders_nan_before_none_window_flips_on_a_nan_as_null_variant_naming_first_or_last() -> None:
-    assert _hooks((_nan_as_null(subtypes=frozenset({"first"})),)) == _flags(window=False)
-    assert _hooks((_nan_as_null(subtypes=frozenset({"last", "sum"})),)) == _flags(window=False)
+def test_framework_nan_is_null_is_false_for_a_non_implementation() -> None:
+    assert _framework_flag(object) is False
+    assert _StubDataOpsTestBase.framework_nan_is_null() is False
 
 
-def test_orders_nan_before_none_ignores_a_nan_as_null_variant_scoped_elsewhere() -> None:
-    assert _hooks((_nan_as_null(subtypes=frozenset({"sum"})),)) == _flags()
-    assert _hooks((_nan_as_null(outputs=frozenset({"o"})),)) == _flags()
+def test_framework_nan_is_null_ignores_records() -> None:
+    assert _hooks((_nan_as_null(),)) == _flags(True)
+
+
+def test_orders_nan_before_none_ignores_every_record_on_a_framework_that_keeps_nan_apart() -> None:
+    assert _hooks(()) == _flags(True)
+    assert _hooks((_value_record(),)) == _flags(True)
+    assert _hooks((_nan_as_null(),)) == _flags(True)
+    assert _hooks((_nan_as_null(subtypes=frozenset({"first"})),)) == _flags(True)
+    assert _hooks((_nan_as_null(subtypes=frozenset({"last", "sum"})),)) == _flags(True)
+    assert _hooks((_nan_as_null(outputs=frozenset({"o"})),)) == _flags(True)
+
+
+def test_orders_nan_before_none_is_false_for_a_framework_that_holds_nan_as_null_without_records() -> None:
+    from mloda.community.feature_groups.data_operations.row_preserving.ffill.pandas_ffill import PandasFfill
+    from mloda.community.feature_groups.data_operations.row_preserving.offset.sqlite_offset import SqliteOffset
+
+    for base, _label in _order_tie_bases():
+        assert _hook_for(base, PandasFfill) is False
+        assert _hook_for(base, SqliteOffset) is False
 
 
 def test_orders_nan_before_none_is_true_for_a_non_implementation() -> None:

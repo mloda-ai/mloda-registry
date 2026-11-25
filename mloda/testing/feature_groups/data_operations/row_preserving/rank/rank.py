@@ -114,13 +114,15 @@ class RankTestBase(
     @classmethod
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         pins: dict[str, Mapping[str, list[Any]]] = {}
-        if declares_nan_as_null(cls.implementation_class(), frozenset({"rank", "dense_rank"})):
-            # NaN and None tie in order_by (declared nan_as_null for rank and dense_rank; row_number and top_N follow).
+        if cls.framework_nan_is_null() or declares_nan_as_null(
+            cls.implementation_class(), frozenset({"rank", "dense_rank"})
+        ):
+            # NaN and None tie in order_by (the framework holds NaN as null, or the operation declares it; row_number and top_N follow).
             pins["3-order_tiers-o__row_number_ranked"] = {"o__row_number_ranked": [2, 3, 1]}
             pins["4-order_tiers-o__rank_ranked"] = {"o__rank_ranked": [2, 1, 2, 2, 2]}
             pins["5-order_tiers-o__dense_rank_ranked"] = {"o__dense_rank_ranked": [2, 1, 2, 2, 2]}
             pins["17-top_bottom-o__top_2_ranked"] = {"o__top_2_ranked": [True, False, True]}
-        if cls.merges_none_and_nan_partition_keys():
+        if cls.framework_nan_is_null():
             # NaN and None partition keys merge, so row_number crosses the reference partition boundary.
             pins["20-partition_keys-o__row_number_ranked"] = {"o__row_number_ranked": [3, 4, 1, 2]}
         return pins
@@ -196,15 +198,12 @@ class RankTestBase(
         """Whether a None/NaN mix in order_by ranks as two tiers or one tie.
 
         The reference, PyArrow >= 25, DuckDB and Polars rank NaN and None as two
-        nulls-last tiers (NaN before None). An implementation that ties them into one
-        run declares ``rank``, ``dense_rank`` or ``percent_rank`` in its ``divergences``.
+        nulls-last tiers (NaN before None). A framework that holds NaN as null, or an implementation
+        that declares ``rank``, ``dense_rank`` or ``percent_rank`` in its ``divergences``, ties them into one run.
         """
+        if cls.framework_nan_is_null():
+            return False
         return not {"rank", "dense_rank", "percent_rank"} & divergent_subtypes(cls.implementation_class())
-
-    @classmethod
-    def merges_none_and_nan_partition_keys(cls) -> bool:
-        """Whether None and NaN partition keys collapse into one group (the reference keeps them apart)."""
-        return False
 
     # -- Reference implementation override --------------------------------------------
 
@@ -510,7 +509,7 @@ class RankTestBase(
 
         result = calculate_with(self.implementation_class(), self.create_test_data(table), fs)
         result_col = self.extract_column(result, feature_name)
-        expected = merged if self.merges_none_and_nan_partition_keys() else reference
+        expected = merged if self.framework_nan_is_null() else reference
         approx = rank_type == "percent_rank"
         if approx:
             assert result_col == pytest.approx(expected), f"backend: expected {expected!r}, got {result_col!r}"

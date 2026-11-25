@@ -167,11 +167,22 @@ class WindowAggregationTestBase(
             # The backend groups -0.0 and +0.0 apart as partition keys and unique values.
             pins["4-signed_zero-v__count_window"] = {"v__count_window": [1, 2, 2]}
             pins["5-signed_zero-v__nunique_window"] = {"v__nunique_window": [2, 2, 2]}
-        if not cls.orders_nan_before_none():
-            # Declared nan_as_null: first skips a leading NaN, and NaN and None tie in order_by.
+        if declares_nan_as_null(cls.implementation_class(), frozenset({"first"})):
+            # Declared nan_as_null: first skips a leading NaN.
             pins["3-nan-v__first_window"] = {"v__first_window": [1.0, 1.0]}
-            pins["6-order-v__last_window"] = {"v__last_window": [20, 20, 20]}
-            pins["7-order-v__first_window"] = {"v__first_window": [10, 10]}
+        if cls.framework_nan_is_null():
+            # The framework holds NaN as null: NaN and None tie in order_by (pins on unserved rows are dropped).
+            served = cls.pinned_row_cases()
+            tied = {
+                "6-order-v__last_window": {"v__last_window": [20, 20, 20]},
+                "7-order-v__first_window": {"v__first_window": [10, 10]},
+            }
+            pins.update({row_id: columns for row_id, columns in tied.items() if row_id in served})
+            # NaN and None partition keys merge into one group.
+            pins["8-partition_keys-v__max_window"] = {"v__max_window": [4, 4, 4]}
+            # An all-NaN min or max reads back as null.
+            pins["9-all_nan-val__min_window"] = {"val__min_window": [None, None]}
+            pins["10-all_nan-val__max_window"] = {"val__max_window": [None, None]}
         return pins
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -303,11 +314,6 @@ class WindowAggregationTestBase(
     def supported_agg_types(cls) -> set[str]:
         """Subtypes the Implementation declares; the full set for a stub."""
         return cls.declared_supported(cls.ALL_AGG_TYPES)
-
-    @classmethod
-    def orders_nan_before_none(cls) -> bool:
-        """False exactly when a ``nan_as_null`` VARIANT record names ``first``/``last`` or is scopeless and outputless."""
-        return not declares_nan_as_null(cls.implementation_class(), frozenset({"first", "last"}))
 
     # -- MaskTestMixin configuration -------------------------------------------
 

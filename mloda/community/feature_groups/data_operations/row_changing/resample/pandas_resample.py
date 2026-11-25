@@ -39,8 +39,8 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
             kind=DivergenceKind.VARIANT,
             variant="nan_as_null",
             cause=Cause.BACKEND,
-            subtypes=frozenset({"sum", "mean", "min", "max"}),
-            reason="skips NaN; null for an all-NaN bucket",
+            subtypes=frozenset({"sum", "mean"}),
+            reason="skips NaN",
         ),
         Divergence(
             kind=DivergenceKind.VARIANT,

@@ -12,7 +12,6 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
-    NAN_AS_NULL_DIVERGENCE,
     OVERFLOW_SQLITE_REAL,
     SQL_ARITHMETIC_OPS,
 )
@@ -27,10 +26,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 class SqliteScalarArithmetic(Implementation[ScalarArithmeticFeatureGroup]):
     feature_group = ScalarArithmeticFeatureGroup
     compute_framework = SqliteFramework
-    divergences = (
-        NAN_AS_NULL_DIVERGENCE,
-        OVERFLOW_SQLITE_REAL,
-    )
+    divergences = (OVERFLOW_SQLITE_REAL,)
 
     @classmethod
     def calculate(
