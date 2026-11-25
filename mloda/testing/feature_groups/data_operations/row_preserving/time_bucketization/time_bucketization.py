@@ -35,15 +35,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from mloda.provider import DivergenceKind, FeatureSet, Implementation
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
-    arrow_table_of,
     assert_values_with_nulls,
     calculate_with,
-    has_numeric_fixed_offset,
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
@@ -52,8 +50,8 @@ from mloda.testing.feature_groups.data_operations.mixins.input_validation import
     InputValidationTestMixin,
 )
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.tz_aware import TzAwarePinningTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.pinning_rows import (
     TIME_BUCKETIZATION_PINNING,
@@ -215,7 +213,7 @@ EXPECTED_ROUND_1_DAY: list[Any] = [
 
 
 class TimeBucketizationTestBase(
-    PinnedRowTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
+    TzAwarePinningTestMixin, InputValidationTestMixin, OutputContractTestMixin, ResultTypeTestMixin, DataOpsTestBase
 ):
     """Abstract base class for time-bucketization framework tests.
 
@@ -234,18 +232,8 @@ class TimeBucketizationTestBase(
         return TIME_BUCKETIZATION_PINNING
 
     @classmethod
-    def tz_aware_source_reads_utc(cls) -> bool:
-        """True when a tz-aware source column is bucketed on its UTC instant, not its own zone (a declared GAP)."""
-        return False
-
-    @classmethod
     def rejects_non_utc_source(cls) -> bool:
         """True when a tz-aware source with a non-zero offset is rejected with a ValueError."""
-        return False
-
-    @classmethod
-    def rejects_numeric_offset_source(cls) -> bool:
-        """True when a source with a numeric fixed-offset timezone is rejected with a ValueError."""
         return False
 
     @classmethod
@@ -391,28 +379,7 @@ class TimeBucketizationTestBase(
             pytest.skip("framework cannot hold a sub-hour fixed offset")
         if self.rejects_non_utc_source() and any(o != timedelta(0) for o in offsets):
             return "non-UTC"
-        if self.rejects_numeric_offset_source() and has_numeric_fixed_offset(values):
-            return r"(?i)fixed.offset"
         return super().rejection_match(row)
-
-    def expected_values(self, row: PinningRow) -> dict[str, list[Any]]:
-        """Hand-computed rows; a UTC-reading backend is pinned to the reference on the UTC instants."""
-        expected = super().expected_values(row)
-        column = next(iter(row.inputs))
-        data_type, values = row.inputs[column]
-        if data_type is DataType.TIMESTAMP_MICROS_TZ and self.tz_aware_source_reads_utc():
-            utc_values = [None if v is None else v.astimezone(timezone.utc) for v in values]
-            fs = make_feature_set(row.feature, **row.context)
-            ref = self.reference_calculate(arrow_table_of(TypedTestData({column: (data_type, utc_values)})), fs)
-            expected[row.feature] = _extract_column(ref, row.feature)
-        return expected
-
-    def test_divergent_flags_are_declared(self) -> None:
-        impl = self.implementation_class()
-        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
-            pytest.skip("implementation under test is not an Implementation class")
-        if self.tz_aware_source_reads_utc():
-            assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
 
     # -- Cross-cutting semantics --------------------------------------------
 
