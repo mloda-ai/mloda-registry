@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -38,7 +39,15 @@ class SqliteDateTimeExtraction(Implementation[DateTimeFeatureGroup]):
     def calculate(
         cls, group: type[DateTimeFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.extract_datetime(data, features, compute_datetime=cls._compute_datetime)
+        return group.extract_datetime(
+            data, features, compute_datetime=cls._compute_datetime, is_date_source=cls._is_date_source
+        )
+
+    @staticmethod
+    def _is_date_source(data: Any, source_col: str) -> bool:
+        hints = data.type_hints
+        hint = None if hints is None else dict(zip(data.columns, hints)).get(source_col)
+        return hint is not None and pa.types.is_date(hint)
 
     @classmethod
     def _compute_datetime(

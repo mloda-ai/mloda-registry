@@ -27,16 +27,7 @@ class TestPythonDictDateTimeExtraction(PythonDictTestMixin, DateTimeTestBase):
 
     # -- Non-timestamp source column guard -----------------------------------
     #
-    # Date-level ops accept bare dates; time-of-day ops on dates and string sources raise ValueError.
-
-    def test_date_only_source_hour_raises_value_error(self) -> None:
-        """A ``date``-only source column (no time component) must be
-        rejected with a ``ValueError``, not silently return ``0`` for the
-        ``hour`` op."""
-        data = self.create_test_data(TypedTestData({"d": (DataType.DATE, [date(2023, 1, 1), date(2023, 1, 2), None])}))
-
-        with pytest.raises(ValueError, match=r"(?i)date|datetime|timestamp"):
-            self.implementation_class()._compute_datetime(data, "d__hour", "d", "hour")
+    # String sources and mixed date/datetime columns raise ValueError.
 
     def test_non_datetime_source_year_raises_value_error(self) -> None:
         """A source column holding a genuinely wrong type (plain strings)
