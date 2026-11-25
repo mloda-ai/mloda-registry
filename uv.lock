@@ -2193,6 +2193,7 @@ version = "0.15.0"
 source = { editable = "mloda/testing" }
 dependencies = [
     { name = "mloda" },
+    { name = "packaging" },
     { name = "pytest" },
 ]
 
@@ -2223,6 +2224,7 @@ requires-dist = [
     { name = "mloda-community-binary-model", marker = "extra == 'binary-model'", editable = "mloda/community/feature_groups/binary_model" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
+    { name = "packaging", specifier = ">=22" },
     { name = "pyarrow", marker = "extra == 'binary-model'", specifier = ">=25" },
     { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=14.0.1" },
     { name = "pyarrow", marker = "extra == 'openlineage'", specifier = ">=14.0.1" },

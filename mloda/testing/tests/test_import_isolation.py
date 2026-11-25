@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import re
 import subprocess  # nosec
 import sys
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from mloda.testing.import_isolation import (
     ImportReport,
     assert_imports_with_base_deps,
+    base_import_names,
     evict_entry_points,
     evict_package,
     evict_root,
@@ -367,6 +370,15 @@ def _write_dep(base: Path, name: str) -> None:
     _write_module(base / name / "__init__.py", "MARKER = 'dep'\n")
 
 
+def _write_dist_info(base: Path, name: str, requires: Sequence[str] = (), top_level: Sequence[str] = ()) -> None:
+    dist_info = base / f"{re.sub(r'[-_.]+', '_', name)}-0.0.0.dist-info"
+    dist_info.mkdir()
+    lines = ["Metadata-Version: 2.1", f"Name: {name}", "Version: 0.0.0", *(f"Requires-Dist: {r}" for r in requires)]
+    (dist_info / "METADATA").write_text("\n".join(lines) + "\n")
+    if top_level:
+        (dist_info / "top_level.txt").write_text("\n".join(top_level) + "\n")
+
+
 def test_assert_imports_with_base_deps_passes_a_clean_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Allowed deps, guarded blocked imports, `tests` subpackages and `__main__` do not fail."""
     suffix = uuid.uuid4().hex
@@ -549,3 +561,41 @@ def test_assert_imports_with_base_deps_passes_a_real_registry_package_with_dotte
 ) -> None:
     """Real registry packages pass with dotted core entries; a namespace `__path__` holds editable placeholders."""
     assert_imports_with_base_deps(package, {"mloda.core", "mloda.provider", "mloda.steward"}, exclude=exclude)
+
+
+def test_base_import_names_maps_the_editable_workspace_install() -> None:
+    """A real editable registry package resolves to the core import names."""
+    assert {"mloda", "mloda_plugins"} <= base_import_names("mloda-community-extenders-shared")
+
+
+def test_base_import_names_collects_the_base_closure_as_import_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The closure follows base requirements by canonical name, evaluates markers and extras, and terminates on cycles."""
+    s = uuid.uuid4().hex
+    _write_dist_info(
+        tmp_path,
+        f"ii-root-{s}",
+        requires=[
+            f"ii-mid-dep-{s}",
+            f"ii-extra-{s}; extra == 'x'",
+            f"ii-nothere-{s}; python_version < '3'",
+            f"ii-marker-{s}; python_version >= '3'",
+            f"ii-opt-{s}[opt]",
+        ],
+        top_level=[f"ii_root_pkg_{s}"],
+    )
+    _write_dist_info(tmp_path, f"Ii_Mid.Dep_{s}", requires=[f"ii-deep-{s}"], top_level=[f"ii_mid_{s}"])
+    _write_dist_info(tmp_path, f"ii-deep-{s}", requires=[f"ii-root-{s}"], top_level=[f"ii_deep_{s}"])
+    _write_dist_info(tmp_path, f"ii-extra-{s}", top_level=[f"ii_extra_{s}"])
+    _write_dist_info(tmp_path, f"ii-marker-{s}", top_level=[f"ii_marker_{s}"])
+    _write_dist_info(tmp_path, f"ii-opt-{s}", requires=[f"ii-optdep-{s}; extra == 'opt'"])
+    _write_dist_info(tmp_path, f"ii-optdep-{s}", top_level=[f"ii_optdep_{s}"])
+    _write_dist_info(tmp_path, f"ii-root2-{s}", requires=[f"ii-missing-{s}"], top_level=[f"ii_root2_{s}"])
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    assert base_import_names(f"ii-root-{s}") == frozenset(
+        {f"ii_root_pkg_{s}", f"ii_mid_{s}", f"ii_deep_{s}", f"ii_marker_{s}", f"ii_optdep_{s}"}
+    )
+    with pytest.raises(importlib.metadata.PackageNotFoundError, match=f"ii-missing-{s}"):
+        base_import_names(f"ii-root2-{s}")

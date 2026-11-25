@@ -15,6 +15,8 @@ from types import FrameType
 from typing import Any
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 
 def block_root(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
@@ -288,6 +290,30 @@ def visit(name):
 visit(package)
 print("\\n" + json.dumps(failures))
 """
+
+
+def base_import_names(distribution: str) -> frozenset[str]:
+    """Top-level import names of ``distribution`` and its transitive requirements, without extras."""
+    names: dict[str, set[str]] = {}
+    for import_name, dists in importlib.metadata.packages_distributions().items():
+        for dist_name in dists:
+            names.setdefault(canonicalize_name(dist_name), set()).add(import_name)
+    visited: set[tuple[str, str]] = set()
+    result: set[str] = set()
+    work: list[tuple[str, frozenset[str]]] = [(distribution, frozenset())]
+    while work:
+        name, extras = work.pop()
+        key = canonicalize_name(name)
+        new = {e for e in {""} | extras if (key, e) not in visited}
+        if not new:
+            continue
+        visited.update((key, e) for e in new)
+        dist = importlib.metadata.distribution(name)
+        result |= names.get(key, set())
+        for requirement in map(Requirement, dist.requires or []):
+            if requirement.marker is None or any(requirement.marker.evaluate({"extra": e}) for e in new):
+                work.append((requirement.name, frozenset(requirement.extras)))
+    return frozenset(result)
 
 
 def assert_imports_with_base_deps(

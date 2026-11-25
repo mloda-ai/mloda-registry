@@ -1135,6 +1135,7 @@ _KIT_IMPORT_DISTRIBUTIONS = {
     "opentelemetry": "opentelemetry-sdk",
     "openlineage": "openlineage-python",
     "cryptography": "cryptography",
+    "packaging": "packaging",
 }
 
 # Allowed inside a function in any kit module (pyarrow because data_creator/pyarrow.py imports it lazily

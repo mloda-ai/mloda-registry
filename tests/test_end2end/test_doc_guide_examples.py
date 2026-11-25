@@ -560,6 +560,7 @@ def test_conformance_section_test_passes_against_the_operation_group_example(tmp
                 "fresh_import_report",
                 "ImportReport",
                 "assert_imports_with_base_deps",
+                "base_import_names",
             ),
         ),
         (
