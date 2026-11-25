@@ -563,15 +563,15 @@ def test_assert_imports_with_base_deps_passes_a_real_registry_package_with_dotte
     assert_imports_with_base_deps(package, {"mloda.core", "mloda.provider", "mloda.steward"}, exclude=exclude)
 
 
-def test_base_import_names_maps_the_editable_workspace_install() -> None:
-    """A real editable registry package resolves to the core import names."""
+def test_base_import_names_resolves_a_real_registry_package_to_core_import_names() -> None:
+    """A real registry package resolves to the core import names."""
     assert {"mloda", "mloda_plugins"} <= base_import_names("mloda-community-extenders-shared")
 
 
 def test_base_import_names_collects_the_base_closure_as_import_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The closure follows base requirements by canonical name, evaluates markers and extras, and terminates on cycles."""
+    """The closure follows base requirements by canonical name, evaluates markers and extras, and terminates on cycles; nameless dists are skipped."""
     s = uuid.uuid4().hex
     _write_dist_info(
         tmp_path,
@@ -592,6 +592,10 @@ def test_base_import_names_collects_the_base_closure_as_import_names(
     _write_dist_info(tmp_path, f"ii-opt-{s}", requires=[f"ii-optdep-{s}; extra == 'opt'"])
     _write_dist_info(tmp_path, f"ii-optdep-{s}", top_level=[f"ii_optdep_{s}"])
     _write_dist_info(tmp_path, f"ii-root2-{s}", requires=[f"ii-missing-{s}"], top_level=[f"ii_root2_{s}"])
+    nameless = tmp_path / f"ii_nameless_{s}-0.0.0.dist-info"
+    nameless.mkdir()
+    (nameless / "METADATA").write_text("Metadata-Version: 2.1\nVersion: 0.0.0\n")
+    (nameless / "top_level.txt").write_text(f"ii_nameless_{s}\n")
     monkeypatch.syspath_prepend(str(tmp_path))
 
     assert base_import_names(f"ii-root-{s}") == frozenset(

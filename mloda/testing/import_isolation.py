@@ -296,7 +296,7 @@ def base_import_names(distribution: str) -> frozenset[str]:
     """Top-level import names of ``distribution`` and its transitive requirements, without extras."""
     names: dict[str, set[str]] = {}
     for import_name, dists in importlib.metadata.packages_distributions().items():
-        for dist_name in dists:
+        for dist_name in filter(None, dists):
             names.setdefault(canonicalize_name(dist_name), set()).add(import_name)
     visited: set[tuple[str, str]] = set()
     result: set[str] = set()

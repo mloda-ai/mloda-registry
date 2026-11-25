@@ -670,7 +670,7 @@ The report lists abstract bases too, so include them in the expected groups.
 
 `assert_imports_with_base_deps(package, allowed)` checks a base install. A fresh interpreter allows only the stdlib, `allowed` (top-level import names, not distribution names, of the whole base dependency closure) and the package, imports every module, and reports each failure with its traceback. `tests` subpackages are skipped, and directories without `__init__.py` are walked as namespace packages, so `exclude` data or template directories that hold `.py` files; pass `exclude` for modules that need an extra (see [Optional Backends](../04-create-plugin-package.md#optional-backends)). A dotted entry such as `mloda.core` admits only that subpackage and its parents, so a `mloda.*` namespace plugin can keep `mloda.testing` out.
 
-`base_import_names(distribution)` builds `allowed` from installed metadata: the top-level import names of the distribution and its transitive requirements, extra-gated requirements excluded. It returns top-level names only, so a `mloda.*` namespace plugin that must keep `mloda.testing` out still passes dotted entries by hand.
+`base_import_names(distribution)` builds `allowed` from installed metadata: the top-level import names of the distribution and its transitive requirements, extra-gated requirements excluded, markers evaluated for the running interpreter. A distribution whose metadata lists no top-level names (some editable installs) contributes none. A top-level name shared as a namespace, such as `mloda`, admits every distribution installed under it, so a `mloda.*` plugin that must keep `mloda.testing` and sibling plugins out replaces it with dotted entries, e.g. `base_import_names("acme") - {"mloda"} | {"mloda.core", "mloda.provider", "mloda.steward"}`.
 
 ```python
 from mloda.testing.import_isolation import assert_imports_with_base_deps, base_import_names
@@ -678,6 +678,7 @@ from mloda.testing.import_isolation import assert_imports_with_base_deps, base_i
 
 @pytest.fixture
 def acme_dist(acme_plugin: None, tmp_path: Path) -> None:
+    """Stand-in for your distribution's installed metadata."""
     dist_info = tmp_path / "acme-0.1.dist-info"
     dist_info.mkdir()
     (dist_info / "METADATA").write_text("Metadata-Version: 2.1\nName: acme\nVersion: 0.1\nRequires-Dist: mloda\n")
