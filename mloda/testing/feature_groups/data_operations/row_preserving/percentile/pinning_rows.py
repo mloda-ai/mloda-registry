@@ -15,7 +15,7 @@ INF = float("inf")
 PERCENTILE_RULES: Mapping[str, str] = MappingProxyType(
     {
         "linear": "The percentile interpolates linearly at position q * (n - 1) of the sorted values.",
-        "endpoints": "An integral position gives that exact value, so infinities do not turn into NaN.",
+        "endpoints": "An integral position gives that exact value, and a non-integral one next to one infinity gives that infinity (row 21, like pc.quantile), so infinities do not turn into NaN.",
         "none": "None values are skipped; an all-None partition gives None.",
         "nan": "NaN values are skipped, also on their own row; an all-NaN partition gives None.",
         "partition_keys": "NaN and signed-zero partition keys merge into one group; a None key is its own group.",
@@ -183,6 +183,14 @@ PERCENTILE_PINNING = PinningTable(
             feature="v__p50_percentile",
             inputs={"p": (_S, ()), "v": (_I, ())},
             expected={"v__p50_percentile": (_D, ())},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="endpoints",
+            feature="v__p25_percentile",
+            inputs={"p": (_S, ("a",) * 3), "v": (_D, (-INF, 1.0, INF))},
+            # a half-infinite interval gives the infinite neighbour, like pc.quantile
+            expected={"v__p25_percentile": (_D, (-INF,) * 3)},
             context=_CTX,
         ),
     ),

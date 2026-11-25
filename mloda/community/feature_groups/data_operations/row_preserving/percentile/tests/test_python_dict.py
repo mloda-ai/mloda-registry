@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from mloda.user import DataType
@@ -25,14 +24,6 @@ class TestPythonDictPercentile(PythonDictTestMixin, PercentileTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PythonDictPercentile
-
-    @classmethod
-    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
-        return {
-            **super().pinned_divergences(),
-            # Interpolating repeated +inf values computes inf - inf and returns NaN instead of +inf.
-            "7-endpoints-v__p50_percentile": {"v__p50_percentile": [float("nan"), float("nan")]},
-        }
 
 
 class TestPythonDictNanPartitionKeyGrouping:

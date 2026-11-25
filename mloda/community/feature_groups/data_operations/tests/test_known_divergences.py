@@ -53,6 +53,8 @@ This module parses those blocks and asserts:
   records is named by at least one entry's machine block.
 - ``test_record_docs_links_resolve_to_a_heading`` -- a record's ``docs`` link into this page
   names an existing heading anchor.
+- ``test_every_pinned_twin_is_declared`` -- every twin with ``pinned_divergences()`` pins is
+  named by an entry's ``regression_test`` (itself or an identical-pins ``Test*`` ancestor).
 
 When the entry checks fail, the doc references a test or file that no longer exists:
 either restore the guard or update the entry's machine block to point at the
@@ -64,6 +66,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -75,10 +78,13 @@ from mloda.community.feature_groups.data_operations.tests.test_framework_support
     FRAMEWORK_CATALOG_KEYS,
     FRAMEWORKS,
     OPERATIONS,
+    is_artifact_path,
     operation_info,
     ordered_operations,
     splice_into_doc,
 )
+from mloda.community.feature_groups.data_operations.tests.test_twin_catalog_consistency import TWIN_SPECS
+from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "known-divergences.md"
@@ -514,3 +520,100 @@ def test_cited_capability_mixin_refs_are_live() -> None:
     )
 
     _assert_leaf_is_live(TestSqliteFrameAggregate, "test_mixin_capability_hook_rejects", "ref")
+
+
+# --- every twin with pins is declared ----------------------------------------
+
+
+def _node_id(cls: type) -> str:
+    return cls.__module__.replace(".", "/") + f".py::{cls.__name__}::test_mixin_pinned_row"
+
+
+def _pins(cls: type) -> Any:
+    return cls.pinned_divergences()  # type: ignore[attr-defined]
+
+
+def undeclared_pinned_twins(twins: Iterable[type], named_refs: set[str]) -> list[str]:
+    """Node ids of pinned twins named neither directly nor via an identical-pins ``Test*`` ancestor (``repr`` equality)."""
+    missing: list[str] = []
+    for twin in twins:
+        pins = _pins(twin)
+        if not pins:
+            continue
+        covering = [c for c in twin.__mro__ if c is twin or c.__name__.startswith("Test")]
+        if not any(
+            _node_id(c) in named_refs
+            for c in covering
+            if issubclass(c, PinnedRowTestMixin) and repr(_pins(c)) == repr(pins)
+        ):
+            missing.append(_node_id(twin))
+    return missing
+
+
+def _discovered_twins() -> list[type]:
+    twins: list[type] = []
+    for spec in TWIN_SPECS.values():
+        for tests_dir in importlib.import_module(spec.tests_pkg).__path__:
+            for path in sorted(Path(tests_dir).glob("test_*.py")):
+                if is_artifact_path(path.relative_to(tests_dir)):
+                    continue
+                try:
+                    mod = importlib.import_module(f"{spec.tests_pkg}.{path.stem}")
+                except pytest.skip.Exception:
+                    continue
+                twins += [
+                    obj
+                    for _, obj in inspect.getmembers(mod, inspect.isclass)
+                    if obj.__module__ == mod.__name__
+                    and obj.__name__.startswith("Test")
+                    and issubclass(obj, PinnedRowTestMixin)
+                ]
+    return twins
+
+
+def test_every_pinned_twin_is_declared() -> None:
+    """Every twin with pins is named by an entry (per twin, not per pinned row)."""
+    twins = _discovered_twins()
+    assert any(t.__name__ == "TestPandasRank" for t in twins), "twin discovery found no known pinned twin"
+    named = {ref for _title, data in _collected_entries() for ref in data.get("regression_test", [])}
+    missing = undeclared_pinned_twins(twins, named)
+    assert missing == [], (
+        "twins with pinned_divergences() but no entry naming them; add each to an entry's regression_test:\n  "
+        + "\n  ".join(missing)
+    )
+
+
+def test_undeclared_pinned_twins_coverage_rule() -> None:
+    """Unnamed twins are reported; identical inherited pins are covered; extra or changed pins are not.
+
+    The probes are local so the module-level ``Test*`` scans in the mixin isolation checks skip them."""
+
+    class _PinsProbe(PinnedRowTestMixin):
+        _probe_pins: dict[str, dict[str, list[Any]]] = {}
+
+        @classmethod
+        def pinned_divergences(cls) -> dict[str, dict[str, list[Any]]]:
+            return cls._probe_pins
+
+    class TestProbeNamed(_PinsProbe):
+        _probe_pins = {"0-a-f": {"x": [float("nan")]}}
+
+    class TestProbeSame(TestProbeNamed):
+        pass
+
+    class TestProbeExtra(TestProbeNamed):
+        _probe_pins = {"0-a-f": {"x": [float("nan")]}, "1-a-f": {"x": [1]}}
+
+    class TestProbeChanged(TestProbeNamed):
+        _probe_pins = {"0-a-f": {"x": [2.0]}}
+
+    class TestProbeNoPins(_PinsProbe):
+        pass
+
+    named = {_node_id(TestProbeNamed)}
+    assert undeclared_pinned_twins([TestProbeNamed], set()) == [_node_id(TestProbeNamed)]
+    assert undeclared_pinned_twins([TestProbeNamed], named) == []
+    assert undeclared_pinned_twins([TestProbeSame], named) == []
+    assert undeclared_pinned_twins([TestProbeExtra], named) == [_node_id(TestProbeExtra)]
+    assert undeclared_pinned_twins([TestProbeChanged], named) == [_node_id(TestProbeChanged)]
+    assert undeclared_pinned_twins([TestProbeNoPins], set()) == []

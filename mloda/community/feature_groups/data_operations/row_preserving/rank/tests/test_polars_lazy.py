@@ -33,7 +33,7 @@ class TestPolarsLazyRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, Pola
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
         return {
             **super().pinned_divergences(),
-            # top_N selects the earlier tied maximum; the pinned rule reverses the stable ascending order.
+            # NaN sorts above every real value in descending order, so top_2 selects NaN and 3.0 instead of 3.0 and 2.0.
             "13-top_bottom-o__top_2_ranked": {"o__top_2_ranked": [False, True, True, False, False]},
         }
 

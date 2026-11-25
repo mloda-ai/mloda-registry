@@ -192,6 +192,19 @@ class TestQuantile:
     def test_equal_infinite_neighbours_return_that_value(self, values: list[Any], expected: float) -> None:
         assert self._q(values, 0.5) == expected
 
+    @pytest.mark.parametrize(
+        ("values", "q", "expected"),
+        [
+            ([-math.inf, 1.0], 0.5, -math.inf),
+            ([1.0, math.inf], 0.5, math.inf),
+            ([-math.inf, 1.0, math.inf], 0.25, -math.inf),
+        ],
+    )
+    def test_non_integral_position_with_one_infinite_neighbour(
+        self, values: list[Any], q: float, expected: float
+    ) -> None:
+        assert self._q(values, q) == expected
+
     def test_opposite_infinite_neighbours_stay_nan(self) -> None:
         assert math.isnan(self._q([-math.inf, math.inf], 0.5))
 

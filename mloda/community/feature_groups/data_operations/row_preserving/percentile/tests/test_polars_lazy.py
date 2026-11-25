@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -26,3 +27,11 @@ class TestPolarsLazyPercentile(ReservedColumnsTestMixin, PolarsLazyTestMixin, Pe
     @classmethod
     def reserved_columns_feature_name(cls) -> str:
         return "value_int__p50_percentile"
+
+    @classmethod
+    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
+        return {
+            **super().pinned_divergences(),
+            # Polars linear interpolation over an infinite neighbour gives NaN, not the infinite endpoint.
+            "21-endpoints-v__p25_percentile": {"v__p25_percentile": [float("nan")] * 3},
+        }
