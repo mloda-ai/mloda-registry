@@ -59,7 +59,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from zoneinfo import ZoneInfo
 
 import pytest
-from mloda.provider import DivergenceKind, FeatureSet, Implementation
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -79,6 +79,7 @@ from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPo
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.tz_aware import TzAwareSourceTestMixin
 from mloda.testing.feature_groups.data_operations.pinning import PinningTable
 from mloda.testing.feature_groups.data_operations.row_changing.resample.pinning_rows import RESAMPLE_PINNING
 from mloda.testing.typed_data import TypedTestData
@@ -300,6 +301,7 @@ RESAMPLE_SORTED_BUCKET_DIVERGENCES: dict[str, dict[str, list[Any]]] = {
 
 
 class ResampleTestBase(
+    TzAwareSourceTestMixin,
     PinnedRowTestMixin,
     InputValidationTestMixin,
     OutputContractTestMixin,
@@ -322,16 +324,6 @@ class ResampleTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return RESAMPLE_PINNING
-
-    @classmethod
-    def tz_aware_source_reads_utc(cls) -> bool:
-        """True when a tz-aware source column is bucketed on its UTC instant, not its own zone (a declared GAP)."""
-        return False
-
-    @classmethod
-    def rejects_numeric_offset_source(cls) -> bool:
-        """True when a time column with a numeric fixed-offset timezone is rejected with a ValueError."""
-        return False
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
@@ -510,13 +502,6 @@ class ResampleTestBase(
         actual = self._build_resample_map(result, feature_name, "ts", [])
         self._assert_map_equals(actual, expected)
         assert {k[-1].utcoffset() for k in actual} == {k[-1].utcoffset() for k in expected}
-
-    def test_divergent_flags_are_declared(self) -> None:
-        impl = self.implementation_class()
-        if not (isinstance(impl, type) and issubclass(impl, Implementation)):
-            pytest.skip("implementation under test is not an Implementation class")
-        if self.tz_aware_source_reads_utc():
-            assert any(record.kind is DivergenceKind.GAP for record in impl.divergences)
 
     # -- Core per-partition value tests -------------------------------------
 
