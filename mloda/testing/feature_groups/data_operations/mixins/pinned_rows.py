@@ -76,6 +76,11 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         return False
 
     @classmethod
+    def checks_pinned_types(cls) -> bool:
+        """True when each expected column must keep its declared type where the framework has a native one."""
+        return False
+
+    @classmethod
     def pinned_row_cases(cls) -> dict[str, PinningRow]:
         """Rows keyed ``{index}-{case}-{feature}``; an Implementation's unsupported or refused rows are dropped."""
         impl = cls.implementation_class()
@@ -176,3 +181,8 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             if self.pinning_table().row_preserving:
                 expected_columns |= set(row.inputs)
             assert set(adapter.column_names(result)) == expected_columns
+            if self.checks_pinned_types():
+                for column, (data_type, _) in row.expected.items():
+                    assert adapter.has_type(result, column, data_type) is not False, (
+                        f"{column}: expected {data_type.name}, got {adapter.exact_type(result, column)}"
+                    )
