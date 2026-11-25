@@ -243,6 +243,8 @@ A member that consumes another family's feature (graph RAG over a `knowledge_gra
 - An absent or unknown value, or an unknown slot, resolves to nothing.
 - Way 3: enable only your leaves with `PluginCollector.enabled_feature_groups`, so stock source groups such as `CsvFG` do not claim the same request.
 
+Way 2 can also pin disjoint value sets with `assert_sibling_scope(BaseRetriever, {Bm25Retriever: Bm25Retriever.BACKENDS, FaissRetriever: FaissRetriever.BACKENDS}, "retrieve_backend")` from `mloda.testing.subclass_scope`.
+
 Resolve each value with `resolve_feature` instead of running it ([Debugging Matching](14-feature-matching.md#debugging-matching)). For the way 2 siblings:
 
 ```python

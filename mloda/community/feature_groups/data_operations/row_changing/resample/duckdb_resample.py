@@ -50,7 +50,7 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
         Divergence(
             kind=DivergenceKind.GAP,
             cause=Cause.BACKEND,
-            reason="a tz-aware column arrives as UTC, so a non-UTC zone is resampled on the UTC wall clock and returned in UTC",
+            reason="DuckDB computes a tz-aware column in the UTC session zone, so a non-UTC zone is resampled on the UTC wall clock and labelled in the column's zone",
             docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-resample-buckets-a-non-utc-zone-on-the-utc-wall-clock",
         ),
     )

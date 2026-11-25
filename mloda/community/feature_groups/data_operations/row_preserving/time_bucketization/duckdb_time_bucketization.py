@@ -64,7 +64,7 @@ class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         Divergence(
             kind=DivergenceKind.GAP,
             cause=Cause.BACKEND,
-            reason="a tz-aware column arrives as UTC, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC",
+            reason="DuckDB computes a tz-aware column in the UTC session zone, so a non-UTC zone is bucketed on the UTC wall clock and returned in UTC",
             docs="https://github.com/mloda-ai/mloda-registry/blob/main/docs/guides/data-operation-patterns/known-divergences.md#duckdb-time-bucketization-buckets-a-non-utc-zone-on-the-utc-wall-clock",
         ),
     )

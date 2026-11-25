@@ -24,7 +24,7 @@ Semantics pinned across all backends:
 - **Idempotency**: ``ceil(aligned, X) == aligned`` for fixed-freq units
   (``minute`` / ``hour`` / ``day``). Calendar units (``week`` / ``month``
   / ``year``) advance to the next bucket on aligned input.
-- **Timezone**: preserved from input (DuckDB declares a gap: non-UTC zones arrive as UTC).
+- **Timezone**: preserved from input (DuckDB declares a gap: it computes a tz-aware column in the UTC session zone).
 - **Null**: propagated.
 - **Output dtype**: same timestamp type as input.
 
