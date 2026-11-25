@@ -21,13 +21,12 @@ Result-type fidelity
 --------------------
 
 The SQL emits ISO 8601 strings directly: bucket math runs on the wall-clock
-portion of the timestamp (UTC ``+00:00`` suffix stripped if present, a trailing ``Z`` too), then
-the original suffix is concatenated back onto the result (a trailing ``Z``
-comes back as ``+00:00``). The output column
-comes back from ``to_arrow_table()`` as ``pa.string()`` -- there is no
-Python-side re-parse into ``pa.timestamp`` and no ``SqliteRelation``
-subclass. Null sources propagate as ``NULL`` (Python ``None``) end-to-end,
-because SQLite's ``NULL || anything`` is ``NULL``.
+portion of the timestamp (a UTC ``+00:00`` or ``Z`` suffix is stripped), then
+the suffix is concatenated back onto the result (``Z`` is returned as
+``+00:00``). The output column comes back from ``to_arrow_table()`` as
+``pa.string()`` -- there is no Python-side re-parse into ``pa.timestamp`` and
+no ``SqliteRelation`` subclass. Null sources propagate as ``NULL`` (Python
+``None``) end-to-end, because SQLite's ``NULL || anything`` is ``NULL``.
 
 Bucket math
 -----------
