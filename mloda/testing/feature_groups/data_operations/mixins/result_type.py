@@ -21,14 +21,14 @@ from mloda.testing.typed_data import TypedTestData
 
 
 class KnownFinding(NamedTuple):
-    """A known failure of one case: ``match`` is a substring every blocking message contains, ``reason`` links the issue."""
+    """A known failure of one case: ``match`` is a substring every failure contains, ``reason`` links the issue."""
 
     match: str
     reason: str
 
 
 class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
-    """Mixin asserting the full shape check; on a typed group also the output type against ``return_data_type_rule``."""
+    """Mixin failing on core's shape-check failures; core's divergence records decide what is excused."""
 
     _case_fixtures: ClassVar[dict[str, str]] = {"result_type_case": "result_type_cases"}
 
@@ -49,7 +49,7 @@ class ResultTypeTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
     def result_type_known_findings(cls) -> dict[str, KnownFinding]:
         """Case id -> ``KnownFinding``; the case xfails while it fails only with the named failure.
 
-        Any blocking message that does not contain ``match`` fails the test, and so does a case that passes.
+        Any failure that does not contain ``match`` fails the test, and so does a case that passes.
         """
         return {}
 
