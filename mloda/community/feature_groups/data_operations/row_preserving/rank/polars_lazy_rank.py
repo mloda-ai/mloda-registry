@@ -107,7 +107,21 @@ class PolarsLazyRank(Implementation[RankFeatureGroup]):
             expr = ((row_num - 1) * ntile_n // group_size + 1).cast(pl.Int64).alias(feature_name)
         elif rank_type.startswith("top_"):
             top_n = int(rank_type[len("top_") :])
-            row_num = cls._row_number_nulls_last(order_by, partition_by, null_flag_col, descending=True)
+            if data.collect_schema()[order_by].is_float():
+                # NaN ranks after every real value, before nulls.
+                row_num = (
+                    pl.arg_sort_by(
+                        [pl.col(order_by).is_nan(), pl.col(order_by)],
+                        descending=[False, True],
+                        nulls_last=True,
+                        maintain_order=True,
+                    )
+                    .arg_sort()
+                    .over(partition_by)
+                    + 1
+                )
+            else:
+                row_num = cls._row_number_nulls_last(order_by, partition_by, null_flag_col, descending=True)
             expr = (row_num <= top_n).alias(feature_name)
         elif rank_type.startswith("bottom_"):
             bottom_n = int(rank_type[len("bottom_") :])

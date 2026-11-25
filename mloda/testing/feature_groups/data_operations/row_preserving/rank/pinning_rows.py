@@ -215,5 +215,13 @@ RANK_PINNING = PinningTable(
             expected={"o__top_2_ranked": (_B, ())},
             context=_CTX,
         ),
+        PinningRow(
+            case="top_bottom",
+            feature="o__top_2_ranked",
+            inputs={"p": (_S, ("a", "b", "a", "b", "a", "b")), "o": (_D, (1.0, NAN, NAN, 5.0, 3.0, 4.0))},
+            # per partition, real values outrank NaN: a keeps 3.0 and 1.0, b keeps 5.0 and 4.0
+            expected={"o__top_2_ranked": (_B, (True, False, False, True, True, True))},
+            context=_CTX,
+        ),
     ),
 )

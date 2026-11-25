@@ -40,12 +40,18 @@ class PolarsLazyPercentile(Implementation[PercentileFeatureGroup]):
             data, actual_source = apply_polars_mask(data, source_col, mask_spec, taken={feature_name})
 
         dtype = data.collect_schema()[actual_source]
-        expr = (
-            nan_to_null(pl.col(actual_source), dtype)
-            .quantile(percentile, interpolation="linear")
-            .over(partition_by)
-            .alias(feature_name)
-        )
+        col = nan_to_null(pl.col(actual_source), dtype)
+
+        def quantile(interpolation: Any) -> pl.Expr:
+            return col.quantile(percentile, interpolation=interpolation).over(partition_by)
+
+        if dtype.is_float():
+            # Linear interpolation next to an infinity gives NaN; the reference gives the infinite neighbour (lo + hi).
+            lo, hi, lin = quantile("lower"), quantile("higher"), quantile("linear")
+            either_inf = lo.is_infinite() | hi.is_infinite()
+            expr = pl.when(lo == hi).then(lo).when(either_inf).then(lo + hi).otherwise(lin).alias(feature_name)
+        else:
+            expr = quantile("linear").alias(feature_name)
         result = data.with_columns(expr)
         if mask_spec is not None:
             result = result.drop(actual_source)
