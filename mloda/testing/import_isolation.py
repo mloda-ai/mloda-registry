@@ -9,7 +9,7 @@ import json
 import pkgutil
 import subprocess  # nosec
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from types import FrameType
 from typing import Any
@@ -211,3 +211,92 @@ def fresh_import_report(module: str, root: str, *, timeout: float = 60) -> Impor
     return ImportReport(
         mloda_core=bool(summary["mloda_core"]), modules=tuple(summary["modules"]), groups=tuple(summary["groups"])
     )
+
+
+_BASE_INSTALL_SCRIPT = """
+import importlib
+import json
+import os
+import pkgutil
+import sys
+import traceback
+
+package = sys.argv[1]
+allowed, exclude, caller_path = (json.loads(arg) for arg in sys.argv[2:5])
+sys.path[:] = caller_path
+entries = set(allowed) | {package}
+
+
+def covers(entry, name):
+    return name == entry or name.startswith(entry + ".") or entry.startswith(name + ".")
+
+
+def permitted(name):
+    return name.split(".")[0] in sys.stdlib_module_names or any(covers(entry, name) for entry in entries)
+
+
+class Guard:
+    def __init__(self, finder):
+        self._finder = finder
+
+    def find_spec(self, name, *args, **kwargs):
+        if not permitted(name):
+            return None
+        return self._finder.find_spec(name, *args, **kwargs)
+
+    def __getattr__(self, attr):
+        return getattr(self._finder, attr)
+
+
+sys.meta_path[:] = [Guard(finder) for finder in sys.meta_path]
+failures = {}
+
+
+def skipped(name):
+    below_root = name[len(package) + 1 :].split(".")
+    if name.split(".")[-1] == "__main__" or "tests" in below_root:
+        return True
+    return any(name == e or name.startswith(e + ".") for e in exclude)
+
+
+def visit(name):
+    if skipped(name):
+        return
+    try:
+        module = importlib.import_module(name)
+    except BaseException as error:
+        if isinstance(error, KeyboardInterrupt):
+            raise
+        failures[name] = traceback.format_exc()
+        return
+    paths = getattr(module, "__path__", None)
+    if paths is None:
+        return
+    children = set()
+    for path in list(paths):
+        for info in pkgutil.iter_modules([path]):
+            children.add(info.name)
+        if not os.path.isdir(path):
+            continue
+        for entry in os.listdir(path):
+            if entry.isidentifier() and entry != "__pycache__" and os.path.isdir(os.path.join(path, entry)):
+                children.add(entry)
+    for child in sorted(children):
+        visit(name + "." + child)
+
+
+visit(package)
+print("\\n" + json.dumps(failures))
+"""
+
+
+def assert_imports_with_base_deps(
+    package: str, allowed: Set[str], *, exclude: Set[str] = frozenset(), timeout: float = 120
+) -> None:
+    """Import every module of ``package`` in a fresh interpreter that refuses non-stdlib names outside ``allowed``."""
+    path = json.dumps([p for p in sys.path if isinstance(p, str)])
+    args = [package, json.dumps(sorted(allowed)), json.dumps(sorted(exclude)), path]
+    _, summary = _run_probe(_BASE_INSTALL_SCRIPT, args, timeout=timeout)
+    if summary:
+        details = "\n".join(f"{module}:\n{trace}" for module, trace in sorted(summary.items()))
+        raise AssertionError(f"imports failed with only {sorted(allowed)} allowed:\n{details}")

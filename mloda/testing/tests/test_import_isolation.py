@@ -13,6 +13,7 @@ import pytest
 
 from mloda.testing.import_isolation import (
     ImportReport,
+    assert_imports_with_base_deps,
     evict_entry_points,
     evict_package,
     evict_root,
@@ -355,3 +356,196 @@ def test_fresh_import_report_raises_timeout_expired_when_the_child_exceeds_the_t
 
     with pytest.raises(subprocess.TimeoutExpired):
         fresh_import_report(f"{package_name}.slow", package_name, timeout=1)
+
+
+def _write_module(path: Path, source: str = "") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+
+
+def _write_dep(base: Path, name: str) -> None:
+    _write_module(base / name / "__init__.py", "MARKER = 'dep'\n")
+
+
+def test_assert_imports_with_base_deps_passes_a_clean_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allowed deps, guarded blocked imports, `tests` subpackages and `__main__` do not fail."""
+    suffix = uuid.uuid4().hex
+    package_name = f"ii_throwaway_{suffix}"
+    allowed_dep = f"ii_allowed_{suffix}"
+    blocked_dep = f"ii_blocked_{suffix}"
+    _write_dep(tmp_path, allowed_dep)
+    _write_dep(tmp_path, blocked_dep)
+    root = tmp_path / package_name
+    _write_module(root / "__init__.py")
+    _write_module(root / "plain.py", "MARKER = 'plain'\n")
+    _write_module(root / "sub" / "__init__.py")
+    _write_module(root / "sub" / "inner.py", f"from {package_name} import plain\n")
+    _write_module(root / "ns" / "mod.py", "MARKER = 'namespace'\n")
+    _write_module(root / "uses_allowed.py", f"import {allowed_dep}\n")
+    _write_module(
+        root / "guarded.py",
+        f"try:\n    import {blocked_dep}\nexcept ImportError:\n    {blocked_dep} = None\n",
+    )
+    _write_module(
+        root / "spec_guard.py",
+        f"import importlib.util\n\nassert importlib.util.find_spec('{blocked_dep}') is None\n",
+    )
+    _write_module(root / "tests" / "__init__.py", f"import {blocked_dep}\n")
+    _write_module(root / "sub" / "tests" / "test_x.py", f"import {blocked_dep}\n")
+    _write_module(root / "__main__.py", "raise SystemExit(2)\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    assert_imports_with_base_deps(package_name, {allowed_dep})
+
+
+def test_assert_imports_with_base_deps_reports_every_failing_module_with_its_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failing modules are reported with tracebacks, a clean sibling is not."""
+    suffix = uuid.uuid4().hex
+    package_name = f"ii_throwaway_{suffix}"
+    blocked_dep = f"ii_blocked_{suffix}"
+    allowed_dep = f"ii_allowed_{suffix}"
+    _write_dep(tmp_path, blocked_dep)
+    _write_dep(tmp_path, allowed_dep)
+    root = tmp_path / package_name
+    _write_module(root / "__init__.py")
+    _write_module(root / "bad_plain.py", f"import {blocked_dep}\n")
+    _write_module(root / "bad_sub" / "__init__.py", f"import {blocked_dep}\n")
+    _write_module(root / "ns" / "bad_ns.py", f"import {blocked_dep}\n")
+    _write_module(root / "raises.py", "raise RuntimeError('boom from the module')\n")
+    _write_module(root / "clean.py", "MARKER = 'clean'\n")
+    _write_module(root / "exits.py", "import sys\nsys.exit(3)\n")
+    _write_module(root / "per_extra" / "__init__.py", "raise RuntimeError('excluded')\n")
+    _write_module(root / "per_extra_other" / "__init__.py", "raise RuntimeError('not excluded')\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_imports_with_base_deps(package_name, {allowed_dep}, exclude={f"{package_name}.per_extra"})
+
+    message = str(excinfo.value)
+    assert f"{package_name}.per_extra_other:" in message
+    assert f"{package_name}.per_extra:" not in message
+    for failing in ("bad_plain", "bad_sub", "ns.bad_ns", "raises"):
+        assert f"{package_name}.{failing}" in message
+    assert f"{package_name}.exits:" in message
+    assert "SystemExit" in message
+    assert "ModuleNotFoundError" in message
+    assert blocked_dep in message
+    assert "boom from the module" in message
+    assert f"{package_name}.clean" not in message
+    assert allowed_dep in message
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_failure"),
+    [("raise RuntimeError('root boom')\n", True), ("MARKER = 'ok'\n", False)],
+    ids=["fails", "clean"],
+)
+@pytest.mark.parametrize("is_package", [True, False], ids=["package", "plain-module"])
+def test_assert_imports_with_base_deps_handles_a_failing_root_and_a_plain_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, is_package: bool, source: str, expected_failure: bool
+) -> None:
+    """A failing root is reported under its own name; a plain module is imported alone."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    if is_package:
+        _write_module(tmp_path / package_name / "__init__.py", source)
+        _write_module(tmp_path / package_name / "leaf.py")
+    else:
+        _write_module(tmp_path / f"{package_name}.py", source)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    if expected_failure:
+        with pytest.raises(AssertionError) as excinfo:
+            assert_imports_with_base_deps(package_name, set())
+        assert package_name in str(excinfo.value)
+        assert "root boom" in str(excinfo.value)
+    else:
+        assert_imports_with_base_deps(package_name, set())
+
+
+def test_assert_imports_with_base_deps_reports_a_failing_module_when_package_itself_is_a_tests_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`tests` components are skipped only below the root, so a `tests` root is walked."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    _write_module(tmp_path / package_name / "__init__.py")
+    _write_module(tmp_path / package_name / "tests" / "__init__.py")
+    _write_module(tmp_path / package_name / "tests" / "bad.py", "raise RuntimeError('tests root boom')\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_imports_with_base_deps(f"{package_name}.tests", set())
+
+    assert f"{package_name}.tests.bad:" in str(excinfo.value)
+    assert "tests root boom" in str(excinfo.value)
+
+
+def test_assert_imports_with_base_deps_does_not_admit_submodules_of_a_namespace_stub_preloaded_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stub module installed by `sitecustomize` is preloaded, yet its submodules stay blocked."""
+    suffix = uuid.uuid4().hex
+    package_name = f"ii_throwaway_{suffix}"
+    stub_name = f"ii_stub_{suffix}"
+    real_dir = tmp_path / "real" / stub_name
+    _write_module(real_dir / "sub.py", "MARKER = 'sub'\n")
+    startup_dir = tmp_path / "startup"
+    _write_module(
+        startup_dir / "sitecustomize.py",
+        "import sys, types\n"
+        f"m = types.ModuleType({stub_name!r})\n"
+        f"m.__path__ = [{str(real_dir)!r}]\n"
+        f"sys.modules.setdefault({stub_name!r}, m)\n",
+    )
+    code = tmp_path / "code"
+    _write_module(code / package_name / "__init__.py")
+    _write_module(code / package_name / "uses_stub.py", f"import {stub_name}.sub\n")
+    monkeypatch.syspath_prepend(str(code))
+    monkeypatch.setenv("PYTHONPATH", str(startup_dir))
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_imports_with_base_deps(package_name, set())
+
+    assert f"{package_name}.uses_stub:" in str(excinfo.value)
+
+
+def test_assert_imports_with_base_deps_dotted_allowed_entry_admits_its_subpackage_but_not_a_sibling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`dep.sub` admits `dep.sub` and its ancestor `dep`, not `dep.other`."""
+    suffix = uuid.uuid4().hex
+    package_name = f"ii_throwaway_{suffix}"
+    dep = f"ii_dep_{suffix}"
+    _write_module(tmp_path / dep / "sub" / "__init__.py", "MARKER = 'sub'\n")
+    _write_module(tmp_path / dep / "other" / "__init__.py", "MARKER = 'other'\n")
+    root = tmp_path / package_name
+    _write_module(root / "__init__.py")
+    _write_module(root / "uses_sub.py", f"import {dep}.sub\n")
+    _write_module(root / "uses_other.py", f"import {dep}.other\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_imports_with_base_deps(package_name, {f"{dep}.sub"})
+
+    message = str(excinfo.value)
+    assert f"{package_name}.uses_other" in message
+    assert f"{package_name}.uses_sub:" not in message
+
+
+@pytest.mark.parametrize(
+    ("package", "exclude"),
+    [
+        ("mloda.community.extenders.shared", frozenset()),
+        (
+            "mloda.community.extenders",
+            {"mloda.community.extenders.otel", "mloda.community.extenders.openlineage"},
+        ),
+    ],
+    ids=["regular-package", "namespace-parent"],
+)
+def test_assert_imports_with_base_deps_passes_a_real_registry_package_with_dotted_core_entries(
+    package: str, exclude: frozenset[str] | set[str]
+) -> None:
+    """Real registry packages pass with dotted core entries; a namespace `__path__` holds editable placeholders."""
+    assert_imports_with_base_deps(package, {"mloda.core", "mloda.provider", "mloda.steward"}, exclude=exclude)

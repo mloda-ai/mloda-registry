@@ -552,7 +552,15 @@ def test_conformance_section_test_passes_against_the_operation_group_example(tmp
         (
             TESTING_GUIDE,
             "mloda.testing.import_isolation",
-            ("block_root", "evict_root", "evict_package", "evict_entry_points", "fresh_import_report", "ImportReport"),
+            (
+                "block_root",
+                "evict_root",
+                "evict_package",
+                "evict_entry_points",
+                "fresh_import_report",
+                "ImportReport",
+                "assert_imports_with_base_deps",
+            ),
         ),
         (
             INPUT_DATA_READERS_GUIDE,
