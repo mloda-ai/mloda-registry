@@ -21,9 +21,9 @@ from mloda.community.feature_groups.data_operations.errors import unsupported_ag
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import MASKED_SOURCE_HELPER, apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
-    needs_all_nan_repair,
+    append_all_nan_flags,
     rename_aggregates_by_position,
-    restore_all_nan_extrema,
+    repair_all_nan_extrema,
 )
 
 # Aggregation types with direct PyArrow group_by support.
@@ -95,13 +95,9 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
                 entries.append((source, _ORDERED_FUNCS[spec.agg_type]))
 
         # Older Arrow returns +/-inf for all-NaN extrema: a grouped all(is_nan) flag marks those groups.
-        nan_helpers: dict[str, str] = {}
-        for spec, source in zip(specs, sources):
-            if needs_all_nan_repair(spec.agg_type, table.column(source).type) and source not in nan_helpers:
-                helper = unique_helper_name("__mloda_agg_nan__", taken)
-                taken.add(helper)
-                nan_helpers[source] = helper
-                table = table.append_column(helper, pc.is_nan(table.column(source)))
+        table, nan_helpers = append_all_nan_flags(
+            table, [(spec.agg_type, source) for spec, source in zip(specs, sources)], taken, "__mloda_agg_nan__"
+        )
         entries.extend((helper, "all") for helper in nan_helpers.values())
 
         ordered = any(spec.agg_type in _ORDERED_FUNCS for spec in specs)
@@ -109,13 +105,5 @@ class PyArrowAggregation(Implementation[AggregationFeatureGroup]):
         names = [spec.feature_name for spec in specs]
         result = rename_aggregates_by_position(grouped, partition_by, [*names, *nan_helpers.values()])
 
-        for spec, source in zip(specs, sources):
-            if source in nan_helpers and needs_all_nan_repair(spec.agg_type, table.column(source).type):
-                corrected = restore_all_nan_extrema(
-                    result.column(spec.feature_name), result.column(nan_helpers[source])
-                )
-                result = result.set_column(
-                    result.schema.get_field_index(spec.feature_name), spec.feature_name, corrected
-                )
-
-        return result.drop_columns(list(nan_helpers.values()))
+        repair_specs = [(spec.feature_name, spec.agg_type, source) for spec, source in zip(specs, sources)]
+        return repair_all_nan_extrema(result, repair_specs, nan_helpers)

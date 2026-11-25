@@ -14,12 +14,11 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.pyarrow_helpers import (
+    append_all_nan_flags,
     assert_temporal_timezone_supported,
-    needs_all_nan_repair,
     rename_aggregates_by_position,
-    restore_all_nan_extrema,
+    repair_all_nan_extrema,
 )
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
@@ -74,13 +73,9 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
         keys = [*partition_by, time_column]
         names = [spec.feature_name for spec in aggs]
         taken = set(data.column_names) | set(names)
-        nan_helpers: dict[str, str] = {}
-        for spec in aggs:
-            if needs_all_nan_repair(spec.agg, data.column(spec.source_col).type) and spec.source_col not in nan_helpers:
-                helper = unique_helper_name("__mloda_resample_nan__", taken)
-                taken.add(helper)
-                nan_helpers[spec.source_col] = helper
-                data = data.append_column(helper, pc.is_nan(data.column(spec.source_col)))
+        data, nan_helpers = append_all_nan_flags(
+            data, [(spec.agg, spec.source_col) for spec in aggs], taken, "__mloda_resample_nan__"
+        )
 
         entries = [(spec.source_col, _PA_AGG_FUNCS[spec.agg]) for spec in aggs]
         entries.extend((helper, "all") for helper in nan_helpers.values())
@@ -88,13 +83,5 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
         result = rename_aggregates_by_position(grouped, keys, [*names, *nan_helpers.values()])
 
         # Older Arrow returns +/-inf for all-NaN extrema; repair only those buckets.
-        for spec in aggs:
-            if spec.agg in {"min", "max"} and spec.source_col in nan_helpers:
-                corrected = restore_all_nan_extrema(
-                    result.column(spec.feature_name), result.column(nan_helpers[spec.source_col])
-                )
-                result = result.set_column(
-                    result.schema.get_field_index(spec.feature_name), spec.feature_name, corrected
-                )
-
-        return result.drop_columns(list(nan_helpers.values()))
+        specs = [(spec.feature_name, spec.agg, spec.source_col) for spec in aggs]
+        return repair_all_nan_extrema(result, specs, nan_helpers)

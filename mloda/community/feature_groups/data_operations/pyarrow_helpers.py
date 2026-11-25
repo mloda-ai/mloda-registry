@@ -5,6 +5,8 @@ from __future__ import annotations
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+
 
 def fixed_offset_unsupported(arrow_type: pa.DataType) -> bool:
     """True when the installed Arrow (< 22) cannot handle this type's numeric fixed-offset timezone."""
@@ -55,6 +57,29 @@ def restore_all_nan_extrema(
     """Put NaN back where ``all_nan`` holds (PyArrow before 26 returns an infinity there)."""
     flag = pc.fill_null(all_nan, False)
     return pc.if_else(flag, pa.scalar(float("nan"), type=values.type), values)
+
+
+def append_all_nan_flags(
+    table: pa.Table, specs: list[tuple[str, str]], taken: set[str], base: str
+) -> tuple[pa.Table, dict[str, str]]:
+    """Append an ``is_nan`` flag per distinct float min/max source; return the table and ``{source: helper}``."""
+    helpers: dict[str, str] = {}
+    for agg, source in specs:
+        if source not in helpers and needs_all_nan_repair(agg, table.column(source).type):
+            helper = unique_helper_name(base, taken)
+            taken.add(helper)
+            helpers[source] = helper
+            table = table.append_column(helper, pc.is_nan(table.column(source)))
+    return table, helpers
+
+
+def repair_all_nan_extrema(result: pa.Table, specs: list[tuple[str, str, str]], helpers: dict[str, str]) -> pa.Table:
+    """Restore NaN in min/max features whose source has a flag, then drop the flag columns."""
+    for name, agg, source in specs:
+        if agg in {"min", "max"} and source in helpers:
+            corrected = restore_all_nan_extrema(result.column(name), result.column(helpers[source]))
+            result = result.set_column(result.schema.get_field_index(name), name, corrected)
+    return result.drop_columns(list(helpers.values()))
 
 
 def rename_aggregates_by_position(grouped: pa.Table, keys: list[str], names: list[str]) -> pa.Table:
