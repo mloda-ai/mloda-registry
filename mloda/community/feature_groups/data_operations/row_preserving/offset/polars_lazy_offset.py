@@ -9,12 +9,10 @@ from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+from mloda.community.feature_groups.data_operations.polars_helpers import NARROW_INTEGERS
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
-
-# Integer types that fit in Int64; diff and pct_change widen them first so the subtraction cannot wrap.
-_NARROW_INTEGER_TYPES = (pl.Int8, pl.Int16, pl.Int32, pl.UInt8, pl.UInt16, pl.UInt32)
 
 
 class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
@@ -42,7 +40,7 @@ class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
         schema = data.collect_schema()
         orig_idx_col = unique_helper_name("__mloda_orig_idx", set(schema.names()) | {feature_name})
         numeric_source = pl.col(source_col)
-        if schema[source_col] in _NARROW_INTEGER_TYPES:
+        if schema[source_col] in NARROW_INTEGERS:
             numeric_source = numeric_source.cast(pl.Int64)
 
         # Track original row order

@@ -12,6 +12,9 @@ from typing import Callable
 
 import polars as pl
 
+# Integer dtypes narrower than 64 bits.
+NARROW_INTEGERS = (pl.Int8, pl.Int16, pl.Int32, pl.UInt8, pl.UInt16, pl.UInt32)
+
 # Polars duration aliases for each unit. Polars' ``dt.truncate('1w')`` is
 # Monday-anchored, which matches the ISO week convention pinned by the FG.
 POLARS_UNIT_ALIASES: dict[str, str] = {
