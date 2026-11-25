@@ -94,7 +94,7 @@ Type semantics across backends:
 - `add`, `subtract`, `multiply`: each backend's native operator is used. Integer + integer stays integer; mixed int/float promotes to float on every backend. Only DuckDB raises on integer overflow; the other backends wrap or widen (see [Known divergences](known-divergences.md#integer-arithmetic-does-not-raise-on-overflow)).
 - `divide`: both operands are cast to float (`float64` on PyArrow, `DOUBLE` on DuckDB, `REAL` on SQLite). Per-row divide-by-zero is allowed, with the contract that PyArrow / Pandas / Polars lazy / DuckDB return IEEE-754 `inf` / `-inf` / `NaN` and propagate `null` from null operands. **SQLite returns `NULL` for any divide-by-zero**, because SQLite has no native IEEE-754 inf/nan storage; this is documented as a known divergence in [Known divergences](known-divergences.md). `SqlitePointArithmetic` declares it as a `Divergence` for `divide` in `divergences`, so with several frameworks enabled `divide` runs on a non-divergent framework first, and the test suite reads the expectation from that declaration.
 
-Both arithmetic groups: Pandas and SQLite hold NaN as null (`ComputeFramework.nan_is_null()`), so a NaN operand or result becomes null there. This is a framework declaration, not a variant, so no `allow_variants` is needed.
+Both arithmetic groups: Pandas and SQLite hold NaN as null (`ComputeFramework.nan_is_null()`), so a NaN operand or result becomes null there. No `allow_variants` is needed.
 
 Point arithmetic does **not** accept the `mask` option in this initial cut, for parity with scalar arithmetic.
 
