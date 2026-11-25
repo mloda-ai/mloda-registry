@@ -198,6 +198,14 @@ OFFSET_PINNING = PinningTable(
         ),
         PinningRow(
             case="dtype",
+            feature="v__diff_1_offset",
+            inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (DataType.INT32, (-2147483648, 2147483647))},
+            # 2147483647 - (-2147483648) = 4294967295 only fits after widening to int64
+            expected={"v__diff_1_offset": (_I, (None, 4294967295))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="dtype",
             feature="v__pct_change_1_offset",
             inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (_I, (2, 3))},
             expected={"v__pct_change_1_offset": (_D, (None, 0.5))},

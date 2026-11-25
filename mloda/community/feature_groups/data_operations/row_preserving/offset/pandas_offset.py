@@ -15,6 +15,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 )
 
 
+def _widen(series: pd.Series) -> pd.Series:
+    """Widen a narrow integer series to 64 bits (same dtype family) so subtraction cannot wrap."""
+    dtype = series.dtype
+    if not pd.api.types.is_integer_dtype(dtype) or dtype.itemsize >= 8:
+        return series
+    return series.astype("Int64" if isinstance(dtype, pd.api.extensions.ExtensionDtype) else "int64")
+
+
 class PandasOffset(Implementation[OffsetFeatureGroup]):
     feature_group = OffsetFeatureGroup
     compute_framework = PandasDataFrame
@@ -62,11 +70,11 @@ class PandasOffset(Implementation[OffsetFeatureGroup]):
             data[feature_name] = grouped.shift(-offset_n)
         elif offset_type.startswith("diff_"):
             offset_n = int(offset_type[len("diff_") :])
-            data[feature_name] = data[source_col] - grouped.shift(offset_n)
+            data[feature_name] = _widen(data[source_col]) - _widen(grouped.shift(offset_n))
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
-            prev = grouped.shift(offset_n)
-            data[feature_name] = (data[source_col] - prev) / prev.replace(0, float("nan"))
+            prev = _widen(grouped.shift(offset_n))
+            data[feature_name] = (_widen(data[source_col]) - prev) / prev.replace(0, float("nan"))
         elif offset_type == "first_value":
             data[feature_name] = grouped.transform(lambda x: x.dropna().iloc[0] if x.dropna().any() else None)
         elif offset_type == "last_value":
