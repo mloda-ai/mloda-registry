@@ -401,7 +401,7 @@ def test_assert_imports_with_base_deps_passes_a_clean_package(tmp_path: Path, mo
 def test_assert_imports_with_base_deps_reports_every_failing_module_with_its_traceback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each failing module is named with its traceback, a clean sibling is not, and the allowed set is listed."""
+    """Failing modules are reported with tracebacks, a clean sibling is not."""
     suffix = uuid.uuid4().hex
     package_name = f"ii_throwaway_{suffix}"
     blocked_dep = f"ii_blocked_{suffix}"
@@ -415,13 +415,17 @@ def test_assert_imports_with_base_deps_reports_every_failing_module_with_its_tra
     _write_module(root / "ns" / "bad_ns.py", f"import {blocked_dep}\n")
     _write_module(root / "raises.py", "raise RuntimeError('boom from the module')\n")
     _write_module(root / "clean.py", "MARKER = 'clean'\n")
+    _write_module(root / "per_extra" / "__init__.py", "raise RuntimeError('excluded')\n")
+    _write_module(root / "per_extra_other" / "__init__.py", "raise RuntimeError('not excluded')\n")
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.setitem(sys.modules, blocked_dep, importlib.import_module(blocked_dep))
 
     with pytest.raises(AssertionError) as excinfo:
-        assert_imports_with_base_deps(package_name, {allowed_dep})
+        assert_imports_with_base_deps(package_name, {allowed_dep}, exclude=[f"{package_name}.per_extra"])
 
     message = str(excinfo.value)
+    assert f"{package_name}.per_extra_other:" in message
+    assert f"{package_name}.per_extra:" not in message
     for failing in ("bad_plain", "bad_sub", "ns.bad_ns", "raises"):
         assert f"{package_name}.{failing}" in message
     assert "ModuleNotFoundError" in message
@@ -440,7 +444,7 @@ def test_assert_imports_with_base_deps_reports_every_failing_module_with_its_tra
 def test_assert_imports_with_base_deps_handles_a_failing_root_and_a_plain_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, is_package: bool, source: str, expected_failure: bool
 ) -> None:
-    """A failing root is reported under its own name; a plain module (no `__path__`) is imported alone."""
+    """A failing root is reported under its own name; a plain module is imported alone."""
     package_name = f"ii_throwaway_{uuid.uuid4().hex}"
     if is_package:
         _write_module(tmp_path / package_name / "__init__.py", source)
@@ -496,5 +500,5 @@ def test_assert_imports_with_base_deps_dotted_allowed_entry_admits_its_subpackag
 def test_assert_imports_with_base_deps_passes_a_real_registry_package_with_dotted_core_entries(
     package: str, exclude: tuple[str, ...]
 ) -> None:
-    """Dogfood: editable finders, namespace parents (placeholder `__path__` entries), `tests` skip, dotted entries."""
+    """Real registry packages pass with dotted core entries; a namespace `__path__` holds editable placeholders."""
     assert_imports_with_base_deps(package, {"mloda.core", "mloda.provider", "mloda.steward"}, exclude=exclude)
