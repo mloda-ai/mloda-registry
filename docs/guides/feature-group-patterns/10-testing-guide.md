@@ -668,14 +668,14 @@ def test_imports_load_only_their_groups(acme_plugin: None) -> None:
 
 The report lists abstract bases too, so include them in the expected groups.
 
-`assert_imports_with_base_deps(package, allowed)` checks a base install. A fresh interpreter allows only the stdlib, `allowed` and the package, imports every module, and reports each failure with its traceback. `tests` subpackages are skipped; pass `exclude` for modules that need an extra (see [Optional Backends](../04-create-plugin-package.md#optional-backends)). A dotted entry such as `mloda.core` admits only that subpackage and its parents, so a `mloda.*` namespace plugin can keep `mloda.testing` out.
+`assert_imports_with_base_deps(package, allowed)` checks a base install. A fresh interpreter allows only the stdlib, `allowed` (top-level import names, not distribution names, of the whole base dependency closure) and the package, imports every module, and reports each failure with its traceback. `tests` subpackages are skipped, and directories without `__init__.py` are walked as namespace packages, so `exclude` data or template directories that hold `.py` files; pass `exclude` for modules that need an extra (see [Optional Backends](../04-create-plugin-package.md#optional-backends)). A dotted entry such as `mloda.core` admits only that subpackage and its parents, so a `mloda.*` namespace plugin can keep `mloda.testing` out.
 
 ```python
 from mloda.testing.import_isolation import assert_imports_with_base_deps
 
 
 def test_base_install_imports(acme_plugin: None) -> None:
-    assert_imports_with_base_deps("acme", {"mloda"})
+    assert_imports_with_base_deps("acme", {"mloda", "mloda_plugins"})
 ```
 
 ## Testing by Pattern

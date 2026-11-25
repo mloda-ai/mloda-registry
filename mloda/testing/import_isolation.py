@@ -9,7 +9,7 @@ import json
 import pkgutil
 import subprocess  # nosec
 import sys
-from collections.abc import Iterable, Mapping, Sequence, Set
+from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from types import FrameType
 from typing import Any
@@ -224,7 +224,7 @@ import traceback
 package = sys.argv[1]
 allowed, exclude, caller_path = (json.loads(arg) for arg in sys.argv[2:5])
 sys.path[:] = caller_path
-entries = set(allowed) | {package} | set(sys.modules)
+entries = set(allowed) | {package}
 
 
 def covers(entry, name):
@@ -253,7 +253,10 @@ failures = {}
 
 
 def skipped(name):
-    return "tests" in name.split(".") or any(name == e or name.startswith(e + ".") for e in exclude)
+    below_root = name[len(package) + 1 :].split(".")
+    if name.split(".")[-1] == "__main__" or "tests" in below_root:
+        return True
+    return any(name == e or name.startswith(e + ".") for e in exclude)
 
 
 def visit(name):
@@ -261,7 +264,9 @@ def visit(name):
         return
     try:
         module = importlib.import_module(name)
-    except Exception:
+    except BaseException as error:
+        if isinstance(error, KeyboardInterrupt):
+            raise
         failures[name] = traceback.format_exc()
         return
     paths = getattr(module, "__path__", None)
@@ -286,7 +291,7 @@ print("\\n" + json.dumps(failures))
 
 
 def assert_imports_with_base_deps(
-    package: str, allowed: Set[str], *, exclude: Iterable[str] = (), timeout: float = 120
+    package: str, allowed: Set[str], *, exclude: Set[str] = frozenset(), timeout: float = 120
 ) -> None:
     """Import every module of ``package`` in a fresh interpreter that refuses non-stdlib names outside ``allowed``."""
     path = json.dumps([p for p in sys.path if isinstance(p, str)])

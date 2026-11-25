@@ -368,7 +368,7 @@ def _write_dep(base: Path, name: str) -> None:
 
 
 def test_assert_imports_with_base_deps_passes_a_clean_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Allowed deps, guarded blocked imports, `tests` subpackages and excluded prefixes do not fail."""
+    """Allowed deps, guarded blocked imports, `tests` subpackages and `__main__` do not fail."""
     suffix = uuid.uuid4().hex
     package_name = f"ii_throwaway_{suffix}"
     allowed_dep = f"ii_allowed_{suffix}"
@@ -392,10 +392,10 @@ def test_assert_imports_with_base_deps_passes_a_clean_package(tmp_path: Path, mo
     )
     _write_module(root / "tests" / "__init__.py", f"import {blocked_dep}\n")
     _write_module(root / "sub" / "tests" / "test_x.py", f"import {blocked_dep}\n")
-    _write_module(root / "per_extra" / "__init__.py", "raise RuntimeError('excluded')\n")
+    _write_module(root / "__main__.py", "raise SystemExit(2)\n")
     monkeypatch.syspath_prepend(str(tmp_path))
 
-    assert_imports_with_base_deps(package_name, {allowed_dep}, exclude=[f"{package_name}.per_extra"])
+    assert_imports_with_base_deps(package_name, {allowed_dep})
 
 
 def test_assert_imports_with_base_deps_reports_every_failing_module_with_its_traceback(
@@ -415,19 +415,21 @@ def test_assert_imports_with_base_deps_reports_every_failing_module_with_its_tra
     _write_module(root / "ns" / "bad_ns.py", f"import {blocked_dep}\n")
     _write_module(root / "raises.py", "raise RuntimeError('boom from the module')\n")
     _write_module(root / "clean.py", "MARKER = 'clean'\n")
+    _write_module(root / "exits.py", "import sys\nsys.exit(3)\n")
     _write_module(root / "per_extra" / "__init__.py", "raise RuntimeError('excluded')\n")
     _write_module(root / "per_extra_other" / "__init__.py", "raise RuntimeError('not excluded')\n")
     monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.setitem(sys.modules, blocked_dep, importlib.import_module(blocked_dep))
 
     with pytest.raises(AssertionError) as excinfo:
-        assert_imports_with_base_deps(package_name, {allowed_dep}, exclude=[f"{package_name}.per_extra"])
+        assert_imports_with_base_deps(package_name, {allowed_dep}, exclude={f"{package_name}.per_extra"})
 
     message = str(excinfo.value)
     assert f"{package_name}.per_extra_other:" in message
     assert f"{package_name}.per_extra:" not in message
     for failing in ("bad_plain", "bad_sub", "ns.bad_ns", "raises"):
         assert f"{package_name}.{failing}" in message
+    assert f"{package_name}.exits:" in message
+    assert "SystemExit" in message
     assert "ModuleNotFoundError" in message
     assert blocked_dep in message
     assert "boom from the module" in message
@@ -462,6 +464,52 @@ def test_assert_imports_with_base_deps_handles_a_failing_root_and_a_plain_module
         assert_imports_with_base_deps(package_name, set())
 
 
+def test_assert_imports_with_base_deps_reports_a_failing_module_when_package_itself_is_a_tests_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`tests` components are skipped only below the root, so a `tests` root is walked."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    _write_module(tmp_path / package_name / "__init__.py")
+    _write_module(tmp_path / package_name / "tests" / "__init__.py")
+    _write_module(tmp_path / package_name / "tests" / "bad.py", "raise RuntimeError('tests root boom')\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_imports_with_base_deps(f"{package_name}.tests", set())
+
+    assert f"{package_name}.tests.bad:" in str(excinfo.value)
+    assert "tests root boom" in str(excinfo.value)
+
+
+def test_assert_imports_with_base_deps_does_not_admit_submodules_of_a_namespace_stub_preloaded_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stub module installed by `sitecustomize` is preloaded, yet its submodules stay blocked."""
+    suffix = uuid.uuid4().hex
+    package_name = f"ii_throwaway_{suffix}"
+    stub_name = f"ii_stub_{suffix}"
+    real_dir = tmp_path / "real" / stub_name
+    _write_module(real_dir / "sub.py", "MARKER = 'sub'\n")
+    startup_dir = tmp_path / "startup"
+    _write_module(
+        startup_dir / "sitecustomize.py",
+        "import sys, types\n"
+        f"m = types.ModuleType({stub_name!r})\n"
+        f"m.__path__ = [{str(real_dir)!r}]\n"
+        f"sys.modules.setdefault({stub_name!r}, m)\n",
+    )
+    code = tmp_path / "code"
+    _write_module(code / package_name / "__init__.py")
+    _write_module(code / package_name / "uses_stub.py", f"import {stub_name}.sub\n")
+    monkeypatch.syspath_prepend(str(code))
+    monkeypatch.setenv("PYTHONPATH", str(startup_dir))
+
+    with pytest.raises(AssertionError) as excinfo:
+        assert_imports_with_base_deps(package_name, set())
+
+    assert f"{package_name}.uses_stub:" in str(excinfo.value)
+
+
 def test_assert_imports_with_base_deps_dotted_allowed_entry_admits_its_subpackage_but_not_a_sibling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -483,22 +531,21 @@ def test_assert_imports_with_base_deps_dotted_allowed_entry_admits_its_subpackag
     message = str(excinfo.value)
     assert f"{package_name}.uses_other" in message
     assert f"{package_name}.uses_sub:" not in message
-    assert f"{package_name}.uses_sub\n" not in message
 
 
 @pytest.mark.parametrize(
     ("package", "exclude"),
     [
-        ("mloda.community.extenders.shared", ()),
+        ("mloda.community.extenders.shared", frozenset()),
         (
             "mloda.community.extenders",
-            ("mloda.community.extenders.otel", "mloda.community.extenders.openlineage"),
+            {"mloda.community.extenders.otel", "mloda.community.extenders.openlineage"},
         ),
     ],
     ids=["regular-package", "namespace-parent"],
 )
 def test_assert_imports_with_base_deps_passes_a_real_registry_package_with_dotted_core_entries(
-    package: str, exclude: tuple[str, ...]
+    package: str, exclude: frozenset[str] | set[str]
 ) -> None:
     """Real registry packages pass with dotted core entries; a namespace `__path__` holds editable placeholders."""
     assert_imports_with_base_deps(package, {"mloda.core", "mloda.provider", "mloda.steward"}, exclude=exclude)
