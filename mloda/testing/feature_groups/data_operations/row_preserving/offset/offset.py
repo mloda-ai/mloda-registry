@@ -232,11 +232,18 @@ class OffsetTestBase(
     @classmethod
     def reserved_columns_helper_names(cls) -> set[str]:
         # The backends pick different row helpers via unique_helper_name:
-        # pandas uses "__mloda_null_sort", polars uses "__mloda_orig_idx".
+        # pandas uses "__mloda_null_sort" and "__mloda_shift_src", polars uses "__mloda_orig_idx".
         # The DuckDB/SQLite backends pick "__mloda_rn0__" via pick_helper_column_name;
         # pct_change makes them pick a second helper, "__mloda_rn1__".
         # A user column of any of these names must survive.
-        return {"__mloda_null_sort", "__mloda_orig_idx", "__mloda_rn", "__mloda_rn0__", "__mloda_rn1__"}
+        return {
+            "__mloda_null_sort",
+            "__mloda_shift_src",
+            "__mloda_orig_idx",
+            "__mloda_rn",
+            "__mloda_rn0__",
+            "__mloda_rn1__",
+        }
 
     @classmethod
     def reserved_columns_extra_feature_names(cls) -> tuple[str, ...]:

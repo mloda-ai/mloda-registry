@@ -442,5 +442,3 @@ class TestLostFixtureType:
     def test_column_matching_no_lost_input_keeps_the_declared_check(self) -> None:
         with pytest.raises(AssertionError, match=r"g.*STRING"):
             self._host("float64", (False, "float64"), result_g=False).test_mixin_pinned_row(_CASE_ID)
-
-    # nothing lost (declared check unchanged) is already covered by test_declared_type_is_checked_only_when_the_hook_is_on

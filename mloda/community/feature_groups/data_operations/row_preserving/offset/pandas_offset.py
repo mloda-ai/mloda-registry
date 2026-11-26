@@ -16,7 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 
 
 def _widen(series: pd.Series) -> pd.Series:
-    """Widen an integer series to Int64 (numpy int64, extension Int64) so subtraction cannot wrap; reject uint64 >= 2**63."""
+    """Widen integers to 64 bits so subtraction cannot wrap; reject uint64 values of 2**63 or more."""
     dtype = series.dtype
     if not pd.api.types.is_integer_dtype(dtype):
         return series

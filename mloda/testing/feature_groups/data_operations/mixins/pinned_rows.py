@@ -77,7 +77,7 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def checks_pinned_types(cls) -> bool:
-        """True when each expected column must keep its declared type where the framework has a native one (the fixture's type where an input of that type lost it)."""
+        """True when each expected column must keep its declared type where the framework has a native one."""
         return False
 
     @classmethod
