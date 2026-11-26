@@ -77,7 +77,7 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
 
     @classmethod
     def checks_pinned_types(cls) -> bool:
-        """True when each expected column must keep its declared type where the framework has a native one."""
+        """True when each expected column must keep its declared type where the framework has a native one (the fixture's type where an input of that type lost it)."""
         return False
 
     @classmethod
@@ -157,6 +157,14 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         arrow_types = {name: DataType.to_arrow_type(DataType.FLOAT) for name in float_inputs}
         return self.create_test_data(TypedTestData(row.inputs), arrow_types)
 
+    @staticmethod
+    def _lost_input_type(adapter: Any, row: PinningRow, created: Any, data_type: DataType) -> Any:
+        """Fixture exact type of an input of the same declared type the fixture lost, else None."""
+        for name, (input_type, _) in row.inputs.items():
+            if input_type == data_type and adapter.has_type(created, name, input_type) is False:
+                return adapter.exact_type(created, name)
+        return None
+
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
         """A row matches the backend result (pins win over expected_values); rejection_match takes precedence."""
         row = self.pinned_row_cases()[pinned_row_case]
@@ -172,7 +180,8 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         expected = self.expected_values(row)
         for column, values in self.pinned_divergences().get(pinned_row_case, {}).items():
             expected[column] = list(values)
-        result = calculate_with(self.implementation_class(), self._create_pinned_data(row), fs)
+        created = self._create_pinned_data(row)
+        result = calculate_with(self.implementation_class(), created, fs)
         for column, values in expected.items():
             self.assert_pinned_values(row, column, self.extract_column(result, column), values)
         adapter = getattr(self, "adapter", None)
@@ -183,6 +192,12 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             assert set(adapter.column_names(result)) == expected_columns
             if self.checks_pinned_types():
                 for column, (data_type, _) in row.expected.items():
+                    lost = self._lost_input_type(adapter, row, created, data_type)
+                    if lost is not None:
+                        assert adapter.exact_type(result, column) == lost, (
+                            f"{column}: expected the fixture type {lost}, got {adapter.exact_type(result, column)}"
+                        )
+                        continue
                     assert adapter.has_type(result, column, data_type) is not False, (
                         f"{column}: expected {data_type.name}, got {adapter.exact_type(result, column)}"
                     )

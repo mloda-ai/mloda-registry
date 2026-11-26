@@ -169,6 +169,8 @@ class _TypedAdapter(_FakeAdapter):
         self._has_type_result = has_type_result
 
     def has_type(self, result: Any, column: str, data_type: DataType) -> bool | None:
+        if not isinstance(result, dict):
+            return True  # the fixture keeps its declared types
         return self._has_type_result
 
     @staticmethod
@@ -390,3 +392,55 @@ class TestCollectionFilter:
         host = _make_host(_Computes, None, table=table, implementation=_FilterImpl)
         pins = {"0-c-drop": {"drop": [2]}, "1-c-keep": {"keep": [2]}}
         assert host.served_pins(pins) == {"1-c-keep": {"keep": [2]}}
+
+
+class _PerColumnAdapter(_FakeAdapter):
+    """Answers per (frame kind, column); the fixture is a TypedTestData, the result a dict."""
+
+    def __init__(self, fixture: Mapping[str, tuple[bool | None, str]], result: Mapping[str, tuple[bool | None, str]]):
+        self._fixture, self._result = fixture, result
+
+    def _lookup(self, frame: Any, column: str) -> tuple[bool | None, str]:
+        return (self._result if isinstance(frame, dict) else self._fixture)[column]
+
+    def has_type(self, frame: Any, column: str, data_type: DataType) -> bool | None:
+        return self._lookup(frame, column)[0]
+
+    def exact_type(self, frame: Any, column: str) -> str:
+        return self._lookup(frame, column)[1]
+
+
+def _lost_input_table() -> PinningTable:
+    row = PinningRow(
+        case="c",
+        feature="f",
+        inputs={"a": (DataType.INT64, (1, None)), "s": (DataType.STRING, ("x", "y"))},
+        expected={"f": (DataType.INT64, (1, None)), "g": (DataType.STRING, ("x", "y"))},
+    )
+    return PinningTable(operation="op", rules={}, rows=(row,))
+
+
+_LOST_RESULT = {"f": [1, None], "g": ["x", "y"], "a": [1, None], "s": ["x", "y"]}
+
+
+class TestLostFixtureType:
+    @staticmethod
+    def _host(fixture_a: str, result_f: tuple[bool | None, str], result_g: bool | None = True) -> Any:
+        adapter = _PerColumnAdapter(
+            fixture={"a": (False, fixture_a), "s": (True, "str")},
+            result={"f": result_f, "g": (result_g, "str"), "a": (True, "x"), "s": (True, "str")},
+        )
+        return _make_host(_returns(_LOST_RESULT), None, table=_lost_input_table(), adapter=adapter, checks_types=True)
+
+    def test_output_with_the_lost_input_fixture_type_passes(self) -> None:
+        self._host("float64", (False, "float64")).test_mixin_pinned_row(_CASE_ID)
+
+    def test_output_with_another_exact_type_fails(self) -> None:
+        with pytest.raises(AssertionError):
+            self._host("float64", (True, "int64")).test_mixin_pinned_row(_CASE_ID)
+
+    def test_column_matching_no_lost_input_keeps_the_declared_check(self) -> None:
+        with pytest.raises(AssertionError, match=r"g.*STRING"):
+            self._host("float64", (False, "float64"), result_g=False).test_mixin_pinned_row(_CASE_ID)
+
+    # nothing lost (declared check unchanged) is already covered by test_declared_type_is_checked_only_when_the_hook_is_on
