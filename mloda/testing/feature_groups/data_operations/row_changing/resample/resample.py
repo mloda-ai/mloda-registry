@@ -747,10 +747,10 @@ class ResampleTestBase(
         self._assert_map_equals(ts_map, {k: k[-1] for k in EXPECTED_1_HOUR_MEAN})
 
     def test_empty_feature_set_returns_input(self) -> None:
-        """A FeatureSet without features returns the input unchanged and never calls compute_resample."""
+        """A FeatureSet without features returns the input unchanged and runs no callback."""
 
         def fail(*args: Any, **kwargs: Any) -> Any:
-            raise AssertionError("compute_resample must not run for an empty FeatureSet")
+            raise AssertionError("no callback may run for an empty FeatureSet")
 
         result = self.feature_group_class().resample(
             self.test_data, FeatureSet(), compute_resample=fail, timestamp_type=fail
@@ -760,7 +760,9 @@ class ResampleTestBase(
     @pytest.mark.parametrize("source", ["ts", "ts_copy"])
     @pytest.mark.parametrize("agg", ["mean", "sum"])
     def test_mean_sum_over_timestamp_source_rejected(self, source: str, agg: str) -> None:
-        columns = {**_resample_columns(), "ts_copy": (DataType.TIMESTAMP_MICROS_TZ, _RESAMPLE_TIMESTAMPS)}
+        """Mean and sum over a timestamp source (tz-aware micros or naive millis) raise ValueError naming it."""
+        naive = [t.replace(tzinfo=None) for t in _RESAMPLE_TIMESTAMPS]
+        columns = {**_resample_columns(), "ts_copy": (DataType.TIMESTAMP_MILLIS, naive)}
         data = self.create_test_data(TypedTestData(columns))
         fs = self._resample_fs(f"{source}__resample_1_hour_{agg}", ["region"])
         with pytest.raises(ValueError, match="timestamp source column") as exc_info:

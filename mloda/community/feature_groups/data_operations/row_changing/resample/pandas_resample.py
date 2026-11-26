@@ -96,7 +96,8 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
 
             if spec.agg != "count" and not pd.api.types.is_datetime64_any_dtype(part[spec.feature_name]):
                 # NaN (all-null sum / mean) must surface as real None to match the
-                # reference (the harness asserts identity ``is None``).
+                # reference (the harness asserts identity ``is None``). Datetime results
+                # are skipped: they keep their dtype and NaT reads as null.
                 part[spec.feature_name] = (
                     part[spec.feature_name].astype(object).where(part[spec.feature_name].notna(), None)
                 )

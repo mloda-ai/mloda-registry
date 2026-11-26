@@ -189,18 +189,6 @@ class _TypedAdapter(_FakeAdapter):
         return "native_type_x"
 
 
-class _SelectiveTypedAdapter(_FakeAdapter):
-    """Reports a type mismatch for TIMESTAMP columns only."""
-
-    @staticmethod
-    def has_type(result: Any, column: str, data_type: DataType) -> bool | None:
-        return data_type is not DataType.TIMESTAMP_MICROS_TZ
-
-    @staticmethod
-    def exact_type(result: Any, column: str) -> str:
-        return "native_type_x"
-
-
 class _OtherError(Exception):
     pass
 
@@ -360,9 +348,9 @@ class TestOutputType:
             pytest.param(True, False, False, _TypedAdapter(None), None, id="types_on_unknown_passes"),
             pytest.param(True, False, False, _TypedAdapter(True), None, id="types_on_match_passes"),
             pytest.param(False, False, False, _TypedAdapter(False), None, id="types_off_mismatch_passes"),
-            pytest.param(False, True, True, _SelectiveTypedAdapter(), "t", id="timestamp_hook_on_mismatch_fails"),
-            pytest.param(False, True, False, _SelectiveTypedAdapter(), None, id="timestamp_hook_on_int64_only_passes"),
-            pytest.param(False, False, True, _SelectiveTypedAdapter(), None, id="timestamp_hook_off_by_default"),
+            pytest.param(False, True, True, _TypedAdapter(False), "t", id="timestamp_hook_on_mismatch_fails"),
+            pytest.param(False, True, False, _TypedAdapter(False), None, id="timestamp_hook_on_int64_only_passes"),
+            pytest.param(False, False, True, _TypedAdapter(False), None, id="timestamp_hook_off_by_default"),
         ],
     )
     def test_declared_type_is_checked_only_when_the_hook_is_on(
@@ -374,7 +362,9 @@ class TestOutputType:
         failing_column: str | None,
     ) -> None:
         table = _TS_TABLE if with_timestamp else None
-        result = {"f": [10], "t": [_TS], "a": [1]} if with_timestamp else {"f": [10, 20], "a": [1, 2]}
+        result: dict[str, list[Any]] = (
+            {"f": [10], "t": [_TS], "a": [1]} if with_timestamp else {"f": [10, 20], "a": [1, 2]}
+        )
         host = _make_host(
             _returns(result),
             None,
