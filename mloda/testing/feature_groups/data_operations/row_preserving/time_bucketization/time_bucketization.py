@@ -370,6 +370,11 @@ class TimeBucketizationTestBase(
 
     # -- Pinned rows ---------------------------------------------------------
 
+    @classmethod
+    def checks_pinned_types(cls) -> bool:
+        """Every pinned row keeps its declared type: the unit and tz-awareness; the zone is compared by value."""
+        return True
+
     def rejection_match(self, row: PinningRow) -> str | None:
         """Sub-hour rows skip where unholdable, then the declared non-UTC and numeric-offset rejections."""
         column = next(iter(row.inputs))

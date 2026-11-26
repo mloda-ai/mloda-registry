@@ -83,6 +83,7 @@ def _make_host(
     lazy_exc: type[Exception] | None = None,
     override_f: list[Any] | None = None,
     implementation: Any = None,
+    checks_types: bool = False,
 ) -> Any:
     pinned = table or PinningTable(operation="op", rules={}, rows=(_ROW,))
 
@@ -102,6 +103,10 @@ def _make_host(
         @classmethod
         def booleans_as_integers(cls) -> bool:
             return as_integers
+
+        @classmethod
+        def checks_pinned_types(cls) -> bool:
+            return checks_types
 
         def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, Any] | None = None) -> Any:
             if seen_types is not None:
@@ -157,6 +162,18 @@ class _FakeAdapter:
     @staticmethod
     def column_names(result: Any) -> list[str]:
         return list(result)
+
+
+class _TypedAdapter(_FakeAdapter):
+    def __init__(self, has_type_result: bool | None) -> None:
+        self._has_type_result = has_type_result
+
+    def has_type(self, result: Any, column: str, data_type: DataType) -> bool | None:
+        return self._has_type_result
+
+    @staticmethod
+    def exact_type(result: Any, column: str) -> str:
+        return "native_type_x"
 
 
 class _OtherError(Exception):
@@ -308,6 +325,27 @@ class TestColumnSet:
 
     def test_without_an_adapter_no_column_check_runs(self) -> None:
         _make_host(_returns({"f": [10, 20], "x": [0, 0]}), None).test_mixin_pinned_row(_CASE_ID)
+
+
+class TestOutputType:
+    @pytest.mark.parametrize(
+        ("checks_types", "has_type", "fails"),
+        [(True, False, True), (True, None, False), (True, True, False), (False, False, False)],
+    )
+    def test_declared_type_is_checked_only_when_the_hook_is_on(
+        self, checks_types: bool, has_type: bool | None, fails: bool
+    ) -> None:
+        host = _make_host(
+            _returns({"f": [10, 20], "a": [1, 2]}),
+            None,
+            adapter=_TypedAdapter(has_type),
+            checks_types=checks_types,
+        )
+        if fails:
+            with pytest.raises(AssertionError, match=r"f.*INT64.*native_type_x"):
+                host.test_mixin_pinned_row(_CASE_ID)
+        else:
+            host.test_mixin_pinned_row(_CASE_ID)
 
 
 class _FilterImpl(Implementation[Any]):
